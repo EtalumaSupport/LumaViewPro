@@ -11954,13 +11954,13 @@ place a JPG's channel, position and frame are stated.
 - <a id="SavedStill.file"></a>`file`: `Path` -- The file written.
 - <a id="SavedStill.objective_id"></a>`objective_id`: `str` -- The objective in the light path when it was taken.
 - <a id="SavedStill.output_format"></a>`output_format`: `OutputFormat` -- The format it was saved in; never the hyperstack, which a single capture has no meaning for.
-- <a id="SavedStill.plate_x_mm"></a>`plate_x_mm`: `float | None` -- Plate X where it was taken; None when the axis had no reference.
-- <a id="SavedStill.plate_y_mm"></a>`plate_y_mm`: `float | None` -- Plate Y, likewise.
 - <a id="SavedStill.record"></a>`record`: `FrameRecord` -- The instrument's account of the frame (`FrameRecord`); an overlay copy carries its frame's.
 - <a id="SavedStill.significant_bits"></a>`significant_bits`: `int` -- The depth of the array saved: the frame's as captured, or 8 for an overlay copy, the frame's 8-bit rendering. A scaled encoding stores the frame left-justified in its file.
-- <a id="SavedStill.stage_z_um"></a>`stage_z_um`: `float | None` -- Stage Z, likewise.
 - <a id="SavedStill.statistics"></a>`statistics`: `ImageStatistics` -- The values of the array saved, in its counts at `significant_bits`.
 - <a id="SavedStill.well_label"></a>`well_label`: `str | None` -- The well at that position; None off the plate's wells, on a plate with none, or at an unknown position.
+- <a id="SavedStill.x_mm"></a>`x_mm`: `float | None` -- The X on the plate where it was taken, in mm; None when the axis had no reference.
+- <a id="SavedStill.y_mm"></a>`y_mm`: `float | None` -- The Y on the plate, likewise.
+- <a id="SavedStill.z_um"></a>`z_um`: `float | None` -- The focus position, in um, likewise.
 
 <a id="ScanEnded"></a>
 ## `lumascope.ScanEnded`
@@ -12409,9 +12409,9 @@ One step of a protocol, a field per column of its steps table.
 **Fields**
 
 - <a id="StepRecord.acquire"></a>`acquire`: `AcquireMode` -- What the step captures.
-- <a id="StepRecord.auto_focus"></a>`auto_focus`: `bool` -- The step is autofocused before its capture.
 - <a id="StepRecord.auto_gain"></a>`auto_gain`: `bool` -- The camera's auto-gain is on for the step.
 - <a id="StepRecord.auto_named"></a>`auto_named`: `bool` -- The name is rendered from the step's fields.
+- <a id="StepRecord.autofocus"></a>`autofocus`: `bool` -- The step is autofocused before its capture.
 - <a id="StepRecord.channel"></a>`channel`: `str` -- The channel the step captures.
 - <a id="StepRecord.channel_group_id"></a>`channel_group_id`: `int | None` -- The steps captured together as one composite share it; None for a step recorded before groups were.
 - <a id="StepRecord.custom_step"></a>`custom_step`: `bool` -- The step was made at a position of the caller's, not at a well of the plate.
@@ -12422,12 +12422,12 @@ One step of a protocol, a field per column of its steps table.
 - <a id="StepRecord.illumination_ma"></a>`illumination_ma`: `float` -- The LED current, in mA.
 - <a id="StepRecord.label"></a>`label`: `str` -- The caller's label for the step; '' for none.
 - <a id="StepRecord.name"></a>`name`: `str` -- The step's name, rendered from its other fields.
-- <a id="StepRecord.objective"></a>`objective`: `str` -- The objective's catalogue key.
+- <a id="StepRecord.objective_id"></a>`objective_id`: `str` -- The objective's catalogue key.
 - <a id="StepRecord.tile"></a>`tile`: `str` -- The step's tile in its grid; '' for no tile.
 - <a id="StepRecord.tile_group_id"></a>`tile_group_id`: `int | None` -- The tile grid the step is one tile of; None for none.
 - <a id="StepRecord.turret_slot"></a>`turret_slot`: `int | None` -- The turret slot the step uses; None for none.
 - <a id="StepRecord.video_config"></a>`video_config`: `VideoConfig | None` -- What the step records as video; None where the step carries no video config.
-- <a id="StepRecord.well"></a>`well`: `str` -- The plate's label for the well; '' for a step made at a position of the caller's.
+- <a id="StepRecord.well_label"></a>`well_label`: `str | None` -- The plate's label for the well; None for a step made at a position of the caller's.
 - <a id="StepRecord.x_mm"></a>`x_mm`: `float | None` -- X in mm on the protocol's plate; None where the step has no position on X.
 - <a id="StepRecord.y_mm"></a>`y_mm`: `float | None` -- Y in mm on the protocol's plate; None as for X.
 - <a id="StepRecord.z_slice"></a>`z_slice`: `int | None` -- The step's slice in its z-stack; None for none.

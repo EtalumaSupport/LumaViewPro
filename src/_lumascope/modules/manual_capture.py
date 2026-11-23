@@ -54,13 +54,13 @@ _MEMBER = 'manual_capture.start_save_still'
     'file',
     'objective_id',
     'output_format',
-    'plate_x_mm',
-    'plate_y_mm',
     'record',
     'significant_bits',
-    'stage_z_um',
     'statistics',
     'well_label',
+    'x_mm',
+    'y_mm',
+    'z_um',
 )
 @dataclasses.dataclass(frozen=True)
 class SavedStill:
@@ -74,10 +74,10 @@ class SavedStill:
         file: The file written.
         channel: The channel it is named and set for.
         objective_id: The objective in the light path when it was taken.
-        plate_x_mm: Plate X where it was taken; None when the axis had no
-            reference.
-        plate_y_mm: Plate Y, likewise.
-        stage_z_um: Stage Z, likewise.
+        x_mm: The X on the plate where it was taken, in mm; None when the
+            axis had no reference.
+        y_mm: The Y on the plate, likewise.
+        z_um: The focus position, in um, likewise.
         well_label: The well at that position; None off the plate's wells,
             on a plate with none, or at an unknown position.
         significant_bits: The depth of the array saved: the frame's as
@@ -94,9 +94,9 @@ class SavedStill:
     file: pathlib.Path
     channel: str
     objective_id: str
-    plate_x_mm: float | None
-    plate_y_mm: float | None
-    stage_z_um: float | None
+    x_mm: float | None
+    y_mm: float | None
+    z_um: float | None
     well_label: str | None
     significant_bits: int
     output_format: OutputFormat
@@ -464,9 +464,9 @@ class ManualCaptureController:
                 file=path,
                 channel=channel,
                 objective_id=objective_id,
-                plate_x_mm=fact.plate_x_mm,
-                plate_y_mm=fact.plate_y_mm,
-                stage_z_um=fact.z_um,
+                x_mm=fact.plate_x_mm,
+                y_mm=fact.plate_y_mm,
+                z_um=fact.z_um,
                 well_label=well_label,
                 significant_bits=bits,
                 output_format=capture_config.output_format_live,

@@ -871,7 +871,7 @@ class VideoConfig:
     'x_mm',
     'y_mm',
     'z_um',
-    'auto_focus',
+    'autofocus',
     'channel',
     'false_color',
     'illumination_ma',
@@ -879,8 +879,8 @@ class VideoConfig:
     'auto_gain',
     'exposure_ms',
     'frames_summed',
-    'objective',
-    'well',
+    'objective_id',
+    'well_label',
     'tile',
     'z_slice',
     'custom_step',
@@ -904,7 +904,7 @@ class StepRecord:
             position on X.
         y_mm: Y in mm on the protocol's plate; None as for X.
         z_um: Z in um; None as for X.
-        auto_focus: The step is autofocused before its capture.
+        autofocus: The step is autofocused before its capture.
         channel: The channel the step captures.
         false_color: The channel's image is false-coloured.
         illumination_ma: The LED current, in mA.
@@ -912,9 +912,9 @@ class StepRecord:
         auto_gain: The camera's auto-gain is on for the step.
         exposure_ms: The camera exposure, in ms.
         frames_summed: How many frames the capture sums.
-        objective: The objective's catalogue key.
-        well: The plate's label for the well; '' for a step made at a
-            position of the caller's.
+        objective_id: The objective's catalogue key.
+        well_label: The plate's label for the well; None for a step made at
+            a position of the caller's.
         tile: The step's tile in its grid; '' for no tile.
         z_slice: The step's slice in its z-stack; None for none.
         custom_step: The step was made at a position of the caller's, not
@@ -939,7 +939,7 @@ class StepRecord:
     x_mm: float | None
     y_mm: float | None
     z_um: float | None
-    auto_focus: bool
+    autofocus: bool
     channel: str
     false_color: bool
     illumination_ma: float
@@ -947,8 +947,8 @@ class StepRecord:
     auto_gain: bool
     exposure_ms: float
     frames_summed: int
-    objective: str
-    well: str
+    objective_id: str
+    well_label: str | None
     tile: str
     z_slice: int | None
     custom_step: bool
@@ -970,7 +970,7 @@ _STEP_FIELDS = {
     'X': 'x_mm',
     'Y': 'y_mm',
     'Z': 'z_um',
-    'Auto_Focus': 'auto_focus',
+    'Auto_Focus': 'autofocus',
     'channel': 'channel',
     'False_Color': 'false_color',
     'Illumination': 'illumination_ma',
@@ -978,8 +978,8 @@ _STEP_FIELDS = {
     'Auto_Gain': 'auto_gain',
     'Exposure': 'exposure_ms',
     'Sum': 'frames_summed',
-    'Objective': 'objective',
-    'Well': 'well',
+    'Objective': 'objective_id',
+    'Well': 'well_label',
     'Tile': 'tile',
     'Z-Slice': 'z_slice',
     'Custom Step': 'custom_step',
@@ -1021,6 +1021,10 @@ def _step_record(row: Mapping) -> StepRecord:
     for column in _NONE_AT_MINUS_ONE:
         if row[column] == -1:
             fields[_STEP_FIELDS[column]] = None
+    # The table's '' for no well, which the readers that group on 'Well'
+    # keep; the record says no well as a still does, None.
+    if row['Well'] == '':
+        fields['well_label'] = None
     video = row['Video Config']
     fields['video_config'] = (
         None if video is None else VideoConfig(duration_s=video.get('duration'))

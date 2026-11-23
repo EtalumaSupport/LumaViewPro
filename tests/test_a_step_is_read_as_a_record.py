@@ -78,6 +78,23 @@ def test_a_step_with_no_position_on_an_axis_reads_none_there(session):
     assert (step.x_mm, step.y_mm, step.z_um) == (None, None, 6000.0)
 
 
+def test_a_step_at_no_well_reads_none_where_the_table_holds_an_empty_label(session):
+    """A step's well is spelt as a still's: its label, or None for none; the table keeps its ''."""
+    session.set_channel_settings('BF', acquire='image')
+    plate = session.new_protocol()
+    at_a_well = plate.step_row(step_index=0)['Well']
+    assert at_a_well != ''
+    protocol = session.create_empty_protocol()
+    session.add_step(
+        protocol, channels=('BF',), at=PlateLocation(x_mm=None, y_mm=None, z_um=6000.0)
+    )
+    assert protocol.step_row(step_index=0)['Well'] == ''
+
+    labels = (plate.step_records[0].well_label, protocol.step_records[0].well_label)
+
+    assert labels == (at_a_well, None)
+
+
 def test_the_table_crosses_the_wire_as_records_keyed_by_field(session):
     with TestClient(build_app(session)) as client:
         handle = client.post('/api/v1/create_empty_protocol').json()['handle']

@@ -582,9 +582,9 @@ class TestAStillReturnsItsRecord:
         assert still.channel == 'BF'
         assert still.objective_id == objective_id
         assert still.well_label == well
-        assert still.plate_x_mm == pytest.approx(x_mm, abs=0.01)
-        assert still.plate_y_mm == pytest.approx(y_mm, abs=0.01)
-        assert still.stage_z_um is not None
+        assert still.x_mm == pytest.approx(x_mm, abs=0.01)
+        assert still.y_mm == pytest.approx(y_mm, abs=0.01)
+        assert still.z_um is not None
         assert still.record.frames_summed == 1
         assert still.significant_bits == 8
         assert 0 <= still.statistics.minimum <= still.statistics.maximum <= 255
