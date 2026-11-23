@@ -234,6 +234,7 @@ def test_a_read_method_is_a_get_its_arguments_converted_from_the_query(client, s
 
     frame = client.get('/api/v1/scope/camera/frame_at_binning', params={'size': '2'})
     assert frame.status_code == 200, frame.text
+    assert frame.json() == session.scope.camera.frame_at_binning(2).to_dict()
     sources = client.get(
         '/api/v1/scope/imaging/changes_in_force',
         params=[('exclude_sources', 'gain'), ('exclude_sources', 'exposure')],

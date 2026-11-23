@@ -201,7 +201,7 @@ class TestBringUpStoresTheDeliveredFrame:
             } == camera.frame_size.to_dict()
             assert s.scope.camera.set_frame_size(960, 600) == FrameSize(960, 600)
             assert (frame['native_width'], frame['native_height']) == (960, 600)
-            assert s.scope.camera.frame_at_binning(2) == {'width': 480, 'height': 300}
+            assert s.scope.camera.frame_at_binning(2) == FrameSize(480, 300)
         finally:
             s.shutdown()
 

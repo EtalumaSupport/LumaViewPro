@@ -1712,9 +1712,7 @@ class Lumascope:
                     # a fraction of the region, so the frame asked for is the
                     # region's at the factor applied; the binning's notice tells
                     # the change of scale, and the frame's below only a refit.
-                    rescaled = binning.native_to_displayed(
-                        region, camera_binning, self.camera.pixel_alignment
-                    )
+                    rescaled = self.camera._target_frame(region, camera_binning)
                     asked = (rescaled['width'], rescaled['height'])
                     logger.info(
                         f'[SCOPE API ] initialize: the frame {frame_width}x{frame_height} saved '

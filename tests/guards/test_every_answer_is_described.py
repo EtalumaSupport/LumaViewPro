@@ -65,8 +65,9 @@ from tests.ast_seams import MemberNames
 # answer the PlateLocation the bookmark read does; 14 since a protocol's
 # channel settings are records; 13 since the whole-settings snapshot, a
 # dict, left the wire for setting; 12 since the settings template, a
-# dict, left the surface.
-UNTYPED_PIN = 11
+# dict, left the surface; 9 since the frame at a binning and the camera's
+# alignment answer a FrameSize.
+UNTYPED_PIN = 9
 
 _SERVER_MODELS = MemberNames(
     ('src/_lumascope/rest/routes.py', 'src/_lumascope/rest/app.py'),

@@ -445,7 +445,7 @@ def _valid_rows() -> list[Valid]:
             'frame_at_binning 2',
             'CameraAPI.frame_at_binning',
             lambda s: s.session.scope.camera.frame_at_binning(2),
-            lambda s, frame: None if frame['width'] > 0 and frame['height'] > 0 else f'{frame}',
+            lambda s, frame: None if frame.width > 0 and frame.height > 0 else f'{frame}',
             ('/api/v1/scope/camera/frame_at_binning', lambda s: {'size': 2}),
         ),
         Valid(

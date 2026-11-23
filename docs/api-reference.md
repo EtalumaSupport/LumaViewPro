@@ -4928,7 +4928,7 @@ Nothing.
 ### `CameraAPI.frame_at_binning`
 
 ```python
-def frame_at_binning(self, size: int) -> dict
+def frame_at_binning(self, size: int) -> FrameSize
 ```
 
 Marks: reads (changes nothing).  
@@ -4945,6 +4945,10 @@ saved frame after the apply is the truth.
 **Args**
 
 - `size`: The binning factor, one the camera offers.
+
+**Returns**
+
+FrameSize: The displayed frame, in pixels, at `size`.
 
 **Raises**
 
@@ -5086,7 +5090,7 @@ Nothing.
 ### `CameraAPI.pixel_alignment`
 
 ```python
-pixel_alignment: dict  # property
+pixel_alignment: FrameSize  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -5096,11 +5100,11 @@ Return the camera's deliverable frame-size granularity.
 
 Every camera delivers the size asked for exactly, by acquiring the next
 window up on its grid and cropping back, so the only constraint is even
-dimensions (H.264): `{2, 2}`, the camera profile's step.
+dimensions (H.264): 2 by 2, the camera profile's step.
 
 **Returns**
 
-dict: `{'width': int, 'height': int}`.
+FrameSize: The step each side of a delivered frame is a multiple of, in pixels.
 
 **Raises**
 
@@ -9916,7 +9920,7 @@ The frames a source's changes wait, and where the count came from.
 ## `lumascope.FrameSize`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Returned by: [`CameraAPI.frame_size`](#CameraAPI.frame_size), [`CameraAPI.read_frame_size`](#CameraAPI.read_frame_size), [`CameraAPI.set_binning`](#CameraAPI.set_binning), [`CameraAPI.set_frame_size`](#CameraAPI.set_frame_size).  
+Returned by: [`CameraAPI.frame_at_binning`](#CameraAPI.frame_at_binning), [`CameraAPI.frame_size`](#CameraAPI.frame_size), [`CameraAPI.pixel_alignment`](#CameraAPI.pixel_alignment), [`CameraAPI.read_frame_size`](#CameraAPI.read_frame_size), [`CameraAPI.set_binning`](#CameraAPI.set_binning), [`CameraAPI.set_frame_size`](#CameraAPI.set_frame_size).  
 Held in: [`CameraLimits.frame_max`](#CameraLimits.frame_max), [`CameraLimits.frame_min`](#CameraLimits.frame_min), [`ScopeModel.max_frame`](#ScopeModel.max_frame).
 
 A frame's size, in pixels.

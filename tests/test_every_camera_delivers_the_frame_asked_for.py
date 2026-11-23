@@ -18,6 +18,7 @@ import pytest
 
 from _lumascope.drivers.camera import ImageHandlerBase
 from _lumascope.drivers.simulated_camera import SimulatedCamera
+from _lumascope.modules.scope_capabilities import FrameSize
 from tests.camera_fakes import bare_pylon_camera, grab_a_frame_made_after_now
 
 
@@ -152,6 +153,6 @@ def test_the_frame_step_with_no_camera_is_even_sides():
     scope = build_scope(simulate=True)
     try:
         scope._camera_driver.active = False
-        assert scope.camera.pixel_alignment == {'width': 2, 'height': 2}
+        assert scope.camera.pixel_alignment == FrameSize(2, 2)
     finally:
         scope.disconnect()

@@ -322,7 +322,7 @@ class TestTheBinning:
 
         assert writes == [], 'a preview must not reach the camera'
         assert (session.settings['binning']['size'], _stored_frame(session)) == before
-        assert session.scope.camera.set_binning(2).to_dict() == preview
+        assert session.scope.camera.set_binning(2) == preview
 
 
 class TestTheImageMode:

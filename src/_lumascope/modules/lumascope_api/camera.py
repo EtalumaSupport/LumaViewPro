@@ -2927,7 +2927,7 @@ class CameraAPI:
         return factor, held
 
     @api(reads=True)
-    def frame_at_binning(self, size: int) -> dict:
+    def frame_at_binning(self, size: int) -> FrameSize:
         """The frame ``set_binning(size)`` will ask the camera for; nothing is applied.
 
         The same arithmetic the apply uses, answered from the saved region
@@ -2939,6 +2939,9 @@ class CameraAPI:
         Args:
             size: The binning factor, one the camera offers.
 
+        Returns:
+            FrameSize: The displayed frame, in pixels, at ``size``.
+
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected.
@@ -2947,7 +2950,8 @@ class CameraAPI:
                 it.
         """
         self._refuse_unusable_binning(size, 'frame_at_binning')
-        return self._target_frame(self._native_frame(), size)
+        frame = self._target_frame(self._native_frame(), size)
+        return FrameSize(width=frame['width'], height=frame['height'])
 
     def _refuse_unusable_binning(self, size: int, member: str) -> None:
         """Refuse a binning with no camera to take it, or one this camera does not offer.
@@ -2995,7 +2999,10 @@ class CameraAPI:
         to tell. A frame a person asks for is held to the limits first
         (``set_frame_size``).
         """
-        return binning.native_to_displayed(native, factor, self.pixel_alignment)
+        alignment = self.pixel_alignment
+        return binning.native_to_displayed(
+            native, factor, {'width': alignment.width, 'height': alignment.height}
+        )
 
     def _apply_frame_impl(self, native: dict, target: dict) -> FrameSize | None:
         """On the camera lane: apply the displayed ``target``, then save it and the
@@ -3840,22 +3847,24 @@ class CameraAPI:
 
     @api
     @property
-    def pixel_alignment(self) -> dict:
+    def pixel_alignment(self) -> FrameSize:
         """Return the camera's deliverable frame-size granularity.
 
         Every camera delivers the size asked for exactly, by acquiring the next
         window up on its grid and cropping back, so the only constraint is even
-        dimensions (H.264): ``{2, 2}``, the camera profile's step.
+        dimensions (H.264): 2 by 2, the camera profile's step.
 
         Returns:
-            dict: ``{'width': int, 'height': int}``.
+            FrameSize: The step each side of a delivered frame is a multiple
+            of, in pixels.
 
         Raises:
             Nothing.
         """
         if not self._driver or not self._driver.active:
-            return {'width': 2, 'height': 2}
-        return dict(self._driver.profile.alignment)
+            return FrameSize(width=2, height=2)
+        step = self._driver.profile.alignment
+        return FrameSize(width=int(step['width']), height=int(step['height']))
 
     # --- Held reads ---
     # Each answers what the camera last reported (a fresh read, the populate

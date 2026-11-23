@@ -23,6 +23,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from _lumascope.modules.scope_capabilities import FrameSize
+
 
 class TestCoalescingApplier:
     """Issue #624: rapid set_frame_size calls on Pylon must NOT queue
@@ -358,7 +360,7 @@ class TestSelectBinningHandler:
             previews.append(size)
             if preview_refusal is not None:
                 raise preview_refusal
-            return {'width': 960, 'height': 600}
+            return FrameSize(960, 600)
 
         # A stand-in by design: the subject is the handler's answer to what
         # the camera API says; its own refusal is pinned against the

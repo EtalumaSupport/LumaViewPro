@@ -469,11 +469,16 @@ class MicroscopeSettings(BoxLayout, SettingControls):
 
         size = binning.binning_size_str_to_int(label)
         camera = ctx.scope.camera
+
         # The boxes show the frame the new binning will give while the apply
         # runs, so an edit typed meanwhile is read against the binning the
         # spinner shows; the redraw then shows what the camera delivered.
+        def show_the_frame_at_the_new_binning() -> None:
+            frame = camera.frame_at_binning(size)
+            self._write_frame_text(frame.width, frame.height)
+
         run_reported(
-            lambda: self._write_frame_text(**camera.frame_at_binning(size)),
+            show_the_frame_at_the_new_binning,
             None,
             'BINNING',
         )

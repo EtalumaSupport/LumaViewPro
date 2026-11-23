@@ -23,6 +23,7 @@ import _lumascope.modules.binning as binning
 from _lumascope.drivers import host_clock
 from _lumascope.drivers.camera_profiles import lookup_profile
 from _lumascope.drivers.simulated_camera import SimulatedCamera
+from _lumascope.modules.scope_capabilities import FrameSize
 
 
 # Mimics the buggy pre-fix derivation: iterate on the displayed value, and
@@ -186,7 +187,9 @@ class TestDeliverableAlignmentFloor:
         try:
             camera = session.scope.camera
             monkeypatch.setattr(
-                type(camera), 'pixel_alignment', property(lambda self: IDS_DELIVERABLE_ALIGN)
+                type(camera),
+                'pixel_alignment',
+                property(lambda self: FrameSize(**IDS_DELIVERABLE_ALIGN)),
             )
             requests = []
             real = camera._set_frame_size_impl

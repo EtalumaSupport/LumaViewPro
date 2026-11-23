@@ -294,4 +294,4 @@ def test_a_binning_this_camera_offers_is_still_previewed(session):
 
     preview = session.scope.camera.frame_at_binning(size)
 
-    assert preview['width'] > 0 and preview['height'] > 0
+    assert preview.width > 0 and preview.height > 0
