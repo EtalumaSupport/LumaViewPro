@@ -286,6 +286,7 @@ class ProtocolStepRunner:
                 moved = p._protocol.apply_zstack_group_focus(
                     reference_step_idx=sweep_step_index, z=found_z
                 )
+                p._steps_focused += moved
                 logger.info(
                     f'[Capture   ] Z-stack group placed around Z={found_z} ({moved} slices)'
                 )
@@ -370,14 +371,15 @@ class ProtocolStepRunner:
         # A found focus is written into the run's own copy of the protocol,
         # whatever the run, so the step's next interval starts its sweep from
         # it, as a z-stack group's placement above does. The caller's
-        # protocol is not this copy: only a completed Autofocus All Steps
-        # scan writes into it, at the run's end.
+        # protocol is not this copy: only an Autofocus All Steps scan writes
+        # into it, at the run's end, the steps it focused however it ended.
         if wants_af:
             new_z_pos = p._autofocus_runner.best_focus_position()
             if new_z_pos is None:
                 logger.warning('[Capture   ] Autofocus returned no position -- keeping current Z')
             elif not in_zstack:
                 p._protocol.modify_step_z_height(step_index=p._curr_step, z=new_z_pos)
+                p._steps_focused += 1
 
         if wants_af:
             p._autofocus_count += 1

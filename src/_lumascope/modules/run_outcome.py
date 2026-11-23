@@ -525,7 +525,7 @@ class RunOutcome:
             channel it focused. None for a run asked to save no focus,
             which includes a standalone autofocus lent a diagnostic's claim.
             False when it was asked and saved none, and the protocol or the
-            channel's focus is unchanged: the scan did not complete, or the
+            channel's focus is unchanged: the scan focused no step, or the
             protocol's steps changed during it (reported once, as 'Focus
             Not Saved'); the standalone autofocus chose no Z, or its save
             was refused (reported once, as the refusal).

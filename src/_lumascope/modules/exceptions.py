@@ -3517,6 +3517,37 @@ class RunEndedByStopNotice(Notice, Exception):  # noqa: N818 -- a notice, not an
         super().__init__('STOP was pressed, so the run ended.')
 
 
+class FocusKeptNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """An Autofocus All Steps scan ended before it finished: how many steps keep the focus it found.
+
+    Told once, by the run's focus write, when the scan was stopped or
+    failed partway. Each step whose autofocus found a focus keeps it; a step
+    not reached, or whose autofocus found nothing, keeps its Z. A scan whose
+    write was refused because the protocol's steps changed is told that
+    refusal instead ('Focus Not Saved').
+
+    Attributes:
+        focused: The steps that keep a focus the scan found, a z-stack's
+            slices each counted.
+        steps: The protocol's steps.
+    """
+
+    title = 'Autofocus Scan Ended Early'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'focus_kept': None}
+
+    def __init__(self, *, focused: int, steps: int):
+        self.focused = focused
+        self.steps = steps
+        if focused:
+            words = (
+                f'{focused} of {steps} steps were focused and keep the new focus; '
+                'the others keep their Z.'
+            )
+        else:
+            words = 'No step was focused, and the protocol is unchanged.'
+        super().__init__(f'The autofocus scan ended before it finished. {words}')
+
+
 class RunIncompleteError(Fault, CaptureError):
     """A run reached its end without every capture it was asked for.
 

@@ -11510,12 +11510,13 @@ Route: `POST /api/v1/handles/ProtocolRunner/{handle_id}/start_autofocus_all_step
 Autofocus at every step of *protocol*, and write the focus into it.
 
 One scan that visits each step with autofocus on, whatever each
-step's own autofocus setting, and captures nothing. When the scan
-completes, each step's Z becomes the focus found for it, written
-before the run lets go of the scope, so it is in the protocol when
-run_ended is sent.
-A scan that does not complete writes nothing, because it focused
-only some of the steps.
+step's own autofocus setting, and captures nothing. Each step whose
+autofocus found a focus takes it as its Z, written before the run
+lets go of the scope, so it is in the protocol when run_ended is
+sent. A step not reached, or whose autofocus found nothing, keeps
+its Z. A scan stopped or failed partway keeps what it found and
+tells how many steps were focused, once ('Autofocus Scan Ended
+Early').
 
 The focus belongs to the steps it was found at, so a protocol whose
 steps changed during the scan -- a different number of them, or a
@@ -11941,7 +11942,7 @@ shape for every run kind.
 - <a id="RunOutcome.captures"></a>`captures`: `CaptureTally | None` -- What the run captured of what it was asked for. None only for a run settled before its cleanup counted -- a run torn down by a shutdown before it ended.
 - <a id="RunOutcome.cleanup_failures"></a>`cleanup_failures`: `tuple[str, ...] | None` -- The steps putting the scope back after the run that did not finish ('Restore LED states', 'Return to position', ...); empty when every one did, so the LEDs, camera settings and stage are as the run found them. None only for a run settled before its cleanup ran. A host's own display work at the run's end is its `run_ended` handler's, never a step here.
 - <a id="RunOutcome.focus_failures"></a>`focus_failures`: `tuple[FocusFailure, ...]` -- Each step whose autofocus did not focus, a flat curve included, once however many scans it did not focus in, in the order of the scan it first did not, then of the step: a capture protocol captured it at its fallback focus, an autofocus scan left its focus as it was. A scan run again that focuses the step clears that scan's failure. Empty when every autofocus focused, and for a run with none.
-- <a id="RunOutcome.focus_written"></a>`focus_written`: `bool | None` -- Whether the focus the run found was saved where it was asked to save it: an autofocus scan's into the protocol the caller named, a standalone autofocus's as the focus of the channel it focused. None for a run asked to save no focus, which includes a standalone autofocus lent a diagnostic's claim. False when it was asked and saved none, and the protocol or the channel's focus is unchanged: the scan did not complete, or the protocol's steps changed during it (reported once, as 'Focus Not Saved'); the standalone autofocus chose no Z, or its save was refused (reported once, as the refusal).
+- <a id="RunOutcome.focus_written"></a>`focus_written`: `bool | None` -- Whether the focus the run found was saved where it was asked to save it: an autofocus scan's into the protocol the caller named, a standalone autofocus's as the focus of the channel it focused. None for a run asked to save no focus, which includes a standalone autofocus lent a diagnostic's claim. False when it was asked and saved none, and the protocol or the channel's focus is unchanged: the scan focused no step, or the protocol's steps changed during it (reported once, as 'Focus Not Saved'); the standalone autofocus chose no Z, or its save was refused (reported once, as the refusal).
 - <a id="RunOutcome.merge_reason"></a>`merge_reason`: `str` -- Why the MERGE produced no file ('write_batch_timeout', 'write_batch_abandoned', 'write_batch_not_taken', 'write_batch_save_failed', 'write_batch_disk_full', 'write_batch_video_unfinished', 'no_run_dir', 'shutdown', ...). Empty on success and on every run that has no merge, so a caller can branch on merged and still log one field.
 - <a id="RunOutcome.merged"></a>`merged`: `bool` -- True only when an artifact was produced.
 - <a id="RunOutcome.message"></a>`message`: `str` -- The sentence a user reads.
@@ -15175,6 +15176,28 @@ and the remedy below are the one wording of both.
 | Reason | Cause | REST status |
 |---|---|---|
 | `file_writer_stalled` | -- | 500 |
+
+<a id="FocusKeptNotice"></a>
+### `lumascope.FocusKeptNotice`
+
+A notice; bases `Notice`, `Exception`.
+
+An Autofocus All Steps scan ended before it finished: how many steps keep the focus it found.
+
+Told once, by the run's focus write, when the scan was stopped or
+failed partway. Each step whose autofocus found a focus keeps it; a step
+not reached, or whose autofocus found nothing, keeps its Z. A scan whose
+write was refused because the protocol's steps changed is told that
+refusal instead ('Focus Not Saved').
+
+**Attributes**
+
+- `focused`: The steps that keep a focus the scan found, a z-stack's slices each counted.
+- `steps`: The protocol's steps.
+
+| Reason | Cause | REST status |
+|---|---|---|
+| `focus_kept` | -- | 409 |
 
 <a id="FocusNotSavedError"></a>
 ### `lumascope.FocusNotSavedError`

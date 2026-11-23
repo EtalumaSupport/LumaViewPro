@@ -392,12 +392,13 @@ class ProtocolRunner:
         """Autofocus at every step of *protocol*, and write the focus into it.
 
         One scan that visits each step with autofocus on, whatever each
-        step's own autofocus setting, and captures nothing. When the scan
-        completes, each step's Z becomes the focus found for it, written
-        before the run lets go of the scope, so it is in the protocol when
-        run_ended is sent.
-        A scan that does not complete writes nothing, because it focused
-        only some of the steps.
+        step's own autofocus setting, and captures nothing. Each step whose
+        autofocus found a focus takes it as its Z, written before the run
+        lets go of the scope, so it is in the protocol when run_ended is
+        sent. A step not reached, or whose autofocus found nothing, keeps
+        its Z. A scan stopped or failed partway keeps what it found and
+        tells how many steps were focused, once ('Autofocus Scan Ended
+        Early').
 
         The focus belongs to the steps it was found at, so a protocol whose
         steps changed during the scan -- a different number of them, or a

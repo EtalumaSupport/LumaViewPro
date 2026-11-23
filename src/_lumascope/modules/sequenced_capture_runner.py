@@ -71,6 +71,7 @@ from _lumascope.modules.exceptions import (
     RunCheckFailedError,
     RunFailedToStartError,
     RunImagesNotSavedError,
+    FocusKeptNotice,
     RunEndedByStopNotice,
     RunIncompleteError,
     _RunStartError,
@@ -599,6 +600,10 @@ class SequencedCaptureRunner:
             self._scan_count = 0
         self._scan_in_progress.clear()
         self._autofocus_count = 0
+        # The steps that took a focus the run found, written into the run's
+        # copy: the one count of them, since a found focus can equal the Z it
+        # replaced. Read by the focus write at the run's end.
+        self._steps_focused = 0
         # Tracks the curr_step value for which Auto_Gain was already
         # armed (camera.apply ... auto_gain=True fired in scan_iterate).
         # -1 means "no AG armed yet this scan."
@@ -2346,26 +2351,39 @@ class SequencedCaptureRunner:
             self._led_lease = None
 
     def _write_focus(self, ending: RunEnding, run: EngineRun) -> None:
-        """Write a completed autofocus scan's focus into the caller's protocol.
+        """Write an autofocus scan's focus into the caller's protocol, however the scan ended.
 
         Here, on the run's thread before run_ended is sent, because the
         run still holds the scope: the GUI's protocol edits stay disabled
         until the claim is released, so no edit lands between the scan and
-        the write. A scan that did not complete focused only some of its
-        steps, so it writes none. A write that fails is reported once and
-        does not raise: cleanup must still give the scope back.
+        the write. The whole Z column is written: a found focus is the only
+        Z the run writes into its copy, so a step not reached, or whose
+        autofocus found nothing, carries the caller's own Z back. A scan
+        that focused no step writes nothing. A scan stopped or failed
+        partway tells how many steps keep a focus (``FocusKeptNotice``),
+        once. A write that fails is reported once, in place of that notice,
+        and does not raise: cleanup must still give the scope back.
         """
         target = self._write_focus_to
-        if target is None or ending.status != RunStatus.COMPLETED:
+        if target is None:
             return
-        try:
-            target.adopt_focus_from(self._protocol)
-        except Exception as failed:
+        if self._steps_focused:
+            try:
+                target.adopt_focus_from(self._protocol)
+            except Exception as failed:
+                from _lumascope.modules.notification_center import notifications
+
+                notifications.report_outcome(failed, solicited=False, category='Protocol')
+                return
+            run._pending.record_focus_written(True)
+        if ending.status in (RunStatus.ABORTED, RunStatus.FAILED):
             from _lumascope.modules.notification_center import notifications
 
-            notifications.report_outcome(failed, solicited=False, category='Protocol')
-            return
-        run._pending.record_focus_written(True)
+            notifications.report_outcome(
+                FocusKeptNotice(focused=self._steps_focused, steps=self._protocol.num_steps),
+                solicited=False,
+                category='Protocol',
+            )
 
     def _account_for_captures(self, ending: RunEnding) -> RunEnding:
         """Record what the run captured, and say 'incomplete' when it fell short.

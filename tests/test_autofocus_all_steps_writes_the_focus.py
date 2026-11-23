@@ -15,6 +15,8 @@ thread, before run_ended is sent and before it lets go of the scope.
 A protocol whose steps no longer match the scanned copy -- a different
 number of steps, or a step at a different position, channel or objective
 -- is left unchanged, and the refusal is reported once in its own words.
+A scan stopped or failed partway keeps the focus of every step it focused,
+and tells how many once.
 
 Driven end to end on the simulated scope through the Session.
 """
@@ -24,7 +26,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from _lumascope.modules.exceptions import FocusNotWrittenError, Refusal
+from _lumascope.modules.exceptions import FocusKeptNotice, FocusNotWrittenError, Refusal
 from _lumascope.modules.run_outcome import PendingRunOutcome, RunEnding
 from _lumascope.modules.protocol_image_writer import RunWriteBatch
 from _lumascope.modules.run_events import RunEvents
@@ -156,77 +158,199 @@ class TestAProtocolThatChangedDuringTheScanIsLeftAlone:
         assert len(reported) == 1, reported
         assert isinstance(reported[0], Refusal)
 
-    def test_a_stopped_scan_writes_nothing(self, tmp_path):
-        import threading
 
-        protocol = _two_steps()
-        with _focusing_session(tmp_path) as (_session, runner):
-            # The event can fire before the start returns the handle, so
-            # the Stop waits for the handle the caller holds.
-            started = []
-            have_handle = threading.Event()
+def _three_steps():
+    return _protocol([_step(f'S{i + 1}', i, x=20.0 + 10.0 * i, gain=1.0) for i in range(3)])
 
-            def _stop_once_held():
-                assert have_handle.wait(WAIT_S), 'the start never returned its operation'
-                started[0].stop()
 
-            def _stop(step_index):
-                if step_index == 1:
-                    threading.Thread(target=_stop_once_held).start()
+def _a_step_and_a_stack_and_a_step():
+    """S1, a three-slice z-stack at one position (its reference slice at
+    STEP_Z_UM, 10 um apart), then S5."""
+    stack = []
+    for slice_index, offset in enumerate((-10.0, 0.0, 10.0)):
+        row = _step(f'Z{slice_index + 1}', 1 + slice_index, x=30.0, gain=1.0)
+        row.update(
+            {
+                'Z': STEP_Z_UM + offset,
+                'Z-Slice': slice_index,
+                'Z-Stack Group ID': 0,
+                'Z-Stack Offset': offset,
+                'Well': 'Z',
+            }
+        )
+        stack.append(row)
+    return _protocol([_step('S1', 0, x=20.0, gain=1.0), *stack, _step('S5', 4, x=40.0, gain=1.0)])
 
-            run = runner.start_autofocus_all_steps(protocol, events=RunEvents(step_started=_stop))
-            started.append(run)
-            have_handle.set()
-            outcome = run.result(timeout=WAIT_S)
+
+def _scan_stopped_at(runner, protocol, step_index, *, before_the_stop=None):
+    """Autofocus All Steps on *protocol*, Stop pressed as step *step_index*
+    (0-based) starts, after *before_the_stop* runs there; returns the outcome."""
+    import threading
+
+    # The event can fire before the start returns the handle, so the Stop
+    # waits for the handle the caller holds.
+    started = []
+    have_handle = threading.Event()
+
+    def _stop_once_held():
+        assert have_handle.wait(WAIT_S), 'the start never returned its operation'
+        started[0].stop()
+
+    def _stop(index):
+        if index == step_index:
+            if before_the_stop is not None:
+                before_the_stop()
+            threading.Thread(target=_stop_once_held).start()
+
+    run = runner.start_autofocus_all_steps(protocol, events=RunEvents(step_started=_stop))
+    started.append(run)
+    have_handle.set()
+    return run.result(timeout=WAIT_S)
+
+
+class TestAStoppedScanKeepsWhatItFound:
+    """Autofocus All Steps stopped partway: each step whose autofocus found a
+    focus keeps it, a step not reached keeps its Z, and the person is told
+    once how many steps were focused."""
+
+    @pytest.mark.slow
+    def test_the_steps_focused_before_the_stop_keep_their_focus(self, tmp_path):
+        protocol = _three_steps()
+        with (
+            _reports_of(FocusKeptNotice) as told,
+            _focusing_session(tmp_path) as (_session, runner),
+        ):
+            outcome = _scan_stopped_at(runner, protocol, 1)
+
+        assert outcome.status == 'aborted', outcome
+        assert outcome.focus_written is True, outcome
+        first, *rest = protocol.steps()['Z'].tolist()
+        assert first != STEP_Z_UM and SWEEP_LOW_UM <= first <= SWEEP_HIGH_UM, first
+        assert rest == [STEP_Z_UM, STEP_Z_UM]
+        assert [(notice.focused, notice.steps) for notice in told] == [(1, 3)]
+        assert '1 of 3 steps' in str(told[0])
+
+    @pytest.mark.slow
+    def test_a_stop_during_the_first_autofocus_writes_nothing_and_says_so(self, tmp_path):
+        protocol = _three_steps()
+        with (
+            _reports_of(FocusKeptNotice) as told,
+            _focusing_session(tmp_path) as (_session, runner),
+        ):
+            outcome = _scan_stopped_at(runner, protocol, 0)
 
         assert outcome.status == 'aborted', outcome
         assert outcome.focus_written is False, outcome
-        assert protocol.steps()['Z'].tolist() == [STEP_Z_UM, STEP_Z_UM]
+        assert protocol.steps()['Z'].tolist() == [STEP_Z_UM] * 3
+        assert [(notice.focused, notice.steps) for notice in told] == [(0, 3)]
+        assert 'No step was focused' in str(told[0])
+
+    @pytest.mark.slow
+    def test_a_placed_stack_keeps_every_slice_and_counts_them_all(self, tmp_path):
+        protocol = _a_step_and_a_stack_and_a_step()
+        with (
+            _reports_of(FocusKeptNotice) as told,
+            _focusing_session(tmp_path) as (_session, runner),
+        ):
+            # Stopped as S5 starts: S1 and the stack were focused.
+            outcome = _scan_stopped_at(runner, protocol, 4)
+
+        assert outcome.status == 'aborted', outcome
+        z = protocol.steps()['Z'].tolist()
+        assert z[0] != STEP_Z_UM, z
+        assert z[2] != STEP_Z_UM and SWEEP_LOW_UM <= z[2] <= SWEEP_HIGH_UM, z
+        assert (z[1], z[3]) == pytest.approx((z[2] - 10.0, z[2] + 10.0)), z
+        assert z[4] == STEP_Z_UM, z
+        assert [(notice.focused, notice.steps) for notice in told] == [(4, 5)]
+
+    @pytest.mark.slow
+    def test_a_step_changed_under_a_stopped_scan_refuses_once_and_tells_nothing_else(
+        self, tmp_path
+    ):
+        protocol = _three_steps()
+
+        def _move_step_3():
+            # Behind the writers: the protocol has no one-cell position writer.
+            protocol._config['steps'].at[2, 'X'] = 80.0
+
+        with (
+            _reports_of(FocusNotWrittenError) as refused,
+            _reports_of(FocusKeptNotice) as told,
+            _focusing_session(tmp_path) as (_session, runner),
+        ):
+            outcome = _scan_stopped_at(runner, protocol, 1, before_the_stop=_move_step_3)
+
+        assert outcome.status == 'aborted', outcome
+        assert outcome.focus_written is False, outcome
+        assert protocol.steps()['Z'].tolist() == [STEP_Z_UM] * 3
+        assert len(refused) == 1, refused
+        assert told == []
 
 
-class TestOnlyACompletedScanWritesItsFocus:
-    """A scan that did not complete focused some of its steps and left the
-    rest at their pre-scan Z, so writing its column would overwrite the
-    caller's protocol with steps that never ran."""
+class TestTheScanWritesWhatItFoundHoweverItEnded:
+    """The run's copy holds a found focus at each step that has one and the
+    caller's Z everywhere else, so its column is written whenever a step was
+    focused, whatever ended the run; a stopped or failed scan tells what it
+    kept, and a scan that focused no step writes nothing."""
 
     @staticmethod
-    def _engine_after_a_scan(protocol):
+    def _engine_after_a_scan(protocol, *, focused):
         from tests.protocol_drives import bare_capture_runner
 
         engine = bare_capture_runner()
         scanned = protocol.copy_for_execution()
-        for idx, z in enumerate([5111.0, 5222.0]):
+        for idx, z in enumerate([5111.0, 5222.0][:focused]):
             scanned.modify_step_z_height(idx, z)
         engine._protocol = scanned
         engine._write_focus_to = protocol
+        # As the step runner counts each focus it writes into the copy.
+        engine._steps_focused = focused
         return engine
 
-    def test_a_completed_scan_writes_it(self):
-        protocol = _two_steps()
-        pending = PendingRunOutcome()
-        engine = self._engine_after_a_scan(protocol)
-
-        engine._write_focus(
-            RunEnding('completed', 'completed', 'm'),
-            EngineRun(engine, pending, RunWriteBatch(MagicMock())),
-        )
-
-        assert protocol.steps()['Z'].tolist() == [5111.0, 5222.0]
-        pending.resolve_if_pending(RunEnding('completed', 'completed', 'm'))
-        assert pending.wait(timeout_s=1.0).focus_written is True
-
-    @pytest.mark.parametrize('status', ['aborted', 'failed', 'failed_at_start'])
-    def test_an_unfinished_scan_writes_nothing(self, status):
-        protocol = _two_steps()
+    @staticmethod
+    def _write(engine, status):
         pending = PendingRunOutcome()
         pending.record_focus_written(False)  # as start() records it
-        engine = self._engine_after_a_scan(protocol)
-
-        engine._write_focus(RunEnding(status, 'stopped', 'm'), pending)
-
-        assert protocol.steps()['Z'].tolist() == [STEP_Z_UM, STEP_Z_UM]
+        engine._write_focus(
+            RunEnding(status, 'stopped', 'm'),
+            EngineRun(engine, pending, RunWriteBatch(MagicMock())),
+        )
         pending.resolve_if_pending(RunEnding(status, 'stopped', 'm'))
-        assert pending.wait(timeout_s=1.0).focus_written is False
+        return pending.wait(timeout_s=1.0)
+
+    def test_every_ending_writes_the_steps_it_focused_and_a_partway_one_tells_it(self):
+        told_by_status = {}
+        for status in ('completed', 'incomplete', 'aborted', 'failed'):
+            protocol = _two_steps()
+            engine = self._engine_after_a_scan(protocol, focused=1)
+            with _reports_of(FocusKeptNotice) as told:
+                outcome = self._write(engine, status)
+            assert protocol.steps()['Z'].tolist() == [5111.0, STEP_Z_UM], status
+            assert outcome.focus_written is True, status
+            told_by_status[status] = [(notice.focused, notice.steps) for notice in told]
+
+        assert told_by_status == {
+            'completed': [],
+            'incomplete': [],
+            'aborted': [(1, 2)],
+            'failed': [(1, 2)],
+        }
+
+    def test_a_scan_that_focused_no_step_writes_nothing(self):
+        told_by_status = {}
+        for status in ('aborted', 'failed', 'failed_at_start'):
+            protocol = _two_steps()
+            # The copy's Z moved, but by no found focus: nothing is written.
+            engine = self._engine_after_a_scan(protocol, focused=0)
+            engine._protocol.modify_step_z_height(0, 5333.0)
+            with _reports_of(FocusKeptNotice) as told:
+                outcome = self._write(engine, status)
+            assert protocol.steps()['Z'].tolist() == [STEP_Z_UM, STEP_Z_UM], status
+            assert outcome.focus_written is False, status
+            told_by_status[status] = [(notice.focused, notice.steps) for notice in told]
+
+        # A run that failed at start is told by its start failure.
+        assert told_by_status == {'aborted': [(0, 2)], 'failed': [(0, 2)], 'failed_at_start': []}
 
 
 class TestARunThatWritesNoFocusSaysNone:

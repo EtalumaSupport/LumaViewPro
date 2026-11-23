@@ -196,9 +196,11 @@ own, named with `Z` and its number, counting from the lowest.
 
 [Autofocus All Steps]{.guilabel} runs autofocus at every step and saves
 the focus it finds as that step's focus. No images are saved. While it's
-running, the button reads "Running Autofocus Scan"; click it to stop. A
-finished scan can't be undone, so save the protocol first if you want to
-keep the old focus.
+running, the button reads "Running Autofocus Scan"; click it to stop. If
+you stop the scan, or it fails partway, every step it already focused
+keeps the new focus, the others keep theirs, and LumaViewPro tells you how
+many steps were focused. A scan can't be undone, so save the protocol
+first if you want to keep the old focus.
 
 ## Saving and opening a protocol {#sec-protocol-save}
 
