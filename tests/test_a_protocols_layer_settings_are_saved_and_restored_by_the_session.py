@@ -20,7 +20,7 @@ import pytest
 
 from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.exceptions import ArgumentRefusedError, ProtocolNotSavedError
-from _lumascope.modules.channel_record import release_catalogue
+from _lumascope.modules.channel_record import release_catalog
 from _lumascope.modules.protocol import ChannelSettings, ProtocolFormatError, StoredNames
 from tests.protocol_fixtures import protocol_from_file
 from tests.scope_fakes import home_sim_scope
@@ -76,7 +76,7 @@ def _layer_fields(session, layer):
 
 
 def _only_bf_acquiring(session):
-    for layer in release_catalogue():
+    for layer in release_catalog():
         if layer in session.settings:
             _set_layer(session, layer, acquire=None)
     _set_layer(

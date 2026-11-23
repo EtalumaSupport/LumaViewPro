@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 
 from _lumascope.modules import settings_init
 from _lumascope.modules.exceptions import (
-    CatalogueNameRefusedError,
+    CatalogNameRefusedError,
     ConfigError,
     PositionOutOfRangeError,
 )
@@ -495,9 +495,9 @@ class TestT10TurretWriters:
     def test_a_bad_id_raises_and_leaves_the_slot(self, sessions):
         session = sessions(**_turret_settings())
         before = dict(session.settings['turret_objectives'])
-        with pytest.raises(CatalogueNameRefusedError) as refused:
+        with pytest.raises(CatalogNameRefusedError) as refused:
             session.assign_turret_objective(2, 'banana')
-        assert refused.value.reason == 'objective_not_in_catalogue'
+        assert refused.value.reason == 'objective_not_in_catalog'
         assert dict(session.settings['turret_objectives']) == before
 
     @pytest.mark.parametrize(

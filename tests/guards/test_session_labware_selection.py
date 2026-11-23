@@ -19,7 +19,7 @@ import logging
 import pytest
 
 from _lumascope.modules import labware_loader
-from _lumascope.modules.exceptions import ArgumentTypeRefusedError, CatalogueNameRefusedError
+from _lumascope.modules.exceptions import ArgumentTypeRefusedError, CatalogNameRefusedError
 from _lumascope.modules.scope_session import ScopeSession
 from tests.ast_seams import Words, writers_of_settings_keys
 from tests.settings_fixtures import complete_settings
@@ -113,7 +113,7 @@ class TestRefusals:
         session = sessions()
         before = _runtime_plate(session)
 
-        with pytest.raises(CatalogueNameRefusedError, match='labware catalogue'):
+        with pytest.raises(CatalogNameRefusedError, match='labware catalogue'):
             session.select_labware('Acme 1536 Ultra Plate')
 
         assert session.settings['protocol']['labware'] == STARTING_PLATE

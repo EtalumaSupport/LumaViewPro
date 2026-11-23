@@ -155,12 +155,12 @@ class TestTheHostBoundsTheFailure:
         return next(
             h
             for h in ast.walk(build)
-            if isinstance(h, ast.ExceptHandler) and 'CatalogueNameRefusedError' in self._caught(h)
+            if isinstance(h, ast.ExceptHandler) and 'CatalogNameRefusedError' in self._caught(h)
         )
 
     def test_build_falls_back_only_on_what_the_template_repairs(self):
         assert self._caught(self._config_error_handler()) == {
-            'CatalogueNameRefusedError',
+            'CatalogNameRefusedError',
             'ObjectiveUnknownError',
         }, (
             'the bring-up bounds the session compose on the stored values bring-up refuses, '

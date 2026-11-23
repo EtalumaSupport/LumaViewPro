@@ -293,12 +293,12 @@ class TestTheAnswerReachesTheSession:
         assert h.stand.shown == [True]
 
     def test_a_raise_inside_the_answer_is_one_notification(self, monkeypatch, centre_posts):
-        from _lumascope.modules.exceptions import CatalogueNameRefusedError
+        from _lumascope.modules.exceptions import CatalogNameRefusedError
         from _lumascope.modules.notification_center import Severity
 
         # The refusal the Session's owner raises for a name the catalogue lacks.
-        refused = CatalogueNameRefusedError(
-            'objective_not_in_catalogue', argument='objective_id', value='x', offered=('20x Oly',)
+        refused = CatalogNameRefusedError(
+            'objective_not_in_catalog', argument='objective_id', value='x', offered=('20x Oly',)
         )
         session = _ScriptedSession(self._question(), changed=refused)
         h = _Harness(monkeypatch, session)

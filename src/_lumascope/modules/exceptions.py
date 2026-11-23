@@ -1525,7 +1525,7 @@ class ServerRefusedError(Refusal, Exception):
             the server is closing: it finishes what is under way, answers
             nothing new, and exits. ``'no_frame_yet'`` -- the live view has
             no frame to show, because the camera sent none in time; asking
-            again later may succeed. ``'not_cancellable'`` -- the job is a
+            again later may succeed. ``'not_cancelable'`` -- the job is a
             call held as a job when it outlived its wait, and holds no
             operation to stop. ``'idempotency_key_reused'`` -- the
             ``Idempotency-Key`` was sent before with a different request; a
@@ -1558,7 +1558,7 @@ class ServerRefusedError(Refusal, Exception):
         'overloaded': RefusalCause.STATE,
         'server_closing': RefusalCause.RESTART,
         'no_frame_yet': RefusalCause.STATE,
-        'not_cancellable': RefusalCause.STATE,
+        'not_cancelable': RefusalCause.STATE,
         'idempotency_key_reused': RefusalCause.REQUEST,
         'client_not_allowed': RefusalCause.REQUEST,
         'wrong_host': RefusalCause.REQUEST,
@@ -1576,7 +1576,7 @@ class ServerRefusedError(Refusal, Exception):
         'overloaded': 'Overloaded',
         'server_closing': 'Server Closing',
         'no_frame_yet': 'No Frame Yet',
-        'not_cancellable': 'Not Cancellable',
+        'not_cancelable': 'Not Cancellable',
         'idempotency_key_reused': 'Idempotency Key Reused',
         'client_not_allowed': 'Client Not Allowed',
         'wrong_host': 'Wrong Host',
@@ -1782,7 +1782,7 @@ class ObjectiveUnknownError(Refusal, ConfigError):
             scope. A turret home or move is not one of them, since the
             motion gate refuses both while any axis has no known position.
             ``'slot_unassigned'`` -- the slot in the light path has no
-            objective assigned. ``'not_in_catalogue'`` -- the slot in the
+            objective assigned. ``'not_in_catalog'`` -- the slot in the
             light path is assigned an objective that is not in the objective
             catalogue. ``'none_selected'`` -- no objective has been
             confirmed, as on a scope with no turret before a person says
@@ -1800,7 +1800,7 @@ class ObjectiveUnknownError(Refusal, ConfigError):
         'slot_unassigned': (
             'turret slot {slot} has no objective assigned -- assign the objective installed there'
         ),
-        'not_in_catalogue': (
+        'not_in_catalog': (
             'turret slot {slot} is assigned an objective that is not in the catalogue'
             ' -- assign the objective installed there'
         ),
@@ -1863,7 +1863,7 @@ def _offered_words(offered: Iterable[object]) -> str:
 
 
 @api_fields('argument', 'offered')
-class CatalogueNameRefusedError(Refusal, ConfigError):
+class CatalogNameRefusedError(Refusal, ConfigError):
     """A labware, objective or scope model name the installation's catalogue does not hold.
 
     Raised by the catalogue's lookup -- ``Lumascope.plate`` for a plate,
@@ -1880,7 +1880,7 @@ class CatalogueNameRefusedError(Refusal, ConfigError):
 
     Attributes:
         reason: ``'labware_unknown'`` -- the labware name is no plate in the
-            labware catalogue. ``'objective_not_in_catalogue'`` -- the
+            labware catalogue. ``'objective_not_in_catalog'`` -- the
             objective name is no key of the objective catalogue.
             ``'model_unknown'`` -- the model is none the scope catalogue
             lists: with no board naming its own, the model is a scope's
@@ -1907,7 +1907,7 @@ class CatalogueNameRefusedError(Refusal, ConfigError):
             '{argument} must be a plate in the labware catalogue, one of {offered}; '
             '{value!r} is not one.',
         ),
-        'objective_not_in_catalogue': (
+        'objective_not_in_catalog': (
             'Objective Not Known',
             '{argument} must be a key of the objective catalogue, one of {offered}; '
             '{value!r} is not one.',
@@ -2439,7 +2439,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'tiling_scale_unknown': RefusalCause.REQUEST,
         'zstack_not_configured': RefusalCause.REQUEST,
         'already_tiled': RefusalCause.REQUEST,
-        'objective_not_in_catalogue': RefusalCause.REQUEST,
+        'objective_not_in_catalog': RefusalCause.REQUEST,
         'tiles_outside_travel': RefusalCause.REQUEST,
         'zslices_outside_travel': RefusalCause.REQUEST,
         'positions_outside_travel': RefusalCause.REQUEST,
@@ -2456,7 +2456,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
     }
     same_fact_as = (
         LiveFolderPathRefusedError,
-        CatalogueNameRefusedError,
+        CatalogNameRefusedError,
     )
 
     # Keyed as ``causes`` is. The three step refusals share one heading: the
@@ -2494,9 +2494,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'tiling_scale_unknown': 'Tiling Not Available',
         'zstack_not_configured': 'Z-Stack Not Configured',
         'already_tiled': 'Protocol Already Tiled',
-        'objective_not_in_catalogue': CatalogueNameRefusedError._WORDS[
-            'objective_not_in_catalogue'
-        ][0],
+        'objective_not_in_catalog': CatalogNameRefusedError._WORDS['objective_not_in_catalog'][0],
         'tiles_outside_travel': 'Tiles Outside Stage Travel',
         'zslices_outside_travel': 'Z-Stack Outside Z Travel',
         'positions_outside_travel': 'Positions Outside Stage Travel',

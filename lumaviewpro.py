@@ -530,7 +530,7 @@ from _lumascope.modules.app_config import (
     load_mode as _load_mode,
 )
 from _lumascope.modules.exceptions import (
-    CatalogueNameRefusedError,
+    CatalogNameRefusedError,
     ObjectiveUnknownError,
 )
 from _lumascope.modules.host_resources import DrawingGpu
@@ -1073,7 +1073,7 @@ class LumaViewProApp(TooltipMixin, App):
         try:
             return _compose(settings)
         except (
-            CatalogueNameRefusedError,
+            CatalogNameRefusedError,
             ObjectiveUnknownError,
         ) as unusable:
             # The template, with the session marked provisional, so every

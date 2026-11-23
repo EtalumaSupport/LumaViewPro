@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import _lumascope.modules.app_context as _app_ctx
-from _lumascope.modules.channel_record import release_catalogue
+from _lumascope.modules.channel_record import release_catalog
 from _lumascope.modules.scope_session import ShownChannel
 from tests.stock_channels import LED0, LED1, LED2
 
@@ -30,12 +30,10 @@ def _reconcile(monkeypatch, *, shown, capped):
     # test_a_capped_layer_setting_is_told_once_at_bring_up.
     context = MagicMock()
     context.session.shown_channel = ShownChannel(shown, lit=False)
-    context.session.capped_channels = tuple(
-        layer for layer in release_catalogue() if layer in capped
-    )
+    context.session.capped_channels = tuple(layer for layer in release_catalog() if layer in capped)
     monkeypatch.setattr(_app_ctx, 'ctx', context)
 
-    channel_controls = {layer: MagicMock(name=layer) for layer in release_catalogue()}
+    channel_controls = {layer: MagicMock(name=layer) for layer in release_catalog()}
     stand_in = SimpleNamespace(channel_control_lookup=lambda channel: channel_controls[channel])
     image_settings.ImageSettings.reconcile_channels_to_camera_caps(stand_in)
     return channel_controls

@@ -911,7 +911,7 @@ class TestScopeCapabilities:
                 motor_model=None,
                 configured_model='LS620',
                 models=load_scope_models(),
-                catalogue=release_channels(),
+                catalog=release_channels(),
                 report=refuse_a_report,
             ),
             scope_models=load_scope_models(),

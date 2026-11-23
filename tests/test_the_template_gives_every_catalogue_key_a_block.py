@@ -52,7 +52,7 @@ def test_every_preparation_path_gives_every_key_a_block_and_holds_no_defaults(tm
     # rejection each come up on the template, and each holds a block for
     # every catalogue key and no channel_defaults.
     data = _installation(tmp_path)
-    keys = channel_record.release_catalogue()
+    keys = channel_record.release_catalog()
     fluorescence = _shipped_fluorescence_block()
 
     fresh, _ = settings_init.prepare_settings(logger, str(tmp_path), fall_back_to_template=False)
@@ -85,7 +85,7 @@ def test_a_session_on_each_model_holds_every_block_and_publishes_no_defaults(tmp
         warn_pre_release=False,
     )
     try:
-        keys = channel_record.release_catalogue()
+        keys = channel_record.release_catalog()
         assert [k for k in keys if k not in session.settings] == []
         assert 'channel_defaults' not in session.settings
         assert 'channel_defaults' not in session.scope.settings_template
@@ -99,7 +99,7 @@ def test_a_key_added_to_the_catalogue_gets_its_modalitys_block(tmp_path, monkeyp
     shipped = channel_record.release_channels()
     blue = next(layer for layer in shipped if layer.key == LED0)
     nir = dataclasses.replace(blue, key='NIR', display_color='#ff00ff')
-    monkeypatch.setattr(channel_record, '_CATALOGUE_CACHE', (*shipped, nir))
+    monkeypatch.setattr(channel_record, '_CATALOG_CACHE', (*shipped, nir))
 
     template = settings_init.load_template(logger, str(SHIPPED_TEMPLATE))
 

@@ -17,7 +17,7 @@ import logging
 
 import pytest
 
-from _lumascope.modules.exceptions import CatalogueNameRefusedError
+from _lumascope.modules.exceptions import CatalogNameRefusedError
 from _lumascope.modules.labware_loader import CENTER_PLATE
 import _lumascope.modules.scope_session as scope_session_module
 from _lumascope.modules.scope_session import ScopeSession
@@ -104,7 +104,7 @@ class TestSetProtocolLabware:
     ):
         protocol = stage_scope.create_empty_protocol()
 
-        with pytest.raises(CatalogueNameRefusedError, match='labware catalogue'):
+        with pytest.raises(CatalogNameRefusedError, match='labware catalogue'):
             stage_scope.set_protocol_labware(protocol, 'a plate nobody makes')
 
         assert protocol.labware_id == STORED_PLATE

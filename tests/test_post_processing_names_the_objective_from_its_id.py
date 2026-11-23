@@ -85,10 +85,10 @@ def turret_post_processor():
 
 
 def test_every_shipped_objective_keeps_its_token():
-    catalogue = ObjectiveLoader()
-    assert set(catalogue.get_objectives_list()) == set(SHIPPED_TOKENS)
+    catalog = ObjectiveLoader()
+    assert set(catalog.get_objectives_list()) == set(SHIPPED_TOKENS)
     for objective_id, token in SHIPPED_TOKENS.items():
-        assert catalogue.get_objective_info(objective_id).short_name == token
+        assert catalog.get_objective_info(objective_id).short_name == token
         assert objective_short_name(objective_id) == token
 
 
@@ -97,10 +97,10 @@ def test_a_catalogue_cannot_rename_an_objective(tmp_path):
     # it from the id, so a catalogue entry naming its own short_name would
     # name one objective two ways: it is a key the catalogue does not
     # declare, and the file is refused.
-    catalogue = json.loads((REPO_ROOT / 'data' / 'objectives.json').read_text())
-    catalogue['4x Oly']['short_name'] = 'Custom'
+    catalog = json.loads((REPO_ROOT / 'data' / 'objectives.json').read_text())
+    catalog['4x Oly']['short_name'] = 'Custom'
     (tmp_path / 'data').mkdir()
-    (tmp_path / 'data' / 'objectives.json').write_text(json.dumps(catalogue))
+    (tmp_path / 'data' / 'objectives.json').write_text(json.dumps(catalog))
 
     with pytest.raises(InstallationFileError, match="'4x Oly' the undeclared key 'short_name'"):
         ObjectiveLoader(source_path=tmp_path)

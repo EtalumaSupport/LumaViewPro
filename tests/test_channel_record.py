@@ -27,7 +27,7 @@ from _lumascope.modules.channel_record import (
     LedBoardFamily,
     Modality,
     format_display_color,
-    load_channel_catalogue,
+    load_channel_catalog,
     load_scope_models,
     output_color,
     read_scope_models,
@@ -65,10 +65,10 @@ MODEL_KEYS = {
 }
 
 
-def write_scopes(tmp_path, models, catalogue=CATALOGUE):
+def write_scopes(tmp_path, models, catalog=CATALOGUE):
     """A scopes.json holding ``models``, each entry completed with ``MODEL_KEYS``."""
     models = {name: {**MODEL_KEYS, **entry} for name, entry in models.items()}
-    data = {'LayerOrder': catalogue, 'Models': models}
+    data = {'LayerOrder': catalog, 'Models': models}
     path = tmp_path / 'scopes_fixture.json'
     path.write_text(json.dumps(data), encoding='utf-8')
     return str(path)
@@ -121,10 +121,10 @@ def resolve(data_file, **kwargs):
     }
     defaults.update(kwargs)
     data = read_installation_file(data_file)
-    catalogue = load_channel_catalogue(data, data_file)
+    catalog = load_channel_catalog(data, data_file)
     return resolve_channel_identity(
-        models=read_scope_models(data, data_file, catalogue, old_names=()),
-        catalogue=catalogue,
+        models=read_scope_models(data, data_file, catalog, old_names=()),
+        catalog=catalog,
         report=REPORTED.append,
         **defaults,
     )
@@ -153,7 +153,7 @@ class TestCatalogue:
         path = tmp_path / 'scopes_fixture.json'
         path.write_text(json.dumps({'LS850T': {'Layers': LS850T_ROWS}}), encoding='utf-8')
         with pytest.raises(InstallationFileError, match='LayerOrder') as refused:
-            load_channel_catalogue(read_installation_file(path), path)
+            load_channel_catalog(read_installation_file(path), path)
         assert refused.value.file_path == path
 
     def test_the_shipped_catalogue_answers_each_channel_set(self):
@@ -187,11 +187,11 @@ class TestCatalogueRecords:
     """Each catalogue record is whole, or the file is refused naming it."""
 
     @staticmethod
-    def _refused(tmp_path, catalogue):
+    def _refused(tmp_path, catalog):
         path = tmp_path / 'scopes_fixture.json'
-        path.write_text(json.dumps({'LayerOrder': catalogue, 'Models': {}}), encoding='utf-8')
+        path.write_text(json.dumps({'LayerOrder': catalog, 'Models': {}}), encoding='utf-8')
         with pytest.raises(InstallationFileError) as refused:
-            load_channel_catalogue(read_installation_file(path), path)
+            load_channel_catalog(read_installation_file(path), path)
         assert refused.value.file_path == path
         return str(refused.value)
 
@@ -243,7 +243,7 @@ class TestCatalogueRecords:
         old = [{**record, 'step_order': i} for i, record in enumerate(CATALOGUE)]
         path.write_text(json.dumps({'LayerOrder': old, 'Models': {}}), encoding='utf-8')
 
-        records = load_channel_catalogue(read_installation_file(path), path)
+        records = load_channel_catalog(read_installation_file(path), path)
 
         assert [record.key for record in records] == [record['key'] for record in CATALOGUE]
 
@@ -426,9 +426,9 @@ class TestRowParsing:
             entry = {**MODEL_KEYS, 'Layers': [row('BF', 'BF', 3)]}
             mutate(entry)
             data = {'LayerOrder': CATALOGUE, 'Models': {'M': entry}}
-            catalogue = load_channel_catalogue(data, 'scopes.json')
+            catalog = load_channel_catalog(data, 'scopes.json')
             with pytest.raises(InstallationFileError) as refused:
-                read_scope_models(data, 'scopes.json', catalogue, old_names=())
+                read_scope_models(data, 'scopes.json', catalog, old_names=())
             assert "model 'M'" in str(refused.value) and words in str(refused.value)
 
         failed = failing_cases(cases, check)
@@ -445,8 +445,8 @@ class TestRowParsing:
             'MaxFrame': {'width': 1700, 'height': 1700},
         }
         data = {'LayerOrder': CATALOGUE, 'Models': {'M': entry}}
-        catalogue = load_channel_catalogue(data, 'scopes.json')
-        model = read_scope_models(data, 'scopes.json', catalogue, old_names=())['M']
+        catalog = load_channel_catalog(data, 'scopes.json')
+        model = read_scope_models(data, 'scopes.json', catalog, old_names=())['M']
         assert (model.has_focus, model.has_xy_stage, model.has_turret) == (False, False, False)
         assert (model.led_board, model.motor_board, model.filterset) == ('FX2', None, None)
         assert type(model.led_board) is LedBoardFamily
@@ -517,9 +517,9 @@ class TestRowParsing:
         # row whose two disagree is the release's defect, refused whole.
         entry = {**MODEL_KEYS, 'Layers': [row('Ex550', None, 1, 561)]}
         data = {'LayerOrder': CATALOGUE, 'Models': {'M': entry}}
-        catalogue = load_channel_catalogue(data, 'scopes.json')
+        catalog = load_channel_catalog(data, 'scopes.json')
         with pytest.raises(InstallationFileError) as refused:
-            read_scope_models(data, 'scopes.json', catalogue, old_names=())
+            read_scope_models(data, 'scopes.json', catalog, old_names=())
         assert "model 'M'" in str(refused.value)
         assert 'excitation_nm 561' in str(refused.value) and 'Ex550' in str(refused.value)
 
@@ -534,9 +534,9 @@ class TestRowParsing:
 
         def check(layer, words):
             data = {'LayerOrder': CATALOGUE, 'Models': {'M': {**MODEL_KEYS, 'Layers': [layer]}}}
-            catalogue = load_channel_catalogue(data, 'scopes.json')
+            catalog = load_channel_catalog(data, 'scopes.json')
             with pytest.raises(InstallationFileError) as refused:
-                read_scope_models(data, 'scopes.json', catalogue, old_names=())
+                read_scope_models(data, 'scopes.json', catalog, old_names=())
             assert words in str(refused.value)
 
         failed = failing_cases(cases, check)
@@ -603,8 +603,8 @@ class TestTheBoardsChannelBlock:
     def test_a_row_whose_excitation_key_names_another_excitation_is_left_out_and_reported(
         self, tmp_path
     ):
-        catalogue = CATALOGUE
-        path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}}, catalogue)
+        catalog = CATALOGUE
+        path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}}, catalog)
         block = {
             'Channels': {
                 'Ex550': {'led_channel': 1, 'excitation_nm': 561},
@@ -622,11 +622,11 @@ class TestTheBoardsChannelBlock:
     ):
         # Every fluorescence key is Ex<nm>: a colour word names no excitation
         # for its row's excitation_nm to agree with.
-        catalogue = [
+        catalog = [
             {**layer, 'key': 'Violet'} if layer['key'] == LED0 else layer for layer in CATALOGUE
         ]
         transmitted = [r for r in LS850T_ROWS if r['key_name'] in ('BF', 'PC', 'DF')]
-        path = write_scopes(tmp_path, {'LS850T': {'Layers': transmitted}}, catalogue)
+        path = write_scopes(tmp_path, {'LS850T': {'Layers': transmitted}}, catalog)
         block = {
             'Channels': {
                 'Violet': {'led_channel': 0, 'excitation_nm': 405},

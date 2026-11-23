@@ -30,11 +30,11 @@ def test_the_answer_is_the_plate_the_settings_name(scope_and_settings):
 
 def test_a_stored_plate_the_catalogue_lacks_is_refused_by_name(scope_and_settings):
     # 'New' was the old KV spinner default that leaked into settings.
-    from _lumascope.modules.exceptions import CatalogueNameRefusedError
+    from _lumascope.modules.exceptions import CatalogNameRefusedError
 
     scope, settings = scope_and_settings
     settings['protocol']['labware'] = 'New'
 
-    with pytest.raises(CatalogueNameRefusedError) as refused:
+    with pytest.raises(CatalogNameRefusedError) as refused:
         scope.runtime_state.get_labware()
     assert (refused.value.reason, refused.value.value) == ('labware_unknown', 'New')

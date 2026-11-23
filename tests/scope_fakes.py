@@ -748,7 +748,7 @@ def identity_with_layers(keys, *, model=None, filterset=''):
         motor_model=model,
         configured_model=None,
         models={},
-        catalogue=channel_record.release_channels(),
+        catalog=channel_record.release_channels(),
         report=refuse_a_report,
     )
 
@@ -768,7 +768,7 @@ def stock_unit():
         motor_model='LS850',
         configured_model=None,
         models=channel_record.load_scope_models(),
-        catalogue=channel_record.release_channels(),
+        catalog=channel_record.release_channels(),
         report=refuse_a_report,
     )
 

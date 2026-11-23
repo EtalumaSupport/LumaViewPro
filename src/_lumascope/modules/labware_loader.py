@@ -9,7 +9,7 @@ from collections.abc import Mapping
 import _lumascope.modules.labware as labware
 from _lumascope.lib.real_numbers import is_finite_number, is_integer_number
 from _lumascope.modules.exceptions import (
-    CatalogueNameRefusedError,
+    CatalogNameRefusedError,
     ConfigError,
     InstallationFileError,
 )
@@ -121,13 +121,13 @@ class WellPlateLoader:
 
     def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
         filepath = resolve_data_file('labware.json', source_path=source_path)
-        catalogue = read_installation_file(filepath)
-        if not isinstance(catalogue, dict) or not isinstance(catalogue.get('Wellplate'), dict):
+        catalog = read_installation_file(filepath)
+        if not isinstance(catalog, dict) or not isinstance(catalog.get('Wellplate'), dict):
             raise InstallationFileError(filepath, "has no 'Wellplate' table of plates")
         # A retired spelling is translated to its plate before every lookup,
         # so a plate keyed by one is listed but never found: its name reaches
         # the other plate.
-        retired_names = sorted(catalogue['Wellplate'].keys() & _LABWARE_ALIASES.keys())
+        retired_names = sorted(catalog['Wellplate'].keys() & _LABWARE_ALIASES.keys())
         if retired_names:
             retired = retired_names[0]
             raise InstallationFileError(
@@ -137,7 +137,7 @@ class WellPlateLoader:
         self._plates = types.MappingProxyType(
             {
                 name: _read_plate(name, entry, filepath)
-                for name, entry in catalogue['Wellplate'].items()
+                for name, entry in catalog['Wellplate'].items()
             }
         )
 
@@ -153,13 +153,13 @@ class WellPlateLoader:
         """The catalogue key for ``labware_id``, whatever spelling it arrived in.
 
         Raises:
-            CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
+            CatalogNameRefusedError: ``'labware_unknown'``, ``labware_id``
                 names a plate this catalogue does not have; ``offered``
                 carries the plates it has.
         """
         resolved_key = canonical_plate_name(labware_id)
         if resolved_key not in self._plates:
-            raise CatalogueNameRefusedError(
+            raise CatalogNameRefusedError(
                 'labware_unknown',
                 argument='labware_id',
                 value=labware_id,
@@ -188,7 +188,7 @@ class WellPlateLoader:
         """The plate ``labware_id`` names, under any spelling ``resolve_plate_key`` takes.
 
         Raises:
-            CatalogueNameRefusedError: ``'labware_unknown'``, as
+            CatalogNameRefusedError: ``'labware_unknown'``, as
                 ``resolve_plate_key``.
         """
         return self._plates[self.resolve_plate_key(labware_id)]

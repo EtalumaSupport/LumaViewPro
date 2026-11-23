@@ -22,7 +22,7 @@ choice instead of exercising it.
 import pytest
 
 from _lumascope.modules.exceptions import (
-    CatalogueNameRefusedError,
+    CatalogNameRefusedError,
     ConfigError,
     ObjectiveUnknownError,
 )
@@ -58,9 +58,9 @@ def test_non_string_objective_ids_keep_raising_config_error(loader, unusable):
     the settings lanes that name the selected objective. The refusal is the
     contract.
     """
-    with pytest.raises(CatalogueNameRefusedError) as refused:
+    with pytest.raises(CatalogNameRefusedError) as refused:
         loader.get_objective_info(objective_id=unusable)
-    assert refused.value.reason == 'objective_not_in_catalogue'
+    assert refused.value.reason == 'objective_not_in_catalog'
     assert isinstance(refused.value, ConfigError)
 
 
@@ -74,10 +74,10 @@ def test_an_unknown_string_is_refused_by_name(loader):
     type, and the launch path already recovers from it.
     """
     with pytest.raises(
-        CatalogueNameRefusedError, match="'zzz-no-such-objective' is not one"
+        CatalogNameRefusedError, match="'zzz-no-such-objective' is not one"
     ) as refused:
         loader.get_objective_info(objective_id='zzz-no-such-objective')
-    assert refused.value.reason == 'objective_not_in_catalogue'
+    assert refused.value.reason == 'objective_not_in_catalog'
     assert refused.value.argument == 'objective_id'
     assert refused.value.offered == tuple(loader.get_objectives_list())
 
@@ -94,9 +94,9 @@ def test_an_empty_or_whitespace_id_is_refused_not_matched(loader, not_an_identif
     refusal, and every scale derived from it was wrong by the ratio of the two
     magnifications. Neither is an identifier, so both are refused.
     """
-    with pytest.raises(CatalogueNameRefusedError) as refused:
+    with pytest.raises(CatalogNameRefusedError) as refused:
         loader.get_objective_info(objective_id=not_an_identifier)
-    assert refused.value.reason == 'objective_not_in_catalogue'
+    assert refused.value.reason == 'objective_not_in_catalog'
 
 
 def test_a_partial_id_is_refused_not_guessed(loader):
@@ -109,7 +109,7 @@ def test_a_partial_id_is_refused_not_guessed(loader):
     """
     assert '10x Oly' in loader.get_objectives_list()
     assert '10x Phase' in loader.get_objectives_list()
-    with pytest.raises(CatalogueNameRefusedError, match="'10x' is not one"):
+    with pytest.raises(CatalogNameRefusedError, match="'10x' is not one"):
         loader.get_objective_info(objective_id='10x')
     assert loader.get_objective_info(objective_id='10x Oly').short_name == '10xOly'
 

@@ -23,7 +23,7 @@ import tifffile as tf
 
 from tests.ast_seams import parse_module, tracked_files
 from tests.scope_fakes import bind_settings_like_a_session
-from _lumascope.modules.channel_record import release_catalogue, release_colors
+from _lumascope.modules.channel_record import release_catalog, release_colors
 from tests.stock_channels import LED0, LED1, LED2
 
 
@@ -66,7 +66,7 @@ def _run_manual_capture(tmp_path, scope, *, shown_channel, false_color_on, separ
         image_output_format={'live': 'TIFF', 'sequenced': 'TIFF'},
         image_mode='8bit',
     )
-    for name in release_catalogue():
+    for name in release_catalog():
         settings[name].update({'exposure_ms': 10, 'sum': 1, 'illumination_ma': 0})
     # How the file is rendered is the shown channel's stored choice.
     settings[shown_channel]['false_color'] = false_color_on

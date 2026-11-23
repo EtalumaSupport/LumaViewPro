@@ -25,7 +25,7 @@ import pytest
 from _lumascope.modules.image_mode import ImageCaptureConfig, ImageMode, OutputFormat
 
 import _lumascope.modules.config_helpers as config_helpers
-from _lumascope.modules.channel_record import release_catalogue
+from _lumascope.modules.channel_record import release_catalog
 from tests.settings_fixtures import complete_settings
 from tests.objective_records import objective
 from _lumascope.modules.coord_transformations import PlateLocation
@@ -35,7 +35,7 @@ from tests.stock_channels import LED0, LED1, LED2
 # it, so only the name and the deferred z carry meaning here.
 _POSITION = PlateLocation(x_mm=1234.5, y_mm=678.9, z_um=4321.0)
 
-_ALL_LAYERS = release_catalogue()
+_ALL_LAYERS = release_catalog()
 
 
 def _layer(acquire=None, focus=0.0):

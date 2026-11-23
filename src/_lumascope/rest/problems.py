@@ -125,7 +125,7 @@ _SERVER_STATUS = {
     'overloaded': 503,
     'server_closing': 503,
     'no_frame_yet': 503,
-    'not_cancellable': 409,
+    'not_cancelable': 409,
     'idempotency_key_reused': 422,
     'client_not_allowed': 403,
     'wrong_host': 421,

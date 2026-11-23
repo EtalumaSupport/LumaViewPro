@@ -820,7 +820,7 @@ RUNNER_REFUSAL_COVERAGE = {
     'composite_video_channel': (
         'tests/test_composite_run_refusals.py::TestEveryChannelSetToCaptureIsInTheComposite'
     ),
-    'objective_not_in_catalogue': (
+    'objective_not_in_catalog': (
         'tests/test_a_tile_grid_is_the_protocols_to_refuse.py::'
         'test_a_step_with_an_unknown_objective_is_refused_not_tiled_at_nan'
     ),

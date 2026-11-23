@@ -489,7 +489,7 @@ class JobRegistry:
                 result; a stop is not a write and passes it by.
 
         Raises:
-            ServerRefusedError: ``not_found``; ``not_cancellable`` (409), the
+            ServerRefusedError: ``not_found``; ``not_cancelable`` (409), the
                 job is a call adopted as one, which holds no operation to
                 stop.
             Exception: what ``as_a_write`` raised, the job kept -- a
@@ -508,7 +508,7 @@ class JobRegistry:
             return None
         if job.operation is None:
             raise ServerRefusedError(
-                'not_cancellable',
+                'not_cancelable',
                 f'Job {job_id} is a call held as a job when it outlived its wait: it '
                 'holds no operation to stop, and is forgotten once it has ended.',
             )

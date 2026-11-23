@@ -94,7 +94,7 @@ def test_a_step_with_an_unknown_objective_is_refused_not_tiled_at_nan(scale_capa
     proto._set_steps(steps)
 
     refusal = _refused(proto, scale_capabilities, '2x2')
-    assert refusal.reason == 'objective_not_in_catalogue'
+    assert refusal.reason == 'objective_not_in_catalog'
     assert refusal.cause == RefusalCause.REQUEST
     assert 'no_such_objective' in str(refusal)
 

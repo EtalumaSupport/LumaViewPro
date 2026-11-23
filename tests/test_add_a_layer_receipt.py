@@ -68,8 +68,8 @@ def added_layer_release(tmp_path, monkeypatch):
     path.write_text(json.dumps(data), encoding='utf-8')
     monkeypatch.setattr(
         channel_record,
-        '_CATALOGUE_CACHE',
-        channel_record.load_channel_catalogue(json.loads(path.read_text(encoding='utf-8')), path),
+        '_CATALOG_CACHE',
+        channel_record.load_channel_catalog(json.loads(path.read_text(encoding='utf-8')), path),
     )
     return str(path)
 

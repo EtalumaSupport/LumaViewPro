@@ -77,7 +77,7 @@ class OpticsStatus:
 
     Attributes:
         objective: The active objective's id, or ``ObjectiveUnknownError``:
-            ``'slot_unknown'``, ``'slot_unassigned'``, ``'not_in_catalogue'``
+            ``'slot_unknown'``, ``'slot_unassigned'``, ``'not_in_catalog'``
             or ``'none_selected'``.
         field_of_view: The frame's extent on the sample, or the first reason
             it is unknown, in this order: the objective's
@@ -146,7 +146,7 @@ class RuntimeState:
             ObjectiveUnknownError: On a turreted scope, the slot is unknown
                 (``'slot_unknown'``), it has no assignment
                 (``'slot_unassigned'``), or its assignment is not in the
-                catalogue (``'not_in_catalogue'``); with no turret, no person
+                catalogue (``'not_in_catalog'``); with no turret, no person
                 has confirmed the selected objective (``'none_selected'``).
         """
         objective_id, objective, unknown = self._derive_current_objective()
@@ -210,7 +210,7 @@ class RuntimeState:
         if objective_id is None:
             return None, None, ObjectiveUnknownError('slot_unassigned', slot)
         if objective_id not in self._scope.objectives:
-            return None, None, ObjectiveUnknownError('not_in_catalogue', slot)
+            return None, None, ObjectiveUnknownError('not_in_catalog', slot)
         return objective_id, self._scope.objectives[objective_id], None
 
     def objective_confirmed(self) -> bool:
@@ -261,7 +261,7 @@ class RuntimeState:
 
         Raises:
             ObjectiveUnknownError: ``'slot_unknown'``, ``'slot_unassigned'``,
-                ``'not_in_catalogue'`` or ``'none_selected'``, no objective is
+                ``'not_in_catalog'`` or ``'none_selected'``, no objective is
                 known, as ``ScopeSession.objective_id``.
             HardwareCommandRefusedError: ``'not_connected'``, no camera is
                 connected; ``'scope_disconnected'``, after the scope's shutdown.
@@ -290,7 +290,7 @@ class RuntimeState:
 
         Raises:
             ObjectiveUnknownError: ``'slot_unknown'``, ``'slot_unassigned'``,
-                ``'not_in_catalogue'`` or ``'none_selected'``, as
+                ``'not_in_catalog'`` or ``'none_selected'``, as
                 ``pixel_size_um``.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'scope_disconnected'``, as ``pixel_size_um``.
@@ -338,7 +338,7 @@ class RuntimeState:
 
         Raises:
             ObjectiveUnknownError: ``'slot_unknown'``, ``'slot_unassigned'``,
-                ``'not_in_catalogue'`` or ``'none_selected'``, as
+                ``'not_in_catalog'`` or ``'none_selected'``, as
                 ``field_of_view``.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'scope_disconnected'``, as ``field_of_view``.
@@ -431,7 +431,7 @@ class RuntimeState:
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
                 a fraction that is not a number from 0 to 1.
             ObjectiveUnknownError: ``'slot_unknown'``, ``'slot_unassigned'``,
-                ``'not_in_catalogue'`` or ``'none_selected'``, as
+                ``'not_in_catalog'`` or ``'none_selected'``, as
                 ``OpticsStatus.field_of_view`` holds them.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'scope_disconnected'``, as ``OpticsStatus.field_of_view``
@@ -501,7 +501,7 @@ class RuntimeState:
         Raises:
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
                 a fraction that is not a number from 0 to 1.
-            CatalogueNameRefusedError: ``'labware_unknown'``, the selected
+            CatalogNameRefusedError: ``'labware_unknown'``, the selected
                 labware is not in the catalogue.
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
                 this scope.
@@ -608,7 +608,7 @@ class RuntimeState:
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, a coordinate or an
                 offset axis is not a finite number.
-            CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
+            CatalogNameRefusedError: ``'labware_unknown'``, ``labware_id``
                 is not a plate the catalogue has.
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
                 this scope, and ``labware_id`` or ``stage_offset`` was left to the
@@ -646,7 +646,7 @@ class RuntimeState:
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, a coordinate or an
                 offset axis is not a finite number.
-            CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
+            CatalogNameRefusedError: ``'labware_unknown'``, ``labware_id``
                 is not a plate the catalogue has.
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
                 this scope, and ``labware_id`` or ``stage_offset`` was left to the
@@ -686,7 +686,7 @@ class RuntimeState:
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, an offset axis is not a
                 finite number; asked here, so the function does not.
-            CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
+            CatalogNameRefusedError: ``'labware_unknown'``, ``labware_id``
                 is not a plate the catalogue has.
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
                 this scope, and ``labware_id`` or ``stage_offset`` was left to the
@@ -723,7 +723,7 @@ class RuntimeState:
         Raises:
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
                 this scope.
-            CatalogueNameRefusedError: ``'labware_unknown'``, the selected
+            CatalogNameRefusedError: ``'labware_unknown'``, the selected
                 labware is not in the catalogue.
         """
         # One read: it leaves out an axis the scope lacks and answers None for

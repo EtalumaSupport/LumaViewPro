@@ -28,7 +28,7 @@ from _lumascope.drivers.sim_wire.backend import LED_DEVICE, SimWireBackend
 from _lumascope.drivers.tmcm6110 import Tmcm6110Board
 from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
 from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
-from _lumascope.modules.exceptions import CatalogueNameRefusedError, SettingRefusedError
+from _lumascope.modules.exceptions import CatalogNameRefusedError, SettingRefusedError
 from _lumascope.modules.channel_record import load_scope_models, model_axes
 from _lumascope.modules.lumascope_api import Lumascope
 from _lumascope.modules.lumascope_api.illumination import LedState
@@ -88,7 +88,7 @@ def test_a_tier_that_is_not_one_of_the_three_is_refused():
 
 
 def test_a_model_the_catalogue_lacks_is_refused_not_answered_axis_less():
-    with pytest.raises(CatalogueNameRefusedError) as refused:
+    with pytest.raises(CatalogNameRefusedError) as refused:
         model_axes(MODELS, 'LS999', argument='microscope')
     assert refused.value.reason == 'model_unknown'
     assert refused.value.argument == 'microscope'

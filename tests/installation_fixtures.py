@@ -168,12 +168,12 @@ def use_release(monkeypatch, scopes: pathlib.Path) -> None:
     from _lumascope.modules.path_utils import read_installation_file
 
     contents = read_installation_file(scopes)
-    catalogue = channel_record.load_channel_catalogue(contents, scopes)
-    monkeypatch.setattr(channel_record, '_CATALOGUE_CACHE', catalogue)
+    catalog = channel_record.load_channel_catalog(contents, scopes)
+    monkeypatch.setattr(channel_record, '_CATALOG_CACHE', catalog)
     monkeypatch.setattr(
         channel_record,
         '_OLD_NAMES_CACHE',
-        channel_record.load_old_channel_names(contents, scopes, catalogue),
+        channel_record.load_old_channel_names(contents, scopes, catalog),
     )
 
 
@@ -183,7 +183,7 @@ def write_release_with_added_channels(data: pathlib.Path) -> pathlib.Path:
 
     Adding a channel is a data change: one catalogue record and a unit's
     row. The caller replaces the process-wide catalogue with this file's
-    (``channel_record._CATALOGUE_CACHE``), since the release catalogue is
+    (``channel_record._CATALOG_CACHE``), since the release catalogue is
     read from the installation's own folder, not the scope's.
     """
     scopes = json.loads((SHIPPED_DATA / 'scopes.json').read_text(encoding='utf-8'))

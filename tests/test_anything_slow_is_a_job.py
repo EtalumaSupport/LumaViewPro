@@ -15,7 +15,7 @@ its operation's stop: ``202`` with the job, which ends as the stop leaves
 it -- a stopped run ``aborted``, a still, which has no stop, as it would
 have -- and a stop the scope refuses is the answer. A call adopted as a
 job holds no operation, and ``DELETE`` on it while it runs is ``409``
-``not_cancellable``. A finished job is forgotten by ``DELETE``. Past the
+``not_cancelable``. A finished job is forgotten by ``DELETE``. Past the
 live limit a call is refused before it runs, and many clients waiting on
 jobs hold no thread a new call needs.
 """
@@ -381,7 +381,7 @@ def test_a_finished_job_is_forgotten_and_a_running_adopted_call_is_not_stopped(c
     location = accepted.headers['Location']
 
     running = client.delete(location)
-    assert (running.status_code, running.json()['reason']) == (409, 'not_cancellable')
+    assert (running.status_code, running.json()['reason']) == (409, 'not_cancelable')
     assert client.get(location).json()['status'] == 'running'
 
     held.set()

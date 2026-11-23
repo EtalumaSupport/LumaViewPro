@@ -25,7 +25,7 @@ import pytest
 import tifffile as tf
 
 from _lumascope.modules import image_utils
-from _lumascope.modules.channel_record import GREY, release_catalogue, release_color
+from _lumascope.modules.channel_record import GREY, release_catalog, release_color
 from tests.ome_schema import q, valid_description
 from tests.stock_channels import LED0, LED1, LED2
 
@@ -817,7 +817,7 @@ class TestWindowsPreviewCompat:
     def _written(img_16bit, metadata, tmp_tiff, *, ome):
         """Each catalogue channel's 16-bit file, read back, by channel."""
         written = {}
-        for channel in release_catalogue():
+        for channel in release_catalog():
             path = tmp_tiff()
             image_utils.write_tiff(
                 data=img_16bit,
@@ -1648,15 +1648,15 @@ def test_a_stills_objective_names_its_id_and_units_and_an_older_file_still_reads
         dtype=np.uint8,
         output_format='OME-TIFF',
     )
-    catalogue = sim_scope.objectives['4x Oly']
+    catalog = sim_scope.objectives['4x Oly']
     stated = image_utils.read_file_record(still)['objective']
     assert (stated['id'], stated['working_distance_mm']) == (
         '4x Oly',
-        catalogue.working_distance_mm,
+        catalog.working_distance_mm,
     )
     rendered = valid_description(still).find(f'{q("Instrument")}/{q("Objective")}')
     assert (float(rendered.get('WorkingDistance')), rendered.get('WorkingDistanceUnit')) == (
-        catalogue.working_distance_mm,
+        catalog.working_distance_mm,
         'mm',
     )
 

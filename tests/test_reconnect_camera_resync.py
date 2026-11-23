@@ -42,7 +42,7 @@ from _lumascope.modules.config_helpers import (
     camera_max_gain_for_ui,
     channel_slider_maxima,
 )
-from _lumascope.modules.channel_record import release_catalogue
+from _lumascope.modules.channel_record import release_catalog
 from tests.stock_channels import LED0, LED1, LED2
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -322,7 +322,7 @@ class TestManualExposurePolicy:
         boards once capped at 178 ms). Nothing may hand any layer a bound
         above what the attached body will honor.
         """
-        for layer in release_catalogue():
+        for layer in release_catalog():
             assert layer_max_exposure_ms(178.0, layer) <= 178.0, layer
         assert layer_max_exposure_ms(178.0, 'BF') == 50.0
         assert layer_max_exposure_ms(178.0, 'PC') == 178.0

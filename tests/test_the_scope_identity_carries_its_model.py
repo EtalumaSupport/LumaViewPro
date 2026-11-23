@@ -115,9 +115,9 @@ class TestAModelSelectionAppliesAtTheNextStart:
         assert scope.channel_identity.model == 'LS620'
 
     def test_a_model_the_catalogue_lacks_is_refused_and_nothing_is_saved(self, ls620_session):
-        from _lumascope.modules.exceptions import CatalogueNameRefusedError
+        from _lumascope.modules.exceptions import CatalogNameRefusedError
 
-        with pytest.raises(CatalogueNameRefusedError) as refused:
+        with pytest.raises(CatalogNameRefusedError) as refused:
             ls620_session.select_model('LS9999')
         assert isinstance(refused.value, Refusal)
         assert refused.value.reason == 'model_unknown'

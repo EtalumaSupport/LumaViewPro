@@ -100,7 +100,7 @@ holding a block of the wrong kind, is `SettingsFileError`, printed the same
 way, naming the file and what is wrong; the file is not changed. So is a
 scope model it names that this version does not know, on a scope whose motor
 board reports no model (a board that reports one, an OEM name included, says
-what the scope is), `CatalogueNameRefusedError` (reason `model_unknown`), naming
+what the scope is), `CatalogNameRefusedError` (reason `model_unknown`), naming
 the `microscope` setting and the models it does know.
 While it
 serves, `server.reach` says where and to whom (`python -m lumascope.rest`
@@ -208,7 +208,7 @@ forgets a finished job (`204`). A stop passes any control session; a forget is
 a write: under another's control session it is refused, and the job is kept.
 A still has no stop, and its job ends as it would have; a call held as a job
 only because it outlived its wait holds no operation, and is refused `409`
-(`'not_cancellable'`). Finished jobs are kept up to 1000 and 24 hours; at most
+(`'not_cancelable'`). Finished jobs are kept up to 1000 and 24 hours; at most
 256 calls run at once, past which a call is refused `503` (`'overloaded'`). A
 call's JSON body is at most 64 KiB, refused `413` (`'body_too_large'`) past it,
 and arrives within 20 s plus its length at 64 KiB a second, else refused `408`
@@ -267,7 +267,7 @@ refusal's; every reason and its status is in the reference's
 
 | Status | Means |
 |---|---|
-| `409` | A refusal the scope's state gave: the same request may succeed later. Also a move or home a stop ended (`kind` `notice`), and `'not_cancellable'`. |
+| `409` | A refusal the scope's state gave: the same request may succeed later. Also a move or home a stop ended (`kind` `notice`), and `'not_cancelable'`. |
 | `422` | A refusal of the request as sent: change it. Also `'invalid_request'`, `'handle_shared'` and `'idempotency_key_reused'`. |
 | `403` | `'client_not_allowed'`: a client [`allowed_clients`](#serving-another-computer) does not list; its connection is closed. `'foreign_origin'`: a page from another site sent it ([Serving it](#serving-it)). |
 | `421` | `'wrong_host'`: a request addressed to another server than this one's address and port ([Serving it](#serving-it)). |

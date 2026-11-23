@@ -15,7 +15,7 @@ the daA3840 (48 dB) would have let a 45 dB layer through.
 """
 
 import pytest
-from _lumascope.modules.channel_record import release_catalogue
+from _lumascope.modules.channel_record import release_catalog
 from tests.case_walk import failing_cases
 from tests.settings_fixtures import shipped_template
 from tests.stock_channels import LED1, LED2
@@ -36,7 +36,7 @@ def test_every_layer_gain_fits_the_smallest_camera():
             f"{layer} ships at {gain} dB, outside the smallest shipped camera's range"
         )
 
-    assert failing_cases(release_catalogue(), check) == {}
+    assert failing_cases(release_catalog(), check) == {}
 
 
 @pytest.mark.parametrize('layer', (LED1, LED2, 'Lumi'))

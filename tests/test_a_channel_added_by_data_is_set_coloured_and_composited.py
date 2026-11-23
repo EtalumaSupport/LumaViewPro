@@ -49,8 +49,8 @@ def installation(tmp_path, monkeypatch):
     # with the written file's, the one prepare_settings must then read.
     monkeypatch.setattr(
         channel_record,
-        '_CATALOGUE_CACHE',
-        channel_record.load_channel_catalogue(read_installation_file(scopes), scopes),
+        '_CATALOG_CACHE',
+        channel_record.load_channel_catalog(read_installation_file(scopes), scopes),
     )
     return tmp_path
 
@@ -88,7 +88,7 @@ def test_each_unit_has_a_block_and_a_colour_for_every_channel(installation, mode
     settings = _prepared(installation, model)
     with open_composite_session(settings, source_path=installation) as (session, _):
         assert _fluorescence(session) == expected
-        keys = channel_record.release_catalogue()
+        keys = channel_record.release_catalog()
         assert set(_ADDED) <= set(keys)
         # The block is the template's fluorescence default: the catalogue
         # prepare_settings read is the one this test wrote.
@@ -126,7 +126,7 @@ def test_a_composite_takes_every_channel_in_its_colour(installation, model):
     settings = _prepared(installation, model)
     with open_composite_session(settings, source_path=installation) as (session, runner):
         channels = _fluorescence(session)
-        for key in channel_record.release_catalogue():
+        for key in channel_record.release_catalog():
             session.set_channel_settings(key, acquire='image' if key in channels else None)
 
         runs = installation / 'runs'

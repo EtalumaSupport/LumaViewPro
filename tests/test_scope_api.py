@@ -277,12 +277,12 @@ class TestGetCurrentPlatePosition:
         assert refused.value.reason == 'not_connected'
 
     def test_an_unknown_plate_is_refused_not_answered_in_stage_coordinates(self, tmp_path):
-        from _lumascope.modules.exceptions import CatalogueNameRefusedError
+        from _lumascope.modules.exceptions import CatalogNameRefusedError
         from tests.test_manual_capture_member import _open_session, _settings
 
         with (
             _open_session(_settings(tmp_path)) as session,
-            pytest.raises(CatalogueNameRefusedError) as refused,
+            pytest.raises(CatalogNameRefusedError) as refused,
         ):
             session.plate_position_on('nonexistent')
         assert refused.value.reason == 'labware_unknown'

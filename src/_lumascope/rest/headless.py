@@ -82,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Imported at the call, after the lock. ``python -m lumascope.rest`` has
     # loaded the whole API, the server's dependencies with it, before this runs.
-    from _lumascope.modules.exceptions import CatalogueNameRefusedError, RestServerNotStartedError
+    from _lumascope.modules.exceptions import CatalogNameRefusedError, RestServerNotStartedError
     from _lumascope.modules.scope_session import ScopeSession
     from _lumascope.modules.settings_init import SettingsFileError
     from _lumascope.rest.server import build_server
@@ -108,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
             warn_pre_release=False,
             settings_file=ScopeSession.user_settings_file(source_path),
         )
-    except CatalogueNameRefusedError as e:
+    except CatalogNameRefusedError as e:
         logger.error(f'[REST     ] {e}')
         print(e, file=sys.stderr)
         instance_lock.close()

@@ -5,7 +5,7 @@ Each catalogue's owner -- ``WellPlateLoader.resolve_plate_key`` for a plate,
 ``ObjectiveLoader.get_objective_info`` for an objective -- refused a name it
 does not hold with a bare ``ConfigError``, which a wire client read as a
 fault (500) and no caller could tell from any other settings failure. It is
-now ``CatalogueNameRefusedError``, still a ``ConfigError`` for the callers
+now ``CatalogNameRefusedError``, still a ``ConfigError`` for the callers
 that recover from a bad stored name, with a reason, the owner's parameter as
 ``argument`` and the catalogue's keys as ``offered``, refused before anything
 is stored. A null objective is the scope's "nothing selected"
@@ -26,7 +26,7 @@ from fastapi.testclient import TestClient
 
 from _lumascope.modules.exceptions import (
     ArgumentTypeRefusedError,
-    CatalogueNameRefusedError,
+    CatalogNameRefusedError,
     ConfigError,
     ObjectiveUnknownError,
     PositionOutOfRangeError,
@@ -98,7 +98,7 @@ OBJECTIVE_MEMBERS = {
 @pytest.mark.parametrize('member', LABWARE_MEMBERS)
 def test_a_plate_the_catalogue_lacks_is_refused_offering_its_plates(session, member, name):
     before = _selection(session)
-    with pytest.raises(CatalogueNameRefusedError) as refused:
+    with pytest.raises(CatalogNameRefusedError) as refused:
         LABWARE_MEMBERS[member](session, name)
     assert refused.value.reason == 'labware_unknown'
     assert refused.value.cause == RefusalCause.REQUEST
@@ -119,9 +119,9 @@ def test_an_objective_the_catalogue_lacks_is_refused_offering_its_keys(
     # so that test's teardown shut it down under the tests after it.
     session = turret_session if member in _SLOT_WRITERS else session
     before = _selection(session)
-    with pytest.raises(CatalogueNameRefusedError) as refused:
+    with pytest.raises(CatalogNameRefusedError) as refused:
         OBJECTIVE_MEMBERS[member](session, name)
-    assert refused.value.reason == 'objective_not_in_catalogue'
+    assert refused.value.reason == 'objective_not_in_catalog'
     assert refused.value.cause == RefusalCause.REQUEST
     assert isinstance(refused.value, ConfigError)
     assert refused.value.argument == 'objective_id'
@@ -133,7 +133,7 @@ def test_an_objective_the_catalogue_lacks_is_refused_offering_its_keys(
 def test_a_model_the_catalogue_lacks_is_refused_offering_its_models(session, name):
     before = session.settings['microscope']
     for refuse in (session.scope.scope_model, session.select_model):
-        with pytest.raises(CatalogueNameRefusedError) as refused:
+        with pytest.raises(CatalogNameRefusedError) as refused:
             refuse(name)
         assert refused.value.reason == 'model_unknown'
         assert refused.value.cause == RefusalCause.REQUEST
@@ -199,7 +199,7 @@ def test_a_retired_plate_name_resolves_and_is_stored_under_its_key(session, z_ch
             'POST',
             'start_select_objective',
             {'objective_id': '10xOly'},
-            'objective_not_in_catalogue',
+            'objective_not_in_catalog',
             'objective_id',
         ),
         ('PUT', 'selected_model', {'model': 'LS999'}, 'model_unknown', 'model'),
@@ -221,7 +221,7 @@ def test_a_wire_client_is_refused_as_the_request_naming_what_the_catalogue_offer
     ('route', 'query', 'reason', 'argument'),
     [
         ('plate', {'labware_id': 'Acme 1536 Ultra Plate'}, 'labware_unknown', 'labware_id'),
-        ('objective', {'objective_id': '10xOly'}, 'objective_not_in_catalogue', 'objective_id'),
+        ('objective', {'objective_id': '10xOly'}, 'objective_not_in_catalog', 'objective_id'),
     ],
 )
 def test_a_wire_lookup_of_a_name_the_catalogue_lacks_is_the_requests(
@@ -245,7 +245,7 @@ def test_a_wire_slot_out_of_range_is_the_requests(turret_session):
 
 def test_a_reason_without_words_is_refused_at_the_raise():
     with pytest.raises(TypeError):
-        CatalogueNameRefusedError('no_such_reason', argument='labware_id', value='x', offered=())
+        CatalogNameRefusedError('no_such_reason', argument='labware_id', value='x', offered=())
 
 
 def test_none_is_refused_by_both_objective_doors(tmp_path):

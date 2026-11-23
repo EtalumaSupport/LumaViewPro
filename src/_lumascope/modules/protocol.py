@@ -3374,7 +3374,7 @@ class Protocol:
         )
         if unknown:
             _refuse_build(
-                reason='objective_not_in_catalogue',
+                reason='objective_not_in_catalog',
                 message=(
                     f'The protocol names {", ".join(unknown)}, which is not in this '
                     f"scope's objective catalogue, so its tile spacing cannot be worked out."

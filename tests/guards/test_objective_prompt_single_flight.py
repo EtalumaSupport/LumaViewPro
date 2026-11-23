@@ -257,7 +257,7 @@ class TestSingleFlight:
 
         _install_ctx(monkeypatch, session)
         stand = _Stand()
-        catalogue = session.scope.objective_helper.get_objectives_list
+        catalog = session.scope.objective_helper.get_objectives_list
 
         def fails():
             raise ConfigurationDefectError('scope_not_composed', 'no session has bound this scope')
@@ -269,7 +269,7 @@ class TestSingleFlight:
         assert popups == []
         assert len(centre_posts) == 1
 
-        monkeypatch.setattr(session.scope.objective_helper, 'get_objectives_list', catalogue)
+        monkeypatch.setattr(session.scope.objective_helper, 'get_objectives_list', catalog)
         stand.prompt_if_objective_unknown()
         assert len(popups) == 1
 

@@ -377,7 +377,7 @@ class ManualRecordingController:
             ObjectiveUnknownError: No one can say which objective is in the
                 light path, so the recording's frames would carry no scale.
                 On a turret scope ``'slot_unknown'``, ``'slot_unassigned'``
-                or ``'not_in_catalogue'``: the slot in the light path is not
+                or ``'not_in_catalog'``: the slot in the light path is not
                 known, has no objective, or has one the catalogue lacks.
                 Without a turret ``'none_selected'``: no objective has been
                 confirmed. Nothing is committed.

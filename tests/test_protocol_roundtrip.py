@@ -30,7 +30,7 @@ from _lumascope.modules.lumascope_api.illumination import LedState
 from _lumascope.modules.exceptions import ProtocolRunRefusedError
 from _lumascope.modules.image_mode import ImageCaptureConfig
 from _lumascope.modules.labware_loader import WellPlateLoader
-from _lumascope.modules.channel_record import release_catalogue
+from _lumascope.modules.channel_record import release_catalog
 from _lumascope.modules.objectives_loader import ObjectiveLoader
 from _lumascope.modules.protocol import ChannelSettings, Protocol, ProtocolFormatError
 from _lumascope.modules.run_events import RunEvents
@@ -614,7 +614,7 @@ class TestRoundTripEdgeCases:
 
     def test_all_channels(self, tmp_path):
         """Protocol with every channel type."""
-        colors = release_catalogue()
+        colors = release_catalog()
         steps = [_make_step(name=f'A1_{c}', color=c) for c in colors]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)

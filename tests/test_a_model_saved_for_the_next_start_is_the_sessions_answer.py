@@ -77,9 +77,9 @@ def test_the_running_model_is_reported_as_nothing(ls620_session, heard):
 
 
 def test_an_unknown_model_is_refused_and_reported_as_nothing(ls620_session, heard):
-    from _lumascope.modules.exceptions import CatalogueNameRefusedError
+    from _lumascope.modules.exceptions import CatalogNameRefusedError
 
-    with pytest.raises(CatalogueNameRefusedError) as refused:
+    with pytest.raises(CatalogNameRefusedError) as refused:
         ls620_session.select_model('LS9999')
     assert refused.value.reason == 'model_unknown'
 

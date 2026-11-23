@@ -27,12 +27,12 @@ from _lumascope.modules.exceptions import (
     RefusalCause,
 )
 from _lumascope.modules.scope_parts import Part
-from _lumascope.modules.channel_record import release_catalogue
+from _lumascope.modules.channel_record import release_catalog
 from _lumascope.modules.lumascope_api.illumination import LedState
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 from tests.case_walk import failing_cases
 
-CATALOGUE = release_catalogue()
+CATALOGUE = release_catalog()
 
 
 @pytest.fixture(scope='module')

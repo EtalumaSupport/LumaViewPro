@@ -80,7 +80,7 @@ from _lumascope.modules.exceptions import (
     CameraFeatureAbsentNotice,
     CameraNotAvailableError,
     CameraSettingRejected,
-    CatalogueNameRefusedError,
+    CatalogNameRefusedError,
     ConfigurationDefectError,
     DisconnectStep,
     FrameRefittedNotice,
@@ -549,7 +549,7 @@ class Lumascope:
         logger.info(f'[SCOPE API ] Camera timing record {path} checked')
         return record
 
-    def _read_catalogues(self, source_path: 'str | os.PathLike') -> dict:
+    def _read_catalogs(self, source_path: 'str | os.PathLike') -> dict:
         """Read the installation's files once, from ``source_path``; return the motor defaults.
 
         The scope is the one owner of the labware, objective, model and
@@ -576,7 +576,7 @@ class Lumascope:
         # The release's channel vocabulary is process-wide, not this folder's,
         # but the identity resolved after the lanes start needs it: asked
         # here, a broken one refuses before anything is started.
-        channel_record.release_catalogue()
+        channel_record.release_catalog()
         motorconfig_defaults = read_motor_defaults(
             resolve_data_file('motorconfig_defaults.json', source_path=source_path)
         )
@@ -1026,7 +1026,7 @@ class Lumascope:
         # installation file stops the bring-up with nothing to tear down.
         # The motor defaults are read on every model: the motor probe below
         # runs on every model, and a board it finds takes them.
-        motorconfig_defaults = self._read_catalogues(get_source_root(source_path))
+        motorconfig_defaults = self._read_catalogs(get_source_root(source_path))
         from _lumascope.modules.channel_record import entry_expects_motion, model_axes
 
         # Decided here, before anything is started, for the same reason: a
@@ -1569,7 +1569,7 @@ class Lumascope:
             motor_model=motor_model,
             configured_model=self._configured_model,
             models=self._scope_models,
-            catalogue=release_channels(),
+            catalog=release_channels(),
             report=lambda notice: notifications.report_outcome(
                 notice, solicited=False, category='Illumination'
             ),
@@ -2268,7 +2268,7 @@ class Lumascope:
             objective_id: The objective's catalogue key.
 
         Raises:
-            CatalogueNameRefusedError: ``'objective_not_in_catalogue'``, the
+            CatalogNameRefusedError: ``'objective_not_in_catalog'``, the
                 catalogue holds no objective keyed ``objective_id``;
                 ``offered`` carries the keys it holds.
         """
@@ -2286,7 +2286,7 @@ class Lumascope:
                 name it has retired.
 
         Raises:
-            CatalogueNameRefusedError: ``'labware_unknown'``, the catalogue
+            CatalogNameRefusedError: ``'labware_unknown'``, the catalogue
                 holds no plate under ``labware_id`` or a retired name of
                 it; ``offered`` carries the plates it holds.
         """
@@ -2340,13 +2340,13 @@ class Lumascope:
             model: The model's name in the scope catalogue.
 
         Raises:
-            CatalogueNameRefusedError: ``'model_unknown'``, the catalogue
+            CatalogNameRefusedError: ``'model_unknown'``, the catalogue
                 does not list ``model``; ``offered`` carries the models it
                 lists, in its order.
         """
         entry = self._scope_models.get(model)
         if entry is None:
-            raise CatalogueNameRefusedError(
+            raise CatalogNameRefusedError(
                 'model_unknown',
                 argument='model',
                 value=model,

@@ -30,11 +30,11 @@ from _lumascope.modules.common_utils import (
     build_step_name,
     parse_legacy_step_name,
 )
-from _lumascope.modules.channel_record import release_catalogue
+from _lumascope.modules.channel_record import release_catalog
 from tests.case_walk import failing_cases
 from tests.stock_channels import LED1, LED2
 
-_KNOWN_LAYERS = list(release_catalogue())
+_KNOWN_LAYERS = list(release_catalog())
 _KNOWN_OBJECTIVES = ['10x', '4x', '20x']
 
 

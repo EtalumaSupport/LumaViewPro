@@ -130,10 +130,10 @@ def test_a_light_path_confirmation_from_a_file_is_the_id_stored_beside_it(tmp_pa
 
 
 def test_a_catalogue_keying_an_objective_with_the_turret_word_refuses_to_load(tmp_path):
-    catalogue = json.loads((REPO_ROOT / 'data' / 'objectives.json').read_text())
-    catalogue[OBJECTIVE_CONFIRMED_ON_A_TURRET] = catalogue['20x Oly']
+    catalog = json.loads((REPO_ROOT / 'data' / 'objectives.json').read_text())
+    catalog[OBJECTIVE_CONFIRMED_ON_A_TURRET] = catalog['20x Oly']
     (tmp_path / 'data').mkdir()
-    (tmp_path / 'data' / 'objectives.json').write_text(json.dumps(catalogue))
+    (tmp_path / 'data' / 'objectives.json').write_text(json.dumps(catalog))
 
     with pytest.raises(InstallationFileError, match=repr(OBJECTIVE_CONFIRMED_ON_A_TURRET)):
         ObjectiveLoader(source_path=tmp_path)

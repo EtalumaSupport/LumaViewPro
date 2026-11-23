@@ -36,15 +36,15 @@ def _install(tmp_path: pathlib.Path, name: str, content: str | None) -> pathlib.
 
 
 def _objectives_without_default() -> str:
-    catalogue = _shipped('objectives.json')
-    del catalogue[DEFAULT_PROPOSED_OBJECTIVE_ID]
-    return json.dumps(catalogue)
+    catalog = _shipped('objectives.json')
+    del catalog[DEFAULT_PROPOSED_OBJECTIVE_ID]
+    return json.dumps(catalog)
 
 
 def _objectives_with_colliding_short_names() -> str:
-    catalogue = _shipped('objectives.json')
-    catalogue['20x collar'] = dict(catalogue[DEFAULT_PROPOSED_OBJECTIVE_ID])
-    return json.dumps(catalogue)
+    catalog = _shipped('objectives.json')
+    catalog['20x collar'] = dict(catalog[DEFAULT_PROPOSED_OBJECTIVE_ID])
+    return json.dumps(catalog)
 
 
 CASES = [
@@ -101,9 +101,9 @@ def test_an_unreadable_catalogue_path_names_the_file(tmp_path, loader, name):
 
 
 def _objectives_with(change) -> str:
-    catalogue = _shipped('objectives.json')
-    change(catalogue['4x Oly'])
-    return json.dumps(catalogue)
+    catalog = _shipped('objectives.json')
+    change(catalog['4x Oly'])
+    return json.dumps(catalog)
 
 
 @pytest.mark.parametrize(
@@ -127,9 +127,9 @@ def test_an_objective_entry_off_its_declared_shape_names_the_objective_and_key(
 
 
 def _labware_with(change) -> str:
-    catalogue = _shipped('labware.json')
-    change(catalogue['Wellplate']['96 well microplate'])
-    return json.dumps(catalogue)
+    catalog = _shipped('labware.json')
+    change(catalog['Wellplate']['96 well microplate'])
+    return json.dumps(catalog)
 
 
 @pytest.mark.parametrize(
@@ -191,9 +191,9 @@ def test_a_plate_value_out_of_its_range_names_the_plate_key_and_value(tmp_path):
 def test_a_plate_keyed_by_a_retired_name_is_refused(tmp_path):
     """A retired spelling is translated before every lookup: a plate keyed
     'Center Dish' was listed, but its name reached the Center Plate."""
-    catalogue = _shipped('labware.json')
-    catalogue['Wellplate']['Center Dish'] = dict(catalogue['Wellplate']['96 well microplate'])
-    root = _install(tmp_path, 'labware.json', json.dumps(catalogue))
+    catalog = _shipped('labware.json')
+    catalog['Wellplate']['Center Dish'] = dict(catalog['Wellplate']['96 well microplate'])
+    root = _install(tmp_path, 'labware.json', json.dumps(catalog))
 
     with pytest.raises(
         InstallationFileError, match="plate 'Center Dish', a retired name read as 'Center Plate'"

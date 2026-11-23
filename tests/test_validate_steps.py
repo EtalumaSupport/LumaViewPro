@@ -14,7 +14,7 @@ import pytest
 
 from _lumascope.modules.coord_transformations import AxisLimits, StageOffset
 from _lumascope.modules.labware_loader import WellPlateLoader
-from _lumascope.modules.channel_record import release_catalogue
+from _lumascope.modules.channel_record import release_catalog
 from _lumascope.modules.objectives_loader import ObjectiveLoader
 from _lumascope.modules.protocol import Protocol, ProtocolFormatError
 from tests.stock_channels import LED0
@@ -103,7 +103,7 @@ class TestValidateColor:
         assert "Color 'Purple'" in errors[0]
 
     def test_all_valid_colors(self):
-        for color in release_catalogue():
+        for color in release_catalog():
             p = _make_protocol([_valid_step(channel=color)])
             assert p.validate_steps(ObjectiveLoader().objectives) == [], (
                 f'Color {color} should be valid'

@@ -21,10 +21,10 @@ def test_the_shipped_catalogue_has_the_default():
 
 
 def test_a_catalogue_without_the_default_refuses_to_load(tmp_path):
-    catalogue = json.loads((REPO_ROOT / 'data' / 'objectives.json').read_text())
-    del catalogue[DEFAULT_PROPOSED_OBJECTIVE_ID]
+    catalog = json.loads((REPO_ROOT / 'data' / 'objectives.json').read_text())
+    del catalog[DEFAULT_PROPOSED_OBJECTIVE_ID]
     (tmp_path / 'data').mkdir()
-    (tmp_path / 'data' / 'objectives.json').write_text(json.dumps(catalogue))
+    (tmp_path / 'data' / 'objectives.json').write_text(json.dumps(catalog))
 
     with pytest.raises(InstallationFileError, match=DEFAULT_PROPOSED_OBJECTIVE_ID):
         ObjectiveLoader(source_path=tmp_path)

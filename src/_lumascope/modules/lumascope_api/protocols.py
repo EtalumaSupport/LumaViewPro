@@ -292,7 +292,7 @@ class ProtocolsAPI:
                 ``'not_offered'`` (the z-stack's reference or a channel's acquire
                 mode) or ``'channel_unknown'``, a key of the configuration,
                 named by its path in ``argument``.
-            CatalogueNameRefusedError: the configuration names a plate or an
+            CatalogNameRefusedError: the configuration names a plate or an
                 objective the installation's catalogues do not hold.
             ProtocolRunRefusedError: the configuration cannot be built --
                 ``objective_not_given``, ``focus_not_given`` -- or the grid
@@ -743,7 +743,7 @@ class ProtocolsAPI:
         asked for is logged as replaced.
 
         Raises:
-            CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
+            CatalogNameRefusedError: ``'labware_unknown'``, ``labware_id``
                 is not a plate the catalogue has. The protocol keeps its
                 plate.
         """
@@ -781,7 +781,7 @@ class ProtocolsAPI:
                 motor, a step has no position on an axis this scope moves
                 (``'step_position_missing'``), or a tile falls outside the
                 stage's travel. Nothing changes.
-            CatalogueNameRefusedError: the protocol's plate is not in the
+            CatalogNameRefusedError: the protocol's plate is not in the
                 catalogue (``'labware_unknown'``). Nothing changes.
             ConfigError: no session has bound the scope, so it has no stage
                 offset. Nothing changes.
@@ -862,7 +862,7 @@ class ProtocolsAPI:
             driven.
 
         Raises:
-            CatalogueNameRefusedError: the protocol's plate is not in the
+            CatalogNameRefusedError: the protocol's plate is not in the
                 catalogue (``'labware_unknown'``).
         """
         axes = self._scope.capabilities.axes
@@ -898,7 +898,7 @@ class ProtocolsAPI:
                 the wrong glass. ``'turret_slot_ambiguous'`` or
                 ``'turret_slot_reassigned'``, the step cannot say which slot
                 it means (``turret_slot_questions``).
-            CatalogueNameRefusedError: as ``stage_targets``.
+            CatalogNameRefusedError: as ``stage_targets``.
         """
         step = protocol.step_row(step_index=step_index)
         # This step's own fields, not the protocol's frame: a run asks it at every step.

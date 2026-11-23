@@ -88,9 +88,9 @@ def swept(tmp_path_factory):
     root = tmp_path_factory.mktemp('installation')
     shutil.copytree(REPO_ROOT / 'data', root / 'data')
     catalogue_file = root / 'data' / 'objectives.json'
-    catalogue = json.loads(catalogue_file.read_text())
-    catalogue[EQUAL_STEPS_ID] = {**catalogue['20x Oly'], **EQUAL_STEPS}
-    catalogue_file.write_text(json.dumps(catalogue))
+    catalog = json.loads(catalogue_file.read_text())
+    catalog[EQUAL_STEPS_ID] = {**catalog['20x Oly'], **EQUAL_STEPS}
+    catalogue_file.write_text(json.dumps(catalog))
 
     scope = build_scope(simulate=True, sim_model='LS850', source_path=root)
     try:

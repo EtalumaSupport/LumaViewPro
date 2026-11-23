@@ -24,7 +24,7 @@ import _lumascope.modules.lumascope_api._lumascope as lumascope_module
 from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.drivers.null_motorboard import NullMotionBoard
 from _lumascope.modules import channel_record
-from _lumascope.modules.exceptions import CatalogueNameRefusedError, InstallationFileError
+from _lumascope.modules.exceptions import CatalogNameRefusedError, InstallationFileError
 from tests.scope_fakes import build_scope, construct_scope, simulated_camera_on_a_real_scope
 from tests.settings_fixtures import installation_of_its_own
 
@@ -114,7 +114,7 @@ def test_a_model_the_folder_does_not_list_is_refused_before_a_lane_starts():
     before = set(threading.enumerate())
 
     # The setting names a model the folder lacks: the settings' fault, not the file's.
-    with pytest.raises(CatalogueNameRefusedError) as refused:
+    with pytest.raises(CatalogNameRefusedError) as refused:
         construct_scope(
             simulate=True, sim_model='LS850T', source_path=str(root), warn_pre_release=False
         )
@@ -179,7 +179,7 @@ def test_the_identity_resolves_against_the_release_vocabulary():
         simulate=True, sim_model='LS850T', source_path=str(root), warn_pre_release=False
     )
 
-    vocabulary = channel_record.release_catalogue()
+    vocabulary = channel_record.release_catalog()
     assert scope.channel_identity.channels
     for record in scope.channel_identity.channels:
         assert record.id == vocabulary.index(record.key_name)
@@ -202,21 +202,21 @@ def test_a_bad_installation_scopes_json_stops_the_settings_check(
     if contents is not None:
         path.write_text(contents, encoding='utf-8')
     monkeypatch.setattr(channel_record, 'resolve_data_file', lambda *parts, **kw: path)
-    monkeypatch.setattr(channel_record, '_CATALOGUE_CACHE', None)
+    monkeypatch.setattr(channel_record, '_CATALOG_CACHE', None)
 
     with pytest.raises(InstallationFileError, match=says) as refused:
-        channel_record.release_catalogue()
+        channel_record.release_catalog()
 
     assert refused.value.file_path == path
     # Nothing is cached, so the settings check never runs on an empty vocabulary.
-    assert channel_record._CATALOGUE_CACHE is None
+    assert channel_record._CATALOG_CACHE is None
 
 
 def _broken_vocabulary(tmp_path, monkeypatch):
     path = tmp_path / 'installation_scopes.json'
     path.write_text(json.dumps({'Models': {}}), encoding='utf-8')
     monkeypatch.setattr(channel_record, 'resolve_data_file', lambda *parts, **kw: path)
-    monkeypatch.setattr(channel_record, '_CATALOGUE_CACHE', None)
+    monkeypatch.setattr(channel_record, '_CATALOG_CACHE', None)
     return path
 
 

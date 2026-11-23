@@ -68,7 +68,7 @@ from _lumascope.modules.exceptions import (
     CameraDriverRepairedNotice,
     CameraDriverRepairFailedError,
     CameraDriverRepairRefusedError,
-    CatalogueNameRefusedError,
+    CatalogNameRefusedError,
     ConfigError,
     DiagnosticRefusedError,
     FileWriterNotStuckError,
@@ -1947,7 +1947,7 @@ class ScopeSession:
                 ``simulate=False`` asked for while another LumaViewPro, REST
                 server or script drives the microscope, or while another
                 real scope in this process is open. Nothing was opened.
-            CatalogueNameRefusedError: ``'model_unknown'``, the scope is to
+            CatalogNameRefusedError: ``'model_unknown'``, the scope is to
                 be built as a model the catalogue does not list: the stored
                 ``microscope`` with no motor board reporting a model to stand
                 in its place, or, for a simulated scope, ``simulated.model``
@@ -2589,7 +2589,7 @@ class ScopeSession:
         Raises:
             ObjectiveUnknownError: the objective in the light path is unknown:
                 ``'slot_unknown'``, ``'slot_unassigned'`` or
-                ``'not_in_catalogue'`` on a turret scope; ``'none_selected'``
+                ``'not_in_catalog'`` on a turret scope; ``'none_selected'``
                 with no turret, no person has confirmed the objective.
             ProtocolScheduleRefusedError: the stored period or duration is one
                 no protocol can run.
@@ -3263,7 +3263,7 @@ class ScopeSession:
             ObjectiveUnknownError: the objective in the light path is
                 unknown, so the config cannot be assembled:
                 ``'slot_unknown'``, ``'slot_unassigned'`` or
-                ``'not_in_catalogue'`` on a turret scope; ``'none_selected'``
+                ``'not_in_catalog'`` on a turret scope; ``'none_selected'``
                 with no turret, no person has confirmed the objective.
             ProtocolScheduleRefusedError: ``period_s`` or ``duration_s`` is
                 one no protocol can run.
@@ -3873,7 +3873,7 @@ class ScopeSession:
             labware_id: The plate's name in the labware catalogue.
 
         Raises:
-            CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id`` is not a
+            CatalogNameRefusedError: ``'labware_unknown'``, ``labware_id`` is not a
                 plate the catalogue has. The protocol keeps its plate.
         """
         return self.scope.protocols.set_labware(protocol, labware_id)
@@ -4033,13 +4033,13 @@ class ScopeSession:
             ProtocolRunRefusedError: ``'tiling_unknown'``, ``tiling`` is not
                 a grid this installation offers; ``'already_tiled'``, the
                 protocol is; ``'step_position_missing'``, a step has no
-                position on an axis the tiles move; ``'objective_not_in_catalogue'``,
+                position on an axis the tiles move; ``'objective_not_in_catalog'``,
                 a step's objective is not in the catalogue;
                 ``'tiling_scale_unknown'``, the optics give no field of view
                 to space the tiles by; ``'positions_unreachable'``, the scope
                 has no X/Y motor; ``'tiles_outside_travel'``, a tile falls
                 outside the stage's travel. Nothing changes.
-            CatalogueNameRefusedError: ``'labware_unknown'``, the protocol's plate is
+            CatalogNameRefusedError: ``'labware_unknown'``, the protocol's plate is
                 not in the catalogue. Nothing changes.
         """
         import _lumascope.modules.config_helpers as config_helpers
@@ -5659,7 +5659,7 @@ class ScopeSession:
             model: A model the release's catalogue lists.
 
         Raises:
-            CatalogueNameRefusedError: ``'model_unknown'``, the scope's
+            CatalogNameRefusedError: ``'model_unknown'``, the scope's
                 catalogue does not list ``model``; nothing is saved.
         """
         # The catalogue's lookup refuses a model it does not list, before
@@ -5837,7 +5837,7 @@ class ScopeSession:
             ConfigError: a settings key ``initialize`` cannot do without is
                 missing (``frame``; ``objective_id`` on a scope with no
                 turret); or that ``objective_id`` names no shipped objective.
-            CatalogueNameRefusedError: ``'model_unknown'``, the motor board
+            CatalogNameRefusedError: ``'model_unknown'``, the motor board
                 reports no model and the stored ``microscope`` is one the
                 catalogue does not list.
         """
@@ -5859,7 +5859,7 @@ class ScopeSession:
                 # scope's whole description, and one the catalogue does not
                 # list would bring it up with no axes, channels or optics to
                 # stand on.
-                raise CatalogueNameRefusedError(
+                raise CatalogNameRefusedError(
                     'model_unknown',
                     argument='microscope',
                     value=stored,
@@ -6423,7 +6423,7 @@ class ScopeSession:
         Raises:
             ObjectiveUnknownError: The active objective is unknown:
                 ``'slot_unknown'``, ``'slot_unassigned'`` or
-                ``'not_in_catalogue'`` on a turret scope; ``'none_selected'``
+                ``'not_in_catalog'`` on a turret scope; ``'none_selected'``
                 with no turret, no person has confirmed the objective.
         """
         objective_id, _ = self.scope.runtime_state.resolve_current_objective()
@@ -6596,7 +6596,7 @@ class ScopeSession:
             HardwareCommandRefusedError: ``'axis_absent'``, a
                 ``slot`` on a scope with no turret. Nothing is
                 written.
-            CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
+            CatalogNameRefusedError: ``'objective_not_in_catalog'``,
                 ``objective_id`` is not exactly a catalogue key. Nothing is
                 written.
             PositionOutOfRangeError: ``slot`` is not a slot
@@ -6633,7 +6633,7 @@ class ScopeSession:
         Raises:
             ObjectiveUnknownError: ``'slot_unknown'``, the turret is in no
                 known slot; ``'slot_unassigned'``, the slot in the light path
-                has no objective assigned; ``'not_in_catalogue'``, its
+                has no objective assigned; ``'not_in_catalog'``, its
                 assignment is not in the catalogue; ``'none_selected'``, with
                 no turret, no person has confirmed the selected objective.
         """
@@ -6664,7 +6664,7 @@ class ScopeSession:
             objective_id: The objective's catalogue key.
 
         Raises:
-            CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
+            CatalogNameRefusedError: ``'objective_not_in_catalog'``,
                 ``objective_id`` is not exactly a catalogue key. The refusal
                 lands before any write or move.
             ArgumentRefusedError: On a turret scope,
@@ -6715,7 +6715,7 @@ class ScopeSession:
             ``MoveStoppedError`` -- the slot unknown afterwards.
 
         Raises:
-            CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
+            CatalogNameRefusedError: ``'objective_not_in_catalog'``,
                 as ``select_objective``.
             ArgumentRefusedError: ``'objective_in_several_slots'`` or
                 ``'objective_not_on_turret'``, as ``select_objective``.
@@ -6836,7 +6836,7 @@ class ScopeSession:
                 the plate was known by before a rename.
 
         Raises:
-            CatalogueNameRefusedError: ``'labware_unknown'``, the labware
+            CatalogNameRefusedError: ``'labware_unknown'``, the labware
                 catalogue has no plate by that name. Nothing is written.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has no
                 XY stage and ``labware_id`` is not Center Plate
@@ -6885,7 +6885,7 @@ class ScopeSession:
                 scope and ``objective_id`` is not the slot's assignment
                 (``'exclusive_activity_running'``). Nothing is written.
             PositionOutOfRangeError: ``slot`` is not a slot number 1-4.
-            CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
+            CatalogNameRefusedError: ``'objective_not_in_catalog'``,
                 ``objective_id`` is not exactly a catalogue key.
         """
         self._refuse_without_a_turret('assign_turret_objective')

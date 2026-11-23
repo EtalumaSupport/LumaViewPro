@@ -6,7 +6,7 @@ the wire only the start form is served, as a job a client reads and stops
 (``DELETE /api/v1/jobs/<id>``). A waiting form served beside it was a
 second door to the same action whose job could not be stopped -- held as a
 job past the client's wait, it holds no operation, and its cancel is
-refused ``not_cancellable`` -- and the docs taught the waiting route. So a
+refused ``not_cancelable`` -- and the docs taught the waiting route. So a
 class whose wire member is ``start_x`` has no wire member ``x``, nor
 ``run_x`` (the protocol runner's waiting forms). A waiting form is marked
 ``@api(in_process=True)``.

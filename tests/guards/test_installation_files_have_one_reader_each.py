@@ -5,7 +5,7 @@ scopes.json was read by four modules and the GUI, and the motor defaults by
 three sites, each from the installation's default folder, so a scope
 started on another folder read its catalogues from one folder and its
 models and motor defaults from another. The scope now reads them once, in
-``Lumascope._read_catalogues``, and everything else reads its copy. A file
+``Lumascope._read_catalogs``, and everything else reads its copy. A file
 name in any other production call is a second reader; this walk refuses it
 at commit.
 
@@ -78,7 +78,7 @@ _FILES = ('scopes.json', 'motorconfig_defaults.json', 'labware.json', 'objective
 
 # (module, qualname) -> the files that def may name.
 _OWNERS = {
-    ('src/_lumascope/modules/lumascope_api/_lumascope.py', 'Lumascope._read_catalogues'): {
+    ('src/_lumascope/modules/lumascope_api/_lumascope.py', 'Lumascope._read_catalogs'): {
         'scopes.json',
         'motorconfig_defaults.json',
     },
@@ -147,7 +147,7 @@ def test_only_the_scope_reads_the_model_catalogue():
         for rel_path, tree in _all_production_modules()
         for qualname, lineno in _load_scope_models_calls(tree)
         if (rel_path, qualname)
-        != ('src/_lumascope/modules/lumascope_api/_lumascope.py', 'Lumascope._read_catalogues')
+        != ('src/_lumascope/modules/lumascope_api/_lumascope.py', 'Lumascope._read_catalogs')
     ]
     assert found == [], f'read scope.scope_models instead of the file: {found}'
 

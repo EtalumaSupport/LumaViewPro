@@ -209,7 +209,7 @@ class ProtocolRunner:
             ObjectiveUnknownError: The objective in the light path is
                 unknown, so no frame could say what it was taken with. On a
                 turret scope ``'slot_unknown'``, ``'slot_unassigned'`` or
-                ``'not_in_catalogue'``: the slot in the light path is not
+                ``'not_in_catalog'``: the slot in the light path is not
                 known, has no objective, or has one the catalogue lacks.
                 Without a turret ``'none_selected'``: no objective has been
                 confirmed. Nothing is started.
@@ -327,7 +327,7 @@ class ProtocolRunner:
             ObjectiveUnknownError: The objective in the light path is
                 unknown, so the focus could not say what it was found with.
                 On a turret scope ``'slot_unknown'``, ``'slot_unassigned'``
-                or ``'not_in_catalogue'``: the slot in the light path is not
+                or ``'not_in_catalog'``: the slot in the light path is not
                 known, has no objective, or has one the catalogue lacks.
                 Without a turret ``'none_selected'``: no objective has been
                 confirmed. Nothing is started.
@@ -502,7 +502,7 @@ class ProtocolRunner:
             ObjectiveUnknownError: The objective in the light path is
                 unknown, so no slice could say what it was taken with. On a
                 turret scope ``'slot_unknown'``, ``'slot_unassigned'`` or
-                ``'not_in_catalogue'``: the slot in the light path is not
+                ``'not_in_catalog'``: the slot in the light path is not
                 known, has no objective, or has one the catalogue lacks.
                 Without a turret ``'none_selected'``: no objective has been
                 confirmed. Nothing is started.
@@ -701,7 +701,7 @@ class ProtocolRunner:
             HardwareCommandRefusedError: ``'not_connected'``, as
                 ``start_autofocus``. Nothing was started.
             ObjectiveUnknownError: ``'slot_unknown'``, ``'slot_unassigned'``,
-                ``'not_in_catalogue'`` or ``'none_selected'``, as
+                ``'not_in_catalog'`` or ``'none_selected'``, as
                 ``start_autofocus``. Nothing was started.
             ProtocolRunRefusedError: As ``start_autofocus``; nothing was started.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
@@ -803,7 +803,7 @@ class ProtocolRunner:
             HardwareCommandRefusedError: ``'not_connected'``, as
                 ``start_zstack``. Nothing was started.
             ObjectiveUnknownError: ``'slot_unknown'``, ``'slot_unassigned'``,
-                ``'not_in_catalogue'`` or ``'none_selected'``, as
+                ``'not_in_catalog'`` or ``'none_selected'``, as
                 ``start_zstack``. Nothing was started.
             ProtocolRunRefusedError: As ``start_zstack``; nothing was started.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
@@ -899,7 +899,7 @@ class ProtocolRunner:
             HardwareCommandRefusedError: ``'not_connected'``, as
                 ``start_composite``. Nothing was started.
             ObjectiveUnknownError: ``'slot_unknown'``, ``'slot_unassigned'``,
-                ``'not_in_catalogue'`` or ``'none_selected'``, as
+                ``'not_in_catalog'`` or ``'none_selected'``, as
                 ``start_composite``. Nothing was started.
             CompositeFailedError: The run finished but produced no composite. The
                 error names the machine-readable reason, so a caller can

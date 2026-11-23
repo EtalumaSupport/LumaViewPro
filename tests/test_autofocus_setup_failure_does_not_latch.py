@@ -33,7 +33,7 @@ from _lumascope.modules.exceptions import (
     CameraReadFailedError,
     CameraSettingRejected,
     CaptureError,
-    CatalogueNameRefusedError,
+    CatalogNameRefusedError,
 )
 from _lumascope.modules.lumascope_api.camera import CameraAutoMode
 from _lumascope.modules.lumascope_api.illumination import LedLease, LedState, LedTransition
@@ -89,8 +89,8 @@ SETUP_FAILURES = [
     (
         'objective load',
         _unknown_objective,
-        CatalogueNameRefusedError,
-        'objective_not_in_catalogue',
+        CatalogNameRefusedError,
+        'objective_not_in_catalog',
         False,
     ),
     ('parameter calculation', _z_at_the_floor, CaptureError, 'out_of_travel', False),
@@ -261,7 +261,7 @@ def test_a_failure_before_the_snapshot_restores_no_camera_state(scope, runner, m
     restores = _camera_restores(scope, monkeypatch)
 
     _fail_setup(
-        scope, runner, _unknown_objective, CatalogueNameRefusedError, 'objective_not_in_catalogue'
+        scope, runner, _unknown_objective, CatalogNameRefusedError, 'objective_not_in_catalog'
     )
 
     assert restores == [], (

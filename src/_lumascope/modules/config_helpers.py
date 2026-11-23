@@ -330,7 +330,7 @@ def get_current_plate_position(
             position would image the wrong place under the right name.
         AxisMovingError: ``'axis_moving'``, an axis it reads is moving, so
             its number is a place it is passing through.
-        CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
+        CatalogNameRefusedError: ``'labware_unknown'``, ``labware_id``
             is not a plate the catalogue has. Converting through a different
             plate would put every position
             in the wrong frame.
@@ -368,7 +368,7 @@ def kept_plate_position(
         AxisMovingError: ``'axis_moving'``, an axis it reads is moving.
         AxisStateUnknownError: ``'position_unknown'``, an axis it reads is
             homing or lost its reference.
-        CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
+        CatalogNameRefusedError: ``'labware_unknown'``, ``labware_id``
             is not a plate the catalogue has.
     """
     # The cable before the reference: with the controller gone every axis
@@ -1089,11 +1089,11 @@ def channel_slider_maxima(
     Raises:
         ArgumentRefusedError: ``channel`` is not a channel of this release.
     """
-    catalogue = release_channel(channel)
+    catalog = release_channel(channel)
     return ChannelSliderMaxima(
-        slider_max_exposure_ms=_narrowed(exposure_cap_ms, catalogue.manual_max_exposure_ms),
+        slider_max_exposure_ms=_narrowed(exposure_cap_ms, catalog.manual_max_exposure_ms),
         slider_max_illumination_ma=_narrowed(
-            illumination_cap_ma, catalogue.manual_max_illumination_ma
+            illumination_cap_ma, catalog.manual_max_illumination_ma
         ),
         slider_max_gain_db=camera_max_gain_for_ui(gain_limits),
     )
@@ -1167,7 +1167,7 @@ def get_selected_labware_from_settings(
     since the settings named it is found under its old spelling.
 
     Raises:
-        CatalogueNameRefusedError: ``'labware_unknown'``, the settings name
+        CatalogNameRefusedError: ``'labware_unknown'``, the settings name
             a plate the catalogue does not have; ``offered`` carries the
             plates it has. No other plate is substituted: a different plate's geometry puts
             every well position in the wrong place while the protocol reads

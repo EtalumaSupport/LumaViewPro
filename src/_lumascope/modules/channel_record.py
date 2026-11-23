@@ -34,7 +34,7 @@ from _lumascope.lib.real_numbers import is_finite_number, is_integer_number
 from _lumascope.lvp_logger import logger
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
-    CatalogueNameRefusedError,
+    CatalogNameRefusedError,
     ChannelBlockSupersededNotice,
     ChannelBlockUnusableNotice,
     ChannelRowsSkippedNotice,
@@ -114,7 +114,7 @@ SIM_LIGHT_MAGNIFICATION = 20.0
 
 
 @dataclass(frozen=True)
-class CatalogueChannel:
+class CatalogChannel:
     """What a channel of one key is in this release, on every unit that has it.
 
     `background` is whether the channel's field of view is bright or dark,
@@ -189,7 +189,7 @@ class ChannelRecord:
             fluorescence key names (``Ex<nm>``). None for broadband
             transmitted light and for a channel with no LED.
         modality: The kind of light the channel images, from its catalogue
-            record (``CatalogueChannel``).
+            record (``CatalogChannel``).
         background: Whether the channel's field of view is bright or dark,
             from its catalogue record.
         display_color: The unit's colour for the channel, ``'#rrggbb'``: its
@@ -388,7 +388,7 @@ UNRESOLVED = ChannelIdentity(
 # release (the file is version-paired), so nothing invalidates it at
 # runtime. Tests hand the resolver a catalogue explicitly and may
 # replace this cache to exercise a different one.
-_CATALOGUE_CACHE: tuple[CatalogueChannel, ...] | None = None
+_CATALOG_CACHE: tuple[CatalogChannel, ...] | None = None
 # The release's old names, loaded once per process beside the catalogue and
 # replaced by tests the same way.
 _OLD_NAMES_CACHE: tuple[OldChannelName, ...] | None = None
@@ -423,18 +423,18 @@ def refuse_unknown_channel(channel: object, argument: str = 'channel') -> None:
             ``'channel_unknown'`` for anything else not in the catalogue;
             each offers the catalogue.
     """
-    catalogue = release_catalogue()
+    catalog = release_catalog()
     if channel is None:
         raise ArgumentRefusedError(
-            'no_channel_selected', argument=argument, value=channel, offered=catalogue
+            'no_channel_selected', argument=argument, value=channel, offered=catalog
         )
-    if not isinstance(channel, str) or channel not in catalogue:
+    if not isinstance(channel, str) or channel not in catalog:
         raise ArgumentRefusedError(
-            'channel_unknown', argument=argument, value=channel, offered=catalogue
+            'channel_unknown', argument=argument, value=channel, offered=catalog
         )
 
 
-def release_catalogue() -> tuple[str, ...]:
+def release_catalog() -> tuple[str, ...]:
     """The release's channel vocabulary (stable key names, display order).
 
     The single source every vocabulary consumer derives from -- channel
@@ -446,7 +446,7 @@ def release_catalogue() -> tuple[str, ...]:
     return tuple(record.key for record in release_channels())
 
 
-def release_channels() -> tuple[CatalogueChannel, ...]:
+def release_channels() -> tuple[CatalogChannel, ...]:
     """The release catalogue's records, in display order.
 
     Read from the installation's own folder, not a scope's: the settings
@@ -457,11 +457,11 @@ def release_channels() -> tuple[CatalogueChannel, ...]:
             unusable, states no channel order, or has a record that is not
             whole. Nothing is cached, so the next call reads the file again.
     """
-    global _CATALOGUE_CACHE
-    if _CATALOGUE_CACHE is None:
+    global _CATALOG_CACHE
+    if _CATALOG_CACHE is None:
         path = resolve_data_file('scopes.json')
-        _CATALOGUE_CACHE = load_channel_catalogue(read_installation_file(path), path)
-    return _CATALOGUE_CACHE
+        _CATALOG_CACHE = load_channel_catalog(read_installation_file(path), path)
+    return _CATALOG_CACHE
 
 
 def release_old_names() -> tuple[OldChannelName, ...]:
@@ -486,7 +486,7 @@ def release_old_names() -> tuple[OldChannelName, ...]:
 
 
 def load_old_channel_names(
-    scopes_data: dict, path: str | os.PathLike, catalogue: tuple[CatalogueChannel, ...]
+    scopes_data: dict, path: str | os.PathLike, catalog: tuple[CatalogChannel, ...]
 ) -> tuple[OldChannelName, ...]:
     """``scopes_data``'s ``OldChannelNames`` as records, or a refusal naming ``path``.
 
@@ -504,8 +504,8 @@ def load_old_channel_names(
     raw = scopes_data.get('OldChannelNames')
     if not isinstance(raw, dict):
         raise InstallationFileError(path, f'has no usable OldChannelNames (found {raw!r})')
-    fluorescence = {record.key for record in catalogue if record.modality == Modality.FLUORESCENCE}
-    keys = {record.key for record in catalogue}
+    fluorescence = {record.key for record in catalog if record.modality == Modality.FLUORESCENCE}
+    keys = {record.key for record in catalog}
     names: list[OldChannelName] = []
     for name, entry in raw.items():
 
@@ -556,10 +556,10 @@ def stored_channel_names() -> tuple[str, ...]:
     Raises:
         InstallationFileError: as ``release_old_names``.
     """
-    return (*release_catalogue(), *(old.name for old in release_old_names()))
+    return (*release_catalog(), *(old.name for old in release_old_names()))
 
 
-def release_channel(key: object) -> CatalogueChannel:
+def release_channel(key: object) -> CatalogChannel:
     """The release catalogue's record for ``key``.
 
     Raises:
@@ -590,7 +590,7 @@ type ChannelColors = Mapping[str, Color]
 
 def release_colors() -> dict[str, Color]:
     """Every release channel's colour, ``release_color`` of each key."""
-    return {key: release_color(key) for key in release_catalogue()}
+    return {key: release_color(key) for key in release_catalog()}
 
 
 def output_color(name: object, colors: ChannelColors) -> Color:
@@ -759,7 +759,7 @@ def load_scope_models(data_file: str | None = None) -> Mapping[str, ScopeModel]:
 def read_scope_models(
     scopes_data: dict,
     path: str | os.PathLike,
-    catalogue: tuple[CatalogueChannel, ...],
+    catalog: tuple[CatalogChannel, ...],
     old_names: tuple[OldChannelName, ...],
 ) -> Mapping[str, ScopeModel]:
     """``scopes_data``'s models as a read-only mapping of records by name, or a refusal naming ``path``.
@@ -782,7 +782,7 @@ def read_scope_models(
         )
     return types.MappingProxyType(
         {
-            model: _scope_model(model, entry, path, catalogue, old_names)
+            model: _scope_model(model, entry, path, catalog, old_names)
             for model, entry in models.items()
         }
     )
@@ -792,7 +792,7 @@ def _scope_model(
     model: str,
     entry: object,
     path: str | os.PathLike,
-    catalogue: tuple[CatalogueChannel, ...],
+    catalog: tuple[CatalogChannel, ...],
     old_names: tuple[OldChannelName, ...],
 ) -> ScopeModel:
     """The record for one model entry, or a refusal naming the file, the model and the key."""
@@ -842,7 +842,7 @@ def _scope_model(
         **flags,
         led_board=text['LEDBoard'],
         motor_board=text['MotorBoard'],
-        channels=_model_channels(entry.get('Layers'), catalogue, old_names, refuse),
+        channels=_model_channels(entry.get('Layers'), catalog, old_names, refuse),
         filterset=text['Filterset'],
         **{
             field: float(optics[key]) if key in optics else None
@@ -866,12 +866,12 @@ def model_axes(models: Mapping[str, ScopeModel], model: str, *, argument: str) -
             person who gave it can find it.
 
     Raises:
-        CatalogueNameRefusedError: ``'model_unknown'``, the catalogue does
+        CatalogNameRefusedError: ``'model_unknown'``, the catalogue does
             not list ``model``.
     """
     entry = models.get(model)
     if entry is None:
-        raise CatalogueNameRefusedError(
+        raise CatalogNameRefusedError(
             'model_unknown', argument=argument, value=model, offered=tuple(models)
         )
     return entry_axes(entry)
@@ -893,9 +893,7 @@ def entry_expects_motion(entry: ScopeModel | None) -> bool:
     return entry is None or bool(entry_axes(entry))
 
 
-def load_channel_catalogue(
-    scopes_data: dict, path: str | os.PathLike
-) -> tuple[CatalogueChannel, ...]:
+def load_channel_catalog(scopes_data: dict, path: str | os.PathLike) -> tuple[CatalogChannel, ...]:
     """The release's channel records, in display order, or a refusal naming ``path``.
 
     The catalogue is the single authored order: a channel's id IS its
@@ -916,7 +914,7 @@ def load_channel_catalogue(
     raw = scopes_data.get('LayerOrder')
     if not isinstance(raw, list) or not raw:
         raise InstallationFileError(path, f'has no usable LayerOrder (found {raw!r})')
-    records = tuple(_catalogue_channel(entry, path) for entry in raw)
+    records = tuple(_catalog_channel(entry, path) for entry in raw)
     keys = [record.key for record in records]
     repeated = sorted({key for key in keys if keys.count(key) > 1})
     if repeated:
@@ -925,10 +923,10 @@ def load_channel_catalogue(
 
 
 # The fields every catalogue record states.
-_CATALOGUE_FIELDS = tuple(field.name for field in fields(CatalogueChannel))
+_CATALOG_FIELDS = tuple(field.name for field in fields(CatalogChannel))
 
 
-def _catalogue_channel(entry: object, path: str | os.PathLike) -> CatalogueChannel:
+def _catalog_channel(entry: object, path: str | os.PathLike) -> CatalogChannel:
     """One ``LayerOrder`` record, or the refusal naming ``path`` and the field."""
 
     def refuse(why: str) -> InstallationFileError:
@@ -936,7 +934,7 @@ def _catalogue_channel(entry: object, path: str | os.PathLike) -> CatalogueChann
 
     if not isinstance(entry, dict):
         raise refuse('that is not an object')
-    missing = [f for f in _CATALOGUE_FIELDS if f not in entry]
+    missing = [f for f in _CATALOG_FIELDS if f not in entry]
     if missing:
         raise refuse(f'missing {missing}')
     key = entry['key']
@@ -968,7 +966,7 @@ def _catalogue_channel(entry: object, path: str | os.PathLike) -> CatalogueChann
         raise refuse('whose sim_light_magnification_power is set on a channel with no light')
     if light is not None and not is_finite_number(power):
         raise refuse('whose sim_light_magnification_power is not a number')
-    return CatalogueChannel(
+    return CatalogChannel(
         key=key,
         modality=modality,
         background=background,
@@ -981,7 +979,7 @@ def _catalogue_channel(entry: object, path: str | os.PathLike) -> CatalogueChann
 
 
 def _record(
-    key_name: str, row: dict, release: CatalogueChannel, position: int
+    key_name: str, row: dict, release: CatalogChannel, position: int
 ) -> ChannelRecord | str:
     """The record ``row`` describes for ``key_name``, or why it describes none.
 
@@ -1061,7 +1059,7 @@ def _shared_address(named: Iterable[tuple[str, tuple[int, ...]]]) -> str | None:
 
 def _model_channels(
     rows: object,
-    catalogue: tuple[CatalogueChannel, ...],
+    catalog: tuple[CatalogChannel, ...],
     old_names: tuple[OldChannelName, ...],
     refuse: Callable[[str], InstallationFileError],
 ) -> tuple[ChannelRecord, ...]:
@@ -1075,7 +1073,7 @@ def _model_channels(
     on that old name's address: a unit of the model stored its old name for
     that LED, and on any other address its old data would light another.
     """
-    by_key = {record.key: (position, record) for position, record in enumerate(catalogue)}
+    by_key = {record.key: (position, record) for position, record in enumerate(catalog)}
     if not isinstance(rows, list):
         raise refuse("a 'Layers' that is not a list of rows")
     records = []
@@ -1111,7 +1109,7 @@ def _model_channels(
 
 
 def _parse_channel_block(
-    channels: object, catalogue: tuple[CatalogueChannel, ...], report: Callable[[Notice], None]
+    channels: object, catalog: tuple[CatalogChannel, ...], report: Callable[[Notice], None]
 ) -> tuple[ChannelRecord, ...]:
     """Parse a board's Channels block: a mapping from catalogue key to its row.
 
@@ -1124,7 +1122,7 @@ def _parse_channel_block(
     if not isinstance(channels, dict):
         report(ChannelBlockUnusableNotice(f'its Channels is a {type(channels).__name__}'))
         return ()
-    by_key = {record.key: (position, record) for position, record in enumerate(catalogue)}
+    by_key = {record.key: (position, record) for position, record in enumerate(catalog)}
     records, skipped = [], {}
     for key_name, row in channels.items():
         if key_name not in by_key:
@@ -1155,7 +1153,7 @@ def resolve_channel_identity(
     motor_model: str | None,
     configured_model: str | None,
     models: Mapping[str, ScopeModel],
-    catalogue: tuple[CatalogueChannel, ...],
+    catalog: tuple[CatalogChannel, ...],
     report: Callable[[Notice], None],
 ) -> ChannelIdentity:
     """Resolve the unit's channel identity from the first authoritative source.
@@ -1218,7 +1216,7 @@ def resolve_channel_identity(
 
     board = board_block or {}
     if 'Channels' in board:
-        channels = _parse_channel_block(board['Channels'], catalogue, report)
+        channels = _parse_channel_block(board['Channels'], catalog, report)
         filterset = board.get('Filterset', '')
         if not isinstance(filterset, str):
             filterset = ''

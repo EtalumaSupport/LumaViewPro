@@ -72,7 +72,7 @@ def _identity(model, data_file=None):
         motor_model=model,
         configured_model=None,
         models=channel_record.load_scope_models(data_file),
-        catalogue=channel_record.release_channels(),
+        catalog=channel_record.release_channels(),
         report=refuse_a_report,
     )
 
@@ -88,8 +88,8 @@ def added_release(tmp_path, monkeypatch):
     scopes = write_release_with_added_channels(tmp_path)
     monkeypatch.setattr(
         channel_record,
-        '_CATALOGUE_CACHE',
-        channel_record.load_channel_catalogue(read_installation_file(scopes), scopes),
+        '_CATALOG_CACHE',
+        channel_record.load_channel_catalog(read_installation_file(scopes), scopes),
     )
     return str(scopes)
 
@@ -115,7 +115,7 @@ def _panel(monkeypatch):
     )
     panel = SimpleNamespace(
         ids={'accordion_id': _Accordion()},
-        _drawers={layer: _Drawer(layer) for layer in channel_record.release_catalogue()},
+        _drawers={layer: _Drawer(layer) for layer in channel_record.release_catalog()},
         _shown_channels=frozenset(),
         acquire=acquire,
     )
@@ -148,7 +148,7 @@ def test_each_layer_the_unit_has_is_shown_from_its_record(panel, model):
         assert control.false_color_support == (record.modality != 'transmitted')
         assert control.show_cbt == (record.modality != 'transmitted')
     present = {r.key_name for r in identity.channels}
-    absent = [layer for layer in channel_record.release_catalogue() if layer not in present]
+    absent = [layer for layer in channel_record.release_catalog() if layer not in present]
     assert panel.acquire == []
     assert all(panel._drawers[layer].collapse for layer in absent)
 

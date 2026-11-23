@@ -6,7 +6,7 @@ not the folder the session was started on, so one session held several
 catalogues that disagreed about which objectives and plates exist; every
 protocol re-read tiling.json as it was built, so after an edit the grids a
 session offered and the grids a protocol accepted differed. The scope now
-reads all three once, in ``Lumascope._read_catalogues``, and every consumer
+reads all three once, in ``Lumascope._read_catalogs``, and every consumer
 reads its copy. A construction anywhere else is a second store; this walk
 over every production module, drivers and tools included, refuses it at
 commit rather than in review.
@@ -19,7 +19,7 @@ import ast
 from tests.ast_seams import MemberNames, iter_package_modules, production_modules, walk_defs
 
 _OWNER_MODULE = 'src/_lumascope/modules/lumascope_api/_lumascope.py'
-_OWNER_DEF = 'Lumascope._read_catalogues'
+_OWNER_DEF = 'Lumascope._read_catalogs'
 _CATALOGUES = MemberNames(
     (
         'src/_lumascope/modules/labware_loader.py',
@@ -66,7 +66,7 @@ def test_no_module_but_the_scope_builds_a_catalogue():
                 continue
             found.append(f'{rel_path}:{lineno} {qualname} builds {name}')
     assert found == [], (
-        'only Lumascope._read_catalogues may build a labware or objective '
+        'only Lumascope._read_catalogs may build a labware or objective '
         f"catalogue or the tiling grids; read the scope's copy instead: {found}"
     )
 

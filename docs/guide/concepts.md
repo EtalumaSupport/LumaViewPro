@@ -168,7 +168,7 @@ and objectives are `scope.all_labware` and `scope.all_objectives`, in the
 order they are offered, each record carrying the name `select_labware` or
 `select_objective` takes; `scope.plate` and `scope.objective` look one up, a
 plate under a name it has retired too, and refuse a name the catalogue does
-not hold (`CatalogueNameRefusedError`, its `offered` the names it holds).
+not hold (`CatalogNameRefusedError`, its `offered` the names it holds).
 The objective is chosen by
 `select_objective`; on a scope with a turret that turns the turret to the slot
 holding it, since there the objective is the assignment of the slot in the

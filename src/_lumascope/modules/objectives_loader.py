@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from _lumascope.lib.real_numbers import is_finite_number
 from _lumascope.modules.exceptions import (
-    CatalogueNameRefusedError,
+    CatalogNameRefusedError,
     InstallationFileError,
     ObjectiveUnknownError,
 )
@@ -282,7 +282,7 @@ class ObjectiveLoader:
 
         Raises:
             ObjectiveUnknownError: ``'none_selected'``, a null identifier.
-            CatalogueNameRefusedError: ``'objective_not_in_catalogue'``, a
+            CatalogNameRefusedError: ``'objective_not_in_catalog'``, a
                 non-string or a key the catalogue does not hold; ``offered``
                 carries the keys it has.
 
@@ -302,8 +302,8 @@ class ObjectiveLoader:
         # objective with a real focal length answering for a name that fits
         # two. A near miss is refused by name so the file naming it gets fixed.
         if not isinstance(objective_id, str) or objective_id not in self._objectives:
-            raise CatalogueNameRefusedError(
-                'objective_not_in_catalogue',
+            raise CatalogNameRefusedError(
+                'objective_not_in_catalog',
                 argument='objective_id',
                 value=objective_id,
                 offered=tuple(self._objectives),

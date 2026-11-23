@@ -459,9 +459,9 @@ def get_channels() -> list[str]:
     vocabulary has exactly one source and a catalogue change cannot leave
     this list silently disagreeing with it.
     """
-    from _lumascope.modules.channel_record import release_catalogue
+    from _lumascope.modules.channel_record import release_catalog
 
-    return list(release_catalogue())
+    return list(release_catalog())
 
 
 def get_stored_channel_names() -> list[str]:

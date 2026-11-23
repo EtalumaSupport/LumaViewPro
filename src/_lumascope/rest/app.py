@@ -1449,7 +1449,7 @@ def _add_job_routes(
         stop leaves it: a stopped run ``aborted``, while a still, which has
         no stop, ends as it would have. A stop the scope refuses is the
         answer, as its member's refusal. A call held as a job when it
-        outlived its wait holds no operation: 409 ``not_cancellable``. The
+        outlived its wait holds no operation: 409 ``not_cancelable``. The
         forget is a write, in the control session the request names, and
         refused while another holds one: 409 ``control_session_held``. The
         stop is anyone's, made in no session, whatever the request names.

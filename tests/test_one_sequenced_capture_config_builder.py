@@ -81,10 +81,10 @@ def test_an_unknown_labware_is_refused_before_the_config_is_built():
     catalogue does not have, naming it; neither substitutes another plate,
     whose geometry would put every well position in the wrong place.
     """
-    from _lumascope.modules.exceptions import CatalogueNameRefusedError
+    from _lumascope.modules.exceptions import CatalogNameRefusedError
 
     with pytest.raises(
-        CatalogueNameRefusedError,
+        CatalogNameRefusedError,
         match=r"labware catalogue.*'a plate that does not exist' is not one",
     ):
         settings = _settings()
