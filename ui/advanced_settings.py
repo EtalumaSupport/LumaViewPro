@@ -68,6 +68,11 @@ class AdvancedSettings(Popup, SettingControls):
     # before the capability is read.
     stim_supported = BooleanProperty(False)
 
+    # Whether the picker offers a choice of model: not on a scope whose
+    # board names its own, which runs as that model at every start. Set on
+    # open from the scope's identity, which holds the answer.
+    model_choice_offered = BooleanProperty(True)
+
     # Where the REST server serves, as the application holds it; read on open.
     rest_reach = StringProperty('')
 
@@ -115,10 +120,9 @@ class AdvancedSettings(Popup, SettingControls):
         # Populate the dropdown values BEFORE setting the text. The spinner
         # keeps text_autoupdate at its default (False); were it True,
         # reassigning .values would reset .text to the alphabetically-first
-        # entry and fire on_text with the wrong scope. Setting text here fires
-        # select_scope, which no-ops because it matches the stored model.
+        # entry.
         self.load_scopes()
-        self.ids['scope_spinner'].text = settings['microscope']
+        self._show_scope_model()
 
         self.stim_supported = _app_ctx.ctx.scope.capabilities.has_firmware_stim
 
@@ -256,25 +260,28 @@ class AdvancedSettings(Popup, SettingControls):
             model.id for model in _app_ctx.ctx.session.scope.all_scope_models
         ]
 
-    def select_scope(self):
+    def select_scope(self, model: str) -> None:
+        """Save the model a person picked; the picker shows what the session then holds."""
         ctx = _app_ctx.ctx
-        settings = ctx.settings
-        new_model = self.ids['scope_spinner'].text
-        # on_open sets the spinner to the current model; selecting the value
-        # already in effect is not a scope change, so skip the reconfigure.
-        if new_model == settings['microscope']:
-            return
         run_reported(
-            lambda: ctx.session.select_model(new_model),
+            lambda: ctx.session.select_model(model),
             self._show_saved_model,
             'SCOPE',
         )
 
-    def _show_saved_model(self) -> None:
-        """Show the saved model; the session says when it waits for the next start."""
+    def _show_scope_model(self) -> None:
+        """Show the board's model on a scope whose board names it, else the saved one."""
         ctx = _app_ctx.ctx
-        self.ids['scope_spinner'].text = ctx.settings['microscope']
-        ctx.motion_settings.ids['microscope_settings_id'].show_scope_model()
+        identity = ctx.session.scope.channel_identity
+        self.model_choice_offered = not identity.model_named_by_board
+        self.ids['scope_spinner'].text = (
+            identity.model if identity.model_named_by_board else ctx.session.selected_model
+        )
+
+    def _show_saved_model(self) -> None:
+        """Show the model after a pick; the session says when it waits for the next start."""
+        self._show_scope_model()
+        _app_ctx.ctx.motion_settings.ids['microscope_settings_id'].show_scope_model()
 
     def acceleration_pct_slider(self):
         acc_val = self.ids['acceleration_pct_slider'].value
@@ -423,21 +430,20 @@ kv = Builder.load_string(
                     height: '30dp'
                     Label:
                         text: 'Lumascope Model'
-                        tooltip_text: 'The model of a microscope that does not report its own;\\nit takes effect at its next start'
+                        tooltip_text: 'This microscope reports its own model' if not root.model_choice_offered else 'The model of a microscope that does not report its own;\\nit takes effect at its next start'
                         size_hint_x: None
                         width: '110dp'
                         font_size: '12sp'
                     PickSpinner:
                         id: scope_spinner
-                        disabled: app.lock.run_lockout
+                        disabled: app.lock.run_lockout or not root.model_choice_offered
                         sync_height: True
                         text: 'Select'
                         font_size: '12sp'
                         option_cls: 'SpinnerOption0'
                         on_release: root.load_scopes()
                         log_name: 'SCOPE'
-                        text_follows_pick: True
-                        on_text: root.select_scope()
+                        on_pick: root.select_scope(args[1])
 
                 BoxLayout:
                     orientation: 'horizontal'

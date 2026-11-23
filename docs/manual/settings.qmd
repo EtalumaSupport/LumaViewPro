@@ -18,7 +18,7 @@ when LumaViewPro starts (@fig-tour-left-ls850).
 
 ### Which model LumaViewPro runs as {#sec-model-line}
 
-The first line, [Lumascope Model]{.guilabel}, shows the model LumaViewPro is running as. The model is
+The first line, [Lumascope Model]{.guilabel}, shows the model LumaViewPro is running as. On a microscope that doesn't report its own model, the model is
 selected in
 [Advanced Settings]{.guilabel} (@sec-advanced-general).
 
@@ -181,7 +181,7 @@ the window, to close it.
 
 #### Choosing the model
 
-[Lumascope Model]{.guilabel} sets the model for a microscope that doesn't report its own; a change takes effect the next time LumaViewPro starts.
+[Lumascope Model]{.guilabel} sets the model for a microscope that doesn't report its own; a change takes effect the next time LumaViewPro starts. On a microscope that reports its own model, it shows that model and can't be changed.
 
 LumaViewPro can't tell an LS460, an LS560 and an LS620 apart. On these
 models, select the correct model here and restart

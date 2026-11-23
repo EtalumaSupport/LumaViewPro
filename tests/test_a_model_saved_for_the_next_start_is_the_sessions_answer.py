@@ -9,9 +9,9 @@ that answer.
 
 The answer names only a start that happens. A scope whose board names its
 model (every EL-0940 answering FULLINFO, the LS720, every OEM unit) runs as
-the board's model at every start, so nothing waits there, and the selection
-made on it survives its starts for the scope that takes its model from it
-(a Classic FX2). The simulated scopes built as the selection (the LS620
+the board's model at every start, so nothing waits there: a model chosen
+on it is refused, and the selection saved before survives its starts for
+the scope that takes its model from it (a Classic FX2). The simulated scopes built as the selection (the LS620
 fixture) are the scopes whose model the selection decides.
 """
 
@@ -20,8 +20,11 @@ from __future__ import annotations
 import copy
 
 import pytest
+from fastapi.testclient import TestClient
 
+from _lumascope.modules.exceptions import SettingRefusedError
 from _lumascope.modules.lumascope_api.simulation import SimulatedScope
+from _lumascope.rest.app import build_app
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_a_simulated_scope_comes_up_as_a_units_own_config import OEM_NAME, unit_config
@@ -86,9 +89,6 @@ def test_an_unknown_model_is_refused_and_reported_as_nothing(ls620_session, hear
     assert [n for n in heard if n.title == 'Scope model saved'] == []
 
 
-_SAVED_REASONS = {'scope_model_deferred', 'scope_model_for_another_scope'}
-
-
 @pytest.fixture
 def started(tmp_path):
     """Start a simulated session as ``simulated``, from ``settings`` or the template's."""
@@ -108,23 +108,34 @@ def started(tmp_path):
         session.shutdown()
 
 
-def test_a_model_chosen_on_a_scope_that_names_its_own_is_saved_for_another_scope(started):
-    session = started(SimulatedScope(model='LS850'), microscope='LS850')
+def test_a_model_chosen_on_a_scope_that_names_its_own_is_refused_and_nothing_saved(started):
+    session = started(SimulatedScope(model='LS850'), microscope='LS620')
     heard = []
     session.add_outcome_listener(heard.append)
 
-    session.select_model('LS560')
+    with pytest.raises(SettingRefusedError) as refused:
+        session.select_model('LS560')
 
-    assert session.selected_model == 'LS560'
-    assert session.model_at_next_start is None
-    saved = [n for n in heard if getattr(n, 'reason', None) in _SAVED_REASONS]
-    assert [n.reason for n in saved] == ['scope_model_for_another_scope']
-    assert 'LS560' in saved[0].message and 'LS850' in saved[0].message
+    assert refused.value.reason == 'model_named_by_board'
+    assert refused.value.path == 'microscope'
+    assert 'LS850' in str(refused.value)
+    assert session.selected_model == 'LS620'
+    assert [n for n in heard if n.title == 'Scope model saved'] == []
+
+
+def test_a_wire_client_choosing_a_model_on_a_scope_that_names_its_own_is_refused(started):
+    session = started(SimulatedScope(model='LS850'), microscope='LS620')
+
+    with TestClient(build_app(session)) as client:
+        answer = client.put('/api/v1/selected_model', json={'model': 'LS560'})
+
+    assert answer.status_code == 422
+    assert answer.json()['reason'] == 'model_named_by_board'
+    assert session.selected_model == 'LS620'
 
 
 def test_the_selection_survives_a_start_on_a_scope_that_names_its_own(started):
-    first = started(SimulatedScope(model='LS850'), microscope='LS850')
-    first.select_model('LS560')
+    first = started(SimulatedScope(model='LS850'), microscope='LS560')
 
     again = started(SimulatedScope(model='LS850'), settings=copy.deepcopy(first.settings))
     assert again.scope.channel_identity.model == 'LS850'

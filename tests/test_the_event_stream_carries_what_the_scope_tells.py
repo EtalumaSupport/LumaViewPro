@@ -371,7 +371,7 @@ def test_a_notice_and_an_outcome_nobody_asked_for_are_sent_once_and_an_answered_
             RuntimeError('answered outcome'), solicited=True, category='Answered'
         )
         notifications.report_outcome(
-            ScopeModelDeferredNotice('scope_model_deferred', 'LS560', running='LS620'),
+            ScopeModelDeferredNotice('LS560'),
             solicited=True,
             category='Noticed',
         )

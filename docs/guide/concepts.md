@@ -187,11 +187,11 @@ state: `runtime_state.optics_status` answers the objective and the field of
 view, each its value or the refusal that says why it is unknown, raised to
 no one. `select_model` stores the
 model a scope that does not report its own is brought up as next time; the
-running model never changes. A scope whose board names its model
-(`scope.channel_identity.model_named_by_board`) runs as the board's at every
-start and keeps the stored one for the next such scope. The notice says which
-(`'scope_model_deferred'`, it waits for the next start;
-`'scope_model_for_another_scope'`, this scope names its own).
+running model never changes, and a model that is not the running one is told
+as `'scope_model_deferred'`, waiting for the next start. A scope whose board
+names its model (`scope.channel_identity.model_named_by_board`) runs as the
+board's at every start, so `select_model` there is refused
+(`SettingRefusedError`, `'model_named_by_board'`) and nothing is stored.
 `session.selected_model` is the stored model, `scope.channel_identity.model` the
 running one, and `session.model_at_next_start` the model the next start runs
 as while it differs from the running one, else None.

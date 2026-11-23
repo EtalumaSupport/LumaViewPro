@@ -2456,13 +2456,12 @@ the old one in its capabilities and its saved files. A scope whose
 motor board does not name its model (a Classic FX2) is brought up as
 the selection at its next start. A scope whose board names its model
 (`ChannelIdentity.model_named_by_board`) runs as the board's model
-at every start, and the selection is kept, unchanged by those
-starts, for the next unit connected that does not report its own.
+at every start, so no selection applies to it and none is taken
+there; the saved one stays as it was.
 
 A model that is not the one running is reported as a
-`ScopeModelDeferredNotice`, so every client hears which of the two
-it is: `'scope_model_deferred'`, it applies at the next start, or
-`'scope_model_for_another_scope'`, this scope names its own.
+`ScopeModelDeferredNotice`, `'scope_model_deferred'`, so every
+client hears that it applies at the next start.
 
 **Args**
 
@@ -2471,11 +2470,12 @@ it is: `'scope_model_deferred'`, it applies at the next start, or
 **Raises**
 
 - `CatalogNameRefusedError`: `'model_unknown'`, the scope's catalog does not list `model`; nothing is saved.
+- `SettingRefusedError`: `'model_named_by_board'`, this scope's board names its own model; nothing is saved.
 
 **Refusals by REST status**
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`CatalogNameRefusedError`](#CatalogNameRefusedError): `model_unknown`
+- 422: [`CatalogNameRefusedError`](#CatalogNameRefusedError): `model_unknown`; [`SettingRefusedError`](#SettingRefusedError): `model_named_by_board`
 
 <a id="ScopeSession.select_objective"></a>
 ### `ScopeSession.select_objective`
@@ -2538,7 +2538,8 @@ The saved scope model: the one `select_model` saved.
 
 A scope that does not report its own model is brought up as it at
 its next start; a scope whose board names its model runs as the
-board's at every start, and this stays the selection. The running
+board's at every start, refuses a selection, and leaves this as it
+was saved. The running
 scope's model is `scope.channel_identity.model`; whether a start
 will change it is `model_at_next_start`.
 
@@ -17236,16 +17237,12 @@ A notice; bases `Notice`, `Exception`.
 
 A scope model saved that is not the one running.
 
-`'scope_model_deferred'` -- the scope takes its model from the
-selection, so the selection applies when it is next brought up and
-changes nothing yet. `'scope_model_for_another_scope'` -- the scope's
-board names its own model, which it runs as at every start, so the
-selection is kept for a microscope that does not report its own.
+The scope takes its model from the selection, so the selection applies
+when it is next brought up and changes nothing yet.
 
 | Reason | Cause | REST status |
 |---|---|---|
 | `scope_model_deferred` | -- | 409 |
-| `scope_model_for_another_scope` | -- | 409 |
 
 <a id="ServerRefusedError"></a>
 ### `lumascope.ServerRefusedError`
@@ -17336,7 +17333,7 @@ responses branches on `reason`; a person reads the message.
 
 **Attributes**
 
-- `reason`: `'has_member'` -- the setting is changed by its own member, named in `member` by its path from the session (the camera's as `scope.camera.<name>`). `'host_only'` -- that member is in-process: only the application hosting the scope changes the setting, and a REST client reads it. `'not_a_setting'` -- no setting has this path. `'block'` -- the path names a block of settings, which is written one setting at a time. `'installation_only'` -- the setting is read only from the installation's settings file. `'wrong_kind'` -- the value is not the kind the setting holds. `'out_of_range'` -- the value is outside the setting's range. `'not_offered'` -- the setting holds a closed set (a `StrEnum`, such as `image_mode`'s `ImageMode`) and the value is not one of its values.
+- `reason`: `'has_member'` -- the setting is changed by its own member, named in `member` by its path from the session (the camera's as `scope.camera.<name>`). `'host_only'` -- that member is in-process: only the application hosting the scope changes the setting, and a REST client reads it. `'not_a_setting'` -- no setting has this path. `'block'` -- the path names a block of settings, which is written one setting at a time. `'installation_only'` -- the setting is read only from the installation's settings file. `'wrong_kind'` -- the value is not the kind the setting holds. `'out_of_range'` -- the value is outside the setting's range. `'model_named_by_board'` -- the scope model was chosen on a scope whose board names its own, which it runs as at every start (`ScopeSession.select_model`). `'not_offered'` -- the setting holds a closed set (a `StrEnum`, such as `image_mode`'s `ImageMode`) and the value is not one of its values.
 - `path`: The dotted path that was written.
 - `detail`: Why, as a clause about the value (`'it must be above 0, not 0'`), for a caller that names the setting its own way: a protocol step's column.
 - `member`: The member that changes the setting, for `'has_member'` and `'host_only'`; otherwise None.
@@ -17359,6 +17356,7 @@ beside the words.
 | `has_member` | request | 422 |
 | `host_only` | request | 422 |
 | `installation_only` | request | 422 |
+| `model_named_by_board` | request | 422 |
 | `not_a_setting` | request | 422 |
 | `not_offered` | request | 422 |
 | `out_of_range` | request | 422 |

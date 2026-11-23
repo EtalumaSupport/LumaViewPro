@@ -5632,13 +5632,12 @@ class ScopeSession:
         motor board does not name its model (a Classic FX2) is brought up as
         the selection at its next start. A scope whose board names its model
         (``ChannelIdentity.model_named_by_board``) runs as the board's model
-        at every start, and the selection is kept, unchanged by those
-        starts, for the next unit connected that does not report its own.
+        at every start, so no selection applies to it and none is taken
+        there; the saved one stays as it was.
 
         A model that is not the one running is reported as a
-        ``ScopeModelDeferredNotice``, so every client hears which of the two
-        it is: ``'scope_model_deferred'``, it applies at the next start, or
-        ``'scope_model_for_another_scope'``, this scope names its own.
+        ``ScopeModelDeferredNotice``, ``'scope_model_deferred'``, so every
+        client hears that it applies at the next start.
 
         Args:
             model: A model the release's catalog lists.
@@ -5646,25 +5645,30 @@ class ScopeSession:
         Raises:
             CatalogNameRefusedError: ``'model_unknown'``, the scope's
                 catalog does not list ``model``; nothing is saved.
+            SettingRefusedError: ``'model_named_by_board'``, this scope's
+                board names its own model; nothing is saved.
         """
         # The catalogue's lookup refuses a model it does not list, before
         # anything is saved; the record itself is not needed here.
         self.scope.scope_model(model)
+        identity = self.scope.channel_identity
+        if identity.model_named_by_board:
+            raise SettingRefusedError(
+                'model_named_by_board',
+                'microscope',
+                f'this microscope reports its own model, {identity.model}, '
+                'and runs as it at every start',
+                subject='The scope model',
+            )
         with self.settings_lock:
             self._store_setting('microscope', model)
         logger.info(f'[Session  ] scope model {model!r} saved')
         # Reported once the lock is released: listeners run on this thread.
-        identity = self.scope.channel_identity
         if model != identity.model:
             from _lumascope.modules.notification_center import notifications
 
-            reason = (
-                'scope_model_for_another_scope'
-                if identity.model_named_by_board
-                else 'scope_model_deferred'
-            )
             notifications.report_outcome(
-                ScopeModelDeferredNotice(reason, model, running=identity.model),
+                ScopeModelDeferredNotice(model),
                 solicited=True,
                 category='Microscope',
             )
@@ -5676,7 +5680,8 @@ class ScopeSession:
 
         A scope that does not report its own model is brought up as it at
         its next start; a scope whose board names its model runs as the
-        board's at every start, and this stays the selection. The running
+        board's at every start, refuses a selection, and leaves this as it
+        was saved. The running
         scope's model is ``scope.channel_identity.model``; whether a start
         will change it is ``model_at_next_start``.
 

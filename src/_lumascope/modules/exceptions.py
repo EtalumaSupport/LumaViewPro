@@ -648,28 +648,17 @@ class CellCountScaleDroppedNotice(Notice, Exception):  # noqa: N818 -- a notice,
 class ScopeModelDeferredNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
     """A scope model saved that is not the one running.
 
-    ``'scope_model_deferred'`` -- the scope takes its model from the
-    selection, so the selection applies when it is next brought up and
-    changes nothing yet. ``'scope_model_for_another_scope'`` -- the scope's
-    board names its own model, which it runs as at every start, so the
-    selection is kept for a microscope that does not report its own.
+    The scope takes its model from the selection, so the selection applies
+    when it is next brought up and changes nothing yet.
     """
 
     title = 'Scope model saved'
-    _WORDS: ClassVar[dict[str, str]] = {
-        'scope_model_deferred': (
-            '{model} is saved as the configured model and applies the next time LumaViewPro starts.'
-        ),
-        'scope_model_for_another_scope': (
-            '{model} is saved for a microscope that does not report its own model. '
-            'This microscope reports itself as {running} and runs as {running}.'
-        ),
-    }
-    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_WORDS)
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'scope_model_deferred': None}
 
-    def __init__(self, reason: str, model: str, *, running: str | None):
-        super().__init__(self._WORDS[reason].format(model=model, running=running))
-        self.reason = reason
+    def __init__(self, model: str):
+        super().__init__(
+            f'{model} is saved as the configured model and applies the next time LumaViewPro starts.'
+        )
         self.model = model
 
 
@@ -2000,6 +1989,9 @@ class SettingRefusedError(Refusal, ConfigError):
             installation's settings file. ``'wrong_kind'`` -- the value is
             not the kind the setting holds.
             ``'out_of_range'`` -- the value is outside the setting's range.
+            ``'model_named_by_board'`` -- the scope model was chosen on a
+            scope whose board names its own, which it runs as at every
+            start (``ScopeSession.select_model``).
             ``'not_offered'`` -- the setting holds a closed set (a
             ``StrEnum``, such as ``image_mode``'s ``ImageMode``) and the
             value is not one of its values.
@@ -2035,6 +2027,7 @@ class SettingRefusedError(Refusal, ConfigError):
             'has_member',
             'host_only',
             'installation_only',
+            'model_named_by_board',
         ),
         RefusalCause.REQUEST,
     )

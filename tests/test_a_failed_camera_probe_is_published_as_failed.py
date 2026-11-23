@@ -262,6 +262,7 @@ def test_advanced_settings_offers_a_toggle_unless_the_camera_lacks_it(monkeypatc
             _show_capture_shown=lambda: None,
             show_controls=lambda: None,
             load_scopes=lambda: None,
+            _show_scope_model=lambda: None,
         )
         AdvancedSettings.show_settings(panel)
         shown[supported] = (panel.conversion_gain_supported, panel.line_noise_reduction_supported)
