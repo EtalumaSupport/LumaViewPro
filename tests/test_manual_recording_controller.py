@@ -376,7 +376,7 @@ class TestStartRefusals:
         assert e.value.reason == 'disk_space_insufficient'
         assert e.value.title == 'Not Enough Disk Space'
         assert '100.0 MB is free at' in e.value.message, e.value.message
-        assert 'needs 2.0 GB free to start' in e.value.message, e.value.message
+        assert 'needs 2.0 GB to start' in e.value.message, e.value.message
 
     def test_a_drive_whose_free_space_cannot_be_read_is_refused(self, tmp_path, monkeypatch):
         # The folder is there, and the drive under it does not answer: the

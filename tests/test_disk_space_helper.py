@@ -161,7 +161,7 @@ def test_a_write_needs_its_size_plus_the_headroom(monkeypatch):
     fits = common_utils.room_to_write('/', 'a scan of 3 steps', 600.0)
 
     assert short is not None and '900.0 MB is free at /' in short, short
-    assert 'a scan of 3 steps needs 1.1 GB' in short, short
+    assert 'a scan of 3 steps needs 1.1 GB to write, 200.0 MB more' in short, short
     assert fits is None
 
 
@@ -182,7 +182,8 @@ def test_a_recordings_frames_keep_the_room_a_start_needs(monkeypatch):
     free_space_is(monkeypatch, needs)
     again = common_utils.DiskCheckInterval(elapsed_clock=lambda: 100.0)
 
-    assert short is not None and 'needs 2.5 GB' in short, short
+    # Near the line the two sizes round alike; the shortfall says it.
+    assert short is not None and 'needs 2.5 GB to write, 1.0 MB more than is free' in short, short
     assert again.room_to_write('/', 'the recording') is None
 
 

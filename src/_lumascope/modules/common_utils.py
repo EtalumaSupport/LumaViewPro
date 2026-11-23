@@ -1600,10 +1600,22 @@ def room_to_start(
     return NoRoomToStart(
         reason='disk_space_insufficient',
         message=(
-            f'{format_disk_size_mb(free_mb)} is free at {folder}, and {what} needs '
-            f'{format_disk_size_mb(needs_mb)} free to start. Free space or choose another '
-            'save location, then try again.'
+            f'{_short_of(free_mb, folder, what, needs_mb, "to start")} Free space or choose '
+            'another save location, then try again.'
         ),
+    )
+
+
+def _short_of(free_mb: float, folder, what: str, needs_mb: float, when: str) -> str:
+    """The judges' sentence: what is free, where, what is needed, and the shortfall.
+
+    The shortfall is stated whole because the two sizes are rounded for
+    the reader, and near the line they round to the same figure.
+    """
+    return (
+        f'{format_disk_size_mb(free_mb)} is free at {folder}, and {what} needs '
+        f'{format_disk_size_mb(needs_mb)} {when}, '
+        f'{format_disk_size_mb(needs_mb - free_mb)} more than is free.'
     )
 
 
@@ -1635,8 +1647,8 @@ def room_to_write(folder: str | os.PathLike, what: str, write_mb: float) -> str 
     if fits:
         return None
     message = (
-        f'{format_disk_size_mb(free_mb)} is free at {folder}, and {what} needs '
-        f'{format_disk_size_mb(needs_mb)}. Stopped so that what is on disk is kept.'
+        f'{_short_of(free_mb, folder, what, needs_mb, "to write")} Stopped so that what '
+        'is on disk is kept.'
     )
     logger.error(f'[Disk] {message}')
     return message
