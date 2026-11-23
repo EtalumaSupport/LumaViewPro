@@ -92,7 +92,7 @@ def _project(folder):
     return ZProjector(has_turret=False).load_folder(
         path=folder,
         tiling_grids=shipped_grids(),
-        method=ZProjectMethod.Min,
+        method=ZProjectMethod.MIN,
         channel_colors=release_colors(),
     )
 

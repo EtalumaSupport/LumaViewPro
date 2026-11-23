@@ -27,7 +27,7 @@ def projected_dtype(method: ZProjectMethod, input_dtype: np.typing.DTypeLike) ->
     is stored in a 16-bit container, as a summed capture is.
     """
     input_dtype = np.dtype(input_dtype)
-    if method == ZProjectMethod.Sum and input_dtype == np.uint8:
+    if method == ZProjectMethod.SUM and input_dtype == np.uint8:
         return np.dtype(np.uint16)
     return input_dtype
 
@@ -70,22 +70,22 @@ def zproject(images_data: list[np.ndarray], method: ZProjectMethod) -> np.ndarra
     out_dtype = projected_dtype(method, orig_dtype)
     stack = np.stack(images_data, axis=0)
 
-    if method == ZProjectMethod.Min:
+    if method == ZProjectMethod.MIN:
         result = stack.min(axis=0)
-    elif method == ZProjectMethod.Max:
+    elif method == ZProjectMethod.MAX:
         result = stack.max(axis=0)
-    elif method == ZProjectMethod.Average:
+    elif method == ZProjectMethod.AVERAGE:
         result = stack.mean(axis=0, dtype=np.float64).round()
-    elif method == ZProjectMethod.Median:
+    elif method == ZProjectMethod.MEDIAN:
         result = np.median(stack, axis=0).round()
-    elif method == ZProjectMethod.Sum:
+    elif method == ZProjectMethod.SUM:
         # Accumulate in a wide integer so the sum itself never overflows, then
         # saturate at the 16-bit container's ceiling. A uint16 stack would need
         # ~2.8e14 frames to overflow uint64.
         acc_dtype = np.uint64 if np.issubdtype(orig_dtype, np.unsignedinteger) else np.int64
         summed = stack.sum(axis=0, dtype=acc_dtype)
         result = np.clip(summed, 0, np.iinfo(out_dtype).max)
-    elif method == ZProjectMethod.StdDev:
+    elif method == ZProjectMethod.STD_DEV:
         result = stack.std(axis=0, dtype=np.float64).round()
     else:
         logger.error(f'[ZProject] Unknown method: {method!r}')

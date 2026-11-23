@@ -348,7 +348,7 @@ class ZProject:
         method: How each stack's slices are reduced.
     """
 
-    method: ZProjectMethod = ZProjectMethod.Max
+    method: ZProjectMethod = ZProjectMethod.MAX
 
 
 @api_fields('mode')

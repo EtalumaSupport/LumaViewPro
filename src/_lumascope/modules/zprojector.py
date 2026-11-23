@@ -248,7 +248,7 @@ class ZProjector(ProtocolPostProcessor):
         # A Sum reaches past its inputs' range and is tagged with the bits it
         # can reach, by the rule a summed capture is tagged with; every other
         # method keeps its values within the inputs' range.
-        if method == ZProjectMethod.Sum:
+        if method == ZProjectMethod.SUM:
             output_depth = image_utils.summed_significant_bits(len(input_depths), input_depth)
         else:
             output_depth = input_depth
@@ -284,7 +284,7 @@ class ZProjector(ProtocolPostProcessor):
             # integrates; a Sum adds the slices, so beside the per-frame exposure
             # it would state a fraction of the output's integration. Every other
             # method keeps each pixel one slice's value or a statistic of them.
-            adds_frames=method == ZProjectMethod.Sum,
+            adds_frames=method == ZProjectMethod.SUM,
         )
         image_utils.write_tiff(
             data=result['image'],

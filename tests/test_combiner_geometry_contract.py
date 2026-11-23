@@ -57,11 +57,11 @@ def test_build_composite_rejects_mismatched_channels():
 def test_zproject_rejects_mismatched_slices():
     slices = [np.zeros((8, 8), np.uint8), np.zeros((8, 9), np.uint8)]
     with pytest.raises(ValueError, match=r'not stitched to one geometry'):
-        zproject(images_data=slices, method=ZProjectMethod.Max)
+        zproject(images_data=slices, method=ZProjectMethod.MAX)
 
 
 def test_zproject_accepts_uniform_slices():
     slices = [np.full((8, 8), 10, np.uint8), np.full((8, 8), 200, np.uint8)]
-    out = zproject(images_data=slices, method=ZProjectMethod.Max)
+    out = zproject(images_data=slices, method=ZProjectMethod.MAX)
     assert out.shape == (8, 8)
     assert out.max() == 200

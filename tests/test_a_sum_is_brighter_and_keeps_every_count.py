@@ -341,7 +341,7 @@ def _write(
 
 def test_a_sum_projection_of_8bit_slices_keeps_its_counts():
     slices = [np.full((4, 4), 200, dtype=np.uint8) for _ in range(3)]
-    projected = zprojection.zproject(slices, ZProjectMethod.Sum)
+    projected = zprojection.zproject(slices, ZProjectMethod.SUM)
     assert projected.dtype == np.uint16
     assert int(projected.max()) == 600
 
@@ -352,7 +352,7 @@ def test_a_colour_sum_projection_does_not_wrap():
         rgb = np.zeros((4, 4, 3), dtype=np.uint8)
         rgb[:, :, 2] = 200
         slices.append(rgb)
-    result = ZProjector(has_turret=False)._zproject_for_multi_channel(slices, ZProjectMethod.Sum)
+    result = ZProjector(has_turret=False)._zproject_for_multi_channel(slices, ZProjectMethod.SUM)
     assert result['image'].dtype == np.uint16
     assert int(result['image'][:, :, 2].max()) == 600
 

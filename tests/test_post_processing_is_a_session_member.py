@@ -85,7 +85,7 @@ def test_a_build_runs_on_its_lane_with_the_installations_tiling(
     import importlib
 
     if member == 'zproject':
-        kwargs = {'method': ZProjectMethod.Min}
+        kwargs = {'method': ZProjectMethod.MIN}
     seen = _spy_build(monkeypatch, getattr(importlib.import_module(module), cls), method)
 
     # A turret scope, so a build told False is caught; and the caller's own
@@ -179,7 +179,7 @@ def test_a_zproject_record_built_with_a_word_that_is_no_method_is_refused():
     with pytest.raises(ArgumentRefusedError) as refused:
         ZProject(method='max')
     assert (refused.value.reason, refused.value.argument) == ('not_offered', 'ZProject.method')
-    assert ZProject(method='Sum').method is ZProjectMethod.Sum
+    assert ZProject(method='Sum').method is ZProjectMethod.SUM
 
 
 def test_a_degraded_output_names_its_algorithms_by_the_set(tmp_path):

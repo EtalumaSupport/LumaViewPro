@@ -13,14 +13,15 @@ import enum
 class ZProjectMethod(enum.StrEnum):
     """How a z-stack's slices are reduced to one image, pixel by pixel.
 
-    Each value is its name, the word a caller sends. A projection's file
-    name and derivation record carry the name lower-cased
-    (``zproj_max``), so neither depends on these values.
+    Each value is the word a caller sends (``'Max'``); the member is its
+    UPPER_CASE spelling in Python (``ZProjectMethod.MAX``). A projection's
+    file name and derivation record carry the value lower-cased
+    (``zproj_max``).
     """
 
-    Min = 'Min'
-    Max = 'Max'
-    Average = 'Average'
-    Median = 'Median'
-    Sum = 'Sum'
-    StdDev = 'StdDev'
+    MIN = 'Min'
+    MAX = 'Max'
+    AVERAGE = 'Average'
+    MEDIAN = 'Median'
+    SUM = 'Sum'
+    STD_DEV = 'StdDev'

@@ -247,7 +247,7 @@ def test_a_derived_file_states_a_setting_only_where_its_inputs_agree(tmp_path):
     ZProjector(has_turret=False)._zproject(
         slices,
         _tiles(slices, z_pos_um=(100.0, 110.0)),
-        ZProjectMethod.Max,
+        ZProjectMethod.MAX,
         pathlib.Path('projected.tiff'),
         release_colors(),
     )

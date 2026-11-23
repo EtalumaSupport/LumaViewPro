@@ -195,7 +195,7 @@ class TestTheReader:
     ('folder_of', 'bad_frame', 'build'),
     [
         (_z_stacks, 'A1_BF_Z1_0000.tiff', lambda f: ZProjector(has_turret=False).load_folder(
-            path=f, tiling_grids=shipped_grids(), method=ZProjectMethod.Min, channel_colors=release_colors())),
+            path=f, tiling_grids=shipped_grids(), method=ZProjectMethod.MIN, channel_colors=release_colors())),
         (_z_stacks, 'A1_BF_Z1_0000.tiff', lambda f: StackBuilder(has_turret=False).load_folder(
             path=f, tiling_grids=shipped_grids(), save_encoding='right_aligned', channel_colors=release_colors())),
         (_tiles, 'A1_BF_T0_0000.tiff', lambda f: Stitcher(has_turret=False).load_folder(
@@ -225,7 +225,7 @@ def test_a_slice_of_another_size_fails_its_group_and_the_others_are_built(tmp_pa
         ZProjector(has_turret=False).load_folder(
             path=folder,
             tiling_grids=shipped_grids(),
-            method=ZProjectMethod.Min,
+            method=ZProjectMethod.MIN,
             channel_colors=release_colors(),
         )
 
@@ -362,7 +362,7 @@ def _zproject(folder):
     return ZProjector(has_turret=False).load_folder(
         path=folder,
         tiling_grids=shipped_grids(),
-        method=ZProjectMethod.Min,
+        method=ZProjectMethod.MIN,
         channel_colors=release_colors(),
     )
 
