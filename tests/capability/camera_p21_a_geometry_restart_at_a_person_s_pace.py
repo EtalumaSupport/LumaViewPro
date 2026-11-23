@@ -12,7 +12,7 @@ either stop mode, after 12 to 142 restarts, and no 2.x body did. The legs:
   delivered after each; its check is that frames came after every change.
 - B: the same changes with no wait, or ``--gap-s`` after each.
 - F: the frame alone, smallest and as brought up, one restart per change,
-  ``--gap-s`` after each, 60 restarts.
+  ``--gap-s`` after each, ``--cycles`` pairs of restarts (30, so 60 restarts, by default).
 - S: as F, between the camera characterization's frames.
 - R: a logged run's camera writes made again at their spacing (``--replay``).
 
@@ -52,6 +52,9 @@ GAP_S = float(_args[_args.index('--gap-s') + 1]) if '--gap-s' in _args else 0.0
 # bring-up so a scope whose objective is unconfirmed is not stopped; the
 # result does not depend on the optics.
 OBJECTIVE = _args[_args.index('--objective') + 1] if '--objective' in _args else None
+# ``--cycles N``: legs F and S make N pairs of changes in one session, so a
+# series runs past the 60 restarts a reset at the next connect would end.
+CYCLES = int(_args[_args.index('--cycles') + 1]) if '--cycles' in _args else 30
 # ``--legs R --replay <file>``: a run's camera writes, one per line as the
 # driver logged them (``HH:MM:SS.mmm pylon Width.SetValue(...) ...``), made
 # again through the API at the same spacing.
@@ -237,7 +240,7 @@ def _frame_only(scope, sizes=None, leg='F'):
     if sizes is None:
         held = cam.read_frame_size()
         sizes = (_smallest(scope), (held.width, held.height))
-    for n in range(1, 31):
+    for n in range(1, CYCLES + 1):
         for size in sizes:
             made = time.strftime('%H:%M:%S')
             cam.set_frame_size(*size)
