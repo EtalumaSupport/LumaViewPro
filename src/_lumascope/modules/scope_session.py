@@ -321,7 +321,7 @@ def _apply_handle_trace(settings: dict) -> None:
     """Turn the handle trace on when the settings say so; never turn it off.
 
     Process-wide like the profile tracer, and decided by the same rule in
-    the same place. Before the scope is constructed, so its first labelled
+    the same place. Before the scope is constructed, so its first labeled
     tick, on a grab or a save, already counts.
     """
     if not settings['profiling']['handle_trace_enabled']:
@@ -339,7 +339,7 @@ def _owner_of(member: settings_paths.SettingMember) -> type:
 def _tell_stored_replacements(pending: list[tuple[str, object, object]]) -> None:
     """Tell, as one notice, the stored settings a load replaced, and empty ``pending``.
 
-    One notice per load: the notification centre shows one notice of a kind
+    One notice per load: the notification center shows one notice of a kind
     at a time and drops a repeat within its window, so a second notice from
     the same load would hide the first's values. Emptied as it is told, so
     each way out of a bring-up can tell it and the load is told once.
@@ -413,8 +413,8 @@ class ObjectiveQuestion:
     Attributes:
         turret_slot: The slot the answer binds to, or None on a
             non-turret model.
-        proposed: The catalogue id to offer as the default.
-        choices: The catalogue, in its shipped order.
+        proposed: The catalog id to offer as the default.
+        choices: The catalog, in its shipped order.
     """
 
     turret_slot: int | None
@@ -1655,7 +1655,7 @@ class ScopeSession:
         one place the answer is composed, so the GUI reads nothing below the
         Session: what holds the scope (``controls_lock``); each queued
         lane with a task running or queued, since a turret pick or a build
-        blocks on its lane; an axis still travelling, since a jog, a go-to
+        blocks on its lane; an axis still traveling, since a jog, a go-to
         or a stage click starts its move on the lane and the lane is idle
         while the stage moves; an autofocus sweep, which holds no scope
         claim; a plugin run from its press to its end
@@ -1744,7 +1744,7 @@ class ScopeSession:
 
         Bring-up has happened by the time a session exists; pass the listener
         to ``create(outcome_listener=...)`` to hear it. The outcomes heard are
-        every session's in this process, as the notification centre is one
+        every session's in this process, as the notification center is one
         per process. ``shutdown()`` removes the listener.
 
         Args:
@@ -1832,7 +1832,7 @@ class ScopeSession:
         build their session here, passing what only a host knows as the
         keyword arguments below. The factory builds the scope, so every
         session's scope is brought up the one way. The session's data folder
-        and catalogues are always its scope's.
+        and catalogs are always its scope's.
 
         The executor bundle is always built, around the scope's own IO and
         CAMERA lanes, via executor_registry.create_default, so every caller
@@ -1948,7 +1948,7 @@ class ScopeSession:
                 server or script drives the microscope, or while another
                 real scope in this process is open. Nothing was opened.
             CatalogNameRefusedError: ``'model_unknown'``, the scope is to
-                be built as a model the catalogue does not list: the stored
+                be built as a model the catalog does not list: the stored
                 ``microscope`` with no motor board reporting a model to stand
                 in its place, or, for a simulated scope, ``simulated.model``
                 (``argument`` names the stored setting or ``simulated``).
@@ -2503,14 +2503,14 @@ class ScopeSession:
     @api
     @property
     def channel_colors(self) -> dict[str, tuple[float, float, float]]:
-        """Every channel of the release and the colour it is shown and written
+        """Every channel of the release and the color it is shown and written
         in, as red, green and blue weights, each 0 to 1.
 
-        The one read of a channel's colour: every capture, recording, build
+        The one read of a channel's color: every capture, recording, build
         and view takes it from here, the run and each build as it starts.
-        A channel's ``display_color`` setting, a ``'#rrggbb'`` colour at full
-        brightness, overrides its colour; null is no override. Without one,
-        a channel this unit carries takes the unit's colour (its record's,
+        A channel's ``display_color`` setting, a ``'#rrggbb'`` color at full
+        brightness, overrides its color; null is no override. Without one,
+        a channel this unit carries takes the unit's color (its record's,
         which a board's Channels block may give), and any other channel the
         release's, so a folder captured on another unit still has one.
 
@@ -2644,7 +2644,7 @@ class ScopeSession:
                 ``file_path``; ``'not_a_file'``, a folder is.
             ProtocolNotLoadedError: The file is there and cannot be read.
             ProtocolFormatError: The file is not a protocol LumaViewPro can
-                take, or names a plate this installation's labware catalogue
+                take, or names a plate this installation's labware catalog
                 does not have; refused before any protocol exists.
             ProtocolRunRefusedError: ``'objective_not_mounted'``,
                 ``'objectives_require_turret'``,
@@ -2932,7 +2932,7 @@ class ScopeSession:
         Each field named is written; a field left out is left as it is, and
         None is a value (``acquire`` None stops the channel acquiring,
         ``focus_z_um`` None clears the saved focus, ``display_color`` None
-        shows the catalogue's colour). On the wire a key left out is a
+        shows the catalog's color). On the wire a key left out is a
         field not written, and null is the value.
 
         Every field is judged before any is stored: its range, Z's travel
@@ -2958,14 +2958,14 @@ class ScopeSession:
             gain_db: The camera gain, in dB.
             auto_gain: The camera's auto-gain is on.
             exposure_ms: The camera exposure, in ms.
-            false_color: The channel's image is false-coloured.
+            false_color: The channel's image is false-colored.
             frames_summed: How many frames a capture sums, at least 1; above
                 100 it is set at 100.
-            focus_z_um: The Z saved as the channel's focus, in micrometres;
+            focus_z_um: The Z saved as the channel's focus, in micrometers;
                 None clears it.
             autofocus: A step of the channel autofocuses.
-            display_color: The channel's colour as ``'#rrggbb'``; None, the
-                catalogue's.
+            display_color: The channel's color as ``'#rrggbb'``; None, the
+                catalog's.
             composite_brightness_threshold_pct: The brightness, as a percentage
                 of full scale, below which the channel's pixels add nothing
                 to a composite.
@@ -3242,7 +3242,7 @@ class ScopeSession:
 
         Args:
             tiling: The tile grid at each well, a grid the installation's
-                tiling catalogue offers, such as ``'3x3'``; ``'1x1'`` (the
+                tiling catalog offers, such as ``'3x3'``; ``'1x1'`` (the
                 default) is one tile.
             use_zstacking: Stack each step through the stored z-stack (the
                 setting ``zstack``); False takes one plane.
@@ -3536,8 +3536,8 @@ class ScopeSession:
     def save_bookmark(self, axes: 'Iterable[StageAxis]') -> PlateLocation:
         """Save where the stage is on ``axes`` as the bookmark, as the bookmark buttons do.
 
-        X and Y are stored in plate millimetres on the selected plate, Z in
-        micrometres: the frame the go-to-bookmark moves read them in. The
+        X and Y are stored in plate millimeters on the selected plate, Z in
+        micrometers: the frame the go-to-bookmark moves read them in. The
         writer of ``bookmark``'s X and Y; the GUI's Set All Bookmarks also
         writes its Z.
 
@@ -3588,7 +3588,7 @@ class ScopeSession:
     @api
     @property
     def bookmark(self) -> PlateLocation:
-        """The bookmark: X and Y in plate millimetres on the selected plate, Z in micrometres.
+        """The bookmark: X and Y in plate millimeters on the selected plate, Z in micrometers.
 
         What ``save_bookmark`` and the GUI's Set All Bookmarks stored, in the
         frame the go-to-bookmark moves read it in.
@@ -3870,11 +3870,11 @@ class ScopeSession:
 
         Args:
             protocol: The protocol put on the plate.
-            labware_id: The plate's name in the labware catalogue.
+            labware_id: The plate's name in the labware catalog.
 
         Raises:
             CatalogNameRefusedError: ``'labware_unknown'``, ``labware_id`` is not a
-                plate the catalogue has. The protocol keeps its plate.
+                plate the catalog has. The protocol keeps its plate.
         """
         return self.scope.protocols.set_labware(protocol, labware_id)
 
@@ -4006,7 +4006,7 @@ class ScopeSession:
         labels ``new_protocol`` and ``apply_tiling`` accept, and
         ``default`` is the one to preselect; ``Protocol.tiling`` names
         the grid a protocol's steps already carry. Read once with the
-        installation's other catalogues, so a tiling.json edited while the
+        installation's other catalogs, so a tiling.json edited while the
         program runs is seen at the next start, and every protocol is built
         against the same grids. The record is frozen: a caller cannot change
         the grids a session offers.
@@ -4034,13 +4034,13 @@ class ScopeSession:
                 a grid this installation offers; ``'already_tiled'``, the
                 protocol is; ``'step_position_missing'``, a step has no
                 position on an axis the tiles move; ``'objective_not_in_catalog'``,
-                a step's objective is not in the catalogue;
+                a step's objective is not in the catalog;
                 ``'tiling_scale_unknown'``, the optics give no field of view
                 to space the tiles by; ``'positions_unreachable'``, the scope
                 has no X/Y motor; ``'tiles_outside_travel'``, a tile falls
                 outside the stage's travel. Nothing changes.
             CatalogNameRefusedError: ``'labware_unknown'``, the protocol's plate is
-                not in the catalogue. Nothing changes.
+                not in the catalog. Nothing changes.
         """
         import _lumascope.modules.config_helpers as config_helpers
 
@@ -4059,7 +4059,7 @@ class ScopeSession:
 
         The stack is the stored ``zstack``, as ``new_protocol`` and
         ``add_step`` stack: its extent ``zstack.range`` and slice spacing
-        ``zstack.step_size`` in micrometres, and ``zstack.position``, where
+        ``zstack.step_size`` in micrometers, and ``zstack.position``, where
         each step's Z sits in its stack. A caller wanting another stack
         writes those settings first.
 
@@ -4193,10 +4193,10 @@ class ScopeSession:
                 the slot the step meant is no longer one slot carrying it;
                 without a turret ``'objective_not_mounted'``, it is not the
                 selected objective. Nothing changes.
-            ArgumentRefusedError: ``'channel_unknown'``, the step's colour is
+            ArgumentRefusedError: ``'channel_unknown'``, the step's color is
                 not a channel. Nothing changes.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
-                no channel of the step's colour. Nothing changes.
+                no channel of the step's color. Nothing changes.
             ProtocolRunRefusedError: ``'values_out_of_range'``, a value
                 the step would store in its channels is outside its channel
                 setting's range, each named by column and bound. Nothing
@@ -5656,11 +5656,11 @@ class ScopeSession:
         ``'scope_model_for_another_scope'``, this scope names its own.
 
         Args:
-            model: A model the release's catalogue lists.
+            model: A model the release's catalog lists.
 
         Raises:
             CatalogNameRefusedError: ``'model_unknown'``, the scope's
-                catalogue does not list ``model``; nothing is saved.
+                catalog does not list ``model``; nothing is saved.
         """
         # The catalogue's lookup refuses a model it does not list, before
         # anything is saved; the record itself is not needed here.
@@ -5743,11 +5743,11 @@ class ScopeSession:
         )
 
     def _replace_an_unresolvable_stored_plate(self) -> list[tuple[str, object, object]]:
-        """Replace a stored plate the catalogue cannot resolve with the shipped one.
+        """Replace a stored plate the catalog cannot resolve with the shipped one.
 
-        An empty name or a plate the catalogue no longer has; a null or a
+        An empty name or a plate the catalog no longer has; a null or a
         non-string never reaches here, since the load replaces it and a
-        session's door refuses it, by the writer's rule. The catalogue is
+        session's door refuses it, by the writer's rule. The catalog is
         first available here, at bring-up, so the name is judged here
         rather than with the load's other stored values. Refusing it
         instead brought the GUI up on the shipped template, dropping every
@@ -5771,16 +5771,16 @@ class ScopeSession:
         self.select_labware(shipped)
         logger.info(
             f'[Session  ] stored plate {stored!r} replaced by {shipped!r}: '
-            'the catalogue has no such plate'
+            'the catalog has no such plate'
         )
         return [('protocol.labware', stored, shipped)]
 
     def _replace_an_unknown_stored_objective(self) -> list[tuple[str, object, object]]:
-        """Replace a stored objective id the catalogue does not hold with the shipped one.
+        """Replace a stored objective id the catalog does not hold with the shipped one.
 
         On a scope with no turret the stored id is the objective, read at
         bring-up and stamped as the scale of every capture, so an id that
-        names no catalogue objective is replaced here, where the catalogue
+        names no catalog objective is replaced here, where the catalog
         is first available, as the plate is. Refusing it instead brought the
         GUI up on the shipped template, dropping every other stored setting
         for one id. A turreted scope does not read the stored id: its
@@ -5807,7 +5807,7 @@ class ScopeSession:
             self._store_setting('objective_id', shipped)
         logger.info(
             f'[Session  ] stored objective {stored!r} replaced by {shipped!r}: '
-            'the catalogue has no such objective'
+            'the catalog has no such objective'
         )
         return [('objective_id', stored, shipped)]
 
@@ -5818,11 +5818,11 @@ class ScopeSession:
         (``scope.channel_identity.model``: a model the board reports
         outranks the stored selection, which is left as it is, for a scope
         that does not report its own; with no motor board to ask, the stored
-        one must be a model the catalogue lists), resolve the model's
-        catalogue entry, replace a stored plate the catalogue cannot resolve
+        one must be a model the catalog lists), resolve the model's
+        catalog entry, replace a stored plate the catalog cannot resolve
         with the shipped one, build the init config and run
         ``Lumascope.initialize`` -- which refuses a stored objective the
-        catalogue does not have on a scope with no turret; on a turreted
+        catalog does not have on a scope with no turret; on a turreted
         scope the objective stays unknown until the turret is in a known
         slot. The scope reads the plate and objective from these settings
         whenever it acts on them. Last, the camera takes BF's stored
@@ -5839,7 +5839,7 @@ class ScopeSession:
                 turret); or that ``objective_id`` names no shipped objective.
             CatalogNameRefusedError: ``'model_unknown'``, the motor board
                 reports no model and the stored ``microscope`` is one the
-                catalogue does not list.
+                catalog does not list.
         """
         from _lumascope.modules.scope_init_config import ScopeInitConfig
 
@@ -5867,7 +5867,7 @@ class ScopeSession:
                 )
         elif detected not in scope_models:
             logger.info(
-                f'[Session  ] scope reports model {detected}, not in the catalogue; '
+                f'[Session  ] scope reports model {detected}, not in the catalog; '
                 f'the stored model {stored!r} stands'
             )
         elif detected != stored:
@@ -6529,7 +6529,7 @@ class ScopeSession:
         through ``confirm_objective`` with the slot the question names, which
         is the slot written even if the turret has moved since. On a scope
         without a turret the question names no slot and proposes the
-        selected objective once one has been confirmed, the catalogue
+        selected objective once one has been confirmed, the catalog
         default before.
 
         A hold or provisional settings refuse nothing here: the answer's own
@@ -6585,7 +6585,7 @@ class ScopeSession:
         active objective changed.
 
         Args:
-            objective_id: The objective's catalogue key.
+            objective_id: The objective's catalog key.
             slot: The turret slot, 1-4, the objective is in; required on a
                 turret scope, and refused on a scope with none. None is the
                 default.
@@ -6597,7 +6597,7 @@ class ScopeSession:
                 ``slot`` on a scope with no turret. Nothing is
                 written.
             CatalogNameRefusedError: ``'objective_not_in_catalog'``,
-                ``objective_id`` is not exactly a catalogue key. Nothing is
+                ``objective_id`` is not exactly a catalog key. Nothing is
                 written.
             PositionOutOfRangeError: ``slot`` is not a slot
                 number 1-4.
@@ -6623,7 +6623,7 @@ class ScopeSession:
     @api
     @property
     def objective_id(self) -> str:
-        """The active objective's catalogue key.
+        """The active objective's catalog key.
 
         On a turret scope it is the assignment of the slot in the light path;
         on a turretless scope, the one ``select_objective`` selected, once a
@@ -6634,7 +6634,7 @@ class ScopeSession:
             ObjectiveUnknownError: ``'slot_unknown'``, the turret is in no
                 known slot; ``'slot_unassigned'``, the slot in the light path
                 has no objective assigned; ``'not_in_catalog'``, its
-                assignment is not in the catalogue; ``'none_selected'``, with
+                assignment is not in the catalog; ``'none_selected'``, with
                 no turret, no person has confirmed the selected objective.
         """
         objective_id, _ = self.scope.runtime_state.resolve_current_objective()
@@ -6661,11 +6661,11 @@ class ScopeSession:
         objective already active is a no-op.
 
         Args:
-            objective_id: The objective's catalogue key.
+            objective_id: The objective's catalog key.
 
         Raises:
             CatalogNameRefusedError: ``'objective_not_in_catalog'``,
-                ``objective_id`` is not exactly a catalogue key. The refusal
+                ``objective_id`` is not exactly a catalog key. The refusal
                 lands before any write or move.
             ArgumentRefusedError: On a turret scope,
                 ``'objective_in_several_slots'``, two or more slots hold
@@ -6706,7 +6706,7 @@ class ScopeSession:
         is done when this returns, with what ``select_objective`` returns.
 
         Args:
-            objective_id: The objective's catalogue key.
+            objective_id: The objective's catalog key.
 
         Returns:
             The pick's ``Operation``: its ``result()`` is whether the active
@@ -6804,7 +6804,7 @@ class ScopeSession:
     @api
     @property
     def labware_id(self) -> str:
-        """The current plate's catalogue key, the one ``select_labware`` selected.
+        """The current plate's catalog key, the one ``select_labware`` selected.
 
         Its record is ``scope.plate(labware_id)``.
 
@@ -6821,10 +6821,10 @@ class ScopeSession:
         The one writer of the active labware for every host: the plate the
         settings name, which the scope reads.
 
-        The name is stored in the catalogue's spelling: a plate renamed
+        The name is stored in the catalog's spelling: a plate renamed
         since a protocol or settings file named it is accepted under the old
         name and written under the key, so the settings store never carries
-        a spelling the catalogue lacks, and whether the plate changed is
+        a spelling the catalog lacks, and whether the plate changed is
         decided on the key rather than on how it was spelled.
 
         On a scope with no XY stage the one plate is Center Plate: another
@@ -6832,12 +6832,12 @@ class ScopeSession:
         on one would image one field under every well's name.
 
         Args:
-            labware_id: The plate's name in the labware catalogue, or a name
+            labware_id: The plate's name in the labware catalog, or a name
                 the plate was known by before a rename.
 
         Raises:
             CatalogNameRefusedError: ``'labware_unknown'``, the labware
-                catalogue has no plate by that name. Nothing is written.
+                catalog has no plate by that name. Nothing is written.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has no
                 XY stage and ``labware_id`` is not Center Plate
                 (``missing`` is ``MissingPart(Part.XY_STAGE)``). A run, a diagnostic
@@ -6876,7 +6876,7 @@ class ScopeSession:
 
         Args:
             slot: The turret slot, 1-4.
-            objective_id: The objective's catalogue key.
+            objective_id: The objective's catalog key.
 
         Raises:
             HardwareCommandRefusedError: ``'axis_absent'``, the scope has no
@@ -6886,7 +6886,7 @@ class ScopeSession:
                 (``'exclusive_activity_running'``). Nothing is written.
             PositionOutOfRangeError: ``slot`` is not a slot number 1-4.
             CatalogNameRefusedError: ``'objective_not_in_catalog'``,
-                ``objective_id`` is not exactly a catalogue key.
+                ``objective_id`` is not exactly a catalog key.
         """
         self._refuse_without_a_turret('assign_turret_objective')
         refuse_unless_turret_slot(slot)
@@ -7034,7 +7034,7 @@ class ScopeSession:
                 motor controller is not connected.
             AxisMovingError: ``'axis_moving'``, an axis it reads is moving,
                 so its number is a place it is passing through.
-            ConfigError: ``labware_id`` is not a plate the catalogue has.
+            ConfigError: ``labware_id`` is not a plate the catalog has.
         """
         import _lumascope.modules.config_helpers as config_helpers
 
@@ -7479,7 +7479,7 @@ class ScopeSession:
         axis. The turret is left where it is, like the stage axes, in no
         known slot -- positioning it without a home would be an absolute
         move against a reference the caller asked us not to establish. The
-        skip is the requested behaviour, so it is logged, not signalled.
+        skip is the requested behavior, so it is logged, not signaled.
 
         A scope whose model has no motor board (``scope.motion_expected``
         False) has nothing to home, so it issues no startup motion either;

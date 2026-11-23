@@ -46,7 +46,7 @@ class Scheduler(Protocol):
     so the surface stays implementable from any host environment.
 
     All methods are safe to call from any thread. Cancellation must
-    be idempotent (cancelling an already-cancelled handle is a no-op).
+    be idempotent (canceling an already-canceled handle is a no-op).
     """
 
     def schedule_interval(self, callback: TickCallback, interval_s: float) -> object:

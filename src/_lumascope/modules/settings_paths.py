@@ -353,7 +353,7 @@ def _display_color(path: str, value: str | None) -> None:
         parse_display_color(value)
     except ValueError:
         raise SettingRefusedError(
-            'out_of_range', path, f"it must be None or a '#rrggbb' colour, not {value!r}"
+            'out_of_range', path, f"it must be None or a '#rrggbb' color, not {value!r}"
         ) from None
 
 
@@ -503,7 +503,7 @@ def refused_channel_values(
     settings: a protocol step's, or its Layer Settings row's. ``values``
     maps a ranged number under the channel (``'exposure_ms'``,
     ``'video_config.duration'``, ``'stim_config.frequency'``) to its value. The
-    rule is the channel's whatever ``channel`` names, so a step whose colour is
+    rule is the channel's whatever ``channel`` names, so a step whose color is
     no channel is still judged; ``channel`` names the refusal's path. No
     hardware limit is judged: a value past one is clamped where it is
     written to the channel or run.

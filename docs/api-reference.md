@@ -249,7 +249,7 @@ happened (an unattended run, the dedup window, shutdown) arrives with
 
 Bring-up has happened by the time a session exists; pass the listener
 to `create(outcome_listener=...)` to hear it. The outcomes heard are
-every session's in this process, as the notification centre is one
+every session's in this process, as the notification center is one
 per process. `shutdown()` removes the listener.
 
 **Args**
@@ -512,8 +512,8 @@ overlap, laid out on the protocol's own plate.
 
 **Raises**
 
-- `ProtocolRunRefusedError`: `'tiling_unknown'`, `tiling` is not a grid this installation offers; `'already_tiled'`, the protocol is; `'step_position_missing'`, a step has no position on an axis the tiles move; `'objective_not_in_catalog'`, a step's objective is not in the catalogue; `'tiling_scale_unknown'`, the optics give no field of view to space the tiles by; `'positions_unreachable'`, the scope has no X/Y motor; `'tiles_outside_travel'`, a tile falls outside the stage's travel. Nothing changes.
-- `CatalogNameRefusedError`: `'labware_unknown'`, the protocol's plate is not in the catalogue. Nothing changes.
+- `ProtocolRunRefusedError`: `'tiling_unknown'`, `tiling` is not a grid this installation offers; `'already_tiled'`, the protocol is; `'step_position_missing'`, a step has no position on an axis the tiles move; `'objective_not_in_catalog'`, a step's objective is not in the catalog; `'tiling_scale_unknown'`, the optics give no field of view to space the tiles by; `'positions_unreachable'`, the scope has no X/Y motor; `'tiles_outside_travel'`, a tile falls outside the stage's travel. Nothing changes.
+- `CatalogNameRefusedError`: `'labware_unknown'`, the protocol's plate is not in the catalog. Nothing changes.
 
 **Refusals by REST status**
 
@@ -534,7 +534,7 @@ Expand every step of `protocol` not already in a stack into the stored z-stack.
 
 The stack is the stored `zstack`, as `new_protocol` and
 `add_step` stack: its extent `zstack.range` and slice spacing
-`zstack.step_size` in micrometres, and `zstack.position`, where
+`zstack.step_size` in micrometers, and `zstack.position`, where
 each step's Z sits in its stack. A caller wanting another stack
 writes those settings first.
 
@@ -572,13 +572,13 @@ under a hold too.
 **Args**
 
 - `slot`: The turret slot, 1-4.
-- `objective_id`: The objective's catalogue key.
+- `objective_id`: The objective's catalog key.
 
 **Raises**
 
 - `HardwareCommandRefusedError`: `'axis_absent'`, the scope has no turret, said before `slot` or `objective_id` is judged; or a run, a diagnostic or a recording holds the scope and `objective_id` is not the slot's assignment (`'exclusive_activity_running'`). Nothing is written.
 - `PositionOutOfRangeError`: `slot` is not a slot number 1-4.
-- `CatalogNameRefusedError`: `'objective_not_in_catalog'`, `objective_id` is not exactly a catalogue key.
+- `CatalogNameRefusedError`: `'objective_not_in_catalog'`, `objective_id` is not exactly a catalog key.
 
 **Refusals by REST status**
 
@@ -595,7 +595,7 @@ bookmark: PlateLocation  # property
 Marks: reads (changes nothing).  
 Route: `GET /api/v1/bookmark`.
 
-The bookmark: X and Y in plate millimetres on the selected plate, Z in micrometres.
+The bookmark: X and Y in plate millimeters on the selected plate, Z in micrometers.
 
 What `save_bookmark` and the GUI's Set All Bookmarks stored, in the
 frame the go-to-bookmark moves read it in.
@@ -759,14 +759,14 @@ channel_colors: dict[str, tuple[float, float, float]]  # property
 Marks: reads (changes nothing).  
 Route: `GET /api/v1/channel_colors`.
 
-Every channel of the release and the colour it is shown and written
+Every channel of the release and the color it is shown and written
 in, as red, green and blue weights, each 0 to 1.
 
-The one read of a channel's colour: every capture, recording, build
+The one read of a channel's color: every capture, recording, build
 and view takes it from here, the run and each build as it starts.
-A channel's `display_color` setting, a `'#rrggbb'` colour at full
-brightness, overrides its colour; null is no override. Without one,
-a channel this unit carries takes the unit's colour (its record's,
+A channel's `display_color` setting, a `'#rrggbb'` color at full
+brightness, overrides its color; null is no override. Without one,
+a channel this unit carries takes the unit's color (its record's,
 which a board's Channels block may give), and any other channel the
 release's, so a folder captured on another unit still has one.
 
@@ -890,14 +890,14 @@ active objective changed.
 
 **Args**
 
-- `objective_id`: The objective's catalogue key.
+- `objective_id`: The objective's catalog key.
 - `slot`: The turret slot, 1-4, the objective is in; required on a turret scope, and refused on a scope with none. None is the default.
 
 **Raises**
 
 - `ArgumentRefusedError`: `'slot_required'`, no `slot` on a turret scope. Nothing is written.
 - `HardwareCommandRefusedError`: `'axis_absent'`, a `slot` on a scope with no turret. Nothing is written.
-- `CatalogNameRefusedError`: `'objective_not_in_catalog'`, `objective_id` is not exactly a catalogue key. Nothing is written.
+- `CatalogNameRefusedError`: `'objective_not_in_catalog'`, `objective_id` is not exactly a catalog key. Nothing is written.
 - `PositionOutOfRangeError`: `slot` is not a slot number 1-4.
 
 **Refusals by REST status**
@@ -976,7 +976,7 @@ This is the one composition path: the GUI, REST and scripts all
 build their session here, passing what only a host knows as the
 keyword arguments below. The factory builds the scope, so every
 session's scope is brought up the one way. The session's data folder
-and catalogues are always its scope's.
+and catalogs are always its scope's.
 
 The executor bundle is always built, around the scope's own IO and
 CAMERA lanes, via executor_registry.create_default, so every caller
@@ -1013,7 +1013,7 @@ settings, then the camera start gate released) and is torn down by
 - `ArgumentRefusedError`: `'not_an_installation'`, a `source_path` that holds no `data/settings.json` template. `'needs_simulated_scope'`, `simulated` without `simulate`: a real scope's file lane writes to a real drive, and only a simulated scope's boards and camera take a fault. `'needs_simulated_camera'`, the record's `camera_stall`, `focal_spread_um` or `conversion_gain_mode` for a model simulated with an FX2 or with `camera_present` False (`argument` names the scope's `sim_camera_stall`, `sim_focal_spread_um` or `sim_conversion_gain_mode`). `'not_injectable_on_board'`, its `model_answer`, `refused_stream_starts`, `refused_camera_writes`, `refused_camera_reads` or `camera_usb_bindings` for a scope whose board or camera cannot show it; `'fault_unknown'`, its `refused_stream_starts`, `refused_camera_writes` or `refused_camera_reads` with `camera_present` False, a camera the scope does not have; `'fault_bound'`, a negative `refused_stream_starts` or a refusal's count below 1; `'not_offered'`, a node or an answer the camera's write does not give. `'wrong_kind'`, a block of `settings` that is not the kind the shipped template holds (`argument` names it). `'needs_simulated_firmware'`, the record's `unit_config` for a scope whose motor board is not the simulated motor firmware: the `fast` simulator tier (chosen, or run where this machine has no MicroPython runtime, which the words then say), or a model with no EL-0940 motor board; `'missing_key'` or `'wrong_kind'`, a `unit_config` without the `Microscope`, `Axis Present` or `IniFiles` the simulator boots it by, or one marking no axis present; `'not_offered'`, a register table its `IniFiles` names that the simulated firmware does not carry (`argument` names the scope's `sim_unit_config` throughout).
 - `SettingRefusedError`: `'wrong_kind'` or `'out_of_range'`, a value in `settings` the writer refuses: a dict handed to a session is a write of every key at once, held to the same ranges.
 - `ScopeInUseError`: `'scope_in_use'`, a session with `simulate=False` asked for while another LumaViewPro, REST server or script drives the microscope, or while another real scope in this process is open. Nothing was opened.
-- `CatalogNameRefusedError`: `'model_unknown'`, the scope is to be built as a model the catalogue does not list: the stored `microscope` with no motor board reporting a model to stand in its place, or, for a simulated scope, `simulated.model` (`argument` names the stored setting or `simulated`). Nothing it started is left running.
+- `CatalogNameRefusedError`: `'model_unknown'`, the scope is to be built as a model the catalog does not list: the stored `microscope` with no motor board reporting a model to stand in its place, or, for a simulated scope, `simulated.model` (`argument` names the stored setting or `simulated`). Nothing it started is left running.
 - `InstallationFileError`: an installation data file the scope is built from is missing, unreadable, or not the shape its reader needs; `file_path` names it. The installation is at fault, not `settings`. Nothing it started is left running.
 - `DriverNotLiveError`: with `simulate`, a simulated board that never answered as the scope came up. Nothing it started is left running.
 
@@ -1070,7 +1070,7 @@ unchanged answer leaves the slot as it is. The answer goes back
 through `confirm_objective` with the slot the question names, which
 is the slot written even if the turret has moved since. On a scope
 without a turret the question names no slot and proposes the
-selected objective once one has been confirmed, the catalogue
+selected objective once one has been confirmed, the catalog
 default before.
 
 A hold or provisional settings refuse nothing here: the answer's own
@@ -1365,7 +1365,7 @@ labware_id: str  # property
 Marks: reads (changes nothing).  
 Route: `GET /api/v1/labware_id`.
 
-The current plate's catalogue key, the one `select_labware` selected.
+The current plate's catalog key, the one `select_labware` selected.
 
 Its record is `scope.plate(labware_id)`.
 
@@ -1614,7 +1614,7 @@ The protocol comes back with no unsaved changes, its file this one
 
 - `LiveFolderPathRefusedError`: `'path_not_found'`, nothing is at `file_path`; `'not_a_file'`, a folder is.
 - `ProtocolNotLoadedError`: The file is there and cannot be read.
-- `ProtocolFormatError`: The file is not a protocol LumaViewPro can take, or names a plate this installation's labware catalogue does not have; refused before any protocol exists.
+- `ProtocolFormatError`: The file is not a protocol LumaViewPro can take, or names a plate this installation's labware catalog does not have; refused before any protocol exists.
 - `ProtocolRunRefusedError`: `'objective_not_mounted'`, `'objectives_require_turret'`, `'turret_objectives_unassigned'` or `'channel_not_on_scope'`: the file holds a step this scope cannot perform; `'channel_unknown'`, a step names a channel no release has; `'values_out_of_range'`, its Layer Settings hold a value no channel setting takes; each the reason a run would give for the same file.
 - `HardwareCommandRefusedError`: `'exclusive_activity_running'`, as `select_labware`; the scope stays on the plate it had.
 
@@ -1793,7 +1793,7 @@ steps; a labware with no wells still gives an empty protocol, which
 
 **Args**
 
-- `tiling`: The tile grid at each well, a grid the installation's tiling catalogue offers, such as `'3x3'`; `'1x1'` (the default) is one tile.
+- `tiling`: The tile grid at each well, a grid the installation's tiling catalog offers, such as `'3x3'`; `'1x1'` (the default) is one tile.
 - `use_zstacking`: Stack each step through the stored z-stack (the setting `zstack`); False takes one plane.
 - `period_s`: The protocol's period, in seconds; None is the stored default's.
 - `duration_s`: The protocol's duration, in seconds; 0 is one scan, and None is the stored default's.
@@ -1821,7 +1821,7 @@ objective_id: str  # property
 Marks: reads (changes nothing).  
 Route: `GET /api/v1/objective_id`.
 
-The active objective's catalogue key.
+The active objective's catalog key.
 
 On a turret scope it is the assignment of the slot in the light path;
 on a turretless scope, the one `select_objective` selected, once a
@@ -1830,7 +1830,7 @@ person has confirmed it. A display reads it as a state through
 
 **Raises**
 
-- `ObjectiveUnknownError`: `'slot_unknown'`, the turret is in no known slot; `'slot_unassigned'`, the slot in the light path has no objective assigned; `'not_in_catalog'`, its assignment is not in the catalogue; `'none_selected'`, with no turret, no person has confirmed the selected objective.
+- `ObjectiveUnknownError`: `'slot_unknown'`, the turret is in no known slot; `'slot_unassigned'`, the slot in the light path has no objective assigned; `'not_in_catalog'`, its assignment is not in the catalog; `'none_selected'`, with no turret, no person has confirmed the selected objective.
 
 **Refusals by REST status**
 
@@ -2313,8 +2313,8 @@ Route: `POST /api/v1/save_bookmark`.
 
 Save where the stage is on `axes` as the bookmark, as the bookmark buttons do.
 
-X and Y are stored in plate millimetres on the selected plate, Z in
-micrometres: the frame the go-to-bookmark moves read them in. The
+X and Y are stored in plate millimeters on the selected plate, Z in
+micrometers: the frame the go-to-bookmark moves read them in. The
 writer of `bookmark`'s X and Y; the GUI's Set All Bookmarks also
 writes its Z.
 
@@ -2412,10 +2412,10 @@ Make `labware_id` the current plate. Returns whether it changed.
 The one writer of the active labware for every host: the plate the
 settings name, which the scope reads.
 
-The name is stored in the catalogue's spelling: a plate renamed
+The name is stored in the catalog's spelling: a plate renamed
 since a protocol or settings file named it is accepted under the old
 name and written under the key, so the settings store never carries
-a spelling the catalogue lacks, and whether the plate changed is
+a spelling the catalog lacks, and whether the plate changed is
 decided on the key rather than on how it was spelled.
 
 On a scope with no XY stage the one plate is Center Plate: another
@@ -2424,11 +2424,11 @@ on one would image one field under every well's name.
 
 **Args**
 
-- `labware_id`: The plate's name in the labware catalogue, or a name the plate was known by before a rename.
+- `labware_id`: The plate's name in the labware catalog, or a name the plate was known by before a rename.
 
 **Raises**
 
-- `CatalogNameRefusedError`: `'labware_unknown'`, the labware catalogue has no plate by that name. Nothing is written.
+- `CatalogNameRefusedError`: `'labware_unknown'`, the labware catalog has no plate by that name. Nothing is written.
 - `HardwareCommandRefusedError`: `'axis_absent'`, this scope has no XY stage and `labware_id` is not Center Plate (`missing` is `MissingPart(Part.XY_STAGE)`). A run, a diagnostic or a recording holds the scope and `labware_id` is not the plate in place (`'exclusive_activity_running'`): each states its positions against the plate it started with. Nothing is written.
 
 **Refusals by REST status**
@@ -2465,11 +2465,11 @@ it is: `'scope_model_deferred'`, it applies at the next start, or
 
 **Args**
 
-- `model`: A model the release's catalogue lists.
+- `model`: A model the release's catalog lists.
 
 **Raises**
 
-- `CatalogNameRefusedError`: `'model_unknown'`, the scope's catalogue does not list `model`; nothing is saved.
+- `CatalogNameRefusedError`: `'model_unknown'`, the scope's catalog does not list `model`; nothing is saved.
 
 **Refusals by REST status**
 
@@ -2500,11 +2500,11 @@ objective already active is a no-op.
 
 **Args**
 
-- `objective_id`: The objective's catalogue key.
+- `objective_id`: The objective's catalog key.
 
 **Raises**
 
-- `CatalogNameRefusedError`: `'objective_not_in_catalog'`, `objective_id` is not exactly a catalogue key. The refusal lands before any write or move.
+- `CatalogNameRefusedError`: `'objective_not_in_catalog'`, `objective_id` is not exactly a catalog key. The refusal lands before any write or move.
 - `ArgumentRefusedError`: On a turret scope, `'objective_in_several_slots'`, two or more slots hold `objective_id` (`offered`: the slots), or `'objective_not_on_turret'`, none does (`offered`: what the slots hold). Nothing is moved.
 - `HardwareCommandRefusedError`: A run, a diagnostic or a recording holds the scope (`'exclusive_activity_running'`), nothing written or moved; or the turret move's own refusal, `'not_connected'` or `'axis_absent'`, nothing moved.
 - `AxisStateUnknownError`: The turret has not been homed.
@@ -2581,7 +2581,7 @@ Write any of `channel`'s settings, judged whole: all of them are stored, or none
 Each field named is written; a field left out is left as it is, and
 None is a value (`acquire` None stops the channel acquiring,
 `focus_z_um` None clears the saved focus, `display_color` None
-shows the catalogue's colour). On the wire a key left out is a
+shows the catalog's color). On the wire a key left out is a
 field not written, and null is the value.
 
 Every field is judged before any is stored: its range, Z's travel
@@ -2608,11 +2608,11 @@ or LED would take is refused.
 - `gain_db`: The camera gain, in dB.
 - `auto_gain`: The camera's auto-gain is on.
 - `exposure_ms`: The camera exposure, in ms.
-- `false_color`: The channel's image is false-coloured.
+- `false_color`: The channel's image is false-colored.
 - `frames_summed`: How many frames a capture sums, at least 1; above 100 it is set at 100.
-- `focus_z_um`: The Z saved as the channel's focus, in micrometres; None clears it.
+- `focus_z_um`: The Z saved as the channel's focus, in micrometers; None clears it.
 - `autofocus`: A step of the channel autofocuses.
-- `display_color`: The channel's colour as `'#rrggbb'`; None, the catalogue's.
+- `display_color`: The channel's color as `'#rrggbb'`; None, the catalog's.
 - `composite_brightness_threshold_pct`: The brightness, as a percentage of full scale, below which the channel's pixels add nothing to a composite.
 - `video_duration_s`: How long a video step of the channel records, in s.
 - `stim_enabled`: The channel stimulates.
@@ -2737,11 +2737,11 @@ scope with no XY stage the protocol takes Center Plate.
 **Args**
 
 - `protocol`: The protocol put on the plate.
-- `labware_id`: The plate's name in the labware catalogue.
+- `labware_id`: The plate's name in the labware catalog.
 
 **Raises**
 
-- `CatalogNameRefusedError`: `'labware_unknown'`, `labware_id` is not a plate the catalogue has. The protocol keeps its plate.
+- `CatalogNameRefusedError`: `'labware_unknown'`, `labware_id` is not a plate the catalog has. The protocol keeps its plate.
 
 **Refusals by REST status**
 
@@ -3152,7 +3152,7 @@ window: the serial, camera and api traffic until then is kept in
 axis. The turret is left where it is, like the stage axes, in no
 known slot -- positioning it without a home would be an absolute
 move against a reference the caller asked us not to establish. The
-skip is the requested behaviour, so it is logged, not signalled.
+skip is the requested behavior, so it is logged, not signaled.
 
 A scope whose model has no motor board (`scope.motion_expected`
 False) has nothing to home, so it issues no startup motion either;
@@ -3227,8 +3227,8 @@ it is refused on the UI thread; a click calls it from a worker.
 
 - `StepNotFoundError`: `step_index` is not a step of `protocol`. Nothing changes.
 - `ProtocolRunRefusedError`: `'step_position_missing'`, the step has no position on an axis the scope drives. This scope cannot put the step's objective in the light path: on a turret scope `'turret_objectives_unassigned'`, no slot carries it, or `'turret_slot_reassigned'` or `'turret_slot_ambiguous'`, the slot the step meant is no longer one slot carrying it; without a turret `'objective_not_mounted'`, it is not the selected objective. Nothing changes.
-- `ArgumentRefusedError`: `'channel_unknown'`, the step's colour is not a channel. Nothing changes.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no channel of the step's colour. Nothing changes.
+- `ArgumentRefusedError`: `'channel_unknown'`, the step's color is not a channel. Nothing changes.
+- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no channel of the step's color. Nothing changes.
 - `ProtocolRunRefusedError`: `'values_out_of_range'`, a value the step would store in its channels is outside its channel setting's range, each named by column and bound. Nothing changes. A value past the hardware's limit is stored at the limit and told (`ValueClampedNotice`).
 - `ArgumentRefusedError`: `'gain_range_inverted'`, the step turns auto-gain on while the stored auto-gain range has its minimum gain above its maximum. Nothing changes.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved. Nothing changes.
@@ -3347,7 +3347,7 @@ is done when this returns, with what `select_objective` returns.
 
 **Args**
 
-- `objective_id`: The objective's catalogue key.
+- `objective_id`: The objective's catalog key.
 
 **Returns**
 
@@ -3476,7 +3476,7 @@ What a caller needs to choose a grid: `available` lists the
 labels `new_protocol` and `apply_tiling` accept, and
 `default` is the one to preselect; `Protocol.tiling` names
 the grid a protocol's steps already carry. Read once with the
-installation's other catalogues, so a tiling.json edited while the
+installation's other catalogs, so a tiling.json edited while the
 program runs is seen at the next start, and every protocol is built
 against the same grids. The record is frozen: a caller cannot change
 the grids a session offers.
@@ -9097,7 +9097,7 @@ and re-reads them (`scope.camera.setting_limits`).
 
 **Fields**
 
-- <a id="CameraLimits.frame_max"></a>`frame_max`: `FrameSize | None` -- The largest frame the scope delivers, unbinned: the smallest of the sensor size the camera's profile documents, the maximum the camera reports at connect multiplied back by the binning it reported then, and the model's catalogue `MaxFrame` (a lens that images less than the sensor: the LS560's 1700), each where it is known; None when none is. The profile stays in that comparison because a camera can report a few rows and columns more than its documented sensor (the LS850T's daA3840 reports 3860 x 2178 against 3840 x 2160). `set_frame_size` divides it by the binning in force.
+- <a id="CameraLimits.frame_max"></a>`frame_max`: `FrameSize | None` -- The largest frame the scope delivers, unbinned: the smallest of the sensor size the camera's profile documents, the maximum the camera reports at connect multiplied back by the binning it reported then, and the model's catalog `MaxFrame` (a lens that images less than the sensor: the LS560's 1700), each where it is known; None when none is. The profile stays in that comparison because a camera can report a few rows and columns more than its documented sensor (the LS850T's daA3840 reports 3860 x 2178 against 3840 x 2160). `set_frame_size` divides it by the binning in force.
 - <a id="CameraLimits.frame_min"></a>`frame_min`: `FrameSize | None` -- The smallest frame the camera delivers: its profile's alignment, since `set_frame_size` acquires the hardware's smallest window and crops back. Not the hardware's own smallest window, which held a smaller request up to it (an IDS camera at 2x binning delivered 1056 x 950 for 950 x 950).
 
 <a id="CameraLink"></a>
@@ -9699,12 +9699,12 @@ One capture a run was asked for that produced no image.
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
 Held in: [`OpticsStatus.field_of_view`](#OpticsStatus.field_of_view).
 
-The area a frame covers on the sample, in micrometres.
+The area a frame covers on the sample, in micrometers.
 
 **Fields**
 
-- <a id="FieldOfView.height_um"></a>`height_um`: `float` -- The height of the sample the frame covers, in micrometres.
-- <a id="FieldOfView.width_um"></a>`width_um`: `float` -- The width of the sample the frame covers, in micrometres.
+- <a id="FieldOfView.height_um"></a>`height_um`: `float` -- The height of the sample the frame covers, in micrometers.
+- <a id="FieldOfView.width_um"></a>`width_um`: `float` -- The width of the sample the frame covers, in micrometers.
 
 <a id="FilesWritten"></a>
 ## `lumascope.FilesWritten`
@@ -10417,8 +10417,8 @@ of assuming silently, and a host renders it however it likes. The answer goes ba
 
 **Fields**
 
-- <a id="ObjectiveQuestion.choices"></a>`choices`: `tuple[str, ...]` -- The catalogue, in its shipped order.
-- <a id="ObjectiveQuestion.proposed"></a>`proposed`: `str` -- The catalogue id to offer as the default.
+- <a id="ObjectiveQuestion.choices"></a>`choices`: `tuple[str, ...]` -- The catalog, in its shipped order.
+- <a id="ObjectiveQuestion.proposed"></a>`proposed`: `str` -- The catalog id to offer as the default.
 - <a id="ObjectiveQuestion.turret_slot"></a>`turret_slot`: `int | None` -- The slot the answer binds to, or None on a non-turret model.
 
 <a id="Operation"></a>
@@ -12326,12 +12326,12 @@ A build `build` was asked for that had nothing to do in the folder.
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
 Returned by: [`RuntimeState.frame_point_distance`](#RuntimeState.frame_point_distance).
 
-A distance the stage moves on X and Y, in micrometres.
+A distance the stage moves on X and Y, in micrometers.
 
 **Fields**
 
-- <a id="StageDistance.dx_um"></a>`dx_um`: `float` -- The distance on X, in micrometres; positive is +X.
-- <a id="StageDistance.dy_um"></a>`dy_um`: `float` -- The distance on Y, in micrometres; positive is +Y.
+- <a id="StageDistance.dx_um"></a>`dx_um`: `float` -- The distance on X, in micrometers; positive is +X.
+- <a id="StageDistance.dy_um"></a>`dy_um`: `float` -- The distance on Y, in micrometers; positive is +Y.
 
 <a id="StageOffset"></a>
 ## `lumascope.StageOffset`

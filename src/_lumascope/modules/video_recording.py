@@ -871,7 +871,7 @@ class VideoRecordingEngine:
 
         In a recording whose times are the camera's frame starts, a frame
         without its tick has no time on that clock: stamped at its arrival
-        it would fall behind its neighbours and invert the timeline. It is
+        it would fall behind its neighbors and invert the timeline. It is
         never offered to the selector; it is counted, so the result and the
         manifest say how many the camera sent that way. Its ``chunks`` are
         the frame's camera chunk metadata (or None): it reached the

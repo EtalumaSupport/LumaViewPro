@@ -10,7 +10,7 @@ from _lumascope.modules.exceptions import ConfigurationDefectError
 
 class ZStackReference(enum.StrEnum):
     """Where a stack sits against the Z it is built around: its top, its
-    centre or its bottom at that Z. The stored ``zstack.position`` holds the
+    center or its bottom at that Z. The stored ``zstack.position`` holds the
     value; the GUI shows its own label for each."""
 
     TOP = 'top'
@@ -50,8 +50,8 @@ class ZStackConfig:
         """The index of the slice built at the Z the stack is built around.
 
         The top slice for a top stack, the bottom for a bottom stack, the
-        middle for a centre stack, and the lower of the two middles when a
-        centre stack has an even count, since no slice is at that Z then.
+        middle for a center stack, and the lower of the two middles when a
+        center stack has an even count, since no slice is at that Z then.
         """
         n_steps = self.number_of_steps()
         if self._current_z_reference == ZStackReference.TOP:
@@ -65,10 +65,10 @@ class ZStackConfig:
 
         The slices are laid over the span they cover, (n - 1) x step, and
         that span is placed against the Z the stack is built around: a top
-        stack ends at it, a bottom stack starts at it, a centre stack is
-        centred on it. Placing the requested range instead puts no slice at
+        stack ends at it, a bottom stack starts at it, a center stack is
+        centered on it. Placing the requested range instead puts no slice at
         that Z whenever the range is not a whole number of steps (599 / 200
-        centred gives -299.5, -99.5, +100.5), and that Z is the focus the
+        centered gives -299.5, -99.5, +100.5), and that Z is the focus the
         stack's reference slice must hold.
         """
         n_steps = self.number_of_steps()

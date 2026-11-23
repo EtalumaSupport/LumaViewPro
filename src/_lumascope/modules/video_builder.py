@@ -375,8 +375,8 @@ class VideoBuilder(ProtocolPostProcessor):
     ) -> dict:
         """Encode ``df``'s frames into one video, mono frames shown in ``color``.
 
-        ``color`` is the caller's: a protocol group's channel colour, or a
-        manual recording's (grey when it was recorded with false colour off).
+        ``color`` is the caller's: a protocol group's channel color, or a
+        manual recording's (gray when it was recorded with false color off).
         With ``vfr`` each frame plays at the time its file states, and a
         frame with no time after the one before it is left out and counted;
         ``frame_rate_fps`` is then the container's nominal rate only (None
@@ -540,7 +540,7 @@ class VideoBuilder(ProtocolPostProcessor):
         schemas nest differently). Fields are None when the folder
         predates both manifests, the file is unreadable, or the field is
         absent -- channel None encodes grayscale; rate None means no
-        measured rate is known. ``channel_color`` is the channel to colour
+        measured rate is known. ``channel_color`` is the channel to color
         the video by, None when it was recorded with false color off: a
         manifest records the channel and a ``false_color`` flag, and one
         written before the flag records the channel only when it was on.
@@ -568,7 +568,7 @@ class VideoBuilder(ProtocolPostProcessor):
         """A recording folder's manifest facts, None when it holds neither
         manifest generation readable.
 
-        A protocol video step's recording is coloured by its step's channel,
+        A protocol video step's recording is colored by its step's channel,
         so only its rate is read from here, and the manual leg's grayscale
         warning is not its to give.
         """

@@ -71,9 +71,9 @@ def _probe(label: str, fn: Callable[[], Any], absent: Any, *, failed: Any) -> An
 
 
 def _declared_optics(scope_models: Mapping[str, ScopeModel], model: str) -> dict[str, float]:
-    """Return the Optics the model catalogue declares for `model`, under motorconfig's keys.
+    """Return the Optics the model catalog declares for `model`, under motorconfig's keys.
 
-    The Lumascope Classic line has no motorconfig, so the catalogue is its
+    The Lumascope Classic line has no motorconfig, so the catalog is its
     declared optics source (keyed by scope model). A model with no entry,
     or an entry with no Optics block, is a legitimate resolution-order
     branch (the LS850T sources optics from motorconfig; an unknown scope
@@ -93,7 +93,7 @@ def _has_turret(
     """Whether this scope has a turret: the board when one came up, else the declared model.
 
     The declaration alone was wrong in the common direction: the shipped
-    template declares LS850, whose catalogue entry has no turret, so a real
+    template declares LS850, whose catalog entry has no turret, so a real
     LS850T on shipped settings was never asked for the objective at its
     slot, and the stored objective went on setting the image scale.
 
@@ -114,7 +114,7 @@ def _has_turret(
 def _declared_max_frame(
     scope_models: Mapping[str, ScopeModel], model: str
 ) -> tuple[int, int] | None:
-    """Return the frame maximum the model catalogue declares for `model`, or None.
+    """Return the frame maximum the model catalog declares for `model`, or None.
 
     A model whose lens images less than its sensor declares the largest frame
     it delivers (``MaxFrame``, unbinned pixels); the LS560's lens is why its
@@ -195,11 +195,11 @@ class FrameSize:
 @api_fields('width_um', 'height_um')
 @dataclass(frozen=True)
 class FieldOfView:
-    """The area a frame covers on the sample, in micrometres.
+    """The area a frame covers on the sample, in micrometers.
 
     Attributes:
-        width_um: The width of the sample the frame covers, in micrometres.
-        height_um: The height of the sample the frame covers, in micrometres.
+        width_um: The width of the sample the frame covers, in micrometers.
+        height_um: The height of the sample the frame covers, in micrometers.
     """
 
     width_um: float
@@ -209,11 +209,11 @@ class FieldOfView:
 @api_fields('dx_um', 'dy_um')
 @dataclass(frozen=True)
 class StageDistance:
-    """A distance the stage moves on X and Y, in micrometres.
+    """A distance the stage moves on X and Y, in micrometers.
 
     Attributes:
-        dx_um: The distance on X, in micrometres; positive is +X.
-        dy_um: The distance on Y, in micrometres; positive is +Y.
+        dx_um: The distance on X, in micrometers; positive is +X.
+        dy_um: The distance on Y, in micrometers; positive is +Y.
     """
 
     dx_um: float
@@ -240,7 +240,7 @@ class CameraLimits:
         frame_max: The largest frame the scope delivers, unbinned: the
             smallest of the sensor size the camera's profile documents, the
             maximum the camera reports at connect multiplied back by the
-            binning it reported then, and the model's catalogue
+            binning it reported then, and the model's catalog
             ``MaxFrame`` (a lens that images less than the sensor: the
             LS560's 1700), each where it is known; None when none is.
             The profile stays in that comparison because a camera can
@@ -526,7 +526,7 @@ class ScopeCapabilities:
             camera: A camera object or None.
             channel_identity: The scope's resolved identity; its model
                 picks the declared optics and the declared turret.
-            scope_models: The scope's model catalogue, read once at its
+            scope_models: The scope's model catalog, read once at its
                 construction; the model's declared optics come from it.
             timing_record: The camera's timing record, read and checked at
                 bring-up (``FrameValidity.check_timing_record``); None for a

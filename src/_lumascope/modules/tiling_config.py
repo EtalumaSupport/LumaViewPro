@@ -243,7 +243,7 @@ class TilingGrids:
         *,
         capabilities: 'ScopeCapabilities',
     ) -> dict:
-        """Tile centre offsets for a grid, from the optics the caller hands in.
+        """Tile center offsets for a grid, from the optics the caller hands in.
 
         The spacing derives from the field of view, which derives from the
         scope's optics and the step's objective; the layout holds no scope, so

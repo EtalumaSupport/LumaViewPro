@@ -1869,7 +1869,7 @@ class SequentialIOExecutor:
         """
         action_name = getattr(task.action, '__name__', str(task.action))
         if isinstance(exception, CancelledError):
-            logger.debug(f'[{self.name}] {action_name} cancelled (by-contract)')
+            logger.debug(f'[{self.name}] {action_name} canceled (by-contract)')
             return
         if owned:
             return

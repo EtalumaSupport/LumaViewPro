@@ -623,7 +623,7 @@ def fold_old_channel_blocks(logger: logging.Logger, settings_dict: dict) -> None
     """Rename each old channel block to its stock key, before any reader of a block.
 
     A file an earlier release wrote keys its fluorescence blocks by the old
-    colour names. Every reader before the scope exists -- the validation,
+    color names. Every reader before the scope exists -- the validation,
     the focus retirement, the repairs, the merge, the range check -- reads
     the release's keys, so each old block becomes its stock key's here
     (``channel_record.release_old_names``) and is read there; the unit is not
@@ -709,10 +709,10 @@ def _load_and_validate(logger, filepath: str) -> dict:
 
 
 def load_template(logger: logging.Logger, template_path: str) -> dict:
-    """The shipped template, a block for every catalogue key, checked for the keys the app needs.
+    """The shipped template, a block for every catalog key, checked for the keys the app needs.
 
     Read as a file the installation ships, not as the user's: a template
-    that is missing, will not parse, or cannot give every catalogue key a
+    that is missing, will not parse, or cannot give every catalog key a
     block is the installation's fault and raises ``InstallationFileError``,
     never a reason to skip the step that needed it.
     """
@@ -726,11 +726,11 @@ def load_template(logger: logging.Logger, template_path: str) -> dict:
 
 
 def _give_every_channel_a_block(template: dict, template_path: str) -> None:
-    """Every catalogue key's block: its own, else a copy of its modality's default.
+    """Every catalog key's block: its own, else a copy of its modality's default.
 
     The file names a block only for a key with values of its own; every
     other key takes ``channel_defaults``' block for its modality, so a key
-    added to the catalogue has settings without an edit here. The defaults
+    added to the catalog has settings without an edit here. The defaults
     are consumed: no prepared dict, published template or saved file holds
     them, so the only blocks a caller sees are channels.
 

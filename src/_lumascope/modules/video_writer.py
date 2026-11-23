@@ -59,7 +59,7 @@ class VideoWriter:
         vfr: bool = False,
     ):
         """Encode a video file. Accepts mono frames + applies false-color
-        internally when `color` is not grey; also accepts pre-colored RGB input.
+        internally when `color` is not gray; also accepts pre-colored RGB input.
 
         When both ``width`` and ``height`` are given the encoder eager-
         initializes in __init__. Otherwise it lazy-initializes from the
@@ -74,7 +74,7 @@ class VideoWriter:
                 timing.
             width: Frame width in pixels. Optional; None defers to first frame.
             height: Frame height in pixels. Optional; None defers to first frame.
-            color: The colour mono frames are shown in (``channel_record.Color``).
+            color: The color mono frames are shown in (``channel_record.Color``).
                 ``GREY`` encodes grayscale (gray pixfmt).
             include_timestamp_overlay: Overlay frame timestamps via image_utils.
             vfr: Variable-frame-rate timing: each frame's presentation
@@ -123,7 +123,7 @@ class VideoWriter:
             self._init_pyav(width, height, True)
 
     def _colors_output(self) -> bool:
-        """True when the colour is not grey: grey mono input stays mono and
+        """True when the color is not gray: gray mono input stays mono and
         gets a gray encode instead of a 3-channel replica.
         """
         return self._color != GREY
@@ -146,7 +146,7 @@ class VideoWriter:
         existing file.
 
         Picked when the writer is made, so ``output_path`` names this video's
-        file from the start, whatever colour defers the container's open to
+        file from the start, whatever color defers the container's open to
         the first frame. Checked, not reserved, which holds because no two
         writers in this process are made for one name at once: a run writes
         into its own fresh folder with the scan in every name and refuses two

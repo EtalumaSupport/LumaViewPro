@@ -2835,7 +2835,7 @@ class TechSupportReport:
         than to one entry point and not the other. A copy every bundle
         carries (logs, data, protocols) goes in ``_run_every_bundles_steps``.
 
-        A neighbour deliberately does NOT qualify: `_step_system_info`
+        A neighbor deliberately does NOT qualify: `_step_system_info`
         duplicates the launch banner already present in every log.
 
         Each step is guarded on its own: a raise out of either bundle path

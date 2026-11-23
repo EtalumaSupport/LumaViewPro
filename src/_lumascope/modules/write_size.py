@@ -1,9 +1,9 @@
 """What a run writes to disk: the one estimate of a step's write and its inputs.
 
 A saved frame is sized from the facts that decide its bytes on disk, never a
-flat figure: the frame's width and height, the camera's depth and colour, the
+flat figure: the frame's width and height, the camera's depth and color, the
 image mode's capture depth and save encoding, and, per step, its sum, its
-channel and whether false colour is on. The run's disk checks (``prepare()``'s
+channel and whether false color is on. The run's disk checks (``prepare()``'s
 whole-run refusal, the per-scan backstop, the per-write and per-video-step
 checks) and the size advisory all size through ``estimate_step_write_mb``, so
 they cannot drift apart.
@@ -45,12 +45,12 @@ class FrameSizing:
         camera_bits: The most bits the camera delivers in any of its formats
             (8 on an FX2): a single frame at full depth stays one byte a pixel
             on an 8-bit camera.
-        color_native: True for a camera that delivers 3-channel colour.
+        color_native: True for a camera that delivers 3-channel color.
         capture_depth: The image mode's capture depth (8, or 12 for a
             full-depth mode).
         save_encoding: The image mode's save encoding; ``'rgb'`` widens a
-            16-bit frame shown in a colour to three channels.
-        channel_colors: Each channel's colour, as the writers colour a frame.
+            16-bit frame shown in a color to three channels.
+        channel_colors: Each channel's color, as the writers color a frame.
         stacked: True when the run's sequenced output is a hyperstack of its
             stills, built after the run beside the TIFFs it reads, which it
             does not remove.
@@ -102,13 +102,13 @@ class FrameSizing:
         The writers' own rules: the image is 8-bit in the 8-bit mode, and for
         a single frame from an 8-bit camera; otherwise a 16-bit container,
         a sum on every camera included (``ImagingAPI`` capture). A 16-bit
-        frame shown in a colour is widened to RGB by the ``'rgb'`` encoding
-        (``image_utils.maybe_apply_false_color``); a colour camera's frame is
+        frame shown in a color is widened to RGB by the ``'rgb'`` encoding
+        (``image_utils.maybe_apply_false_color``); a color camera's frame is
         RGB already.
 
         Raises:
             ArgumentRefusedError: ``channel`` is no channel of this release
-                (``channel_record.output_color``), when its colour decides
+                (``channel_record.output_color``), when its color decides
                 the size: a 16-bit frame under the ``'rgb'`` encoding.
         """
         if self.capture_depth == 8:
@@ -127,7 +127,7 @@ class FrameSizing:
 
     def mp4_frame_bytes(self, *, channel: str, false_color_on: bool) -> int:
         """The raw bytes one 8-bit MP4 frame of ``channel`` encodes from:
-        three planes in a colour, one for a grey encode.
+        three planes in a color, one for a gray encode.
 
         Raises:
             ArgumentRefusedError: as ``saved_frame_bytes``.
@@ -187,7 +187,7 @@ def estimate_step_write_mb(
     Raises:
         ValueError: ``step`` is a video step and ``video_fps`` is None.
         ArgumentRefusedError: the step's channel is no channel of this
-            release, when its colour decides the size
+            release, when its color decides the size
             (``FrameSizing.saved_frame_bytes``).
     """
     channel = step['channel']

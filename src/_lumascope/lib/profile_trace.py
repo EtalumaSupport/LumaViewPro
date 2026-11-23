@@ -306,7 +306,7 @@ def trace(filename, header, fields, *, recording_id):
 
     A field's CONTENT can never change how many columns the row has: the row
     goes through csv.writer, which quotes commas, quotes and newlines. Call
-    sites used to carry that duty themselves and it was honoured at some and
+    sites used to carry that duty themselves and it was honored at some and
     missed at others -- the motion monitor's axis field is a ','.join of the
     moving axes, so every simultaneous XY poll wrote one column too many under
     a header that never changed shape. Rows like that still parse, so the

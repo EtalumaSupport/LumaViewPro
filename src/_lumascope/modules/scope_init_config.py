@@ -48,7 +48,7 @@ class ScopeInitConfig:
         """Build config from the LVP settings dict.
 
         scope_config: the active scope's model record (``ScopeModel``),
-        None for a model the catalogue does not list. Drives
+        None for a model the catalog does not list. Drives
         expects_motion, which says whether a missing motor board is reported.
 
         channel_identity: the scope's resolved channel identity snapshot.
@@ -57,7 +57,7 @@ class ScopeInitConfig:
         deserves the notification. Identity outranks the scopes.json
         entry here because a unit's own config can differ from its model.
         An unresolved identity has no channels to read, and only a resolved
-        one can say a scope has no LED board, as only the catalogue can
+        one can say a scope has no LED board, as only the catalog can
         say it has no motor board: it expects one.
 
         ``settings`` is a prepared dict (``settings_init.prepare_loaded``,

@@ -2,7 +2,7 @@
 """
 Overlap registration for tiles placed by their recorded stage positions.
 
-Each tile starts where the stage recorded it; where neighbours overlap, a
+Each tile starts where the stage recorded it; where neighbors overlap, a
 bounded search (local NCC, or FFT phase correlation for a fast preview)
 corrects its offset, and the mosaic is blended from the source pixels.
 The stitching core (``stitching_core``) chooses between these and plain
