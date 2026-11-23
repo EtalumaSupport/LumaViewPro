@@ -117,7 +117,7 @@ controls are greyed out while it has control. [Take back control]{.guilabel}
 in the banner ends the program's control immediately and stops any run or
 recording it started; the controls come back once that work has stopped.
 
-## The frame rates at the bottom of the window {#sec-status-line}
+## The line at the bottom of the window {#sec-status-line}
 
 The line along the bottom of the window shows two frame rates: Capture, the
 frames per second the camera delivers, and Display, the frames per second
@@ -125,3 +125,9 @@ shown on screen. With the mouse pointer over the live image, it also shows
 the camera pixel under the pointer, as Pixel (x, y). On a Lumascope with a
 motorized XY stage and a known objective, it shows that point's position on
 the plate too, as Plate (x, y) mm.
+
+While LumaViewPro is busy, the line also says what it's doing and how far
+it has got: a recording and how long it has run, a protocol's video step
+against its length, a run's images still being written, or a build such as
+"Building a video" with the folder it works in. When you close
+LumaViewPro, it waits for the work shown here to finish.
