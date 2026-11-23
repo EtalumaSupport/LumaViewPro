@@ -178,12 +178,12 @@ def test_a_recordings_frames_keep_the_room_a_start_needs(monkeypatch):
     needs = common_utils.MIN_REQUIRED_DISK_MB + common_utils.MIN_PER_WRITE_DISK_MB
     check = common_utils.DiskCheckInterval(elapsed_clock=lambda: 100.0)
     free_space_is(monkeypatch, needs - 1)
-    short = check.room_to_write('/', "the recording's frames")
+    short = check.room_to_write('/', 'the recording')
     free_space_is(monkeypatch, needs)
     again = common_utils.DiskCheckInterval(elapsed_clock=lambda: 100.0)
 
     assert short is not None and 'needs 2.5 GB' in short, short
-    assert again.room_to_write('/', "the recording's frames") is None
+    assert again.room_to_write('/', 'the recording') is None
 
 
 def test_a_recordings_check_reads_once_an_interval(monkeypatch):
@@ -193,8 +193,8 @@ def test_a_recordings_check_reads_once_an_interval(monkeypatch):
     )
     check = common_utils.DiskCheckInterval(elapsed_clock=lambda: 100.0)
 
-    first = check.room_to_write('/', "the recording's frames")
-    second = check.room_to_write('/', "the recording's frames")
+    first = check.room_to_write('/', 'the recording')
+    second = check.room_to_write('/', 'the recording')
 
     assert first is not None and second is None
     assert readings == ['/']

@@ -726,7 +726,7 @@ class ProtocolVideoStep:
         one by one. Frames already on disk stay. Of lanes reaching it
         together one probes, and at most one reports (``DiskCheckInterval``).
         """
-        no_room = self._disk_check.room_to_write(config.output_dir, "the video step's frames")
+        no_room = self._disk_check.room_to_write(config.output_dir, 'the video step')
         if no_room is not None and self._engine is not None and self._engine.is_recording:
             self._engine.stop('disk_space_critical')
             self._abort_run_fatal(

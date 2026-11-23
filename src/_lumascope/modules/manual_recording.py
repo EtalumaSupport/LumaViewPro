@@ -991,7 +991,7 @@ class ManualRecordingController:
         (``DiskCheckInterval``). Stopping selection yields an honest short
         delivery; frames already on disk stay.
         """
-        no_room = recording.disk_check.room_to_write(config.output_dir, "the recording's frames")
+        no_room = recording.disk_check.room_to_write(config.output_dir, 'the recording')
         if no_room is not None and recording.engine.is_recording:
             notifications.report_outcome(
                 RecordingStoppedError('disk_space_critical'),
