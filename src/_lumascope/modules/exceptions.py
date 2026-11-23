@@ -4624,10 +4624,14 @@ def _control_refused_sentence(
 
 
 def under_control_sentence(holder_trigger: Caller | None, control_session: str | None) -> str:
-    """The one sentence for every refusal a held control session makes: who holds, and the way out."""
+    """The one sentence for every refusal a held control session makes: who holds, and the way out.
+
+    The way out is the one every asker has, since the refusal does not know
+    who asks and only the window can take control back.
+    """
     who = f'"{control_session}"' if control_session else 'A client'
     through = f' ({holder_trigger.words})' if holder_trigger is not None else ''
-    return f'{who}{through} has control of the microscope. Ask it to end, or take back control.'
+    return f'{who}{through} has control of the microscope. Try again when it ends.'
 
 
 @api_fields('argument', 'board', 'limits', 'member', 'offered', 'plate', 'takes')

@@ -116,6 +116,17 @@ class TestTheTake:
         assert refused.value.control_session == 'plate reader'
         assert claim.control is first.session
 
+    def test_a_held_sessions_refusal_names_only_what_every_asker_can_do(self, claim):
+        # The refusal does not know who asks, and only the window can take
+        # control back, so its words give the one way out a REST client,
+        # the SDK and the person at the window all have.
+        _take(claim, 'plate reader', Caller.REST)
+        with pytest.raises(ControlSessionRefusedError) as refused:
+            _take(claim, 'second client')
+        assert str(refused.value) == (
+            '"plate reader" (a REST client) has control of the microscope. Try again when it ends.'
+        )
+
     def test_a_take_is_refused_while_an_activity_holds_the_slot(self, claim):
         held = claim.try_claim('diagnostic')
         try:
