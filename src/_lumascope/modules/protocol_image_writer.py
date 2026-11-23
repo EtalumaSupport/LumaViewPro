@@ -67,7 +67,7 @@ if TYPE_CHECKING:
 
     import pandas as pd
 
-    from _lumascope.modules.coord_transformations import PlatePosition
+    from _lumascope.modules.coord_transformations import PlateLocation
     from _lumascope.modules.image_mode import ImageCaptureConfig, OutputFormat
     from _lumascope.modules.labware import Labware
     from _lumascope.modules.lumascope_api import Lumascope
@@ -793,7 +793,7 @@ class ProtocolImageWriter:
         # frame the run saves states its position through. A scope with no
         # X/Y stage has no X/Y position to convert, so its frames state no
         # plate position; None states none for any frame.
-        to_plate: Callable[[float, float], PlatePosition] | None,
+        to_plate: Callable[[float, float], PlateLocation] | None,
         # How many captures the run is asked for: scans times steps for a
         # run that saves images, 0 for one that saves none. The runner
         # knows the scan count; the writer counts what became of each.

@@ -11,7 +11,7 @@ from kivy.uix.scatter import Scatter
 
 import _lumascope.modules.app_context as _app_ctx
 from _lumascope.modules import gui_logger, live_work
-from _lumascope.modules.coord_transformations import PlatePosition
+from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.exceptions import Refusal
 from _lumascope.modules.channel_record import GREY, Color, format_display_color
 from ui.ui_helpers import fixed_number, schedule_ui_interval, work_item_text
@@ -83,7 +83,7 @@ def work_title(work: tuple[live_work.WorkItem, ...]) -> str:
     return f' | {doing}' if doing else ''
 
 
-def cursor_title(pixel: tuple[int, int] | None, plate: PlatePosition | Refusal | None) -> str:
+def cursor_title(pixel: tuple[int, int] | None, plate: PlateLocation | Refusal | None) -> str:
     """The status line's cursor part: empty off the image.
 
     ``pixel`` is the sensor pixel under the cursor, None off the image;
@@ -98,7 +98,7 @@ def cursor_title(pixel: tuple[int, int] | None, plate: PlatePosition | Refusal |
         f' | Pixel: ({fixed_number(px, whole_digits=4, decimals=0)}, '
         f'{fixed_number(py, whole_digits=4, decimals=0)})'
     )
-    if isinstance(plate, PlatePosition):
+    if isinstance(plate, PlateLocation):
         sx, sy = plate.x_mm, plate.y_mm
         text += (
             f' | Plate: ({fixed_number(sx, whole_digits=3, decimals=2, signed=True)}, '

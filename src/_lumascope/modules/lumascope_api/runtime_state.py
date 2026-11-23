@@ -469,7 +469,7 @@ class RuntimeState:
     def frame_point_plate(
         self, x_fraction: float, y_fraction: float
     ) -> (
-        coord_transformations.PlatePosition
+        coord_transformations.PlateLocation
         | HardwareCommandRefusedError
         | AxisStateUnknownError
         | ObjectiveUnknownError
@@ -490,7 +490,7 @@ class RuntimeState:
                 to 1.
 
         Returns:
-            The ``PlatePosition``, in mm; or the first reason it is unknown,
+            The ``PlateLocation``, in mm, ``z_um`` None; or the first reason it is unknown,
             in this order: ``HardwareCommandRefusedError``,
             ``'scope_disconnected'``, ``'not_connected'`` or
             ``'axis_absent'``, the scope has no motor controller or no X or
@@ -588,10 +588,12 @@ class RuntimeState:
         *,
         labware_id: str | None = None,
         stage_offset: coord_transformations.StageOffset | None = None,
-    ) -> coord_transformations.PlatePosition:
+    ) -> coord_transformations.PlateLocation:
         """Convert a stage position (um) to a plate position (mm).
 
-        ``plate_to_stage`` inverts it.
+        ``plate_to_stage`` inverts it. Answered with ``z_um`` None, so the
+        answer is a ``PlateLocation`` that ``MotionAPI.move_to_plate`` takes
+        as it is, moving X and Y and leaving Z where it is.
 
         Args:
             x_um: The stage X, in um.
@@ -660,7 +662,7 @@ class RuntimeState:
         *,
         labware_id: str | None = None,
         stage_offset: coord_transformations.StageOffset | None = None,
-    ) -> Callable[[float, float], coord_transformations.PlatePosition]:
+    ) -> Callable[[float, float], coord_transformations.PlateLocation]:
         """``stage_to_plate`` bound to one plate and offset, taken when this is called.
 
         ``stage_to_plate`` reads the selected plate and live offset on every
@@ -678,7 +680,7 @@ class RuntimeState:
                 None for the offset live when this is called.
 
         Returns:
-            A function of ``(x_um, y_um)`` answering their ``PlatePosition``;
+            A function of ``(x_um, y_um)`` answering their ``PlateLocation``;
             it raises only as the transform refuses a non-finite coordinate.
 
         Raises:
@@ -694,7 +696,7 @@ class RuntimeState:
         transformer = self._coordinate_transformer
         coord_transformations.offset_axes(offset)
 
-        def to_plate(x_um: float, y_um: float) -> coord_transformations.PlatePosition:
+        def to_plate(x_um: float, y_um: float) -> coord_transformations.PlateLocation:
             return transformer.stage_to_plate(
                 labware=labware, stage_offset=offset, x_um=x_um, y_um=y_um
             )

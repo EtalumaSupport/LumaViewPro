@@ -108,7 +108,6 @@ NaN stays a NaN, and a key keeps its type.
 - [`OpticsStatus`](#OpticsStatus)
 - [`PartStatus`](#PartStatus)
 - [`PlateLocation`](#PlateLocation)
-- [`PlatePosition`](#PlatePosition)
 - [`PluginHealth`](#PluginHealth)
 - [`PluginNotLoaded`](#PluginNotLoaded)
 - [`PluginRegistry`](#PluginRegistry)
@@ -8000,7 +7999,7 @@ def frame_point_plate(
     self,
     x_fraction: float,
     y_fraction: float,
-) -> coord_transformations.PlatePosition | HardwareCommandRefusedError | AxisStateUnknownError | ObjectiveUnknownError | PixelSizeUnknownError
+) -> coord_transformations.PlateLocation | HardwareCommandRefusedError | AxisStateUnknownError | ObjectiveUnknownError | PixelSizeUnknownError
 ```
 
 Marks: reads (changes nothing).  
@@ -8022,7 +8021,7 @@ Judged on X and Y alone; Z's position does not move the point.
 
 **Returns**
 
-The `PlatePosition`, in mm; or the first reason it is unknown, in this order: `HardwareCommandRefusedError`, `'scope_disconnected'`, `'not_connected'` or `'axis_absent'`, the scope has no motor controller or no X or Y; `AxisStateUnknownError`, X or Y does not know its position, homing or lost; then the field of view's refusal (`optics_status`).
+The `PlateLocation`, in mm, `z_um` None; or the first reason it is unknown, in this order: `HardwareCommandRefusedError`, `'scope_disconnected'`, `'not_connected'` or `'axis_absent'`, the scope has no motor controller or no X or Y; `AxisStateUnknownError`, X or Y does not know its position, homing or lost; then the field of view's refusal (`optics_status`).
 
 **Raises**
 
@@ -8169,7 +8168,7 @@ def stage_to_plate(
     *,
     labware_id: str | None = None,
     stage_offset: coord_transformations.StageOffset | None = None,
-) -> coord_transformations.PlatePosition
+) -> coord_transformations.PlateLocation
 ```
 
 Marks: reads (changes nothing).  
@@ -8177,7 +8176,9 @@ Route: `GET /api/v1/scope/runtime_state/stage_to_plate`.
 
 Convert a stage position (um) to a plate position (mm).
 
-`plate_to_stage` inverts it.
+`plate_to_stage` inverts it. Answered with `z_um` None, so the
+answer is a `PlateLocation` that `MotionAPI.move_to_plate` takes
+as it is, moving X and Y and leaving Z where it is.
 
 **Args**
 
@@ -10605,29 +10606,19 @@ One part of the scope at bring-up.
 ## `lumascope.PlateLocation`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Returned by: [`MotionAPI.move_to_plate_nearest`](#MotionAPI.move_to_plate_nearest), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`ScopeSession.bookmark`](#ScopeSession.bookmark), [`ScopeSession.plate_position`](#ScopeSession.plate_position), [`ScopeSession.save_bookmark`](#ScopeSession.save_bookmark).  
+Returned by: [`MotionAPI.move_to_plate_nearest`](#MotionAPI.move_to_plate_nearest), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`RuntimeState.frame_point_plate`](#RuntimeState.frame_point_plate), [`RuntimeState.stage_to_plate`](#RuntimeState.stage_to_plate), [`ScopeSession.bookmark`](#ScopeSession.bookmark), [`ScopeSession.plate_position`](#ScopeSession.plate_position), [`ScopeSession.save_bookmark`](#ScopeSession.save_bookmark).  
 Taken by: [`MotionAPI.move_to_plate`](#MotionAPI.move_to_plate), [`MotionAPI.move_to_plate_nearest`](#MotionAPI.move_to_plate_nearest), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`ProtocolRunner.run_single_scan`](#ProtocolRunner.run_single_scan), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ScopeSession.add_step`](#ScopeSession.add_step).
 
-Where the scope is on a plate, focus included: X and Y in mm on the plate, Z in um.
+A place on a plate, focus included: X and Y in mm on the plate, Z in um.
+
+The one record of a plate position: what a conversion, a bookmark and
+a move to the plate state, so what one answers another takes.
 
 **Fields**
 
 - <a id="PlateLocation.x_mm"></a>`x_mm`: `float | None` -- The X on the plate, in mm from its left edge; None for no position on X, which a move leaves where it is.
 - <a id="PlateLocation.y_mm"></a>`y_mm`: `float | None` -- The Y on the plate, in mm from its top edge; None for no position on Y, which a move leaves where it is.
 - <a id="PlateLocation.z_um"></a>`z_um`: `float | None` -- The focus position, in um; None for no position on Z, which a move leaves where it is.
-
-<a id="PlatePosition"></a>
-## `lumascope.PlatePosition`
-
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Returned by: [`RuntimeState.frame_point_plate`](#RuntimeState.frame_point_plate), [`RuntimeState.stage_to_plate`](#RuntimeState.stage_to_plate).
-
-A position on a plate, in mm from the plate's top-left corner.
-
-**Fields**
-
-- <a id="PlatePosition.x_mm"></a>`x_mm`: `float` -- The X on the plate, in mm from its left edge.
-- <a id="PlatePosition.y_mm"></a>`y_mm`: `float` -- The Y on the plate, in mm from its top edge.
 
 <a id="PluginHealth"></a>
 ## `lumascope.PluginHealth`

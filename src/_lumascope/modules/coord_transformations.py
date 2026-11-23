@@ -44,24 +44,13 @@ class StagePosition:
     y_um: float
 
 
-@api_fields('x_mm', 'y_mm')
-@dataclasses.dataclass(frozen=True)
-class PlatePosition:
-    """A position on a plate, in mm from the plate's top-left corner.
-
-    Attributes:
-        x_mm: The X on the plate, in mm from its left edge.
-        y_mm: The Y on the plate, in mm from its top edge.
-    """
-
-    x_mm: float
-    y_mm: float
-
-
 @api_fields('x_mm', 'y_mm', 'z_um')
 @dataclasses.dataclass(frozen=True)
 class PlateLocation:
-    """Where the scope is on a plate, focus included: X and Y in mm on the plate, Z in um.
+    """A place on a plate, focus included: X and Y in mm on the plate, Z in um.
+
+    The one record of a plate position: what a conversion, a bookmark and
+    a move to the plate state, so what one answers another takes.
 
     Attributes:
         x_mm: The X on the plate, in mm from its left edge; None for no
@@ -107,8 +96,8 @@ class CoordinateTransformer:
         stage_offset: StageOffset,
         x_um: float,
         y_um: float,
-    ) -> PlatePosition:
-        """Convert a stage position (um) to a plate position (mm).
+    ) -> PlateLocation:
+        """Convert a stage position (um) to a plate position (mm), with no position on Z.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, ``x_um``, ``y_um`` or
@@ -117,9 +106,10 @@ class CoordinateTransformer:
         for name, value in (('x_um', x_um), ('y_um', y_um)):
             refuse_unless_finite_number(value, name)
         offset_x, offset_y = offset_axes(stage_offset)
-        return PlatePosition(
+        return PlateLocation(
             x_mm=labware.width_mm - (offset_x + x_um) / 1000,
             y_mm=labware.height_mm - (offset_y + y_um) / 1000,
+            z_um=None,
         )
 
     def plate_to_stage(

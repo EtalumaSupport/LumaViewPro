@@ -22,7 +22,7 @@ from _lumascope.modules.activity_claim import ActivityClaim
 import _lumascope.modules.manual_recording as manual_recording_module
 from _lumascope.drivers import host_clock
 import _lumascope.modules.stack_builder as stack_builder_module
-from _lumascope.modules.coord_transformations import PlatePosition
+from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.exceptions import RecordingRefusedError
 from _lumascope.modules.image_utils import read_file_record
 from _lumascope.modules.channel_record import load_scope_models
@@ -233,7 +233,7 @@ class _FakeRuntimeState:
     def stage_to_plate(self, x_um, y_um):
         # A stand-in transform, distinct from the identity so a stage number
         # recorded as a plate one shows.
-        return PlatePosition(x_mm=x_um / 1000.0 + 0.5, y_mm=y_um / 1000.0 + 0.5)
+        return PlateLocation(x_mm=x_um / 1000.0 + 0.5, y_mm=y_um / 1000.0 + 0.5, z_um=None)
 
     def plate_transform(self):
         return self.stage_to_plate

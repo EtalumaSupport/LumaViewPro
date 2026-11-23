@@ -93,7 +93,6 @@ from _lumascope.modules.channel_record import (
 from _lumascope.modules.coord_transformations import (
     AxisLimits,
     PlateLocation,
-    PlatePosition,
     StageOffset,
     StagePosition,
 )
@@ -742,7 +741,6 @@ __all__ = [
     'PartStatus',
     'PixelSizeUnknownError',
     'PlateLocation',
-    'PlatePosition',
     'PluginError',
     'PluginFailedError',
     'PluginHealth',

@@ -27,7 +27,7 @@ from _lumascope.modules.exceptions import (
     PositionOutOfRangeError,
 )
 from _lumascope.modules.axes import AxisState
-from _lumascope.modules.coord_transformations import PlatePosition
+from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -206,7 +206,7 @@ def test_a_point_reads_a_plate_position_after_a_binning_change_before_a_new_fram
     scope = turret_session.scope
     scope.camera.set_binning(2)
 
-    assert isinstance(scope.runtime_state.frame_point_plate(0.99, 0.01), PlatePosition)
+    assert isinstance(scope.runtime_state.frame_point_plate(0.99, 0.01), PlateLocation)
 
 
 def test_the_point_at_the_frame_centre_is_where_the_stage_is(turret_session):
@@ -239,7 +239,7 @@ def test_a_point_with_only_z_unknown_still_has_a_plate_position(turret_session):
     # home, so Z alone is put UNKNOWN by the state's own writer.
     scope.motion._set_axis_state('Z', AxisState.UNKNOWN)
 
-    assert isinstance(scope.runtime_state.frame_point_plate(0.5, 0.5), PlatePosition)
+    assert isinstance(scope.runtime_state.frame_point_plate(0.5, 0.5), PlateLocation)
 
 
 # parametrize-justified: each model is its own simulated scope.

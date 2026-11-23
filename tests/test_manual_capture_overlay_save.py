@@ -27,7 +27,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from _lumascope.modules.coord_transformations import PlatePosition
+from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.lumascope_api._constants import AxisPosition, TurretStatus
 from _lumascope.modules.axes import AxisState
 from tests.ast_seams import parse_module
@@ -57,8 +57,8 @@ def capture_ctx(tmp_path):
     a1 = plate('96 well microplate')
     scope.runtime_state.get_labware.return_value = a1
     a1_x_mm, a1_y_mm = a1.well_position(0, 0)
-    scope.runtime_state.plate_transform.return_value = lambda x_um, y_um: PlatePosition(
-        x_mm=a1_x_mm, y_mm=a1_y_mm
+    scope.runtime_state.plate_transform.return_value = lambda x_um, y_um: PlateLocation(
+        x_mm=a1_x_mm, y_mm=a1_y_mm, z_um=None
     )
     scope.motion.axis_positions = {
         'X': AxisPosition(AxisState.IDLE, 1000.0),

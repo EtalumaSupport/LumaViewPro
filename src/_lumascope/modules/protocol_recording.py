@@ -48,7 +48,7 @@ import _lumascope.modules.image_utils as image_utils
 import _lumascope.modules.wall_time as wall_time
 import _lumascope.modules.channel_record as channel_record
 from _lumascope.modules.write_size import FrameSizing, estimate_step_write_mb
-from _lumascope.modules.coord_transformations import PlatePosition
+from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.labware import Labware
 from _lumascope.modules.exceptions import (
     FramesLostIn,
@@ -187,7 +187,7 @@ class ProtocolVideoStep:
         record_step_row: Callable[..., None],
         record_dropped_capture: Callable[..., None],
         run_claim: BorrowedClaim,
-        to_plate: Callable[[float, float], PlatePosition] | None,
+        to_plate: Callable[[float, float], PlateLocation] | None,
         labware: Labware,
         fallback_focus: str | None,
         clock: Callable[[], float] = time.time,

@@ -42,6 +42,19 @@ def test_a_plate_move_of_x_alone_leaves_a_y_move_under_way(session):
     y_move.result()
 
 
+def test_a_converted_stage_position_is_moved_to_as_it_is_answered(session):
+    """``stage_to_plate`` answers the one plate record, Z None, so ``move_to_plate`` takes it unchanged."""
+    runtime_state = session.scope.runtime_state
+    motion = session.scope.motion
+    stage = _stage_um(session, 50.0, 30.0)
+    plate = runtime_state.stage_to_plate(stage.x_um, stage.y_um)
+
+    motion.move_to_plate(plate)
+
+    assert motion.target_positions['X'] == pytest.approx(stage.x_um)
+    assert motion.target_positions['Y'] == pytest.approx(stage.y_um)
+
+
 def test_a_move_to_a_well_lands_on_its_centre_and_an_unknown_label_is_refused(session):
     motion = session.scope.motion
     x_mm, y_mm = session.scope.runtime_state.get_labware().well_position(11, 7)

@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from _lumascope.drivers import host_clock
-from _lumascope.modules.coord_transformations import PlatePosition, StageOffset
+from _lumascope.modules.coord_transformations import PlateLocation, StageOffset
 from _lumascope.modules import wall_time
 from _lumascope.modules.lumascope_api import AxisPosition
 from _lumascope.modules.axes import AxisState
@@ -92,7 +92,7 @@ def _fake_scope(positions):
 
 
 def _to_plate(x_um, y_um):
-    return PlatePosition(x_mm=x_um / 1000.0 + 0.5, y_mm=y_um / 1000.0 + 0.5)
+    return PlateLocation(x_mm=x_um / 1000.0 + 0.5, y_mm=y_um / 1000.0 + 0.5, z_um=None)
 
 
 class TestTheFactRidesWithItsFrame:
@@ -399,7 +399,7 @@ class TestTheBoundPlateTransform:
         settings['protocol.labware'] = 'narrow'
         settings['stage_offset']['x'] = 5000.0
         assert to_plate(1000.0, 2000.0) == before
-        assert before == PlatePosition(x_mm=99.0, y_mm=48.0)
+        assert before == PlateLocation(x_mm=99.0, y_mm=48.0, z_um=None)
 
     def test_a_runs_transform_is_its_protocols_plate_and_the_offset_it_started_with(self):
         """A run states its frames in the frame its steps were driven in:
@@ -424,7 +424,7 @@ class TestTheBoundPlateTransform:
         to_plate = state.plate_transform(
             labware_id=protocol.labware_id, stage_offset=StageOffset(x_um=0.0, y_um=0.0)
         )
-        assert to_plate(1000.0, 2000.0) == PlatePosition(x_mm=99.0, y_mm=48.0)
+        assert to_plate(1000.0, 2000.0) == PlateLocation(x_mm=99.0, y_mm=48.0, z_um=None)
 
 
 def _engine(writer, clock):

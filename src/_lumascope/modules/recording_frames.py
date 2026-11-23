@@ -30,7 +30,7 @@ from _lumascope.modules.lumascope_api.frame_record import (
 
 if TYPE_CHECKING:
     from _lumascope.drivers.camera import Frame
-    from _lumascope.modules.coord_transformations import PlatePosition
+    from _lumascope.modules.coord_transformations import PlateLocation
     from _lumascope.modules.image_mode import OutputFormat
     from _lumascope.modules.labware import Labware
     from _lumascope.modules.channel_record import ChannelColors
@@ -205,7 +205,7 @@ class FrameFact(NamedTuple):
 def frame_fact(
     scope: 'Lumascope',
     *,
-    to_plate: Callable[[float, float], 'PlatePosition'] | None,
+    to_plate: Callable[[float, float], 'PlateLocation'] | None,
 ) -> FrameFact:
     """The fact for the frame arriving now; called on the camera callback.
 
@@ -288,7 +288,7 @@ def arrival(
     *,
     frame_time: FrameTime,
     channel_tiebreak: str,
-    to_plate: Callable[[float, float], 'PlatePosition'] | None,
+    to_plate: Callable[[float, float], 'PlateLocation'] | None,
     camera: RecordingCamera,
 ) -> Arrival:
     """What a recorded frame states, read as it arrives.

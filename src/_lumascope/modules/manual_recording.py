@@ -46,7 +46,7 @@ from _lumascope.modules.common_utils import (
     MIN_REQUIRED_DISK_MB,
     check_disk_space_ok,
 )
-from _lumascope.modules.coord_transformations import PlatePosition
+from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.labware import Labware
 from _lumascope.modules.axes import StageAxis
 from _lumascope.modules.config_helpers import (
@@ -1322,4 +1322,4 @@ class _RecordingPlan:
     # The plate transform bound at start(), so every frame is stated in the
     # frame of reference the recording began in; None when the recording
     # saves no frame files, and frames record no plate position.
-    to_plate: Callable[[float, float], PlatePosition] | None
+    to_plate: Callable[[float, float], PlateLocation] | None
