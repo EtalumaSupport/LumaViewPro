@@ -14,11 +14,15 @@ unsolicited, under the category it had; a protocol run's writer death through
 the run's fatal funnel, so the popup and the run's ending say the same thing.
 """
 
+import builtins
+import errno
 import inspect
+import io
 import pathlib
 
 import _lumascope.modules.manual_recording as manual_recording_module
 import _lumascope.modules.protocol_recording as protocol_recording
+import _lumascope.modules.video_recording as video_recording
 from _lumascope.drivers import host_clock
 from tests.video_step_drives import record_first_frame
 from _lumascope.modules.activity_claim import ActivityClaim
@@ -67,16 +71,42 @@ def _record_reports(monkeypatch, module):
 
 def _fail_manifest_writes(monkeypatch):
     """Make every manifest write raise, leaving every other write alone."""
-    real_write_text = pathlib.Path.write_text
+    # a stand-in by design: the subject is whoever reports the failure, and
+    # the simulator has no disk fault to inject.
+    real_write_whole = video_recording.write_whole
     refused = OSError('scripted: disk said no to the details file')
 
-    def _write_text(self, *args, **kwargs):
-        if self.name.endswith('manifest.json'):
+    def _write_whole(file, *args, **kwargs):
+        if pathlib.Path(file).name.endswith('manifest.json'):
             raise refused
-        return real_write_text(self, *args, **kwargs)
+        return real_write_whole(file, *args, **kwargs)
 
-    monkeypatch.setattr(pathlib.Path, 'write_text', _write_text)
+    monkeypatch.setattr(video_recording, 'write_whole', _write_whole)
     return refused
+
+
+def _fill_the_disk_part_way_through_the_manifest(monkeypatch):
+    """Make a manifest's write put half its text down, then fail as a full disk does."""
+    # a stand-in by design: a fault the simulator cannot produce, the disk
+    # filling mid-write. Every opener is the one ``io.open``, which pathlib
+    # calls too.
+    real_open = io.open
+
+    def _open(file, mode='r', *args, **kwargs):
+        handle = real_open(file, mode, *args, **kwargs)
+        if 'w' in mode and 'manifest.json' in pathlib.Path(file).name:
+            write = handle.write
+
+            def _half_then_full(text):
+                write(text[: len(text) // 2])
+                handle.flush()
+                raise OSError(errno.ENOSPC, 'scripted: no space left on the device')
+
+            handle.write = _half_then_full
+        return handle
+
+    monkeypatch.setattr(io, 'open', _open)
+    monkeypatch.setattr(builtins, 'open', _open)
 
 
 class _LaneKiller(BaseException):
@@ -148,6 +178,20 @@ def test_a_lost_details_file_rides_the_result_and_the_recording_stands(tmp_path)
     assert result.manifest_path is None
     assert result.aborted is False
     assert result.frames_written > 0
+
+
+def test_a_manifest_write_stopped_part_way_leaves_no_manifest(tmp_path, monkeypatch):
+    # A manifest cut short under its name is one a later video build
+    # refuses; none at all is a recording whose details were lost, which
+    # the result carries and the finish reports.
+    engine, clock = _engine(tmp_path)
+    _fill_the_disk_part_way_through_the_manifest(monkeypatch)
+
+    result = _record(engine, clock, tmp_path)
+
+    assert isinstance(result.manifest_failure, OSError)
+    assert result.manifest_failure.errno == errno.ENOSPC
+    assert [p.name for p in tmp_path.iterdir() if 'manifest' in p.name] == []
 
 
 def test_a_clean_recording_carries_no_fault(tmp_path):

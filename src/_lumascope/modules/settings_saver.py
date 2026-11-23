@@ -67,22 +67,35 @@ class SettingsSaver:
             self._save()
 
 
-def write_whole(file: str, settings: dict) -> None:
-    """Write ``settings`` to ``file`` as JSON: the whole new file, or the old one untouched.
+def write_whole(file: str | os.PathLike, data: dict, *, indent: int) -> None:
+    """Write ``data`` to ``file`` as JSON: the whole new file, or the old one untouched.
 
     Written beside the file, flushed to the drive, then moved over it, so a
-    crash or a power cut mid-save leaves the previous file whole: it is the
-    user's only copy of their configuration. UTF-8, as its one reader
-    (``settings_init.read_settings_json``) reads it.
+    crash or a power cut mid-save leaves the previous file whole, or no file
+    where there was none. Its two writers: the live settings, the user's
+    only copy of their configuration, read as UTF-8 by
+    ``settings_init.read_settings_json``; and a recording's manifest, the
+    only carrier of its color and measured rate, which a later video build
+    refuses when it finds one cut short. The text is encoded before the
+    file is opened: ``json.dump``'s streaming encoder took about seven times
+    as long on an hour-long recording's manifest, written while the
+    recording engine holds the lock its frame ingest takes.
+
+    Args:
+        file: The file to write.
+        data: What it holds.
+        indent: The JSON indent its readers and the files already on disk
+            use: 4 for the settings, 2 for a manifest.
 
     Raises:
         OSError: the write or the replace failed; the file is unchanged and
             nothing is left beside it.
     """
+    text = json.dumps(data, indent=indent)
     temporary = f'{file}.saving'
     try:
         with open(temporary, 'w', encoding='utf-8') as f:
-            json.dump(settings, f, indent=4)
+            f.write(text)
             f.flush()
             os.fsync(f.fileno())
         os.replace(temporary, file)

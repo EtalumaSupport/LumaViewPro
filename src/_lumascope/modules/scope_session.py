@@ -5610,7 +5610,7 @@ class ScopeSession:
         snapshot = self._copy_of_the_store()
         t0 = time.monotonic()
         try:
-            write_whole(file, snapshot)
+            write_whole(file, snapshot, indent=4)
         except OSError as e:
             fault = SettingsFileNotWrittenError(file, e)
             fault.__cause__ = e

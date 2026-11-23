@@ -43,7 +43,6 @@ the recording belongs to a run the failure must also end.
 
 import ctypes
 import enum
-import json
 import pathlib
 import queue
 import sys
@@ -69,6 +68,7 @@ from _lumascope.modules.activity_claim import (
 from _lumascope.modules.exceptions import CaptureFailedError, RecordingRefusedError
 from _lumascope.modules.lumascope_api.frame_record import ClockMapping, TimestampSource
 from _lumascope.modules.live_work import WorkKind
+from _lumascope.modules.settings_saver import write_whole
 from _lumascope.modules.video_cadence import CadenceSelector, StallWatch, frame_budget
 
 if TYPE_CHECKING:
@@ -1270,7 +1270,9 @@ class VideoRecordingEngine:
         )
         path = pathlib.Path(take.config.output_dir) / name
         try:
-            path.write_text(json.dumps(manifest, indent=2))
+            # Whole or not at all: a write stopped part way would leave a
+            # manifest cut short under its name, which a later build refuses.
+            write_whole(path, manifest, indent=2)
         except OSError as ex:
             # The frames on disk are the artifact; a manifest write
             # failure degrades reporting, never the recording. But the
