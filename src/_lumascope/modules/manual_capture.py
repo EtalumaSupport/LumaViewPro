@@ -31,7 +31,7 @@ from _lumascope.modules.image_mode import OutputFormat
 from _lumascope.modules.image_save import save_image
 from _lumascope.modules.image_utils import ImageStatistics
 from _lumascope.modules.channel_record import ChannelColors
-from _lumascope.modules.lumascope_api.frame_record import CapturedStill, FrameRecord
+from _lumascope.modules.lumascope_api.frame_record import CapturedStill, FrameRecord, SumProgress
 from _lumascope.modules.lumascope_api.illumination import lit_other_than
 from _lumascope.modules.recording_frames import frame_fact
 from _lumascope.modules.api_surface import api, api_fields
@@ -143,6 +143,9 @@ class ManualCaptureController:
         # caller that stops waiting cannot let a second still overtake a slow
         # grab. Released on the lane, which a plain Lock allows.
         self._in_flight = threading.Lock()
+        # The sum loop's own count, one record replaced whole, so a reader on
+        # another thread never sees one pass's kept beside another's total.
+        self._sum_progress: SumProgress | None = None
 
     @property
     def in_flight(self) -> bool:
@@ -152,6 +155,21 @@ class ManualCaptureController:
             Nothing.
         """
         return self._in_flight.locked()
+
+    @property
+    def sum_progress(self) -> SumProgress | None:
+        """How far the still's sum has got, from its first kept frame until the still ends.
+
+        None for a still of one frame, before a sum keeps its first frame,
+        and once the still has ended however it ended.
+
+        Raises:
+            Nothing.
+        """
+        return self._sum_progress
+
+    def _record_sum_progress(self, progress: SumProgress) -> None:
+        self._sum_progress = progress
 
     @api
     def start_save_still(
@@ -287,6 +305,7 @@ class ManualCaptureController:
             self._on_saved(saved[0].file.parent)
             return saved
         finally:
+            self._sum_progress = None
             self._in_flight.release()
 
     def _grab_named(self, scope, capture_config) -> tuple[str, CapturedStill]:
@@ -322,7 +341,8 @@ class ManualCaptureController:
             # the lane task its taking admitted, and capture_still would be
             # admitted again, inline, against whatever holds the scope now -- a
             # run that took it after the still was put on the lane would refuse
-            # the still it waits for.
+            # the still it waits for. A retake counts its own channel's sum.
+            self._sum_progress = None
             still = scope.imaging.capture_holding_channel_on_lane(
                 channel,
                 _MEMBER,
@@ -330,6 +350,7 @@ class ManualCaptureController:
                 all_ones_check=True,
                 timeout_s=_CAPTURE_RETRY_BUDGET_S,
                 sum_count=channel_config['sum'],
+                sum_iteration_callback=self._record_sum_progress,
             )
             if first_capture is None:
                 first_capture = scope.imaging.last_capture_info

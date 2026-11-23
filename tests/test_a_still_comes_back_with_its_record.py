@@ -157,7 +157,7 @@ class TestTheStillIsRefusedBeforeAnythingIsCaptured:
         lit by it, and its record says so."""
         lit = []
 
-        def light_another():
+        def light_another(_progress):
             # On the camera's worker, which may not block on an LED command
             # itself; the light is waited for so it is lit before the next frame.
             if not lit:

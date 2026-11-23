@@ -121,7 +121,7 @@ from _lumascope.modules.finite_number import (
 )
 from _lumascope.modules.frame_validity import FrameValiditySource
 from _lumascope.modules.lumascope_api.camera import CameraAPI
-from _lumascope.modules.lumascope_api.frame_record import CapturedStill
+from _lumascope.modules.lumascope_api.frame_record import CapturedStill, SumProgress
 from _lumascope.modules.lumascope_api.runtime_state import slots_holding
 from _lumascope.modules.manual_capture import ManualCaptureController
 from _lumascope.modules.notification_center import Notification, notifications
@@ -1399,7 +1399,8 @@ class ScopeSession:
         video steps, a finished run's images and its post-run builds;
         post-processing builds running and queued; a support report or logs
         zip; a plugin's run, from its press to its end; a still
-        being saved. Each item says how much it has left,
+        being taken and saved (``manual_capture``'s), a sum with the frames
+        it still has to take. Each item says how much it has left,
         a build how far it has got, and a run's images the write that is
         stuck, once one is. Read lock-free, owner by owner, from any
         thread; ``closing`` while the close runs, ``closed`` once the
@@ -1429,10 +1430,18 @@ class ScopeSession:
             if count:
                 work.append(WorkItem(kind, _COUNTED_WORK_NAMES[kind], left=count))
         if self.manual_capture.in_flight:
-            work.append(WorkItem(live_work.WorkKind.STILL, 'A still being saved'))
+            work.append(self._still_work(self.manual_capture.sum_progress))
         return LiveWork(
             work=tuple(work), closing=self._activity_claim.closing, closed=self._shut_down
         )
+
+    @staticmethod
+    def _still_work(progress: SumProgress | None) -> WorkItem:
+        """The still being taken, with the frames its sum still has to take while it takes them."""
+        if progress is None:
+            return WorkItem(live_work.WorkKind.STILL, 'Capturing a still')
+        left = progress.of - progress.kept
+        return WorkItem(live_work.WorkKind.STILL, 'Capturing a summed still', left=left or None)
 
     def _holder_work(self, kind: 'live_work.WorkKind', name: str) -> WorkItem:
         """What holds the scope, with how long it has recorded when it is recording."""
@@ -3105,7 +3114,7 @@ class ScopeSession:
         timeout_s: float = 0.0,
         sum_count: int = 1,
         sum_delay_s: float = 0.0,
-        sum_iteration_callback: Callable[[], None] | None = None,
+        sum_iteration_callback: Callable[[SumProgress], None] | None = None,
         exposed_after_call: bool = False,
     ) -> CapturedStill:
         """Capture a frame-valid image and hand it back with its record.
@@ -3147,8 +3156,9 @@ class ScopeSession:
                 says 100, and the capture, once taken, reports one
                 ``ValueClampedNotice``.
             sum_delay_s: The wait, in seconds, between summed frames.
-            sum_iteration_callback: Called with no arguments after each
-                summed frame; None calls nothing.
+            sum_iteration_callback: Called after each summed frame with how
+                far the sum has got (``SumProgress``), on the camera's lane;
+                None calls nothing. A still of one frame calls nothing.
             exposed_after_call: True keeps only a frame exposed after this
                 call, for a caller that changed what the camera sees outside
                 LVP (its own light or shutter) and waited for it to settle.

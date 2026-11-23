@@ -403,6 +403,117 @@ def test_a_still_being_saved_is_work(sim_session):
         sim_session.manual_capture._in_flight.release()
 
 
+def _still_read_at_each_summed_frame(session, also=None):
+    """The session's still item as read after each frame a still's sum keeps, on the lane.
+
+    The real lane capture, observed: its own per-frame callback is called
+    first, then the session is read, then ``also`` (handed the progress).
+    """
+    seen = []
+    imaging = session.scope.imaging
+    real = imaging.capture_holding_channel_on_lane
+
+    def observed(channel, member, **capture):
+        own = capture['sum_iteration_callback']
+
+        def each_frame(progress):
+            own(progress)
+            seen.append(_item(session, live_work.WorkKind.STILL))
+            if also is not None:
+                also(progress)
+
+        capture['sum_iteration_callback'] = each_frame
+        return real(channel, member, **capture)
+
+    imaging.capture_holding_channel_on_lane = observed
+    return seen
+
+
+def _still_session(tmp_path, sum_count):
+    from tests.test_manual_capture_member import _open_session, _settings
+
+    settings = _settings(tmp_path)
+    settings['BF']['sum'] = sum_count
+    return _open_session(settings)
+
+
+def _read_as_the_still_is_shown(session, read):
+    from _lumascope.modules.run_events import RunEvents
+
+    return RunEvents(
+        frame_captured=lambda *_frame: read.append(_item(session, live_work.WorkKind.STILL))
+    )
+
+
+def test_a_summed_still_counts_its_frames_down_and_is_gone_once_saved(tmp_path):
+    with _still_session(tmp_path, sum_count=4) as session:
+        seen = _still_read_at_each_summed_frame(session)
+        shown = []
+
+        session.manual_capture.start_save_still(
+            events=_read_as_the_still_is_shown(session, shown)
+        ).result(timeout=30)
+
+        assert [(item.name, item.left) for item in seen] == [
+            ('Capturing a summed still', 3),
+            ('Capturing a summed still', 2),
+            ('Capturing a summed still', 1),
+            ('Capturing a summed still', None),
+        ]
+        assert [(item.name, item.left) for item in shown] == [('Capturing a summed still', None)]
+        assert live_work.WorkKind.STILL not in _kinds(session)
+        assert session.manual_capture.sum_progress is None
+
+
+def test_a_still_of_one_frame_is_named_with_no_count(tmp_path):
+    with _still_session(tmp_path, sum_count=1) as session:
+        shown = []
+
+        session.manual_capture.start_save_still(
+            events=_read_as_the_still_is_shown(session, shown)
+        ).result(timeout=30)
+
+        assert [(item.name, item.left) for item in shown] == [('Capturing a still', None)]
+
+
+def test_a_change_mid_sum_starts_the_count_again_and_never_runs_past_the_sum(tmp_path):
+    from _lumascope.modules.frame_validity import FrameValiditySource
+
+    with _still_session(tmp_path, sum_count=3) as session:
+
+        def change_once(progress):
+            # A gain change landing while the sum is taken: the sum is taken again.
+            if progress.kept == 1 and not changed:
+                changed.append(True)
+                session.scope.imaging._frame_validity.invalidate(
+                    FrameValiditySource.GAIN, began_ns=None
+                )
+
+        changed = []
+        seen = _still_read_at_each_summed_frame(session, also=change_once)
+
+        session.manual_capture.start_save_still().result(timeout=30)
+
+        lefts = [item.left for item in seen]
+        assert lefts == [2, 1, None, 2, 1, None], lefts
+
+
+def test_a_camera_removed_mid_sum_leaves_no_still_and_no_count(tmp_path):
+    from _lumascope.modules.exceptions import HardwareCommandRefusedError
+
+    with _still_session(tmp_path, sum_count=3) as session:
+        _still_read_at_each_summed_frame(
+            session, also=lambda _progress: session.scope.simulation.remove_camera()
+        )
+
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            session.manual_capture.start_save_still().result(timeout=30)
+
+        assert refused.value.reason == 'not_connected'
+        assert live_work.WorkKind.STILL not in _kinds(session)
+        assert session.manual_capture.sum_progress is None
+
+
 def test_a_plugin_run_is_work_counted_until_each_ends(sim_session):
     with sim_session.plugin_run_in_flight():
         assert _item(sim_session, live_work.WorkKind.PLUGIN_RUN).left == 1

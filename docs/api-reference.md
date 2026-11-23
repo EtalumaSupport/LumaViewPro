@@ -157,6 +157,7 @@ NaN stays a NaN, and a key keeps its type.
 - [`StepStarted`](#StepStarted)
 - [`Stitch`](#Stitch)
 - [`Substitution`](#Substitution)
+- [`SumProgress`](#SumProgress)
 - [`SupportReportSaved`](#SupportReportSaved)
 - [`TilingConfig`](#TilingConfig)
 - [`TurretChanged`](#TurretChanged)
@@ -669,7 +670,7 @@ def capture_still(
     timeout_s: float = 0.0,
     sum_count: int = 1,
     sum_delay_s: float = 0.0,
-    sum_iteration_callback: Callable[[], None] | None = None,
+    sum_iteration_callback: Callable[[SumProgress], None] | None = None,
     exposed_after_call: bool = False,
 ) -> CapturedStill
 ```
@@ -694,7 +695,7 @@ bytes; a Python caller is handed the array.
 - `timeout_s`: How long, in seconds, each grab keeps taking frames for one that passes its checks, from 0 to 30 days.
 - `sum_count`: How many frames are summed into the image; above 100 (`SUM_COUNT_RANGE`), 100 are, the record's `frames_summed` says 100, and the capture, once taken, reports one `ValueClampedNotice`.
 - `sum_delay_s`: The wait, in seconds, between summed frames.
-- `sum_iteration_callback`: Called with no arguments after each summed frame; None calls nothing.
+- `sum_iteration_callback`: Called after each summed frame with how far the sum has got (`SumProgress`), on the camera's lane; None calls nothing. A still of one frame calls nothing.
 - `exposed_after_call`: True keeps only a frame exposed after this call, for a caller that changed what the camera sees outside LVP (its own light or shutter) and waited for it to settle. False (the default) waits for LVP's own changes only, so the frame can predate a change made outside LVP.
 
 **Returns**
@@ -1546,7 +1547,8 @@ then what finishes after it lets go: a recording's file, a run's
 video steps, a finished run's images and its post-run builds;
 post-processing builds running and queued; a support report or logs
 zip; a plugin's run, from its press to its end; a still
-being saved. Each item says how much it has left,
+being taken and saved (`manual_capture`'s), a sum with the frames
+it still has to take. Each item says how much it has left,
 a build how far it has got, and a run's images the write that is
 stuck, once one is. Read lock-free, owner by owner, from any
 thread; `closing` while the close runs, `closed` once the
@@ -12556,6 +12558,19 @@ refitted as the API fits one; the saved image mode stays saved.
 - <a id="Substitution.saved"></a>`saved`: `SettingValue` -- The value the settings held: the binning factor, the frame's (width, height) in pixels, or True for a feature.
 - <a id="Substitution.setting"></a>`setting`: `str` -- What was substituted: `'binning'`, `'frame'`, or the settings path of a camera feature the camera lacks (`'camera.high_conversion_gain'`, `'camera.line_noise_reduction'`).
 - <a id="Substitution.used"></a>`used`: `SettingValue` -- The value bring-up ran with in its place: the camera's binning factor, the fitted frame's (width, height), or False.
+
+<a id="SumProgress"></a>
+## `lumascope.SumProgress`
+
+A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+Taken by: [`ScopeSession.capture_still`](#ScopeSession.capture_still).
+
+How far a sum has got: handed to `sum_iteration_callback` after each frame it keeps.
+
+**Fields**
+
+- <a id="SumProgress.kept"></a>`kept`: `int` -- The frames kept so far, from 1. A change that lands while the sum is taken (a gain, a light, a move) starts the sum again, and `kept` again from 1, so it never runs past `of`.
+- <a id="SumProgress.of"></a>`of`: `int` -- The frames the sum takes.
 
 <a id="SupportReportSaved"></a>
 ## `lumascope.SupportReportSaved`

@@ -66,6 +66,7 @@ from _lumascope.modules.lumascope_api.frame_record import (
     ClockMapping,
     FrameRecord,
     FrameTime,
+    SumProgress,
     arrival_time,
     camera_frame_time,
     grab_record,
@@ -752,7 +753,7 @@ class ImagingAPI:
         timeout_s: float = 0.0,
         sum_count: int = 1,
         sum_delay_s: float = 0.0,
-        sum_iteration_callback: Callable[[], None] | None = None,
+        sum_iteration_callback: Callable[[SumProgress], None] | None = None,
         exposed_after_call: bool = False,
     ) -> CapturedStill:
         """Capture a frame guaranteed to reflect the current hardware state.
@@ -791,7 +792,8 @@ class ImagingAPI:
             timeout_s: Timeout (seconds) for the final capture_image call.
             sum_count: Number of frames to sum for noise reduction.
             sum_delay_s: Delay between summed frames.
-            sum_iteration_callback: Called after each summed frame.
+            sum_iteration_callback: Called after each summed frame with how
+                far the sum has got (``SumProgress``).
             exposed_after_call: Record the caller's change
                 (``FrameValiditySource.CALLER``) once the capture can run,
                 so only a frame exposed after it is kept.
@@ -1400,7 +1402,7 @@ class ImagingAPI:
         timeout_s: float = 0.0,
         sum_count: int = 1,
         sum_delay_s: float = 0.0,
-        sum_iteration_callback: Callable[[], None] | None = None,
+        sum_iteration_callback: Callable[[SumProgress], None] | None = None,
         exposed_after_call: bool = False,
     ) -> CapturedStill:
         """Capture a frame-valid image on the camera worker, and hand it back with its record.
@@ -1449,8 +1451,8 @@ class ImagingAPI:
             sum_count: Frames summed into the image, for noise reduction; a
                 sum's array is uint16.
             sum_delay_s: Seconds between summed frames.
-            sum_iteration_callback: Called after each summed frame, on the
-                camera's lane.
+            sum_iteration_callback: Called after each summed frame with how
+                far the sum has got (``SumProgress``), on the camera's lane.
             exposed_after_call: True to keep only a frame exposed after this
                 call, for a caller that changed what the camera sees
                 outside LVP (a light or a shutter of its own) and has
@@ -1687,7 +1689,7 @@ class ImagingAPI:
         dark_floor_check: bool = False,
         sum_count: int = 1,
         sum_delay_s: float = 0.0,
-        sum_iteration_callback: Callable[[], None] | None = None,
+        sum_iteration_callback: Callable[[SumProgress], None] | None = None,
         new_capture_timeout_s: float = 5.0,
         verify_chunk_targets: bool = False,
         judged: _Judged | None = None,
@@ -1717,7 +1719,8 @@ class ImagingAPI:
                 must see what the camera sees, dark or not).
             sum_count: Number of frames to sum for noise reduction.
             sum_delay_s: Delay in seconds between summed frames.
-            sum_iteration_callback: Called after each summed frame.
+            sum_iteration_callback: Called after each summed frame with how
+                far the sum has got (``SumProgress``).
             new_capture_timeout_s: Max seconds to wait for the new-capture
                 grab (passed positionally to driver.grab_new_capture). The
                 historical bare name `new_capture_timeout` claimed "ms" in
@@ -1981,7 +1984,7 @@ class ImagingAPI:
             if sum_count > 1:
                 earliest_seq = frame.seq
                 if sum_iteration_callback is not None:
-                    sum_iteration_callback()
+                    sum_iteration_callback(SumProgress(kept=frame_index + 1, of=sum_count))
 
                 time.sleep(sum_delay_s)
 
@@ -2133,7 +2136,7 @@ class ImagingAPI:
         all_ones_check: bool = False,
         sum_count: int = 1,
         sum_delay_s: float = 0.0,
-        sum_iteration_callback: Callable[[], None] | None = None,
+        sum_iteration_callback: Callable[[SumProgress], None] | None = None,
         new_capture_timeout_s: float = 5.0,
         verify_chunk_targets: bool = False,
     ) -> np.ndarray:
@@ -2167,8 +2170,8 @@ class ImagingAPI:
             sum_count: Frames summed into the image, for noise reduction; a
                 sum's array is uint16.
             sum_delay_s: Seconds between summed frames.
-            sum_iteration_callback: Called after each summed frame, on the
-                camera's lane.
+            sum_iteration_callback: Called after each summed frame with how
+                far the sum has got (``SumProgress``), on the camera's lane.
             new_capture_timeout_s: Seconds to wait for the new frame.
             verify_chunk_targets: Pass over frames whose own record of
                 exposure and gain (the camera's chunk data) differs from the

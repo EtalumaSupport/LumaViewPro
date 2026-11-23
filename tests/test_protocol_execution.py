@@ -937,10 +937,10 @@ class TestSumAveraging:
         def observed(*args, **kwargs):
             each_frame = kwargs.get('sum_iteration_callback')
 
-            def marked():
+            def marked(progress):
                 seq_at_each_frame.append(camera.grab().seq)
                 if each_frame is not None:
-                    each_frame()
+                    each_frame(progress)
 
             kwargs['sum_iteration_callback'] = marked
             still = real_capture_still(*args, **kwargs)

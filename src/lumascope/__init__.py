@@ -320,6 +320,7 @@ from _lumascope.modules.lumascope_api.frame_record import (
     FrameTime,
     LightTiming,
     SettingSource,
+    SumProgress,
     TimestampSource,
 )
 from _lumascope.modules.lumascope_api.illumination import (
@@ -862,6 +863,7 @@ __all__ = [
     'StitchMode',
     'StoredSettingReplacedNotice',
     'Substitution',
+    'SumProgress',
     'SupportReportKind',
     'SupportReportNotSavedError',
     'SupportReportSaved',

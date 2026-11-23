@@ -444,6 +444,22 @@ def delivered_frame_record(
     )
 
 
+@api_fields('kept', 'of')
+@dataclasses.dataclass(frozen=True)
+class SumProgress:
+    """How far a sum has got: handed to ``sum_iteration_callback`` after each frame it keeps.
+
+    Attributes:
+        kept: The frames kept so far, from 1. A change that lands while the
+            sum is taken (a gain, a light, a move) starts the sum again, and
+            ``kept`` again from 1, so it never runs past ``of``.
+        of: The frames the sum takes.
+    """
+
+    kept: int
+    of: int
+
+
 @api_fields('image', 'record')
 @dataclasses.dataclass(frozen=True, eq=False)
 class CapturedStill:

@@ -150,7 +150,7 @@ class TestARemovedCamera:
         with pytest.raises(HardwareCommandRefusedError) as refused:
             sim_scope.imaging.capture_still(
                 sum_count=2,
-                sum_iteration_callback=sim_scope.simulation.remove_camera,
+                sum_iteration_callback=lambda _progress: sim_scope.simulation.remove_camera(),
                 timeout_s=0.5,
             )
 
@@ -166,7 +166,7 @@ class TestARemovedCamera:
         with pytest.raises(HardwareCommandRefusedError) as refused:
             sim_scope.imaging.capture_still(
                 sum_count=2,
-                sum_iteration_callback=sim_scope.simulation.remove_camera,
+                sum_iteration_callback=lambda _progress: sim_scope.simulation.remove_camera(),
                 timeout_s=0.5,
             )
 
@@ -221,7 +221,7 @@ def test_a_no_frame_capture_under_a_live_arm_leaves_the_arm_re_armed(sim_scope):
     # capture that got nothing; only a removal skips the re-arm.
     sim_scope.camera.set_auto_gain(CameraAutoMode.CONTINUOUS, AUTO_GAIN)
 
-    def stall():
+    def stall(_progress):
         sim_scope.simulation.stall_stream(0.0, 30.0)
 
     with pytest.raises(CaptureFailedError):
