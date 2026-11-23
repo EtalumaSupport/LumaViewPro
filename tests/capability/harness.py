@@ -402,17 +402,22 @@ def hardware_session(objective=None, needs=()):
     `objective`, a catalogue key, is selected after bring-up and before the
     objective is asked about: on a turret scope that turns the turret to the
     one slot a person assigned it (`select_objective`), so a probe on another
-    slot's glass is not stopped by slot 1's. It assigns nothing.
+    slot's glass is not stopped by slot 1's. It assigns nothing. A probe that
+    names one is a probe whose result the optics shape, and an objective
+    nobody has confirmed stops it. A probe that names none is one whose
+    result they do not shape: it runs on the objective as it stands, states
+    it as the `objective` figure, and confirms nothing. Unconfirmed, the
+    objective is unknown, and a capture is refused for it
+    (`ObjectiveUnknownError`, `'none_selected'` or `'slot_unassigned'`).
 
     Only under `--hardware`. The settings are the installation's own
     `current.json`, read from the root the app reads: a root without one is
     refused, because the shipped template would configure a scope that is not
     the one on the desk. Bring-up is the one host bring-up,
     `run_application_session`, which returns once the stage has homed; a
-    scope with no motor board comes straight up. An objective nobody has
-    confirmed stops the probe -- it never tells the scope what is in the
-    light path. Nothing here saves settings, and the file is checked
-    unchanged at the end.
+    scope with no motor board comes straight up. The harness never tells the
+    scope what is in the light path. Nothing here saves settings, and the
+    file is checked unchanged at the end.
     """
     if not HARDWARE:
         print(f'REFUSED: hardware_session() is the --hardware door; {PROBE} was run without it.')
@@ -464,7 +469,16 @@ def hardware_session(objective=None, needs=()):
         if objective is not None:
             session.select_objective(objective)
         question = session.objective_question
-        if question is not None:
+        if question is not None and objective is None:
+            figure(
+                'objective',
+                {
+                    'id': scope.runtime_state.get_current_objective_id(),
+                    'confirmed': False,
+                    'why': f'{PROBE} names no objective: its result does not depend on it',
+                },
+            )
+        elif question is not None:
             print(
                 f'STOPPED: the objective is not confirmed ({question}). '
                 'Confirm it in LumaViewPro, close it, and run the probe again.',
