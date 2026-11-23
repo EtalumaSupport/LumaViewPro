@@ -11,7 +11,7 @@ and SimulatedCamera -- no hardware or Kivy needed.
 """
 
 import _lumascope.modules.common_utils as common_utils
-from tests.disk_fakes import the_start_finds_room
+from tests.disk_fakes import the_first_readings_find_room, the_start_finds_room
 from tests.protocol_drives import no_post_run_builds
 import dataclasses
 import datetime
@@ -1970,6 +1970,25 @@ class TestDiskSpaceCheck:
         completed, ended = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         assert ended['outcome'].status == 'completed', ended['outcome']
+
+    def test_a_video_step_short_of_disk_ends_the_run_before_it_records(
+        self, executor, scope, tmp_path, monkeypatch
+    ):
+        """The run's start and its scan's check find room; the step's own check
+        before it records meets a full disk, and the run ends there."""
+        monkeypatch.setattr(
+            common_utils,
+            'check_disk_space_ok',
+            the_first_readings_find_room(2, lambda *_: (False, 100.0)),
+        )
+        protocol = _make_multi_step_protocol(
+            [{'color': 'BF', 'acquire': 'video', 'video_config': {'duration': 1}}]
+        )
+        completed, ended = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+        outcome = ended['outcome']
+        assert (outcome.status, outcome.reason) == ('failed', 'disk_space_critical'), outcome
+        assert 'the video step needs' in outcome.message, outcome.message
 
 
 # ---------------------------------------------------------------------------
