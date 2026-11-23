@@ -26,14 +26,12 @@ Test approach
    psutil.disk_usage. A real filesystem probe reports this machine's
    free space, not the case's; the monkeypatch shapes the probe to
    return realistic free-bytes values per case.
-2. Source-text guards over the three call sites: shutil.disk_usage is
-   gone; check_disk_space_ok is the new shape. Catches a reintroduction
-   of either hand-rolled call.
+2. That nothing else reads free space, a reintroduced hand-rolled read
+   included, is the guard's: tests/guards/test_free_space_has_two_judges.py.
 """
 
 from __future__ import annotations
 
-import pathlib
 from types import SimpleNamespace
 
 import pytest
@@ -41,10 +39,6 @@ import pytest
 from _lumascope.modules import common_utils
 from _lumascope.modules.common_utils import check_disk_space_ok
 from tests.disk_fakes import free_space_is, free_space_unreadable
-from tests.case_walk import failing_cases
-
-
-REPO = pathlib.Path(__file__).resolve().parent.parent
 
 
 def _stub_disk_usage(free_bytes: float):
@@ -204,39 +198,3 @@ def test_a_recordings_check_reads_once_an_interval(monkeypatch):
 
     assert first is not None and second is None
     assert readings == ['/']
-
-
-# ---------------------------------------------------------------------------
-# Source-text guards: 3 call sites use the helper, not shutil.disk_usage
-# ---------------------------------------------------------------------------
-
-SITES = {
-    'src/_lumascope/modules/protocol_image_writer.py': 'common_utils.room_to_write',
-    'src/_lumascope/modules/protocol_run_loop.py': 'room_to_write',
-    'src/_lumascope/modules/manual_recording.py': 'DiskCheckInterval',
-}
-
-
-def test_site_uses_helper():
-    def check(relpath, needle):
-        # pin-justified: structural cross-site guard that all three callers use
-        # the one canonical helper; the disk-abort behavior itself has a
-        # behavioral twin (test_protocol_image_writer_disk_exhaustion_aborts),
-        # and the main_display caller is Kivy-bound (no headless drive).
-        src = (REPO / relpath).read_text()
-        assert needle in src, f'{relpath} no longer calls {needle}; the consolidated probe is gone'
-
-    failed = failing_cases(list(SITES.items()), check)
-    assert not failed, failed
-
-
-def test_site_no_longer_calls_shutil_disk_usage():
-    def check(relpath):
-        src = (REPO / relpath).read_text()
-        assert 'shutil.disk_usage' not in src, (
-            f'{relpath} still calls shutil.disk_usage; this is exactly the '
-            'Windows-disagree-with-psutil case the consolidation prevents'
-        )
-
-    failed = failing_cases(list(SITES.keys()), check)
-    assert not failed, failed
