@@ -53,7 +53,6 @@ GESTURES = {
         lambda: _stand(
             channel_control.ChannelControl,
             'save_focus',
-            '_refresh_step_views',
             channel='BF',
         ),
         'save_focus',

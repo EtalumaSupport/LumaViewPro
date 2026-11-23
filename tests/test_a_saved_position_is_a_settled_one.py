@@ -72,7 +72,7 @@ def test_every_member_that_keeps_the_live_position_refuses_while_z_moves(session
         'plate_position': lambda: session.plate_position,
         'save_bookmark': lambda: session.save_bookmark(('Z',)),
         'save_all_bookmarks': session.save_all_bookmarks,
-        'save_focus': lambda: session.save_focus(protocol, 'BF'),
+        'save_focus': lambda: session.save_focus('BF'),
         'apply_focus_to_channel_steps': lambda: session.apply_focus_to_channel_steps(
             protocol, 'BF'
         ),

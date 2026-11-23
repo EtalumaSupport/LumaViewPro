@@ -193,7 +193,14 @@ def _the_floor_on(session, protocol):
 
 
 def _the_top_moved_by_hand(session, protocol):
-    session.scope.protocols.set_step_z(protocol, 2, LAYER_FOCUS_UM + 7.0)
+    # Change, the one hand writer of a step: it rewrites the slice from the
+    # live stage, so the stage stands on the top slice and is moved in Z.
+    top = protocol.step_row(step_index=2)
+    session.go_to_step(protocol, 2)
+    session.scope.motion.move_z(top['Z'] + 7.0)
+    session.update_step(protocol, 2, channel=top['channel'])
+    # The slice takes where the motor stopped, a step's fraction from the ask.
+    assert protocol.step_row(step_index=2)['Z'] == pytest.approx(top['Z'] + 7.0, abs=0.01)
 
 
 @pytest.mark.slow

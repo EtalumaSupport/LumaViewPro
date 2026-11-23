@@ -423,19 +423,6 @@ class ObjectiveQuestion:
     choices: tuple[str, ...]
 
 
-@dataclasses.dataclass(frozen=True)
-class SavedFocus:
-    """What ``ScopeSession.save_focus`` wrote.
-
-    Attributes:
-        z_um: The Z saved as the channel's focus.
-        step_index: The step that took it as its Z, or None when no step did.
-    """
-
-    z_um: float
-    step_index: int | None
-
-
 @api_fields('run_named', 'control_named', 'recording')
 @dataclasses.dataclass(frozen=True)
 class ControlsLock:
@@ -3486,23 +3473,19 @@ class ScopeSession:
         )
 
     @_guarded_write
-    def save_focus(
-        self, protocol: 'Protocol', channel: str, *, step_index: int | None = None
-    ) -> SavedFocus:
-        """Save the live Z as ``channel``'s focus, and as step ``step_index``'s Z.
+    def save_focus(self, channel: str) -> float:
+        """Save the live Z as ``channel``'s focus; no protocol step changes.
 
-        The channel's focus is what every new step of the channel is born at.
-        The step takes the Z only when it is a step of ``channel``; a step of
-        another channel is left alone. No other step is written: every step
-        of a channel is born at the same focus, so a step matching the old
-        focus says nothing about whether its user wants the new one.
-        ``apply_focus_to_channel_steps`` writes them all.
+        The channel's focus is where New builds each of the channel's steps.
+        A step's Z is set by Add (the live Z), Change, Apply to Steps
+        (``apply_focus_to_channel_steps``) or an autofocus scan, never by
+        saving a focus.
 
         Args:
-            protocol: The protocol whose step may take the Z.
             channel: The channel whose focus is saved.
-            step_index: The step, counted from 0, that takes the Z when it
-                is a step of ``channel``; None (the default) writes no step.
+
+        Returns:
+            The Z stored as the channel's focus, in micrometers.
 
         Raises:
             ProtocolRunRefusedError: ``'positions_unreachable'`` -- this scope
@@ -3510,8 +3493,6 @@ class ScopeSession:
             AxisStateUnknownError: Z lost its reference. Nothing is written.
             AxisMovingError: ``'axis_moving'``, Z is moving, so its number is a
                 place it is passing through. Nothing is written.
-            StepNotFoundError: ``'no_such_step'``, ``step_index`` is not a
-                step of ``protocol``. Nothing is written.
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no ``channel``.
@@ -3521,17 +3502,10 @@ class ScopeSession:
         self.scope.channel_identity.refuse_unless_on_scope(
             channel, 'save_focus', then='take a focus'
         )
-        step = None if step_index is None else protocol.step_row(step_index=step_index)
         z = self.scope.protocols.focus_z_um(then='save the focus')
-        self._store_channel_focus(channel, z)
-        if step is None or step['channel'] != channel:
-            logger.info(f'[Session  ] Focus saved: {channel} Z={z}, no step written')
-            return SavedFocus(z_um=z, step_index=None)
-        self.scope.protocols.set_step_z(protocol, step_index, z)
-        logger.info(
-            f'[Session  ] Focus saved: {channel} Z={z}, and as the Z of step {step_index + 1}'
-        )
-        return SavedFocus(z_um=z, step_index=step_index)
+        stored = self._store_channel_focus(channel, z)
+        logger.info(f'[Session  ] Focus saved: {channel} Z={stored}')
+        return stored
 
     def _store_channel_focus(self, channel: str, z_um: float) -> float:
         """A channel's focus through the one channel write, refused unless Z can reach it; returns the Z stored."""

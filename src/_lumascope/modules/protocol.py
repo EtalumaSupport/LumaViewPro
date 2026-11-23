@@ -2989,14 +2989,13 @@ class Protocol:
         channel's reference slice, so the channel's stacks are placed with
         their reference at ``z`` and keep their spacing.
 
-        The explicit bulk counterpart to the selected-step Save Focus
-        write: covers the fresh-protocol workflow where the user focuses
-        a channel once and wants every step of that channel to start
-        there. Takes no previous-Z parameter by design -- a selective
-        "only steps that still look untouched" update is deliberately
-        not representable, because sibling steps are all born at the
-        identical channel focus, so matching a prior value is the default
-        state and never evidence of user intent.
+        The one bulk write of a channel's step Z: covers the fresh-protocol
+        workflow where the user focuses a channel once and wants every step
+        of that channel to start there. Takes no previous-Z parameter by
+        design -- a selective "only steps that still look untouched" update
+        is deliberately not representable, because sibling steps are all
+        born at the identical channel focus, so matching a prior value is
+        the default state and never evidence of user intent.
 
         Args:
             channel: Color/channel name (BF, Ex405, Ex488, Ex589, Lumi, etc.).

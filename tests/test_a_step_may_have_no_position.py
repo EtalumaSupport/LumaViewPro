@@ -305,22 +305,13 @@ def test_writes_for_an_axis_the_scope_lacks_are_refused(make_session):
     from _lumascope.modules.exceptions import HardwareCommandRefusedError
 
     no_stage = make_session('LS820', acquiring=('BF',))
-    manual = make_session('LS620', acquiring=('BF',))
-    protocol = manual.create_empty_protocol()
-    manual.add_step(protocol)
 
     bookmark_before = dict(no_stage.settings['bookmark'])
     tiling = _refused(lambda: no_stage.new_protocol(tiling='3x3'))
-    step_z = _refused(lambda: manual.scope.protocols.set_step_z(protocol, 0, 123.0))
     with pytest.raises(HardwareCommandRefusedError) as bookmark:
         no_stage.save_bookmark(('X',))
 
-    assert (tiling.reason, step_z.reason, bookmark.value.reason) == (
-        'positions_unreachable',
-        'positions_unreachable',
-        'axis_absent',
-    )
-    assert protocol.step_row(step_index=0)['Z'] is None
+    assert (tiling.reason, bookmark.value.reason) == ('positions_unreachable', 'axis_absent')
     assert no_stage.settings['bookmark'] == bookmark_before
 
 

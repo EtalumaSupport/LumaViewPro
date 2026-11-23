@@ -39,7 +39,6 @@ _WRITES = {
     'modify_step': "a protocol step's settings",
     'modify_name': "a protocol step's name",
     'modify_labware': "a protocol's plate",
-    'modify_step_z_height': "a protocol step's Z",
     'apply_tiling': "a protocol's steps tiled",
     'apply_zstacking': "a protocol's steps stacked",
     'set_turret_slot': "a protocol step's turret slot",

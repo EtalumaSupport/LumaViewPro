@@ -673,19 +673,6 @@ class ProtocolsAPI:
             )
 
     @_guarded_write
-    def set_step_z(self, protocol: Protocol, step_index: int, z: float) -> None:
-        """Write ``z`` as step ``step_index``'s Z.
-
-        Raises:
-            ProtocolRunRefusedError: ``'positions_unreachable'``, this scope
-                has no Z axis, so no Z is a place it can go. Nothing is written.
-            ProtocolError: ``step_index`` is not a step of ``protocol``, or
-                ``z`` is not a number (raised by the protocol).
-        """
-        self._refuse_no_focus_axis(then="set a step's Z")
-        protocol.modify_step_z_height(step_index=step_index, z=z)
-
-    @_guarded_write
     def apply_focus_to_channel_steps(self, protocol: Protocol, channel: str, z: float) -> int:
         """Write ``z`` as the Z of every step of ``channel``; returns how many.
 

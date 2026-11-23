@@ -634,17 +634,9 @@ class ChannelControl(BoxLayout):
         gui_logger.button(f'SAVE_FOCUS_{self.channel}')
         ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] ChannelControl.save_focus()')
-        # The selected step and the protocol are taken at the click: the
-        # step the user was looking at, in the protocol the panel holds now
-        # (the panel replaces its protocol on New and Load). The panel's -1
-        # is no step selected.
-        protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
-        protocol = protocol_settings._protocol
-        selected_step = int(protocol_settings.curr_step)
-        step_index = selected_step if selected_step >= 0 else None
         run_reported(
-            lambda: ctx.session.save_focus(protocol, self.channel, step_index=step_index),
-            lambda: self._refresh_step_views(ctx, protocol),
+            lambda: ctx.session.save_focus(self.channel),
+            None,
             f'SAVE_FOCUS_{self.channel}',
         )
 
@@ -663,7 +655,8 @@ class ChannelControl(BoxLayout):
         gui_logger.button(f'APPLY_FOCUS_TO_STEPS_{self.channel}')
         ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] ChannelControl.apply_focus_to_channel_steps()')
-        # As Save Focus: the protocol the panel holds at the click.
+        # The protocol the panel holds at the click (the panel replaces its
+        # protocol on New and Load).
         protocol = ctx.motion_settings.ids['protocol_settings_id']._protocol
         run_reported(
             lambda: ctx.session.apply_focus_to_channel_steps(protocol, self.channel),

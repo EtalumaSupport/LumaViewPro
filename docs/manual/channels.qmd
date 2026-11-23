@@ -120,9 +120,9 @@ Under [Focus]{.guilabel}, each channel has its own saved focus, a Z position.
 steps at that channel's saved focus; [Add]{.guilabel} uses the current
 focus (@sec-protocol-add).
 
-- [Save Focus]{.guilabel} saves the current Z as the channel's focus. If a
-  step in this channel is selected in the [Protocol]{.guilabel} drawer,
-  that step gets the Z too; no other step changes.
+- [Save Focus]{.guilabel} saves the current Z as the channel's focus; no
+  step in the protocol changes. To change one step's focus, select it in
+  the [Protocol]{.guilabel} drawer, focus, and click [Change]{.guilabel}.
 - [Go to Focus]{.guilabel} moves the focus to the channel's saved focus.
 - [To All Steps]{.guilabel} saves the current Z as the channel's focus and
   sets every step of this channel in the current protocol to it. The

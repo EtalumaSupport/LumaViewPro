@@ -2,11 +2,11 @@
 """Save Focus and Apply Focus to Steps are Session members, refused at the API.
 
 The layer panel's handlers owned both decisions: which Z to read and
-whether it could be trusted, the layer focus write, which step took the Z
-and which were left alone. A script or REST caller could do neither, and a
-scope with no Z axis saved Z 0 as a focus (the refusal it was owed was the
-GUI hiding the button). The Session now does both, the protocols API
-refuses what cannot be saved, and the GUI passes the selected step.
+whether it could be trusted, and the layer focus write. A script or REST
+caller could do neither, and a scope with no Z axis saved Z 0 as a focus
+(the refusal it was owed was the GUI hiding the button). The Session now
+does both and the protocols API refuses what cannot be saved. Save Focus
+changes no protocol step; Apply to Steps writes every step of the channel.
 """
 
 import logging
@@ -17,11 +17,10 @@ from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     AxisStateUnknownError,
     HardwareCommandRefusedError,
-    ProtocolError,
     ProtocolRunRefusedError,
 )
 from _lumascope.modules.axes import AxisState
-from _lumascope.modules.scope_session import SavedFocus, ScopeSession
+from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0
@@ -81,65 +80,26 @@ def _zs(protocol):
 
 
 class TestSaveFocus:
-    def test_the_selected_step_of_the_layer_takes_the_z_and_no_other(self, session):
+    def test_a_saved_focus_then_add_leaves_every_step_where_it_was(self, session):
+        # #524: the reporter focused for a new step, pressed Save Focus, then
+        # Add; the step selected before (step 1) had already taken the new Z.
         protocol = _protocol_bf_bf_blue(session)
         _go_to_z(session, 5000)
 
-        saved = session.save_focus(protocol, 'BF', step_index=1)
+        saved = session.save_focus('BF')
+        session.add_step(protocol, channels=['BF'], after_step_index=0)
 
-        assert saved == SavedFocus(z_um=5000.0, step_index=1)
+        assert saved == 5000.0
         assert session.channel_settings('BF').focus_z_um == 5000.0
-        assert _zs(protocol) == [LAYER_FOCUS, 5000.0, LAYER_FOCUS]
-
-    def test_three_saves_on_three_steps_stay_three_values(self, session):
-        # #734: saving step after step collapsed every step to the last save.
-        protocol = _protocol_bf_bf_blue(session)
-        _go_to_z(session, 5000)
-        session.save_focus(protocol, 'BF', step_index=0)
-        _go_to_z(session, 6000)
-        session.save_focus(protocol, 'BF', step_index=1)
-
-        assert _zs(protocol) == [5000.0, 6000.0, LAYER_FOCUS]
-
-    def test_a_step_of_another_channel_is_left_alone(self, session):
-        protocol = _protocol_bf_bf_blue(session)
-        _go_to_z(session, 5000)
-
-        saved = session.save_focus(protocol, 'BF', step_index=2)
-
-        assert saved == SavedFocus(z_um=5000.0, step_index=None)
-        assert session.channel_settings('BF').focus_z_um == 5000.0
-        assert _zs(protocol) == [LAYER_FOCUS] * 3
-
-    def test_no_step_saves_the_layer_focus_only(self, session):
-        protocol = _protocol_bf_bf_blue(session)
-        _go_to_z(session, 5000)
-
-        saved = session.save_focus(protocol, 'BF')
-
-        assert saved == SavedFocus(z_um=5000.0, step_index=None)
-        assert session.channel_settings('BF').focus_z_um == 5000.0
-        assert _zs(protocol) == [LAYER_FOCUS] * 3
-
-    def test_a_step_the_protocol_lacks_is_refused_and_nothing_is_written(self, session):
-        protocol = _protocol_bf_bf_blue(session)
-        _go_to_z(session, 5000)
-
-        with pytest.raises(ProtocolError):
-            session.save_focus(protocol, 'BF', step_index=3)
-
-        assert session.channel_settings('BF').focus_z_um == LAYER_FOCUS
-        assert _zs(protocol) == [LAYER_FOCUS] * 3
+        assert _zs(protocol) == [LAYER_FOCUS, 5000.0, LAYER_FOCUS, LAYER_FOCUS]
 
     def test_a_z_that_does_not_know_its_position_saves_nothing(self, session):
-        protocol = _protocol_bf_bf_blue(session)
         session.scope.motion._axis_state['Z'] = AxisState.UNKNOWN
 
         with pytest.raises(AxisStateUnknownError):
-            session.save_focus(protocol, 'BF', step_index=0)
+            session.save_focus('BF')
 
         assert session.channel_settings('BF').focus_z_um == LAYER_FOCUS
-        assert _zs(protocol) == [LAYER_FOCUS] * 3
 
 
 class TestApplyFocusToLayerSteps:
@@ -176,16 +136,14 @@ class TestALayerThisScopeLacks:
 
     @pytest.mark.parametrize('layer, refused, reason', NOT_ON_THIS_SCOPE)
     def test_save_focus_is_refused_and_nothing_is_written(self, session, layer, refused, reason):
-        protocol = _protocol_bf_bf_blue(session)
         before = {k: v.get('focus') for k, v in session.settings.items() if isinstance(v, dict)}
 
         with pytest.raises(refused) as raised:
-            session.save_focus(protocol, layer, step_index=0)
+            session.save_focus(layer)
         assert raised.value.reason == reason
 
         after = {k: v.get('focus') for k, v in session.settings.items() if isinstance(v, dict)}
         assert after == before
-        assert _zs(protocol) == [LAYER_FOCUS] * 3
 
     @pytest.mark.parametrize('layer, refused, reason', NOT_ON_THIS_SCOPE)
     def test_apply_focus_is_refused_and_nothing_is_written(self, session, layer, refused, reason):
@@ -209,10 +167,8 @@ class TestAScopeWithNoZ:
         _shutdown(built)
 
     def test_save_focus_is_refused_and_the_focus_is_kept(self, no_z):
-        protocol = no_z.create_empty_protocol()
-
         with pytest.raises(ProtocolRunRefusedError) as refused:
-            no_z.save_focus(protocol, 'BF')
+            no_z.save_focus('BF')
 
         assert refused.value.reason == 'positions_unreachable'
         assert no_z.channel_settings('BF').focus_z_um == LAYER_FOCUS

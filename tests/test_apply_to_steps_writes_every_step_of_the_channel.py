@@ -1,24 +1,20 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""#734 regression: Save Focus writes ONLY the selected step, never siblings.
+"""Apply to Steps writes every step of a channel; no write infers intent from a matching Z.
 
-Bug class: intent inferred from float equality. Save Focus propagated the
-new Z to every step of the layer whose Z matched the previous saved focus
-(within 1e-3 um). Because both protocol builders create every step of a
-layer at the identical layer focus, equality was the DEFAULT state, not
-evidence the user wanted the step updated -- and step navigation re-synced
-the layer focus to the viewed step's Z, so the "baseline" always matched
-the current step. Net effect (customer log): tuning and saving three steps
-one after another collapsed all three to the last saved value.
+Bug class (#734): intent inferred from float equality. Save Focus once
+propagated the new Z to every step of the layer whose Z matched the previous
+saved focus (within 1e-3 um). Because both protocol builders create every
+step of a layer at the identical layer focus, equality was the DEFAULT state,
+not evidence the user wanted the step updated. Net effect (customer log):
+tuning and saving three steps one after another collapsed all three to the
+last saved value.
 
-Fix: the equality inference is deleted outright (no update_layer_focus, no
-tolerance constant). Save Focus writes the layer default plus the Z of the
-step selected AT CLICK TIME, and nothing else. Sibling steps can only be
-changed through the explicit apply-to-all-steps-in-channel action.
-
-Where it is held: the selected-step-only write is ``ScopeSession.save_focus``,
-pinned on the simulated scope by ``test_saving_a_focus_is_an_api_capability``.
-This file keeps the bulk action's contract and the tripwire on the deleted
-inference.
+The equality inference is deleted outright (no update_layer_focus, no
+tolerance constant). The apply-to-all-steps-in-channel action is the one bulk
+write of a channel's step Z, and takes no previous Z. Save Focus changes no
+step at all (#524), pinned on the simulated scope by
+``test_saving_a_focus_is_an_api_capability``. This file keeps the bulk
+action's contract and the tripwire on the deleted inference.
 """
 
 from __future__ import annotations

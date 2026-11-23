@@ -1552,7 +1552,7 @@
 				spacing: '3dp'
 				Label:
 					text: 'Focus'
-					tooltip_text: 'Z position for this step. Save Focus writes the current focus to this step while it is selected; other steps are never changed.'
+					tooltip_text: 'Z position for this step. To set it, select the step, focus, and click Change; Save Focus changes no step.'
 					size_hint_x: None
 					width: '75dp'
 					font_size: '12sp'
@@ -3563,7 +3563,7 @@
 					height: '30dp'
 					font_size: '12sp'
 					text: 'Save Focus'
-					tooltip_text: 'Save the current focus for this channel and write it to the selected protocol step'
+					tooltip_text: 'Save the current focus for this channel; no protocol step changes'
 					disabled: app.lock.run_lockout
 					on_release: root.save_focus()
 				RoundedButton:
