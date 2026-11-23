@@ -53,7 +53,8 @@ member's own fault, and its arguments, are in the
 | `answer_model` | motor | refused | refused |
 | `remove_camera` | camera | camera | FX2 |
 | `refuse_camera_write`, `refuse_camera_read`, `stall_stream`, `delay_delivery`, `light_outside`, `withhold_chunk` | camera | camera | refused |
-| `refuse_stream_start`, `refuse_led_write`, `bind_camera_usb_driver` | refused | refused | FX2 |
+| `refuse_stream_start` | camera | camera | FX2 |
+| `refuse_led_write`, `bind_camera_usb_driver` | refused | refused | FX2 |
 
 `hold_axis` halts the axis's next move part of the way and returns an
 operation done once it has halted there (over REST, a job), so a caller acts

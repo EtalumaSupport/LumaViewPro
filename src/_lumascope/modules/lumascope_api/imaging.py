@@ -475,6 +475,9 @@ class ImagingAPI:
         self._stream_watch: StallWatch | None = None
         self._stream_watch_bound_s: float | None = None
         self._stream_stall_reported = False
+        # The failed restart last told, so each is told once whatever the
+        # stall flag held when it came.
+        self._failed_restart_told: Exception | None = None
         # The delivered rate (_sample_delivery), written only on the
         # scheduler's thread: the last (frames, wire bytes, time) reading, and
         # the published (rate, time) pair, replaced whole so a reader on any
@@ -2340,9 +2343,10 @@ class ImagingAPI:
         start. This restarts a feed that was deliberately stopped,
         and is idempotent on a feed already running. Refused, naming the camera,
         when none is connected, or when the start finds it removed. A start
-        the FX2 does not take with the device still present raises its fault
-        (``CameraStreamStartFailedError`` for a START the device refused), the
-        camera left connected and not streaming; a later call tries again.
+        the camera does not take with the device still present raises its
+        fault (``CameraStreamStartFailedError``, with the camera library's
+        words), the camera left connected and not streaming; a later call
+        tries again.
         The start is one command on the camera's lane, waited for up to the
         lane's geometry bound, since a start of the grab has been measured
         near 11 s on a Pylon body.
@@ -2350,9 +2354,9 @@ class ImagingAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected or one the start finds removed.
-            CameraStreamStartFailedError: the FX2 did not take the START with
-                the device still present; the camera is left connected and not
-                streaming.
+            CameraStreamStartFailedError: the camera did not take the start
+                with the device still present; the camera is left connected
+                and not streaming.
         """
         return self._camera._dispatch_camera(
             self._enable_streaming_impl,
@@ -2773,6 +2777,19 @@ class ImagingAPI:
             self._stream_watch = None
             self._stream_watch_bound_s = None
             self._stream_stall_reported = False
+            return
+        failed_restart = driver.failed_restart
+        if failed_restart is not None:
+            # A restart after a configuration write that did not take: told
+            # once, in the start's own words, as this stream's report, so it is
+            # never told again as a stall; the watch starts again from the
+            # next start that takes.
+            self._stream_watch = None
+            self._stream_watch_bound_s = None
+            self._stream_stall_reported = True
+            if failed_restart is not self._failed_restart_told:
+                self._failed_restart_told = failed_restart
+                notifications.report_outcome(failed_restart, solicited=False, category='Camera')
             return
         exposure_s = max(0.0, self._camera.longest_exposure_ms or 0.0) / 1000.0
         bound_s = prologue_stall_threshold_s(exposure_s)

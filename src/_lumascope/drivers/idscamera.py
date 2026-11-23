@@ -38,6 +38,7 @@ from _lumascope.drivers.camera import (
 from _lumascope.drivers.exceptions import (
     CameraReadFailedError,
     CameraSetupFailedError,
+    CameraStreamStartFailedError,
     CameraUsbOpenFailedError,
     CameraWriteFailedError,
     HardwareError,
@@ -1696,9 +1697,10 @@ class IDSCamera(Camera):
             _cam_log.warning('[CAM Class ] start_grabbing skipped: camera not connected')
             return
         # The grab-state read is inside the start's try: a read that fails is
-        # the start's failure, logged and rolled back like every other. The
-        # config guard runs this after a write's body, so a read failing here
-        # must not reach the write as its own failure: the write took.
+        # the start's failure, rolled back and raised like every other. The
+        # config guard runs this after a write's body and keeps the start's
+        # failure as the failed restart, so it never reaches the write as the
+        # write's own failure: the write took.
         try:
             if self.is_grabbing():
                 _cam_log.info('ids start_grabbing SKIPPED: already grabbing')
@@ -1712,11 +1714,10 @@ class IDSCamera(Camera):
             # stop_grabbing blocks on the join ceiling, so a returning stop means
             # threads already died.)
             if self.cam_image_handler is not None and not self.cam_image_handler.threads_quiesced():
-                _cam_log.error(
-                    '[CAM Class ] start_grabbing aborted: prior grab threads have not '
-                    'quiesced (stream wedged); not stacking a fresh buffer pool'
+                raise CameraStreamStartFailedError(
+                    'The camera stream did not start: the prior grab threads have not '
+                    'quiesced (stream wedged), so no fresh buffer pool was stacked'
                 )
-                return
             _cam_log.info('ids start_grabbing: alloc buffers + StartAcquisition + AcquisitionStart')
             # Reclaim any pool a prior unclean-but-now-quiesced stop left announced
             # BEFORE allocating fresh, so the announced count cannot grow cycle over
@@ -1725,11 +1726,10 @@ class IDSCamera(Camera):
             # do not announce a fresh pool on top of it -- abort like the
             # not-quiesced case rather than stack and leak.
             if not self._reclaim_stale_pool():
-                _cam_log.error(
-                    '[CAM Class ] start_grabbing aborted: could not reclaim the prior '
-                    'buffer pool (data stream unhappy); not stacking a fresh pool'
+                raise CameraStreamStartFailedError(
+                    'The camera stream did not start: the prior buffer pool could not be '
+                    'reclaimed (data stream unhappy), so no fresh pool was stacked'
                 )
-                return
 
             # Allocate buffers -- minimum + extra so the pool never starves while
             # the unpack worker holds a buffer through ConvertTo. In flight at
@@ -1760,9 +1760,17 @@ class IDSCamera(Camera):
                 self.cam_image_handler.start()
 
             logger.info('[CAM Class ] start_grabbing succeeded')
+        except CameraStreamStartFailedError as e:
+            # An abort above: nothing was allocated or started, so nothing is
+            # rolled back, and the pool is left for the wedge ceilings.
+            _cam_log.warning(f'[CAM Class ] start_grabbing aborted: {e}')
+            raise
         except Exception as e:
             _cam_log.warning(f'[CAM Class ] start_grabbing failed, rolling back: {e}')
             self._rollback_failed_start()
+            if isinstance(e, (ids_peak.Exception, HardwareError)):
+                raise CameraStreamStartFailedError(f'The camera stream did not start: {e}') from e
+            raise
 
     def _rollback_failed_start(self):
         """Return to a clean stopped state after start_grabbing raised partway.

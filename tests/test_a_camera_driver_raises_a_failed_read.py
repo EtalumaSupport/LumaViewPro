@@ -35,6 +35,7 @@ from _lumascope.drivers.camera import Camera, FrameWindow
 from _lumascope.drivers.exceptions import (
     CameraNoAnswerError,
     CameraReadFailedError,
+    CameraStreamStartFailedError,
     CameraWriteFailedError,
 )
 from _lumascope.drivers.simulated_camera import SimulatedCamera
@@ -397,6 +398,48 @@ def test_a_pylon_grab_start_reads_no_format_and_starts_its_poller(caplog):
     cam.active.PixelFormat.GetValue.assert_not_called()
     cam._start_stats_poller.assert_called_once()
     assert not [r for r in caplog.records if 'FAILED' in r.getMessage()]
+
+
+def _startable_pylon_camera():
+    # a stand-in by design: no simulated camera runs pyloncamera.py, and the
+    # subject is what the driver's start does with what the SDK answers.
+    cam = bare_pylon_camera()
+    cam._log_stream_grabber_status = MagicMock()
+    cam._cap_the_frame_rate_under_the_link = MagicMock()
+    cam._start_stats_poller = MagicMock()
+    return cam
+
+
+def test_a_pylon_start_whose_grab_state_read_fails_raises_and_starts_nothing():
+    """A grab-state read that fails is not "not grabbing": the start raises
+    ``CameraStreamStartFailedError`` with the SDK's words and starts nothing."""
+    from pypylon import genicam
+
+    cam = _startable_pylon_camera()
+    cam.active.IsGrabbing.side_effect = genicam.TimeoutException('usb stalled')
+
+    with pytest.raises(CameraStreamStartFailedError, match='usb stalled') as raised:
+        cam.start_grabbing()
+
+    assert isinstance(raised.value.__cause__, CameraReadFailedError)
+    cam.active.StartGrabbing.assert_not_called()
+    assert not cam.grab_wanted
+
+
+def test_a_pylon_start_the_sdk_refuses_raises_with_the_sdks_words():
+    """``StartGrabbing`` raising fails the start: ``CameraStreamStartFailedError``
+    with the SDK's exception chained, the grab no longer wanted."""
+    from pypylon import genicam
+
+    cam = _startable_pylon_camera()
+    refusal = genicam.RuntimeException('Grabbing could not be started')
+    cam.active.StartGrabbing.side_effect = refusal
+
+    with pytest.raises(CameraStreamStartFailedError, match='could not be started') as raised:
+        cam.start_grabbing()
+
+    assert raised.value.__cause__ is refusal
+    assert not cam.grab_wanted
 
 
 # --- Pylon against Basler's camera emulator ---------------------------------------

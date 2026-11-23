@@ -1,11 +1,16 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A camera stream start that fails raises its fault to whoever started it.
 
-The FX2's start raises its typed fault (``camera_stream_start_failed`` for a
-START the device refused). A start that raised did not start, so the grab is
-no longer wanted: the caller reports the fault, and the stream check does not
-report the same failure again as a stall. The camera stays connected, and the
-next start tries again.
+Every camera's start raises its typed fault (``camera_stream_start_failed``
+for a start the device refused). A start that raised did not start, so the
+grab is no longer wanted: the caller reports the fault, and the stream check
+does not report the same failure again as a stall. The camera stays
+connected, and the next start tries again.
+
+The restart after a configuration write is the exception to "the caller
+reports it": the write took, so it is not refused; the grab stays wanted and
+the stream check tells the failed restart once, in the start's own words,
+never as a stall.
 """
 
 from __future__ import annotations
@@ -85,3 +90,55 @@ def test_a_rest_caller_is_answered_with_the_refused_start(fx2_session):
 
     assert answered.json()['reason'] == 'camera_stream_start_failed'
     assert answered.status_code >= 500
+
+
+@pytest.fixture
+def basler_session(monkeypatch):
+    monkeypatch.setattr(video_cadence, 'STALL_FLOOR_S', 0.5)
+    monkeypatch.setattr(ImagingAPI, '_STREAM_CHECK_INTERVAL_S', 0.1)
+    session = ScopeSession.create(
+        complete_settings(microscope='LS850T'), simulate=True, warn_pre_release=False
+    )
+    yield session
+    session.shutdown()
+
+
+@pytest.fixture
+def told():
+    seen = []
+    titles = (CameraStreamStartFailedError.title, CameraStreamStalledError.title)
+
+    def listener(notification):
+        if notification.title in titles:
+            seen.append(notification.title)
+
+    notifications.add_listener(listener, min_severity=Severity.DEBUG)
+    yield seen
+    notifications.remove_listener(listener)
+
+
+def test_a_refused_restart_after_a_frame_write_is_told_once_as_the_start_and_the_write_stands(
+    basler_session, told
+):
+    scope = basler_session.scope
+    assert scope.imaging.read_streaming()
+    scope.simulation.refuse_stream_start()
+
+    framed = scope.camera.set_frame_size(1024, 1024)
+
+    assert (framed.width, framed.height) == (1024, 1024)
+    # Three stall bounds: a stall would be reported inside one.
+    time.sleep(1.5)
+    assert told == [CameraStreamStartFailedError.title]
+    assert scope.camera_connected
+    assert not scope.imaging.read_streaming()
+
+
+def test_the_start_after_a_refused_restart_streams(basler_session):
+    scope = basler_session.scope
+    scope.simulation.refuse_stream_start()
+    scope.camera.set_frame_size(1024, 1024)
+
+    scope.imaging.enable_streaming()
+
+    assert scope.imaging.read_streaming()

@@ -66,6 +66,7 @@ def bare_pylon_camera():
     # no PYLON_CAMEMU, so a real Basler.
     cam._pixel_format_cache = None
     cam._use_camera_emulation = False
+    cam._grab_strategy_name = pyloncamera._DEFAULT_GRAB_STRATEGY
     cam._mark_disconnected = MagicMock()
     # At GC, __del__ calls disconnect(), which blocks up to 2s in
     # _wait_for_acquisition_idle against the MagicMock; stub it so plain

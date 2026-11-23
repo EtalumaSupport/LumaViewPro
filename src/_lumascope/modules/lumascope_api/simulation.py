@@ -254,8 +254,7 @@ class SimulatedScope:
             None arms no answer.
         refused_stream_starts: How many of the camera's stream starts it
             refuses from bring-up on (``refuse_stream_start``), so
-            bring-up's own start is refused; the simulated FX2's alone. 0
-            refuses none.
+            bring-up's own start is refused. 0 refuses none.
         refused_camera_writes: Camera writes the simulated camera refuses
             from bring-up on (``refuse_camera_write``, each in turn), so
             bring-up's own writes meet them; not on the FX2. Empty refuses
@@ -1118,8 +1117,10 @@ class SimulationAPI:
     def refuse_stream_start(self, count: int = 1) -> None:
         """The camera refuses its next ``count`` stream starts and stays on the bus.
 
-        A start the camera refuses raises its fault to whoever started the
-        stream, and the camera is left connected and not streaming.
+        A start the camera refuses raises ``CameraStreamStartFailedError`` to
+        whoever started the stream, and the camera is left connected and not
+        streaming; the restart after a configuration write that is refused
+        is told once by the stream check, the write itself unrefused.
 
         Args:
             count: How many stream starts in a row are refused, 1 or more.
@@ -1127,16 +1128,16 @@ class SimulationAPI:
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
                 ``'not_a_number'`` or ``'fault_bound'`` for fewer than 1
-                start; ``'not_injectable_on_board'`` on the simulated
-                camera, made like a Pylon body, whose driver logs a start
-                that fails.
+                start.
         """
         target = self._camera_board('refuse_stream_start')
         self._bound('count', count, 'a number of starts, 1 or more', count >= 1)
-        if not isinstance(target, SimulatedFX2):
-            raise self._not_injectable('refuse_stream_start', target)
-        target.transport.refuse_start(int(count))
-        self._record('refuse_stream_start', target.transport.allow_start, count=count)
+        if isinstance(target, SimulatedFX2):
+            target.transport.refuse_start(int(count))
+            self._record('refuse_stream_start', target.transport.allow_start, count=count)
+            return
+        target.refuse_start(int(count))
+        self._record('refuse_stream_start', target.allow_start, count=count)
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write

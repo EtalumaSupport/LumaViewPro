@@ -6365,9 +6365,10 @@ camera-lifecycle split); the scope's bring-up makes the one-time
 start. This restarts a feed that was deliberately stopped,
 and is idempotent on a feed already running. Refused, naming the camera,
 when none is connected, or when the start finds it removed. A start
-the FX2 does not take with the device still present raises its fault
-(`CameraStreamStartFailedError` for a START the device refused), the
-camera left connected and not streaming; a later call tries again.
+the camera does not take with the device still present raises its
+fault (`CameraStreamStartFailedError`, with the camera library's
+words), the camera left connected and not streaming; a later call
+tries again.
 The start is one command on the camera's lane, waited for up to the
 lane's geometry bound, since a start of the grab has been measured
 near 11 s on a Pylon body.
@@ -6375,7 +6376,7 @@ near 11 s on a Pylon body.
 **Raises**
 
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected or one the start finds removed.
-- `CameraStreamStartFailedError`: the FX2 did not take the START with the device still present; the camera is left connected and not streaming.
+- `CameraStreamStartFailedError`: the camera did not take the start with the device still present; the camera is left connected and not streaming.
 
 **Refusals by REST status**
 
@@ -8719,8 +8720,10 @@ Route: `POST /api/v1/scope/simulation/refuse_stream_start`.
 
 The camera refuses its next `count` stream starts and stays on the bus.
 
-A start the camera refuses raises its fault to whoever started the
-stream, and the camera is left connected and not streaming.
+A start the camera refuses raises `CameraStreamStartFailedError` to
+whoever started the stream, and the camera is left connected and not
+streaming; the restart after a configuration write that is refused
+is told once by the stream check, the write itself unrefused.
 
 **Args**
 
@@ -8728,12 +8731,12 @@ stream, and the camera is left connected and not streaming.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_a_number'` or `'fault_bound'` for fewer than 1 start; `'not_injectable_on_board'` on the simulated camera, made like a Pylon body, whose driver logs a start that fails.
+- `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_a_number'` or `'fault_bound'` for fewer than 1 start.
 
 **Refusals by REST status**
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `not_a_number`, `fault_bound`, `not_injectable_on_board`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `not_a_number`, `fault_bound`
 
 <a id="SimulationAPI.remove_camera"></a>
 ### `SimulationAPI.remove_camera`
@@ -12202,7 +12205,7 @@ is the declared scope with no fault. A fault is refused where the
 - <a id="SimulatedScope.model_answer"></a>`model_answer`: `SimulatedModelAnswer | None` -- The model the simulated motor board names as its own at bring-up, whatever it was built as (`answer_model`), until the scope's faults are cleared; the fast motor board's alone. None arms no answer.
 - <a id="SimulatedScope.refused_camera_reads"></a>`refused_camera_reads`: `tuple[SimulatedCameraReadRefusal, ...]` -- Camera reads the simulated camera fails from bring-up on (`refuse_camera_read`, each in turn), so bring-up's own reads meet them; not on the FX2. Empty fails none.
 - <a id="SimulatedScope.refused_camera_writes"></a>`refused_camera_writes`: `tuple[SimulatedCameraWriteRefusal, ...]` -- Camera writes the simulated camera refuses from bring-up on (`refuse_camera_write`, each in turn), so bring-up's own writes meet them; not on the FX2. Empty refuses none.
-- <a id="SimulatedScope.refused_stream_starts"></a>`refused_stream_starts`: `int` -- How many of the camera's stream starts it refuses from bring-up on (`refuse_stream_start`), so bring-up's own start is refused; the simulated FX2's alone. 0 refuses none.
+- <a id="SimulatedScope.refused_stream_starts"></a>`refused_stream_starts`: `int` -- How many of the camera's stream starts it refuses from bring-up on (`refuse_stream_start`), so bring-up's own start is refused. 0 refuses none.
 - <a id="SimulatedScope.ronchi_lines_per_mm"></a>`ronchi_lines_per_mm`: `float | None` -- The Ronchi ruling's pitch, in lines per mm, given only with `slide` `Slide.RONCHI`. None is the bench's 40. A pitch the objective cannot resolve is drawn, not refused: its bars blur together, as on the bench. Given with the cells, or not a positive finite number, the record is not built: `ArgumentRefusedError` `'fault_bound'` or `'not_a_number'`, naming `ronchi_lines_per_mm`.
 - <a id="SimulatedScope.slide"></a>`slide`: `Slide` -- The slide on the stage, which the scope's camera images for the session: the cell specimen, or a Ronchi ruling, the target the bench measures a camera's move count on. Either simulated camera takes it. The cell specimen is the default.
 - <a id="SimulatedScope.unidentified_usb_devices"></a>`unidentified_usb_devices`: `int` -- How many devices whose descriptor Windows could not read are on the simulated bus (Device Manager's "Unknown USB Device", problem code 43), so the USB census meets them. A whole number, 0 or more; any other is refused `ArgumentRefusedError` `'not_a_number'` or `'fault_bound'` as the record is built. 0 is none.

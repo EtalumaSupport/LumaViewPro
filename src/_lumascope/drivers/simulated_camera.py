@@ -36,6 +36,7 @@ from _lumascope.drivers.exceptions import (
     CameraNoAnswerError,
     CameraReadFailedError,
     CameraSetupFailedError,
+    CameraStreamStartFailedError,
     CameraWriteFailedError,
     HardwareError,
     PartAbsentError,
@@ -484,6 +485,8 @@ class SimulatedCamera(Camera):
         self._pixel_format = 'Mono8'
         self._binning = 1
         self._grabbing = False
+        # How many starts in a row are refused (refuse_start).
+        self._refused_starts = 0
         self._auto_gain_enabled = False
         self._auto_gain_target_brightness = 0.5
         self._auto_gain_min = 0.0
@@ -771,8 +774,18 @@ class SimulatedCamera(Camera):
         return self._grabbing
 
     def _start_grabbing(self) -> None:
-        """Begin acquiring frames in the simulator."""
+        """Begin acquiring frames in the simulator.
+
+        Raises:
+            CameraStreamStartFailedError: A start ``refuse_start`` refused;
+                the camera stays connected and not grabbing.
+        """
         with self._lock:
+            if self._refused_starts > 0:
+                self._refused_starts -= 1
+                raise CameraStreamStartFailedError(
+                    'The camera stream did not start: simulated StartGrabbing refused'
+                )
             self._grabbing = True
             _cam_log.info('sim start_grabbing')
             logger.info('[CAM Sim   ] start_grabbing')
@@ -922,6 +935,17 @@ class SimulatedCamera(Camera):
             raise CameraReadFailedError(f'simulated {node} node read failed')
 
         vars(self)[getter] = refused
+
+    def refuse_start(self, count: int = 1) -> None:
+        """The next ``count`` starts raise ``CameraStreamStartFailedError``, as a
+        real driver's start that does not take does; the camera stays on the bus."""
+        with self._lock:
+            self._refused_starts = count
+
+    def allow_start(self) -> None:
+        """Take back a ``refuse_start`` that no start has met yet."""
+        with self._lock:
+            self._refused_starts = 0
 
     def allow_read(self, node: str) -> None:
         """Take back a ``refuse_read`` on ``node`` that no read has met yet."""

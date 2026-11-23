@@ -23,6 +23,7 @@ from _lumascope.drivers.camera_profiles import CameraProfile, lookup_profile
 from _lumascope.drivers.exceptions import (
     CameraNoAnswerError,
     CameraReadFailedError,
+    CameraStreamStartFailedError,
     CameraWriteFailedError,
 )
 
@@ -781,6 +782,10 @@ class Camera(ABC):
         # stop_grabbing, so a camera that is wanted and not grabbing stopped
         # when nobody asked (see grab_wanted).
         self._grab_wanted = False
+        # The start that did not take when the grab restarted after a
+        # configuration write; held only while the grab is wanted, and written
+        # with it by _want_grab and _hold_failed_restart alone (see failed_restart).
+        self._failed_restart: CameraStreamStartFailedError | None = None
 
         self.connect()
         # `found` is a derived property (below) that reads `active`, so it
@@ -843,8 +848,7 @@ class Camera(ABC):
         """
         with self._lifecycle_lock:
             self._grab_gate_open = False
-        with self._state_lock:
-            self._grab_wanted = False
+        self._want_grab(False)
         handler = self.cam_image_handler
         if handler is not None:
             handler.reset()
@@ -1048,9 +1052,11 @@ class Camera(ABC):
 
         The entry's grab-state read comes before the body, so a read that
         fails there raises before anything is written. The exit's restart
-        runs after the body's writes: each driver's start reports its own
-        failure and returns (the FX2's raises, ``open_and_start``), so a
-        write that took is never told it failed by the restart after it.
+        runs after the body's writes, so a write that took is never told it
+        failed by the restart after it: a restart that raises
+        ``CameraStreamStartFailedError`` leaves the grab wanted and is kept as
+        ``failed_restart``, which the imaging API's stream check reports, and
+        a body that raised keeps its own exception.
         """
         with self._lifecycle_lock:
             self._update_config_depth += 1
@@ -1067,7 +1073,11 @@ class Camera(ABC):
                 self._update_config_depth -= 1
                 end_depth = self._update_config_depth
                 if end_depth == 0 and was_grabbing:
-                    self.start_grabbing()
+                    try:
+                        self.start_grabbing()
+                    except CameraStreamStartFailedError as fault:
+                        _cam_log.warning(f'update_camera_config: the restart did not take: {fault}')
+                        self._hold_failed_restart(fault)
                 _cam_log.info(
                     f'update_camera_config:exit depth={depth} '
                     f'restarted={was_grabbing and end_depth == 0}'
@@ -1090,9 +1100,8 @@ class Camera(ABC):
         The gate is opened BEFORE the start, so even if the start fails the
         camera is RELEASED -- a later restart can recover it instead of the
         gate stranding CLOSED (a permanently blank live view). The start
-        itself is not wrapped here: the FX2's start raises its fault when it
-        fails, and the caller reports it; Pylon's and IDS's log theirs and
-        return.
+        itself is not wrapped here: a start that does not take raises its
+        fault, and the caller reports it.
 
         Returns:
             bool: True when this call released the gate and fired the
@@ -1128,13 +1137,11 @@ class Camera(ABC):
         fault goes to the caller, who reports it, so the stream check does
         not report the same failure again as a stall.
         """
-        with self._state_lock:
-            self._grab_wanted = True
+        self._want_grab(True)
         try:
             self._start_grabbing()
         except BaseException:
-            with self._state_lock:
-                self._grab_wanted = False
+            self._want_grab(False)
             raise
 
     def stop_grabbing(self) -> None:
@@ -1144,8 +1151,7 @@ class Camera(ABC):
         stop -- a caller's, or a frame-size or binning change's for its whole
         length -- never reads as one the camera made itself.
         """
-        with self._state_lock:
-            self._grab_wanted = False
+        self._want_grab(False)
         self._stop_grabbing()
 
     @property
@@ -1158,6 +1164,29 @@ class Camera(ABC):
         """
         with self._state_lock:
             return self._grab_wanted
+
+    @property
+    def failed_restart(self) -> CameraStreamStartFailedError | None:
+        """The start that did not take when the grab restarted after a configuration write.
+
+        Kept while the grab is still wanted, so the stream check reports it in
+        its own words rather than as a stall; None after any start or stop
+        since. Reading it changes nothing.
+        """
+        with self._state_lock:
+            return self._failed_restart
+
+    def _want_grab(self, wanted: bool) -> None:
+        """Record whether the grab is wanted; every start or stop clears a failed restart."""
+        with self._state_lock:
+            self._grab_wanted = wanted
+            self._failed_restart = None
+
+    def _hold_failed_restart(self, fault: CameraStreamStartFailedError) -> None:
+        """Keep the grab wanted, holding the restart that did not take."""
+        with self._state_lock:
+            self._grab_wanted = True
+            self._failed_restart = fault
 
     @abstractmethod
     def _start_grabbing(self) -> None:

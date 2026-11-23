@@ -130,8 +130,9 @@ _SIM_ONLY_NAME_BUDGET = {
     # set_outside_light, the light from outside the scope behind the door
     # light_outside, which no real camera has a node for; REVERSE_NODES, the
     # body's reverse nodes a test declares, which a real driver reads from
-    # the camera at connect.
-    'Camera': 37,
+    # the camera at connect; refuse_start and allow_start, the start a real
+    # driver does not take, behind the door refuse_stream_start.
+    'Camera': 38,
 }
 
 # Parameter divergences that stay until the simulators gain a shared
@@ -180,6 +181,8 @@ _SIM_ONLY_CALL_ALLOWLIST = {
     (_SIMULATION, 'withhold_chunk'),
     (_SIMULATION, 'CHUNKS'),
     (_SIMULATION, 'set_outside_light'),
+    (_SIMULATION, 'refuse_start'),
+    (_SIMULATION, 'allow_start'),
 }
 
 

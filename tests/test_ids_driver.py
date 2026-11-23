@@ -36,6 +36,7 @@ from _lumascope.drivers.idscamera import (
 from _lumascope.drivers.exceptions import (
     CameraReadFailedError,
     CameraSetupFailedError,
+    CameraStreamStartFailedError,
     CameraWriteFailedError,
 )
 from tests.camera_fakes import bare_ids_camera
@@ -1076,8 +1077,9 @@ class TestStartGrabbingRollback:
         # Entry reclaim sees an empty pool (no prior stale pool); the rollback
         # after the failure sees the pool this start announced.
         cam.data_stream.AnnouncedBuffers.side_effect = [[], announced]
-        cam.data_stream.StartAcquisition.side_effect = RuntimeError('start failed')
-        cam.start_grabbing()
+        cam.data_stream.StartAcquisition.side_effect = ids_peak.Exception('start failed')
+        with pytest.raises(CameraStreamStartFailedError, match='start failed'):
+            cam.start_grabbing()
         # Transport lock released after it was taken (SetValue(1) then SetValue(0)).
         lock_node = cam.remote_nodemap.FindNode('TLParamsLocked')
         assert call(0) in lock_node.SetValue.call_args_list
@@ -1092,8 +1094,9 @@ class TestStartGrabbingRollback:
         announced = [MagicMock()]
         # Entry reclaim sees an empty pool; rollback sees the announced pool.
         cam.data_stream.AnnouncedBuffers.side_effect = [[], announced]
-        cam.data_stream.AllocAndAnnounceBuffer.side_effect = RuntimeError('alloc failed')
-        cam.start_grabbing()
+        cam.data_stream.AllocAndAnnounceBuffer.side_effect = ids_peak.Exception('alloc failed')
+        with pytest.raises(CameraStreamStartFailedError, match='alloc failed'):
+            cam.start_grabbing()
         assert cam.data_stream.RevokeBuffer.call_count == len(announced)
 
     def test_start_grabbing_declines_on_a_camera_that_never_connected(self):
@@ -1156,7 +1159,8 @@ class TestBufferPoolReclaim:
     def test_start_aborts_without_stacking_when_threads_not_quiesced(self):
         cam = self._cam()
         cam.cam_image_handler.threads_quiesced.return_value = False  # prior threads still live
-        cam.start_grabbing()
+        with pytest.raises(CameraStreamStartFailedError, match='have not quiesced'):
+            cam.start_grabbing()
         # Nothing stacked: no fresh pool announced, no acquisition started.
         cam.data_stream.AllocAndAnnounceBuffer.assert_not_called()
         cam.data_stream.StartAcquisition.assert_not_called()
@@ -1302,7 +1306,8 @@ class TestBufferPoolReclaim:
         # unknown/un-reclaimed one (the swallowed-error stacking leak).
         cam = self._cam()
         cam.data_stream.AnnouncedBuffers.side_effect = RuntimeError('stream unhappy')
-        cam.start_grabbing()
+        with pytest.raises(CameraStreamStartFailedError, match='could not be reclaimed'):
+            cam.start_grabbing()
         cam.data_stream.AllocAndAnnounceBuffer.assert_not_called()
         cam.data_stream.StartAcquisition.assert_not_called()
 

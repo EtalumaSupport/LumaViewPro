@@ -18,6 +18,7 @@ from __future__ import annotations
 import pytest
 from pypylon import genicam
 
+from _lumascope.drivers.exceptions import CameraStreamStartFailedError
 from tests.camera_fakes import bare_pylon_camera
 from tests.pypylon_stub import IBoolean, IEnumeration, PlaceholderParameter
 
@@ -117,7 +118,8 @@ def test_a_camera_the_cap_does_not_apply_to_starts_as_before(body):
 def test_a_cap_the_camera_does_not_take_fails_the_start():
     cam = _camera(refuses=genicam.GenericException('out of range'))
 
-    cam.start_grabbing()
+    with pytest.raises(CameraStreamStartFailedError, match='out of range'):
+        cam.start_grabbing()
 
     assert cam.active.AcquisitionFrameRateEnable.GetValue() is False
     cam.active.StartGrabbing.assert_not_called()

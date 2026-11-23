@@ -31,6 +31,7 @@ from _lumascope.drivers.exceptions import (
     CameraNoAnswerError,
     CameraReadFailedError,
     CameraSetupFailedError,
+    CameraStreamStartFailedError,
     CameraUsbNotFoundError,
     CameraUsbOpenFailedError,
     CameraWriteFailedError,
@@ -1045,8 +1046,9 @@ class PylonCamera(Camera):
         a cap not written fails the start. Starts the optional stats
         poller (no-op when profile_trace_enabled is false).
 
-        Exception-tolerant: SDK failures are logged but not raised so
-        UI handlers can call this without wrapping.
+        A start that does not take raises: the grab-state read, the cap and
+        ``StartGrabbing`` itself each fail the start with the library's
+        words; a defect of ours leaves as itself.
 
         Grab strategy is read from ``self._grab_strategy_name`` (default
         ``LatestImageOnly``; bench overrides via
@@ -1064,15 +1066,10 @@ class PylonCamera(Camera):
         # "Grabbing has already been started" -- caught but logs spurious
         # WARNING on every connect.
         try:
-            if camera.IsGrabbing():
+            # A failed read is not "not grabbing": it fails the start.
+            if self._is_grabbing():
                 _cam_log.info('start_grabbing: already grabbing, skipping')
                 return
-        except Exception as e:
-            # A failed read, not "not grabbing": the start goes on, since one
-            # that fails logs its own failure and returns, and the read's
-            # failure is logged where a sweep of errors finds it.
-            _cam_log.warning(f'start_grabbing could not read the grab state, starting anyway: {e}')
-        try:
             # B20 / B23: snapshot StreamGrabber.Status into the trace
             # log before StartGrabbing so post-mortem analysis can
             # correlate "weird StartGrabbing behavior" with the entry
@@ -1103,6 +1100,10 @@ class PylonCamera(Camera):
                 f'Statistic_Total_Buffer_Count={_total_buffers}'
             )
             camera.StartGrabbing(_strategy, pylon.GrabLoop_ProvidedByInstantCamera)
+        except (genicam.GenericException, HardwareError) as e:
+            _cam_log.warning(f'pylon StartGrabbing FAILED: {e}')
+            raise CameraStreamStartFailedError(f'The camera stream did not start: {e}') from e
+        else:
             # Mirror the IDS free-run delivered-depth line so an 8-bit run on
             # either camera prints the same "delivers=" fact: Pylon Mono8 is
             # delivered as uint8, Mono10/Mono12 as uint16 (the GetArray dtype).
@@ -1131,9 +1132,6 @@ class PylonCamera(Camera):
             # Start the periodic Pylon stats + thread-count poller.
             # No-op when profile_trace_enabled is false.
             self._start_stats_poller()
-        except Exception as e:
-            _cam_log.warning(f'pylon StartGrabbing FAILED: {e}')
-            _cam_log.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
 
     def _cap_the_frame_rate_under_the_link(self, camera) -> None:
         """Enable ``AcquisitionFrameRate`` just under what the USB link carries, before a start.
