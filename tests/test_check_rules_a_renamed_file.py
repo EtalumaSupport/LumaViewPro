@@ -87,3 +87,21 @@ def test_a_misordered_daily_log_moved_with_no_edit_is_not_refused(tmp_path, monk
     monkeypatch.chdir(repo)
 
     assert main(['--staged']) == 0, capsys.readouterr().err
+
+
+def test_a_renamed_shard_that_drops_an_entry_is_refused(tmp_path, monkeypatch, capsys):
+    """A renamed file is compared against the old path's committed copy, so
+    an entry the edit loses is seen even though the new path is not in HEAD."""
+    repo = _repo(tmp_path, 'Firmware', 'etaluma-firmware', 'true')
+    entries = ''.join(
+        f'## 2026-10-{day:02d} (t): entry {day}\n\nWords.\n\n' for day in range(9, 0, -1)
+    )
+    _commit(repo, 'docs/DAILY_LOG_2026-09.md', '# Log\n\n' + entries)
+    _git(repo, 'mv', 'docs/DAILY_LOG_2026-09.md', 'docs/DAILY_LOG_2026-10.md')
+    kept = entries.split('## 2026-10-01')[0]
+    (repo / 'docs' / 'DAILY_LOG_2026-10.md').write_text('# Log\n\n' + kept, encoding='utf-8')
+    _git(repo, 'add', 'docs/DAILY_LOG_2026-10.md')
+    monkeypatch.chdir(repo)
+
+    assert main(['--staged']) == 1
+    assert 'daily_log_entries_kept' in capsys.readouterr().err
