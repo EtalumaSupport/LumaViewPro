@@ -150,6 +150,30 @@ def refused_in_this_input() -> bool:
     return _unanswered_frame is not None and _unanswered_frame == _input_frame()
 
 
+def start_pressed_off_a_refused_edit(
+    starter: str, redraw: typing.Callable[[], None] | None
+) -> bool:
+    """Whether a run or capture button's press carried a refused edit, so it starts nothing.
+
+    Every starter asks this after its own Stop, which still stops: a start
+    would run on the stored value the person just tried to change, while
+    the refusal is shown. When it is true the press is logged as starting
+    nothing and the button is drawn again, ending whatever its press set
+    (a pending flag, the toggle Kivy flipped).
+
+    Args:
+        starter: What the button starts, as the log names it.
+        redraw: The button's own end-of-request redraw; None for a button
+            whose press sets nothing (the still's Capture).
+    """
+    if not refused_in_this_input():
+        return False
+    logger.info(f'[LVP Main  ] {starter} not started: the press left a refused edit')
+    if redraw is not None:
+        redraw()
+    return True
+
+
 def submit_reported(
     call: typing.Callable[[], object],
     redraw: typing.Callable[[], None] | None,

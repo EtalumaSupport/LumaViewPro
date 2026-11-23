@@ -13,7 +13,12 @@ from kivy.properties import BooleanProperty, NumericProperty
 import _lumascope.modules.app_context as _app_ctx
 from _lumascope.modules import gui_logger
 from _lumascope.modules.ui_queue import schedule_ui
-from ui.ui_helpers import run_reported, schedule_ui_interval, submit_reported
+from ui.ui_helpers import (
+    run_reported,
+    schedule_ui_interval,
+    start_pressed_off_a_refused_edit,
+    submit_reported,
+)
 from ui.composite_capture import CompositeCapture
 
 logger = logging.getLogger('LVP.ui.main_display')
@@ -77,6 +82,8 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
         if controller.is_recording:
             run_reported(controller.stop, self.draw_record_button, 'RECORD')
+            return
+        if start_pressed_off_a_refused_edit('Recording', self.draw_record_button):
             return
 
         def _start():

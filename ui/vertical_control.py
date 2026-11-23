@@ -21,6 +21,7 @@ from ui.ui_helpers import (
     run_reported,
     run_unasked,
     show_captured_frame,
+    start_pressed_off_a_refused_edit,
     submit_reported,
     typed_number,
 )
@@ -288,6 +289,8 @@ class VerticalControl(BoxLayout):
         run = self._autofocus_run
         if run is not None and run.progress().is_live:
             self._stop_autofocus(run)
+            return
+        if start_pressed_off_a_refused_edit('Autofocus', self.draw_autofocus_button):
             return
 
         member = ctx.session.protocol_runner()

@@ -371,7 +371,7 @@
             background_down: build_file('data/icons/stop.png') # Press to Stop Recording
             size_hint: None, None
             size: '40dp', '40dp'
-            on_press: root.record_button()
+            on_release: root.record_button()
 
         IconButton:
             id: fit_btn

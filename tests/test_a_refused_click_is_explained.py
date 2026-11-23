@@ -12,10 +12,13 @@ engine's answer (``is_live_run``), and a press on it stops that run.
 
 The other is a press whose own touch carried a refused edit
 (``refused_in_this_input``): Kivy commits a focused field before the
-button's handler runs, the API has already refused that edit and the
-boundary has shown its refusal, and starting would run the value the
-person just tried to change. It refuses nothing of its own; it is the
-input's half, which REST has no counterpart to.
+button's ``on_release`` handler runs, the API has already refused that
+edit and the boundary has shown its refusal, and starting would run the
+value the person just tried to change. It refuses nothing of its own; it
+is the input's half, which REST has no counterpart to. Every starter asks
+it, and is bound ``on_release``: an ``on_press`` handler runs before the
+field commits, so it would start on the old value and the question could
+never hold.
 
 Any other early return in a starter is a refusal the GUI made for itself:
 a gate that repeats one the API already raises (the file-drain gate this
@@ -34,17 +37,40 @@ branches, so a clean roster is not a vacuous pass.
 from __future__ import annotations
 
 import ast
+import re
 
-from tests.ast_seams import parse_module
+from tests.ast_seams import REPO_ROOT, parse_module
 
 
-# Every button that starts a run or capture from the GUI.
+# Every button that starts a run or capture from the GUI: where it lives,
+# the kv handlers that reach it, and whether it is also its own run's Stop.
 RUN_STARTERS = (
     # The protocol panel's Scan, Protocol and Autofocus Scan buttons share one press.
-    ('ui/protocol_settings.py', 'ProtocolSettings', '_press_panel_run'),
-    ('ui/zstack.py', 'ZStack', 'run_zstack_acquire_from_ui'),
-    ('ui/vertical_control.py', 'VerticalControl', 'run_autofocus_from_ui'),
-    ('ui/composite_capture.py', 'CompositeCapture', 'composite_capture'),
+    (
+        'ui/protocol_settings.py',
+        'ProtocolSettings',
+        '_press_panel_run',
+        ('run_scan_from_ui', 'run_protocol_from_ui', 'run_autofocus_scan_from_ui'),
+        True,
+    ),
+    ('ui/zstack.py', 'ZStack', 'run_zstack_acquire_from_ui', ('run_zstack_acquire_from_ui',), True),
+    (
+        'ui/vertical_control.py',
+        'VerticalControl',
+        'run_autofocus_from_ui',
+        ('run_autofocus_from_ui',),
+        True,
+    ),
+    (
+        'ui/composite_capture.py',
+        'CompositeCapture',
+        'composite_capture',
+        ('composite_capture',),
+        True,
+    ),
+    # A still is one frame: there is no run of its own to stop.
+    ('ui/composite_capture.py', 'CompositeCapture', 'live_capture', ('live_capture',), False),
+    ('ui/main_display.py', 'MainDisplay', 'record_button', ('record_button',), True),
 )
 
 
@@ -91,14 +117,19 @@ def _returning_branches(method: ast.FunctionDef):
 
 
 def _is_own_stop(node: ast.If) -> bool:
-    # The own-run question: the handle the button's start returned is live.
+    # The own-run question: the handle the button's start returned is live,
+    # or, for Record, the recording controller has one open.
     return any(
-        isinstance(sub, ast.Attribute) and sub.attr == 'is_live' for sub in ast.walk(node.test)
+        isinstance(sub, ast.Attribute) and sub.attr in ('is_live', 'is_recording')
+        for sub in ast.walk(node.test)
     )
 
 
 def _is_a_refused_edits_touch(node: ast.If) -> bool:
-    return 'refused_in_this_input' in _called_names(node.test)
+    # The question itself, or the starters' one routine that asks it.
+    return bool(
+        {'refused_in_this_input', 'start_pressed_off_a_refused_edit'} & _called_names(node.test)
+    )
 
 
 def _refusals(method: ast.FunctionDef) -> list[int]:
@@ -109,24 +140,63 @@ def _refusals(method: ast.FunctionDef) -> list[int]:
     ]
 
 
+def _asks_for_a_refused_edit(method: ast.FunctionDef) -> bool:
+    return any(_is_a_refused_edits_touch(node) for node, _branch in _returning_branches(method))
+
+
 def test_no_run_starter_refuses_a_click():
-    """The guard: a starter's only early return is its own Stop."""
+    """The guard: a starter's only early returns are its own Stop and a refused edit's touch."""
     refusing = []
-    stops = 0
-    for rel_path, class_name, method_name in RUN_STARTERS:
+    drifted = []
+    for rel_path, class_name, method_name, _entries, has_stop in RUN_STARTERS:
         method = _method_node(rel_path, class_name, method_name)
-        stops += sum(1 for node, _ in _returning_branches(method) if _is_own_stop(node))
+        stops = sum(1 for node, _ in _returning_branches(method) if _is_own_stop(node))
+        if stops != int(has_stop):
+            drifted.append(f'{class_name}.{method_name}: {stops} own-run Stop branches')
         refusing += [
             f'{rel_path}:{line} in {class_name}.{method_name}' for line in _refusals(method)
         ]
 
-    assert stops == len(RUN_STARTERS), (
-        f'found {stops} own-run Stop branches across {len(RUN_STARTERS)} starters -- '
-        'the AST shapes drifted, so a clean result would mean nothing'
+    assert not drifted, (
+        'the AST shapes drifted, so a clean result would mean nothing: ' + ', '.join(drifted)
     )
     assert not refusing, (
         'a run starter refuses a click itself instead of handing the press to '
         'the engine, whose refusal every client sees: ' + ', '.join(refusing)
+    )
+
+
+def test_every_run_starter_starts_nothing_off_a_refused_edit():
+    """Each starter asks whether its press carried a refused edit, and returns when it did."""
+    silent = [
+        f'{rel_path} {class_name}.{method_name}'
+        for rel_path, class_name, method_name, _entries, _stop in RUN_STARTERS
+        if not _asks_for_a_refused_edit(_method_node(rel_path, class_name, method_name))
+    ]
+    assert not silent, (
+        'a run starter pressed straight off a refused edit would start on the '
+        'stored value the person just tried to change: ' + ', '.join(silent)
+    )
+
+
+_KV_BINDING = re.compile(r'^\s*(on_press|on_release)\s*:\s*root\.(\w+)\(', re.MULTILINE)
+
+
+def test_every_run_starter_is_bound_on_release():
+    """Each starter's kv handler runs on release, after a focused field has committed."""
+    bound: dict[str, set[str]] = {}
+    for kv in sorted((REPO_ROOT / 'ui').glob('*.kv')):
+        for event, handler in _KV_BINDING.findall(kv.read_text()):
+            bound.setdefault(handler, set()).add(event)
+    wrong = [
+        f'{handler} bound {sorted(bound.get(handler, set())) or "nowhere"}'
+        for _path, _class, _method, entries, _stop in RUN_STARTERS
+        for handler in entries
+        if bound.get(handler) != {'on_release'}
+    ]
+    assert not wrong, (
+        'a run starter must be bound on_release alone: on_press runs before the '
+        'field the person just typed in commits: ' + ', '.join(wrong)
     )
 
 
@@ -173,7 +243,26 @@ def test_the_guard_leaves_a_refused_edits_touch_alone_and_nothing_else_like_it()
         '            return\n'
         '        if refused_by_the_gui():\n'
         '            return\n'
+        '        if start_pressed_off_a_refused_edit("X", self.redraw):\n'
+        '            return\n'
         '        start()\n'
     )
     method = next(n for n in ast.walk(module) if isinstance(n, ast.FunctionDef))
     assert _refusals(method) == [6]
+    assert _asks_for_a_refused_edit(method)
+
+
+def test_the_guard_catches_a_starter_that_never_asks():
+    """A starter with only its own Stop, or asking inside its pool-side closure, does not ask."""
+    module = ast.parse(
+        'class X:\n'
+        '    def starter(self):\n'
+        '        if self._run is not None and self._run.is_live:\n'
+        '            return\n'
+        '        def _start():\n'
+        '            if refused_in_this_input():\n'
+        '                return\n'
+        '        submit(_start)\n'
+    )
+    method = next(n for n in ast.walk(module) if isinstance(n, ast.FunctionDef))
+    assert not _asks_for_a_refused_edit(method)

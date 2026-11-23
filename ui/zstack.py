@@ -17,6 +17,7 @@ from ui.ui_helpers import (
     SettingControls,
     run_reported,
     show_captured_frame,
+    start_pressed_off_a_refused_edit,
     submit_reported,
     sync_channel_widgets_from_settings,
     typed_number,
@@ -152,6 +153,8 @@ class ZStack(FloatLayout, SettingControls):
                 'ZSTACK',
                 stop=True,
             )
+            return
+        if start_pressed_off_a_refused_edit('ZStack', self._zstack_request_done):
             return
 
         runner = ctx.session.protocol_runner()

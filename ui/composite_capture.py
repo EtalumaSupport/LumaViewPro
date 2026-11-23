@@ -24,6 +24,7 @@ from ui.ui_helpers import (
     run_unasked,
     show_captured_frame,
     show_captured_still,
+    start_pressed_off_a_refused_edit,
     submit_reported,
 )
 
@@ -58,6 +59,8 @@ class CompositeCapture(FloatLayout):
         still is shown for the user's time, then live view comes back.
         """
         gui_logger.button('LIVE_CAPTURE')
+        if start_pressed_off_a_refused_edit('Still', None):
+            return
         ctx = _app_ctx.ctx
         bullseye = ctx.scope_display.use_bullseye
         crosshairs = ctx.scope_display.use_crosshairs
@@ -105,6 +108,8 @@ class CompositeCapture(FloatLayout):
                 'COMPOSITE_CAPTURE',
                 stop=True,
             )
+            return
+        if start_pressed_off_a_refused_edit('Composite', self._composite_request_done):
             return
 
         events = RunEvents(frame_captured=show_captured_frame)

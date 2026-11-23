@@ -36,7 +36,7 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.togglebutton import ToggleButton
 from _lumascope.modules.notification_center import notifications
 from _lumascope.modules.protocol import schedule_from_units
-from ui.ui_helpers import refused_in_this_input, run_reported
+from ui.ui_helpers import run_reported, start_pressed_off_a_refused_edit
 
 EventLoop.ensure_window()
 log = []
@@ -51,7 +51,10 @@ def commit(field, focused):
         run_reported(edit, None, 'PROTOCOL_PERIOD')
 
 def run(*_):
-    log.append('not started' if refused_in_this_input() else 'started at %s' % held['period'])
+    if start_pressed_off_a_refused_edit('Run', lambda: log.append('redrawn')):
+        log.append('not started')
+    else:
+        log.append('started at %s' % held['period'])
 
 root = FloatLayout(size=(800, 600))
 field = TextInput(multiline=False, size_hint=(None, None), size=(200, 40), pos=(10, 500))
@@ -90,6 +93,6 @@ def test_run_off_a_refused_period_does_not_start_and_off_a_taken_one_does(tmp_pa
     assert result.returncode == 0, result.stdout + result.stderr
     lines = [line for line in result.stdout.splitlines() if '->' in line]
     assert lines == [
-        "0.005 -> ['reported ProtocolScheduleRefusedError', 'not started']",
+        "0.005 -> ['reported ProtocolScheduleRefusedError', 'redrawn', 'not started']",
         "20 -> ['started at 20.0']",
     ]
