@@ -927,16 +927,16 @@ class ProtocolRunner:
         )
         if not settled.merged:
             # A run that did not complete names its own ending; a completed
-            # run with no artifact names what the merge did. One field is
-            # empty in each case. Either is another vocabulary's string, so
-            # the failure carries it as a field under its own reason.
+            # run with no artifact names what the merge did, and what it
+            # failed with beside it. The run's ending is another
+            # vocabulary's string, so the failure carries it as a field.
             code = settled.merge_reason or settled.reason
             message = f'no composite was produced ({code})'
-            if not settled.merge_reason:
+            if settled.merge_reason is None:
                 raise CompositeFailedError(message, 'run_not_completed', run_ending=settled.reason)
-            if settled.merge_reason in CompositeFailedError.causes:
-                raise CompositeFailedError(message, settled.merge_reason)
-            raise CompositeFailedError(message, 'merge_error', merge_failure=settled.merge_reason)
+            raise CompositeFailedError(
+                message, settled.merge_reason, merge_failure=settled.merge_failure
+            )
         return settled
 
     def _run(

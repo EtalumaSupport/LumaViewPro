@@ -35,7 +35,7 @@ from _lumascope.modules.axes import Axis, AxisState, StageAxis, axis_states
 from _lumascope.modules.caller import Caller
 from _lumascope.modules.live_work import SCOPE_HOLDERS
 from _lumascope.modules.scope_parts import MISSING_PART_REASONS, Board, Part
-from _lumascope.modules.run_outcome import ENDING_TITLES, FAILURE_REASONS
+from _lumascope.modules.run_outcome import ENDING_TITLES, FAILURE_REASONS, MergeReason
 
 if TYPE_CHECKING:
     from _lumascope.modules.frame_validity import FrameValiditySource
@@ -3708,10 +3708,14 @@ class CompositeFailedError(Fault, CaptureError):
 
     Attributes:
         reason: ``'run_not_completed'`` -- the run ended before a composite
-            was made. ``'no_run_dir'`` -- the run has no folder to merge
-            from. ``'no_composite_config'`` -- the run carries no composite
-            thresholds. ``'merge_failed'`` -- the merge finished without
-            writing a file. ``'merge_error'`` -- the merge failed.
+            was made. Otherwise the run's ``MergeReason``, why the merge
+            produced no file: ``'no_run_dir'`` -- the run has no folder to
+            merge from. ``'no_composite_config'`` -- the run carries no
+            composite thresholds. ``'merge_failed'`` -- the merge finished
+            without writing a file. ``'merge_error'`` -- the merge failed.
+            ``'merge_not_started'`` -- the merge did not start.
+            ``'cleanup_error'`` -- the run's cleanup failed while it settled
+            the run's outcome.
         run_ending: The run's ending reason, for ``'run_not_completed'``;
             otherwise None.
         merge_failure: The reason of the outcome the merge failed with, for
@@ -3722,7 +3726,7 @@ class CompositeFailedError(Fault, CaptureError):
     merge_failure: str | None
     title = 'Composite Failed'
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
-        ('run_not_completed', 'no_run_dir', 'no_composite_config', 'merge_failed', 'merge_error')
+        ('run_not_completed', *MergeReason)
     )
 
     def __init__(

@@ -383,7 +383,7 @@ def test_a_merged_composite_is_held_the_users_time_in_its_own_colours(
     assert built['status'] is True, built.get('error')
     pending = PendingRunOutcome()
     token = pending.arm(RunEnding('completed', 'completed', 'The run finished.'))
-    pending.resolve(token, merged=True, artifact_path=merged, merge_reason='')
+    pending.resolve(token, merged=True, artifact_path=merged, merge_reason=None)
     run = Operation()
     concurrent.futures.Future.set_result(run, pending.wait(timeout_s=0))
 
@@ -412,12 +412,12 @@ def test_a_composite_run_that_merged_nothing_shows_nothing(gui_ctx, display, hel
     import concurrent.futures
 
     from _lumascope.modules.operation import Operation
-    from _lumascope.modules.run_outcome import PendingRunOutcome, RunEnding
+    from _lumascope.modules.run_outcome import MergeReason, PendingRunOutcome, RunEnding
     from ui.composite_capture import show_merged_composite
 
     pending = PendingRunOutcome()
     token = pending.arm(RunEnding('aborted', 'stopped', 'The run was stopped.'))
-    pending.resolve(token, merged=False, artifact_path=None, merge_reason='stopped')
+    pending.resolve(token, merged=False, artifact_path=None, merge_reason=MergeReason.MERGE_ERROR)
     run = Operation()
     concurrent.futures.Future.set_result(run, pending.wait(timeout_s=0))
     gui_ctx.scope_display = display

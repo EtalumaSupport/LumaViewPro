@@ -88,6 +88,7 @@ from _lumascope.modules.run_outcome import (
     CaptureTally,
     EndingLatch,
     FilesOutcome,
+    MergeReason,
     PendingRunOutcome,
     RunEnding,
     RunOutcome,
@@ -2645,14 +2646,14 @@ class SequencedCaptureRunner:
                 # Either something already settled the run, or the merge
                 # declined to start and said why. Both leave the outcome
                 # resolved; neither leaves it armed with nothing coming.
-                outcome.resolve_if_pending(ending, 'merge_not_started')
+                outcome.resolve_if_pending(ending, MergeReason.MERGE_NOT_STARTED)
         except Exception:
             logger.error(
                 f'[{self.LOGGER_NAME}] Failed to settle the run outcome; '
                 'resolving it so no caller waits on a run that ended',
                 exc_info=True,
             )
-            outcome.force_resolve('cleanup_error', fallback=ending)
+            outcome.force_resolve(MergeReason.CLEANUP_ERROR, fallback=ending)
 
     def _last_run(self) -> 'EngineRun | None':
         """The live or last run, or None when no run has started."""
@@ -2873,7 +2874,11 @@ class SequencedCaptureRunner:
             )
 
         def _settle(
-            failure: BaseException | None, *, artifact_path: str | None, merge_reason: str
+            failure: BaseException | None,
+            *,
+            artifact_path: str | None,
+            merge_reason: MergeReason | None,
+            merge_failure: str | None = None,
         ) -> None:
             # Every exit of the merge ends here, in one order: what is owed
             # is reported, then the outcome settles, so a caller it releases
@@ -2911,9 +2916,10 @@ class SequencedCaptureRunner:
                     merged=artifact_path is not None,
                     artifact_path=artifact_path,
                     merge_reason=merge_reason,
+                    merge_failure=merge_failure,
                 )
 
-        def _fail(reason: str, detail: str) -> None:
+        def _fail(reason: MergeReason, detail: str) -> None:
             # The merge's own reasons, where nothing was raised.
             _settle(CompositeFailedError(detail, reason), artifact_path=None, merge_reason=reason)
 
@@ -2921,10 +2927,10 @@ class SequencedCaptureRunner:
         # settles here and now, rather than leaving the outcome armed with
         # nothing on its way to resolve it.
         if run_dir is None:
-            _fail('no_run_dir', 'The run has no directory to merge from.')
+            _fail(MergeReason.NO_RUN_DIR, 'The run has no directory to merge from.')
             return None
         if thresholds is None:
-            _fail('no_composite_config', 'The run carries no composite thresholds.')
+            _fail(MergeReason.NO_COMPOSITE_CONFIG, 'The run carries no composite thresholds.')
             return None
 
         def _answer(merged: concurrent.futures.Future) -> None:
@@ -2934,22 +2940,27 @@ class SequencedCaptureRunner:
             try:
                 failure = merged.exception()
                 if failure is not None:
-                    # A typed outcome says why in its own reason, kind and words;
-                    # an exception that carries no reason is the merge's error.
+                    # A typed outcome says why in its own reason, kind and words,
+                    # which is its class's vocabulary, so the merge's reason is
+                    # its error and the outcome's reason is carried beside it.
                     _settle(
                         failure,
                         artifact_path=None,
-                        merge_reason=getattr(failure, 'reason', None) or 'merge_error',
+                        merge_reason=MergeReason.MERGE_ERROR,
+                        merge_failure=getattr(failure, 'reason', None),
                     )
                     return
                 paths = merged.result().get('artifact_paths') or []
                 if paths:
                     logger.info(f'[{self.LOGGER_NAME}] Composite saved: {paths[0]}')
-                    _settle(None, artifact_path=pathlib.Path(paths[0]), merge_reason='')
+                    _settle(None, artifact_path=pathlib.Path(paths[0]), merge_reason=None)
                 else:
-                    _fail('merge_failed', 'The merge finished without producing a composite file.')
+                    _fail(
+                        MergeReason.MERGE_FAILED,
+                        'The merge finished without producing a composite file.',
+                    )
             except Exception as defect:
-                _settle(defect, artifact_path=None, merge_reason='merge_error')
+                _settle(defect, artifact_path=None, merge_reason=MergeReason.MERGE_ERROR)
 
         try:
             merge = self._post_processing.run_composite(

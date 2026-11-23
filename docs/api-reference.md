@@ -11294,7 +11294,7 @@ The run's RunOutcome: `merged` True, `artifact_path` the merged composite, `stat
 - [`RunWaitExpiredError`](#RunWaitExpiredError): `still_running`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`
-- [`CompositeFailedError`](#CompositeFailedError): `run_not_completed`, `no_run_dir`, `no_composite_config`, `merge_failed`, `merge_error`
+- [`CompositeFailedError`](#CompositeFailedError): `run_not_completed`, `no_run_dir`, `no_composite_config`, `merge_failed`, `merge_error`, `merge_not_started`, `cleanup_error`
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
 
 <a id="ProtocolRunner.run_protocol"></a>
@@ -11946,14 +11946,14 @@ How a run ended, and what its merge produced.
 The first four fields are the run's ENDING, copied from the
 RunEnding whatever ended the run recorded, with the boards a
 disconnect lost (`unconnected_parts`) and the axes a lost position
-left unplaced (`axes_without_position`); the next three describe
+left unplaced (`axes_without_position`); the next four describe
 the merge, the next two the autofocus characterization data, then
 what the run captured, which steps putting the scope back after it
 did not finish, whether a scan's focus was written into the caller's
 protocol, which steps' autofocus did not focus, and last how long the
 run's end waited for its videos to save. A
-non-composite run carries merged=False and an empty merge_reason
-under whatever status it ended in, and a run that saved
+non-composite run carries merged=False and no merge_reason under
+whatever status it ended in, and a run that saved
 no autofocus data carries af_data_saved=False, so a caller reads one
 shape for every run kind.
 
@@ -11968,7 +11968,8 @@ shape for every run kind.
 - <a id="RunOutcome.cleanup_failures"></a>`cleanup_failures`: `tuple[str, ...] | None` -- The steps putting the scope back after the run that did not finish ('Restore LED states', 'Return to position', ...); empty when every one did, so the LEDs, camera settings and stage are as the run found them. None only for a run settled before its cleanup ran. A host's own display work at the run's end is its `run_ended` handler's, never a step here.
 - <a id="RunOutcome.focus_failures"></a>`focus_failures`: `tuple[FocusFailure, ...]` -- Each step whose autofocus did not focus, a flat curve included, once however many scans it did not focus in, in the order of the scan it first did not, then of the step: a capture protocol captured it at its fallback focus, an autofocus scan left its focus as it was. A scan run again that focuses the step clears that scan's failure. Empty when every autofocus focused, and for a run with none.
 - <a id="RunOutcome.focus_written"></a>`focus_written`: `bool | None` -- Whether the focus the run found was saved where it was asked to save it: an autofocus scan's into the protocol the caller named, a standalone autofocus's as the focus of the channel it focused. None for a run asked to save no focus, which includes a standalone autofocus lent a diagnostic's claim. False when it was asked and saved none, and the protocol or the channel's focus is unchanged: the scan focused no step, or the protocol's steps changed during it (reported once, as 'Focus Not Saved'); the standalone autofocus chose no Z, or its save was refused (reported once, as the refusal).
-- <a id="RunOutcome.merge_reason"></a>`merge_reason`: `str` -- Why the MERGE produced no file ('write_batch_timeout', 'write_batch_abandoned', 'write_batch_not_taken', 'write_batch_save_failed', 'write_batch_disk_full', 'write_batch_video_unfinished', 'no_run_dir', 'shutdown', ...). Empty on success and on every run that has no merge, so a caller can branch on merged and still log one field.
+- <a id="RunOutcome.merge_failure"></a>`merge_failure`: `str | None` -- The reason of the outcome the merge failed with (`'write_batch_timeout'`, ...), its own class's word, for `MERGE_ERROR` when it had one; None otherwise.
+- <a id="RunOutcome.merge_reason"></a>`merge_reason`: `MergeReason | None` -- Why the MERGE produced no file. None on success and on every run that has no merge, so a caller can branch on merged and still log one field.
 - <a id="RunOutcome.merged"></a>`merged`: `bool` -- True only when an artifact was produced.
 - <a id="RunOutcome.message"></a>`message`: `str` -- The sentence a user reads.
 - <a id="RunOutcome.reason"></a>`reason`: `RunEndReason` -- Why the RUN ended.
@@ -13441,6 +13442,23 @@ ON_ARRIVAL: as the frame arrived from the camera (a recorded frame):
 
 - `before_grab`
 - `on_arrival`
+
+<a id="MergeReason"></a>
+### `lumascope.MergeReason`
+
+Held in: [`RunOutcome.merge_reason`](#RunOutcome.merge_reason).
+
+Why a run's merge produced no file: `CompositeFailedError`'s reasons, each meaning its own.
+
+For `MERGE_ERROR` the reason of what the merge failed with, when that
+had one, is the outcome's `merge_failure`.
+
+- `no_run_dir`
+- `no_composite_config`
+- `merge_failed`
+- `merge_error`
+- `merge_not_started`
+- `cleanup_error`
 
 <a id="Modality"></a>
 ### `lumascope.Modality`
@@ -14989,7 +15007,7 @@ raised, is a field, since each is another vocabulary's string.
 
 **Attributes**
 
-- `reason`: `'run_not_completed'` -- the run ended before a composite was made. `'no_run_dir'` -- the run has no folder to merge from. `'no_composite_config'` -- the run carries no composite thresholds. `'merge_failed'` -- the merge finished without writing a file. `'merge_error'` -- the merge failed.
+- `reason`: `'run_not_completed'` -- the run ended before a composite was made. Otherwise the run's `MergeReason`, why the merge produced no file: `'no_run_dir'` -- the run has no folder to merge from. `'no_composite_config'` -- the run carries no composite thresholds. `'merge_failed'` -- the merge finished without writing a file. `'merge_error'` -- the merge failed. `'merge_not_started'` -- the merge did not start. `'cleanup_error'` -- the run's cleanup failed while it settled the run's outcome.
 - `run_ending`: The run's ending reason, for `'run_not_completed'`; otherwise None.
 - `merge_failure`: The reason of the outcome the merge failed with, for `'merge_error'` when it had one; otherwise None.
 
@@ -15000,8 +15018,10 @@ raised, is a field, since each is another vocabulary's string.
 
 | Reason | Cause | REST status |
 |---|---|---|
+| `cleanup_error` | -- | 500 |
 | `merge_error` | -- | 500 |
 | `merge_failed` | -- | 500 |
+| `merge_not_started` | -- | 500 |
 | `no_composite_config` | -- | 500 |
 | `no_run_dir` | -- | 500 |
 | `run_not_completed` | -- | 500 |

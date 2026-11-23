@@ -155,13 +155,15 @@ class TestAChannelThatCapturesNothing:
                 f'channel: {_record_rows(run_dir)}'
             )
             # Asserted last so the facts above are checked either way. The
-            # code is the post-processor's own: 'post_processing_failed' is
-            # a build whose every group failed, and the runner relays it as
-            # is. The runner's 'merge_failed' is only the fallback for a
-            # result that carries no reason at all, so a caller seeing it
-            # here would mean the specific code was lost on the way.
-            assert settled.merge_reason == 'post_processing_failed', (
-                f'the outcome named the failure {settled.merge_reason!r}; the '
+            # merge failed with the post-processor's own outcome:
+            # 'post_processing_failed' is a build whose every group failed,
+            # and the runner carries it as the failure beside the merge's
+            # own 'merge_error', so the specific code is not lost.
+            assert (settled.merge_reason, settled.merge_failure) == (
+                'merge_error',
+                'post_processing_failed',
+            ), (
+                f'the outcome named the failure {settled.merge_failure!r}; the '
                 f'code is what a REST or SDK caller maps to a response, so it '
                 f'is part of the contract, not prose'
             )
@@ -240,7 +242,10 @@ class TestAChannelThatCapturesNothing:
 
             assert settled is not None and not settled.merged, settled
             assert settled.artifact_path is None, settled
-            assert settled.merge_reason == 'post_processing_failed', settled
+            assert (settled.merge_reason, settled.merge_failure) == (
+                'merge_error',
+                'post_processing_failed',
+            ), settled
             assert settled.status == 'incomplete', settled
 
             run_dir = single_run_dir(tmp_path)
@@ -284,7 +289,7 @@ class TestTheThreeStrikeFatalAbort:
                 f'the outcome named the cause {settled.reason!r}; a caller '
                 f'cannot tell a dead camera from a failed merge that way'
             )
-            assert settled.merge_reason == '', (
+            assert settled.merge_reason is None, (
                 'the run died before any merge, so there is no merge verdict to report'
             )
 

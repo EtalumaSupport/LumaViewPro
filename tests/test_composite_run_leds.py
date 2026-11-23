@@ -235,7 +235,7 @@ class TestAbortMidComposite:
         assert settled.reason == 'stopped', (
             f"the abort reported reason {settled.reason!r}, not 'stopped'"
         )
-        assert settled.merge_reason == '', (
+        assert settled.merge_reason is None, (
             'the run was stopped before any merge, so there is no merge verdict to report'
         )
 

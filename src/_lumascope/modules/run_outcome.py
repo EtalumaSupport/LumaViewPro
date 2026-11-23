@@ -91,6 +91,21 @@ class FilesOutcome(enum.StrEnum):
     INCOMPLETE = 'incomplete'
 
 
+class MergeReason(enum.StrEnum):
+    """Why a run's merge produced no file: ``CompositeFailedError``'s reasons, each meaning its own.
+
+    For ``MERGE_ERROR`` the reason of what the merge failed with, when that
+    had one, is the outcome's ``merge_failure``.
+    """
+
+    NO_RUN_DIR = 'no_run_dir'
+    NO_COMPOSITE_CONFIG = 'no_composite_config'
+    MERGE_FAILED = 'merge_failed'
+    MERGE_ERROR = 'merge_error'
+    MERGE_NOT_STARTED = 'merge_not_started'
+    CLEANUP_ERROR = 'cleanup_error'
+
+
 class EndingKind(enum.StrEnum):
     """Whether a run that ended completed, was stopped, or failed."""
 
@@ -464,6 +479,7 @@ class CaptureTally:
     'cleanup_failures',
     'focus_failures',
     'focus_written',
+    'merge_failure',
     'merge_reason',
     'merged',
     'message',
@@ -480,14 +496,14 @@ class RunOutcome:
     The first four fields are the run's ENDING, copied from the
     RunEnding whatever ended the run recorded, with the boards a
     disconnect lost (``unconnected_parts``) and the axes a lost position
-    left unplaced (``axes_without_position``); the next three describe
+    left unplaced (``axes_without_position``); the next four describe
     the merge, the next two the autofocus characterization data, then
     what the run captured, which steps putting the scope back after it
     did not finish, whether a scan's focus was written into the caller's
     protocol, which steps' autofocus did not focus, and last how long the
     run's end waited for its videos to save. A
-    non-composite run carries merged=False and an empty merge_reason
-    under whatever status it ended in, and a run that saved
+    non-composite run carries merged=False and no merge_reason under
+    whatever status it ended in, and a run that saved
     no autofocus data carries af_data_saved=False, so a caller reads one
     shape for every run kind.
 
@@ -504,12 +520,12 @@ class RunOutcome:
             empty for every other reason.
         merged: True only when an artifact was produced.
         artifact_path: Where it landed; None whenever merged is False.
-        merge_reason: Why the MERGE produced no file ('write_batch_timeout',
-            'write_batch_abandoned', 'write_batch_not_taken',
-            'write_batch_save_failed', 'write_batch_disk_full',
-            'write_batch_video_unfinished', 'no_run_dir', 'shutdown', ...). Empty on success and on
-            every run that has no merge, so a caller can branch on
+        merge_reason: Why the MERGE produced no file. None on success and
+            on every run that has no merge, so a caller can branch on
             merged and still log one field.
+        merge_failure: The reason of the outcome the merge failed with
+            (``'write_batch_timeout'``, ...), its own class's word, for
+            ``MERGE_ERROR`` when it had one; None otherwise.
         af_data_saved: True only when autofocus characterization data
             was WRITTEN. False covers every run that asked for none, and
             every run that asked and got none -- a sweep that collected
@@ -569,7 +585,8 @@ class RunOutcome:
     axes_without_position: dict[Axis, AxisState]
     merged: bool
     artifact_path: pathlib.Path | None
-    merge_reason: str
+    merge_reason: MergeReason | None
+    merge_failure: str | None
     af_data_saved: bool
     af_data_path: pathlib.Path | None
     af_focus_z_um: float | None
@@ -706,7 +723,9 @@ class PendingRunOutcome:
             self._state = ARMED
             return self._token
 
-    def resolve_if_pending(self, ending: RunEnding, merge_reason: str = '') -> bool:
+    def resolve_if_pending(
+        self, ending: RunEnding, merge_reason: MergeReason | None = None
+    ) -> bool:
         """Settle a run whose merge never started. PENDING only.
 
         Cleanup's resolver. Deliberately powerless over an ARMED outcome:
@@ -724,7 +743,7 @@ class PendingRunOutcome:
             tell(outcome)
         return True
 
-    def force_resolve(self, merge_reason: str, *, fallback: RunEnding) -> bool:
+    def force_resolve(self, merge_reason: MergeReason, *, fallback: RunEnding) -> bool:
         """Settle from PENDING or ARMED, because nothing will finish it.
 
         For a run's cleanup that failed while settling its outcome: nothing
@@ -756,7 +775,8 @@ class PendingRunOutcome:
         *,
         merged: bool,
         artifact_path: pathlib.Path | None,
-        merge_reason: str,
+        merge_reason: MergeReason | None,
+        merge_failure: str | None = None,
     ) -> bool:
         """Record what the merge produced. Only the arming token holder may.
 
@@ -775,6 +795,7 @@ class PendingRunOutcome:
                 merged=merged,
                 artifact_path=artifact_path,
                 merge_reason=merge_reason,
+                merge_failure=merge_failure,
             )
         for tell in told:
             tell(outcome)
@@ -786,7 +807,8 @@ class PendingRunOutcome:
         *,
         merged: bool,
         artifact_path: pathlib.Path | None,
-        merge_reason: str,
+        merge_reason: MergeReason | None,
+        merge_failure: str | None = None,
     ) -> tuple[RunOutcome, list[Callable[[RunOutcome], None]]]:
         """Compose the outcome, mark it settled, and hand back who to tell.
 
@@ -818,6 +840,7 @@ class PendingRunOutcome:
             merged=merged,
             artifact_path=artifact_path,
             merge_reason=merge_reason,
+            merge_failure=merge_failure,
             af_data_saved=self._af_data_path is not None,
             af_data_path=self._af_data_path,
             af_focus_z_um=self._af_focus_z_um,

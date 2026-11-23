@@ -648,7 +648,9 @@ class TestTheCallerHoldsTheEndingOfTheRunItStarted:
             settled = pending.result(timeout=60)
 
         assert settled is not None
-        assert (settled.status, settled.merged, settled.merge_reason) == ('completed', False, ''), (
-            f'a scan reported merged={settled.merged!r} merge_reason={settled.merge_reason!r}'
-        )
+        assert (settled.status, settled.merged, settled.merge_reason) == (
+            'completed',
+            False,
+            None,
+        ), f'a scan reported merged={settled.merged!r} merge_reason={settled.merge_reason!r}'
         assert settled.artifact_path is None

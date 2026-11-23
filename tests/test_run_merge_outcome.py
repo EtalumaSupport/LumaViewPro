@@ -37,6 +37,7 @@ from _lumascope.modules.run_outcome import (
     CaptureTally,
     FailedCapture,
     FocusFailure,
+    MergeReason,
     PendingRunOutcome,
     RunEnding,
     RunOutcome,
@@ -55,7 +56,7 @@ _ARTIFACT = '/runs/1/Composite/A1_Composite_1.tiff'
 
 
 def _record_merge(outcome, token, path=_ARTIFACT):
-    return outcome.resolve(token, merged=True, artifact_path=pathlib.Path(path), merge_reason='')
+    return outcome.resolve(token, merged=True, artifact_path=pathlib.Path(path), merge_reason=None)
 
 
 class TestArming:
@@ -121,7 +122,7 @@ class TestCleanupResolver:
         assert (settled.status, settled.reason) == ('aborted', 'stopped')
         assert settled.merged is False and settled.artifact_path is None
 
-    def test_a_run_with_no_merge_carries_an_empty_merge_reason(self):
+    def test_a_run_with_no_merge_carries_no_merge_reason(self):
         # A scan has no merge to fail, so there is nothing for the merge
         # field to say. A code invented here ('not_a_composite_run') read
         # as a failure to every caller branching on that field.
@@ -129,14 +130,14 @@ class TestCleanupResolver:
         outcome.resolve_if_pending(_COMPLETED)
         settled = outcome.wait(timeout_s=0.1)
         assert settled.status == 'completed'
-        assert settled.merge_reason == '', (
+        assert settled.merge_reason is None, (
             f'a run that never had a merge reported {settled.merge_reason!r} '
             f'as the reason its merge produced nothing'
         )
 
     def test_a_completed_run_whose_merge_never_started_says_so(self):
         outcome = PendingRunOutcome()
-        outcome.resolve_if_pending(_COMPLETED, 'merge_not_started')
+        outcome.resolve_if_pending(_COMPLETED, MergeReason.MERGE_NOT_STARTED)
         settled = outcome.wait(timeout_s=0.1)
         assert settled.status == 'completed', (
             'the merge failing to start does not retroactively fail the run'
@@ -178,8 +179,19 @@ class TestMergeThreadResolver:
     def test_the_token_holder_can_record_a_typed_failure(self):
         outcome = PendingRunOutcome()
         token = outcome.arm(_COMPLETED)
-        outcome.resolve(token, merged=False, artifact_path=None, merge_reason='merge_timeout')
-        assert outcome.wait(timeout_s=0.1).merge_reason == 'merge_timeout'
+        outcome.resolve(
+            token,
+            merged=False,
+            artifact_path=None,
+            merge_reason=MergeReason.MERGE_ERROR,
+            merge_failure='write_batch_timeout',
+        )
+        settled = outcome.wait(timeout_s=0.1)
+        # The merge's word and the failure's own word, each in its field.
+        assert (settled.merge_reason, settled.merge_failure) == (
+            'merge_error',
+            'write_batch_timeout',
+        )
 
     def test_the_merge_thread_cannot_restate_how_the_run_ended(self):
         # The merge reports on the merge. The run's status and reason come
@@ -188,7 +200,9 @@ class TestMergeThreadResolver:
         # step went wrong, which is the collapse this shape exists to stop.
         outcome = PendingRunOutcome()
         token = outcome.arm(_COMPLETED)
-        outcome.resolve(token, merged=False, artifact_path=None, merge_reason='merge_error')
+        outcome.resolve(
+            token, merged=False, artifact_path=None, merge_reason=MergeReason.MERGE_ERROR
+        )
         settled = outcome.wait(timeout_s=0.1)
         assert (settled.status, settled.reason) == ('completed', 'completed'), (
             f'a failed merge rewrote the run as {settled.status!r}/{settled.reason!r}'
@@ -205,10 +219,10 @@ class TestMergeThreadResolver:
         # merge finishing afterward must not reopen it.
         outcome = PendingRunOutcome()
         token = outcome.arm(_COMPLETED)
-        outcome.force_resolve('shutdown', fallback=_SHUTDOWN)
+        outcome.force_resolve(MergeReason.CLEANUP_ERROR, fallback=_SHUTDOWN)
 
         assert _record_merge(outcome, token) is False
-        assert outcome.wait(timeout_s=0.1).merge_reason == 'shutdown'
+        assert outcome.wait(timeout_s=0.1).merge_reason == 'cleanup_error'
 
     def test_resolving_twice_keeps_the_first_answer(self):
         outcome = PendingRunOutcome()
@@ -224,10 +238,10 @@ class TestTeardownResolver:
         # ending of its own; the teardown is the only thing that knows why
         # it stopped, and its ending is the run's.
         outcome = PendingRunOutcome()
-        assert outcome.force_resolve('shutdown', fallback=_SHUTDOWN) is True
+        assert outcome.force_resolve(MergeReason.CLEANUP_ERROR, fallback=_SHUTDOWN) is True
         settled = outcome.wait(timeout_s=0.1)
         assert (settled.status, settled.reason) == ('aborted', 'shutdown')
-        assert settled.merge_reason == 'shutdown'
+        assert settled.merge_reason == 'cleanup_error'
 
     def test_shutdown_keeps_the_ending_an_armed_run_already_reported(self):
         # The executors are about to be torn down without waiting, so the
@@ -237,22 +251,22 @@ class TestTeardownResolver:
         # the two channels in contradiction about the same run.
         outcome = PendingRunOutcome()
         outcome.arm(_COMPLETED)
-        assert outcome.force_resolve('shutdown', fallback=_SHUTDOWN) is True
+        assert outcome.force_resolve(MergeReason.CLEANUP_ERROR, fallback=_SHUTDOWN) is True
         assert outcome.state == RESOLVED
         settled = outcome.wait(timeout_s=0.1)
         assert (settled.status, settled.reason) == ('completed', 'completed'), (
             f'teardown overwrote the ending the run had already reported: '
             f'{settled.status!r}/{settled.reason!r}'
         )
-        assert settled.merge_reason == 'shutdown', (
-            'the shutdown is why no artifact followed, not how the run ended'
+        assert settled.merge_reason == 'cleanup_error', (
+            'what settled it is why no artifact followed, not how the run ended'
         )
 
     def test_teardown_does_not_overwrite_a_finished_merge(self):
         outcome = PendingRunOutcome()
         token = outcome.arm(_COMPLETED)
         _record_merge(outcome, token, '/done.tiff')
-        assert outcome.force_resolve('shutdown', fallback=_SHUTDOWN) is False
+        assert outcome.force_resolve(MergeReason.CLEANUP_ERROR, fallback=_SHUTDOWN) is False
         assert outcome.wait(timeout_s=0.1).artifact_path == pathlib.Path('/done.tiff')
 
 
@@ -294,6 +308,7 @@ _NOT_RECORDED = {
     'merged',
     'artifact_path',
     'merge_reason',
+    'merge_failure',
     'af_data_saved',
 }
 
@@ -303,7 +318,7 @@ def _settle_by_cleanup(pending):
 
 
 def _settle_by_teardown(pending):
-    pending.force_resolve('shutdown', fallback=_SHUTDOWN)
+    pending.force_resolve(MergeReason.CLEANUP_ERROR, fallback=_SHUTDOWN)
 
 
 def _settle_by_merge(pending):
@@ -387,7 +402,8 @@ def _race_three_resolvers() -> tuple[int, str]:
     threads = [
         threading.Thread(target=_try, args=(lambda: _record_merge(outcome, token),)),
         threading.Thread(
-            target=_try, args=(lambda: outcome.force_resolve('shutdown', fallback=_SHUTDOWN),)
+            target=_try,
+            args=(lambda: outcome.force_resolve(MergeReason.CLEANUP_ERROR, fallback=_SHUTDOWN),),
         ),
         threading.Thread(target=_try, args=(lambda: outcome.resolve_if_pending(_FAILED),)),
     ]

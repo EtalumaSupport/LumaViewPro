@@ -106,14 +106,25 @@ class TestCompositeOutcomeIsObservable:
     _COMPLETED = RunEnding('completed', 'completed', 'The run finished.')
 
     def _runner_whose_run(
-        self, ending, *, merged=False, artifact_path=None, merge_reason='', settle=True
+        self,
+        ending,
+        *,
+        merged=False,
+        artifact_path=None,
+        merge_reason=None,
+        merge_failure=None,
+        settle=True,
     ):
         runner = _runner()
         settled = PendingRunOutcome()
         if settle:
             token = settled.arm(ending)
             settled.resolve(
-                token, merged=merged, artifact_path=artifact_path, merge_reason=merge_reason
+                token,
+                merged=merged,
+                artifact_path=artifact_path,
+                merge_reason=merge_reason,
+                merge_failure=merge_failure,
             )
         # The run's operation, done with the settled outcome when the run
         # has ended.
@@ -138,20 +149,22 @@ class TestCompositeOutcomeIsObservable:
 
     # The merge's own reason is the failure's; another vocabulary's is its field.
     @pytest.mark.parametrize(
-        ('merge_reason', 'reason', 'merge_failure'),
-        [
-            ('merge_timeout', 'merge_error', 'merge_timeout'),
-            ('no_run_dir', 'no_run_dir', None),
-        ],
+        ('merge_reason', 'merge_failure'),
+        [('merge_error', 'write_batch_timeout'), ('no_run_dir', None)],
     )
     def test_a_completed_run_whose_merge_produced_nothing_names_the_merge(
-        self, merge_reason, reason, merge_failure
+        self, merge_reason, merge_failure
     ):
-        runner = self._runner_whose_run(self._COMPLETED, merge_reason=merge_reason)
+        runner = self._runner_whose_run(
+            self._COMPLETED, merge_reason=merge_reason, merge_failure=merge_failure
+        )
 
         with pytest.raises(CaptureError) as excinfo:
             runner.run_composite()
-        assert (excinfo.value.reason, excinfo.value.merge_failure) == (reason, merge_failure), (
+        assert (excinfo.value.reason, excinfo.value.merge_failure) == (
+            merge_reason,
+            merge_failure,
+        ), (
             'the failure must CARRY its machine-readable cause, so a caller '
             'can tell an aborted run from a failed merge from a timeout '
             'without pattern-matching the prose'

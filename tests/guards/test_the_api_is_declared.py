@@ -1056,7 +1056,7 @@ OPEN_STRINGS: dict[str, str] = {
     'RunEvents.frame_captured field': _CHANNEL,
     'RunFiles.not_written_reason field': _REASON,
     'RunOutcome.cleanup_failures field': _PROSE,
-    'RunOutcome.merge_reason field': _REASON,
+    'RunOutcome.merge_failure field': _REASON,
     'RunOutcome.message field': _PROSE,
     'RunOutcome.title field': _PROSE,
     'RuntimeState.plate_to_stage parameter labware_id': _LABWARE,

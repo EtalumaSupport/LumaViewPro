@@ -329,7 +329,7 @@ class TestEverySettlePathCarriesTheRecordedData:
     def test_teardowns_force_resolve_carries_it(self):
         pending = PendingRunOutcome()
         pending.record_autofocus_data(pathlib.Path('/tmp/af.csv'))
-        assert pending.force_resolve('shutdown', fallback=_ending('failed')) is True
+        assert pending.force_resolve('cleanup_error', fallback=_ending('failed')) is True
         outcome = pending.wait(timeout_s=1.0)
         assert (outcome.af_data_saved, outcome.af_data_path) == (True, pathlib.Path('/tmp/af.csv'))
 
@@ -339,7 +339,7 @@ class TestEverySettlePathCarriesTheRecordedData:
         token = pending.arm(_ending())
         assert token is not None
         assert (
-            pending.resolve(token, merged=True, artifact_path='/tmp/merged.tiff', merge_reason='')
+            pending.resolve(token, merged=True, artifact_path='/tmp/merged.tiff', merge_reason=None)
             is True
         )
         outcome = pending.wait(timeout_s=1.0)
@@ -670,14 +670,14 @@ class TestEverySettlePathCarriesTheRecordedFocus:
     def test_teardowns_force_resolve_carries_it(self):
         pending = PendingRunOutcome()
         pending.record_autofocus_focus(4321.5)
-        assert pending.force_resolve('shutdown', fallback=_ending('failed')) is True
+        assert pending.force_resolve('cleanup_error', fallback=_ending('failed')) is True
         assert pending.wait(timeout_s=1.0).af_focus_z_um == 4321.5
 
     def test_the_merge_threads_resolver_carries_it(self):
         pending = PendingRunOutcome()
         pending.record_autofocus_focus(4321.5)
         token = pending.arm(_ending())
-        assert pending.resolve(token, merged=False, artifact_path=None, merge_reason='') is True
+        assert pending.resolve(token, merged=False, artifact_path=None, merge_reason=None) is True
         assert pending.wait(timeout_s=1.0).af_focus_z_um == 4321.5
 
     def test_a_run_that_records_no_focus_reports_none(self):
