@@ -75,6 +75,16 @@ class TestSpectralTrio:
         assert metadata['channel_display'] == 'Brightfield'
         assert 'excitation_nm' not in metadata
 
+    def test_the_luminescence_channel_is_named_luminescence_under_its_key(self, metadata_scope):
+        # The shipped Lumi row, read by the real resolver: the file states
+        # the channel's shown name, and its key stays the one file names,
+        # protocols and older files carry.
+        metadata_scope.channel_identity = identity_with_layers(['BF', 'Lumi'])
+        metadata = _metadata(metadata_scope, 'Lumi')
+        assert metadata['channel'] == 'Lumi'
+        assert metadata['channel_display'] == 'Luminescence'
+        assert 'excitation_nm' not in metadata
+
     def test_composite_keeps_unit_fact_drops_layer_facts(self, metadata_scope):
         # 'Composite' has no layer record, so the per-layer claims are
         # absent -- but the filterset is a fact about the unit, true of
