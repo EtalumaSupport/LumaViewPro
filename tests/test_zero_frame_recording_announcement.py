@@ -20,9 +20,9 @@ import logging
 
 import pytest
 
-import _lumascope.modules.manual_recording as manual_recording_module
 import _lumascope.modules.video_writer as video_writer_module
 from _lumascope.modules.image_mode import RecordingFormat
+from tests.disk_fakes import PLENTY_MB, free_space_is
 from tests.test_manual_recording_controller import (
     feed_frames,
     finish,
@@ -36,9 +36,7 @@ def _healthy_disk(monkeypatch):
     # refusal compares it against a floor; report ample free disk so the
     # refusal is the test's, not the host's. The sibling controller tests
     # carry the same fixture; importing their helpers does not import it.
-    monkeypatch.setattr(
-        manual_recording_module, 'check_disk_space_ok', lambda *_: (True, 1_000_000.0)
-    )
+    free_space_is(monkeypatch, PLENTY_MB)
 
 
 @pytest.fixture(autouse=True)

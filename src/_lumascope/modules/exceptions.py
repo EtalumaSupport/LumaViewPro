@@ -2338,9 +2338,10 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             the disk the step will write cannot be sized.
             ``'frame_size_unknown'`` -- the run saves images and the
             camera's frame size or depth is not known, so what it will
-            write cannot be sized. ``'disk_space_insufficient'`` -- what the
-            whole run will write does not fit in the free space of its save
-            folder.
+            write cannot be sized. ``'disk_space_insufficient'`` -- free space
+            at the save location is below what starting needs: what the
+            whole run will write, and never less than the floor every start
+            shares, which the message states.
             ``'position_unknown'`` -- an axis this scope has does not know
             its position, so the scope has to be homed first; the axes are
             ``axes_without_position``. ``'lid_open_before_motion'`` -- the stage's lid is
@@ -2663,9 +2664,7 @@ class RecordingRefusedError(Refusal, CaptureError):
             and ``'names_exhausted'`` with ``CaptureLocationError``. Its
             own: ``'camera_exposure_unknown'`` -- the camera has not
             reported its exposure time, from which the recording's
-            dead-feed bound derives. ``'insufficient_disk'`` -- free disk
-            at the save location is below the floor a recording needs to
-            start. ``'falsifying_change_in_flight'`` -- an objective,
+            dead-feed bound derives. ``'falsifying_change_in_flight'`` -- an objective,
             camera frame or LED-lighting change is under way, which a
             recording would capture through. ``'other_led_lit'`` -- an LED other than
             the shown channel's is lit, and the recording is named for the
@@ -2697,7 +2696,7 @@ class RecordingRefusedError(Refusal, CaptureError):
         'camera_exposure_unknown': 'Camera Exposure Unavailable',
         'capture_location_unusable': 'Cannot Save Recording',
         'names_exhausted': 'Cannot Save Recording',
-        'insufficient_disk': 'Insufficient Disk Space',
+        'disk_space_insufficient': ProtocolRunRefusedError.titles['disk_space_insufficient'],
         'falsifying_change_in_flight': 'Microscope Changing',
         'other_led_lit': 'Another Light Is On',
         'camera_holds_another_channel': 'Camera On Another Channel',
@@ -2852,7 +2851,10 @@ class PostProcessingRefusedError(Refusal, CaptureError):
             computer with its work. ``'files_writing'`` and
             ``'disk_space_insufficient'`` (the drive the build writes on has
             less free than a run needs to start), as
-            ``ProtocolRunRefusedError`` explains them, ``'unreadable'``, as
+            ``ProtocolRunRefusedError`` explains them,
+            ``'capture_location_unusable'`` (the free space where the build
+            would write cannot be read), as ``CaptureLocationError``
+            explains it, ``'unreadable'``, as
             ``InputFramesUnusableError`` explains it, and
             ``'names_exhausted'``, as ``CaptureLocationError`` explains it
             (a cell count's results and every numbered name after them),
@@ -2880,6 +2882,7 @@ class PostProcessingRefusedError(Refusal, CaptureError):
         'scope_held': RefusalCause.STATE,
         'files_writing': RefusalCause.STATE,
         'disk_space_insufficient': RefusalCause.STATE,
+        'capture_location_unusable': RefusalCause.STATE,
         'names_exhausted': RefusalCause.STATE,
     }
     same_fact_as = (
@@ -2909,7 +2912,11 @@ class PostProcessingRefusedError(Refusal, CaptureError):
             'No Z-Stack Data Found',
             _NO_ZSTACK_ADVICE,
         ),
-        'disk_space_insufficient': ('Not Enough Disk Space', ''),
+        'disk_space_insufficient': (ProtocolRunRefusedError.titles['disk_space_insufficient'], ''),
+        'capture_location_unusable': (
+            ProtocolRunRefusedError.titles['capture_location_unusable'],
+            '',
+        ),
     }
 
     def __init__(self, *, operation: str, reason: str, message: str):

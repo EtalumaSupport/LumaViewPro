@@ -20,7 +20,7 @@ stepped clock instead leaves out the first 500 ms of frames.
 import threading
 import time
 
-import _lumascope.modules.manual_recording as manual_recording_module
+from tests.disk_fakes import PLENTY_MB, free_space_is
 from tests.protocol_drives import a_claim_its_scope_asks
 from _lumascope.modules.image_utils import read_file_record, stated_frame_time
 from _lumascope.modules.channel_record import release_colors
@@ -77,9 +77,7 @@ def test_a_manual_recordings_first_frame_is_not_moved_by_a_step_of_the_wall_cloc
 ):
     # The disk probe would report this machine's free space; ample free disk
     # keeps the recording's start the only thing under test.
-    monkeypatch.setattr(
-        manual_recording_module, 'check_disk_space_ok', lambda *_: (True, 1_000_000.0)
-    )
+    free_space_is(monkeypatch, PLENTY_MB)
     bind_settings_like_a_session(sim_scope, objective_id='4x Oly')
     controller = ManualRecordingController(
         on_saved=lambda folder: None,

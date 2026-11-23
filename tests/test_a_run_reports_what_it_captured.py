@@ -22,6 +22,7 @@ from _lumascope.modules.exceptions import CaptureError, RunImagesNotSavedError, 
 from _lumascope.modules.run_events import RunEvents
 from _lumascope.modules.scope_parts import Board
 
+from tests.disk_fakes import the_start_finds_room
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 from tests.stock_channels import LED0, LED1
@@ -308,12 +309,17 @@ class TestTheFileCountCountsImages:
             _reports_of(RunImagesNotSavedError) as lost,
             open_composite_session(headless_settings(tmp_path)) as (_session, runner),
         ):
-            # The run's start and its loop bind their own name for the check
-            # at import; this replaces only the per-write floor the writer
-            # reads, a disk that fills once the run has started.
+            # The loop binds its own name for the check at import; the
+            # start's judge and the per-write floor read this one, and the
+            # start's reading finds room: a disk that fills once the run has
+            # started.
             import _lumascope.modules.protocol_run_loop  # noqa: F401
 
-            monkeypatch.setattr(common_utils, 'check_disk_space_ok', lambda path, mb: (False, 1.0))
+            monkeypatch.setattr(
+                common_utils,
+                'check_disk_space_ok',
+                the_start_finds_room(lambda path, mb: (False, 1.0)),
+            )
             outcome = _run(
                 runner,
                 tmp_path / 'runs',
@@ -339,7 +345,11 @@ class TestTheFileCountCountsImages:
         ):
             import _lumascope.modules.protocol_run_loop  # noqa: F401
 
-            monkeypatch.setattr(common_utils, 'check_disk_space_ok', lambda path, mb: (False, 1.0))
+            monkeypatch.setattr(
+                common_utils,
+                'check_disk_space_ok',
+                the_start_finds_room(lambda path, mb: (False, 1.0)),
+            )
             start = len(centre_posts)
             outcome = _run(
                 runner,
@@ -463,7 +473,11 @@ class TestTheFilesLineAndItsReport:
         ):
             import _lumascope.modules.protocol_run_loop  # noqa: F401
 
-            monkeypatch.setattr(common_utils, 'check_disk_space_ok', lambda path, mb: (False, 1.0))
+            monkeypatch.setattr(
+                common_utils,
+                'check_disk_space_ok',
+                the_start_finds_room(lambda path, mb: (False, 1.0)),
+            )
             _run(
                 runner,
                 tmp_path / 'runs',
@@ -485,7 +499,9 @@ class TestTheFilesLineAndItsReport:
         with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
             import _lumascope.modules.protocol_run_loop  # noqa: F401
 
-            monkeypatch.setattr(common_utils, 'check_disk_space_ok', _unreadable)
+            monkeypatch.setattr(
+                common_utils, 'check_disk_space_ok', the_start_finds_room(_unreadable)
+            )
             outcome = _run(
                 runner,
                 tmp_path / 'runs',

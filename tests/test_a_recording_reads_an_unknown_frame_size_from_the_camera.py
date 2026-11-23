@@ -21,11 +21,11 @@ from __future__ import annotations
 import pytest
 import tifffile
 
-import _lumascope.modules.manual_recording as manual_recording_module
 from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.modules.exceptions import CameraSettingRejected
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.modules.settings_paths import VIDEO_MAX_DURATION_S_RANGE
+from tests.disk_fakes import PLENTY_MB, free_space_is
 from tests.settings_fixtures import complete_settings
 from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT, _settings
 
@@ -35,9 +35,7 @@ _DELIVERED = (600, 800)
 @pytest.fixture
 def session(tmp_path, monkeypatch):
     # a stand-in by design: the disk probe would report this machine's free space
-    monkeypatch.setattr(
-        manual_recording_module, 'check_disk_space_ok', lambda *_: (True, 1_000_000.0)
-    )
+    free_space_is(monkeypatch, PLENTY_MB)
     # The recording ends itself at its time limit, the setting's least, and
     # the test waits on its operation: a recording keeps only the frames
     # that started after it did, and frames reach it behind a backlog that

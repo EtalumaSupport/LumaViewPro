@@ -34,7 +34,6 @@ from _lumascope.modules.axes import Axis, AxisState
 from _lumascope.modules.scope_parts import Board
 
 import _lumascope.modules.common_utils as common_utils
-from _lumascope.modules.common_utils import check_disk_space_ok
 import _lumascope.modules.write_size as write_size
 import _lumascope.modules.image_mode as image_mode
 
@@ -1596,31 +1595,14 @@ class SequencedCaptureRunner:
             scan_mb = execution_protocol.estimate_write_mb(
                 sizing=frame_sizing, recording_format=recording_format, video_fps=video_fps
             )
-            required_mb = max(common_utils.MIN_REQUIRED_DISK_MB, scan_mb * n_scans)
-            try:
-                fits, free_mb = check_disk_space_ok(parent_dir, required_mb)
-            except OSError as e:
-                # The probe's own failure: the folder's free space cannot be
-                # read, and the run starts unguarded, said where it is seen;
-                # each scan's check probes again.
-                logger.warning(
-                    f'[SeqCapExec] Free disk at {parent_dir} could not be read '
-                    f'(starting without the run-size check): {e}'
-                )
-                fits = True
-            if not fits:
-                self._refuse(
-                    reason='disk_space_insufficient',
-                    message=(
-                        f'Cannot start the run: it will write about '
-                        f'{common_utils.format_disk_size_mb(required_mb)} '
-                        f'({n_scans:,} scan{"" if n_scans == 1 else "s"} of about '
-                        f'{common_utils.format_disk_size_mb(scan_mb)}), and '
-                        f'{common_utils.format_disk_size_mb(free_mb)} is free at '
-                        f'{parent_dir}. Free space or choose another save location, '
-                        'then try again.'
-                    ),
-                )
+            no_room = common_utils.room_to_start(
+                parent_dir,
+                f'the run ({n_scans:,} scan{"" if n_scans == 1 else "s"} of about '
+                f'{common_utils.format_disk_size_mb(scan_mb)})',
+                will_write_mb=scan_mb * n_scans,
+            )
+            if no_room is not None:
+                self._refuse(reason=no_room.reason, message=no_room.message)
 
         if parent_dir is None:
             disable_saving_artifacts = True

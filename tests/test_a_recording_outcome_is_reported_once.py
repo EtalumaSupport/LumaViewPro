@@ -32,6 +32,7 @@ from _lumascope.modules.exceptions import (
 from _lumascope.modules.notification_center import outcome_of
 from _lumascope.modules.run_outcome import RunEnding, RunStatus
 from _lumascope.modules.image_mode import RecordingFormat
+from tests.disk_fakes import PLENTY_MB, free_space_is
 from tests.test_manual_recording_controller import feed_frames, finish, make_controller
 from tests.video_close_faults import fail_the_close
 from tests.video_step_drives import record_first_frame, record_first_mp4_frame, video_step_on
@@ -211,13 +212,9 @@ def test_a_lost_camera_is_reported_once_unsolicited(tmp_path, monkeypatch, post_
 def test_a_full_disk_is_reported_once_unsolicited(tmp_path, monkeypatch, post_processing):
     controller, scope, clock = make_controller(tmp_path, post_processing=post_processing)
     reported = _record_reports(monkeypatch, manual_recording_module)
-    checks = {'n': 0}
-
-    def _fake_check(path, required_mb):
-        checks['n'] += 1
-        return (checks['n'] == 1, 100.0)
-
-    monkeypatch.setattr(manual_recording_module, 'check_disk_space_ok', _fake_check)
+    # The start finds room; every rolling probe finds the disk full.
+    free_space_is(monkeypatch, PLENTY_MB)
+    monkeypatch.setattr(manual_recording_module, 'check_disk_space_ok', lambda *_: (False, 100.0))
     controller.start()
     feed_frames(scope, clock, 5, fps=10.0)
     controller._engine.wait_for_drain(timeout=10)

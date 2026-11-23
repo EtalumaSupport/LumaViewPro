@@ -26,6 +26,7 @@ from _lumascope.modules.scope_capabilities import FrameSize
 from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
 from _lumascope.modules.write_size import FrameSizing, estimate_step_write_mb
 from _lumascope.modules.image_mode import RecordingFormat
+from tests.disk_fakes import free_space_unreadable
 from tests.frame_records import frame_record, unpositioned
 from tests.protocol_drives import a_frame_sizing
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
@@ -250,6 +251,17 @@ def test_a_run_too_big_for_its_disk_is_refused_at_its_start(executor, tmp_path):
     message = refusal.value.message
     assert '60,000,000 scans' in message, message
     assert 'is free at' in message and str(tmp_path) in message, message
+
+
+def test_a_run_whose_drive_cannot_be_read_is_refused_at_its_start(executor, tmp_path, monkeypatch):
+    # The folder is there and the drive under it does not answer: nothing
+    # the run wrote there could be kept, so it does not start unguarded.
+    free_space_unreadable(monkeypatch)
+    with pytest.raises(ProtocolRunRefusedError) as refusal:
+        _prepare(executor, tmp_path, _make_single_step_protocol())
+
+    assert refusal.value.reason == 'capture_location_unusable'
+    assert str(tmp_path) in refusal.value.message, refusal.value.message
 
 
 def test_a_scan_of_the_same_protocol_is_sized_at_one_scan(executor, tmp_path):

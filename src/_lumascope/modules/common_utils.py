@@ -10,7 +10,7 @@ import platform
 import re
 import threading
 import time as _time
-from typing import TYPE_CHECKING, ClassVar, NamedTuple
+from typing import TYPE_CHECKING, ClassVar, Literal, NamedTuple
 
 import psutil
 
@@ -1544,6 +1544,69 @@ def check_disk_space_ok(path: str | os.PathLike, required_mb: float) -> tuple[bo
     disk = psutil.disk_usage(str(probe))
     free_mb = disk.free / (1024**2)
     return (free_mb >= required_mb, free_mb)
+
+
+@dataclasses.dataclass(frozen=True)
+class NoRoomToStart:
+    """Why a start was refused for the free space where it would save.
+
+    Attributes:
+        reason: ``'disk_space_insufficient'`` -- the free space is below
+            what the start needs. ``'capture_location_unusable'`` -- the
+            free space could not be read.
+        message: The words for the person: what is free, where, and what
+            is needed.
+    """
+
+    reason: Literal['disk_space_insufficient', 'capture_location_unusable']
+    message: str
+
+
+def room_to_start(
+    folder: str | os.PathLike, what: str, will_write_mb: float | None = None
+) -> NoRoomToStart | None:
+    """Whether *folder* has the free space for *what* to start writing there.
+
+    The one judge of a start's free space: a run, a manual recording and a
+    post-processing build each ask it before anything is committed, and
+    raise their own refusal with what it answers. A start needs what it
+    will write, when that is known, and never less than
+    ``MIN_REQUIRED_DISK_MB``. A folder whose free space cannot be read is
+    refused, since nothing that starts there could be kept.
+
+    Args:
+        folder: The save location, already read as there.
+        what: The thing starting, as the words name it mid-sentence
+            ("a recording", "the run (3 scans of about 4.0 GB)").
+        will_write_mb: What the start will write, in MB; None when that is
+            not known before it is made.
+
+    Returns:
+        None when it fits, else why not.
+    """
+    needs_mb = (
+        MIN_REQUIRED_DISK_MB if will_write_mb is None else max(MIN_REQUIRED_DISK_MB, will_write_mb)
+    )
+    try:
+        fits, free_mb = check_disk_space_ok(folder, needs_mb)
+    except OSError as e:
+        return NoRoomToStart(
+            reason='capture_location_unusable',
+            message=(
+                f'The free space at {folder} cannot be read ({e}), so {what} cannot start '
+                'there. Check the drive or choose another save location, then try again.'
+            ),
+        )
+    if fits:
+        return None
+    return NoRoomToStart(
+        reason='disk_space_insufficient',
+        message=(
+            f'{format_disk_size_mb(free_mb)} is free at {folder}, and {what} needs '
+            f'{format_disk_size_mb(needs_mb)} free to start. Free space or choose another '
+            'save location, then try again.'
+        ),
+    )
 
 
 def get_extra_disks_info(exclude_path: str = '/') -> str | None:

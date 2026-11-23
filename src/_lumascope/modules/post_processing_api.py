@@ -1826,16 +1826,16 @@ class PostProcessingAPI:
         writes its outputs beside, already read as there; None for a build
         whose outputs land elsewhere. The build's size is not known before
         it is made, so it is held to the floor a run and a recording start
-        above. A drive whose free space cannot be read is a fault, and the
-        probe's ``OSError`` goes to the reporter as it was raised: a build
-        has no later check that would catch the drive filling.
+        above (``common_utils.room_to_start``).
 
         Raises:
             PostProcessingRefusedError: ``'scope_held'``, naming what holds
                 the scope; ``'files_writing'``, a finished run's files are
                 still being written; ``'disk_space_insufficient'``, the drive
                 under *beside* has less free than
-                ``common_utils.MIN_REQUIRED_DISK_MB``.
+                ``common_utils.MIN_REQUIRED_DISK_MB``;
+                ``'capture_location_unusable'``, its free space cannot be
+                read.
         """
         holder = self._scope_holder()
         if holder is not None:
@@ -1861,17 +1861,10 @@ class PostProcessingAPI:
         folder = pathlib.Path(beside)
         if not folder.is_dir():
             folder = folder.parent
-        fits, free_mb = common_utils.check_disk_space_ok(folder, common_utils.MIN_REQUIRED_DISK_MB)
-        if not fits:
+        no_room = common_utils.room_to_start(folder, 'a build')
+        if no_room is not None:
             raise PostProcessingRefusedError(
-                operation=operation,
-                reason='disk_space_insufficient',
-                message=(
-                    f'{common_utils.format_disk_size_mb(free_mb)} is free at {folder}, and a '
-                    'build needs at least '
-                    f'{common_utils.format_disk_size_mb(common_utils.MIN_REQUIRED_DISK_MB)} '
-                    'free to start. Free space or choose another folder, then try again.'
-                ),
+                operation=operation, reason=no_room.reason, message=no_room.message
             )
 
     def _run(

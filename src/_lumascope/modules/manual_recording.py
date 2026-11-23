@@ -45,6 +45,7 @@ from _lumascope.modules.common_utils import (
     DISK_FLOOR_CHECK_INTERVAL_S,
     MIN_REQUIRED_DISK_MB,
     check_disk_space_ok,
+    room_to_start,
 )
 from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.labware import Labware
@@ -367,8 +368,8 @@ class ManualRecordingController:
                 ``'capture_location_unusable'``, the save
                 location cannot be used; ``'names_exhausted'``, the recording's
                 name and every numbered variant are taken there;
-                ``'insufficient_disk'``, free disk is
-                below the floor.
+                ``'disk_space_insufficient'``, free disk at the save location
+                is below what a start needs.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; ``'scope_disconnected'`` after
                 the scope's shutdown. Nothing is committed.
@@ -452,19 +453,13 @@ class ManualRecordingController:
                 message=str(exc),
             ) from exc
 
-        # PR-2 floor semantics: manual recording is stop-when-I-say, so
-        # the pre-flight is a floor check (can we start safely?), not a
-        # whole-budget reservation; the rolling check in the write edge
-        # carries the guarantee through the recording. Probed on the
-        # live folder -- the save subfolders may not exist yet.
-        ok, free_mb = check_disk_space_ok(live_folder, MIN_REQUIRED_DISK_MB)
-        if not ok:
-            raise RecordingRefusedError(
-                reason='insufficient_disk',
-                message=f'Only {free_mb / 1024:.1f} GB free at the save location; '
-                f'at least {MIN_REQUIRED_DISK_MB / 1024:.0f} GB is required to '
-                'start a recording. Free up space and try again.',
-            )
+        # A manual recording runs until it is stopped, so what it will write
+        # is not known: the start asks only the floor, and the rolling check
+        # in the write edge carries the guarantee through the recording.
+        # Probed on the live folder -- the save subfolders may not exist yet.
+        no_room = room_to_start(live_folder, 'a recording')
+        if no_room is not None:
+            raise RecordingRefusedError(reason=no_room.reason, message=no_room.message)
 
         if recording_format.writes_frames:
             # Reserve the per-recording folder here: after the last refusal

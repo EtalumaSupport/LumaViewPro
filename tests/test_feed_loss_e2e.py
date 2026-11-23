@@ -17,9 +17,9 @@ import time
 
 import pytest
 
+from tests.disk_fakes import PLENTY_MB, free_space_is
 from tests.protocol_drives import a_claim_its_scope_asks
 
-import _lumascope.modules.manual_recording as manual_recording_module
 from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.manual_recording import ManualRecordingController
 from _lumascope.modules.scheduler import ThreadingTimerScheduler
@@ -33,9 +33,7 @@ def test_manual_recording_ends_within_the_stall_bound(
 ):
     # The disk probe would report this machine's free space; report ample
     # free disk instead so the stall bound is the only thing under test.
-    monkeypatch.setattr(
-        manual_recording_module, 'check_disk_space_ok', lambda *_: (True, 1_000_000.0)
-    )
+    free_space_is(monkeypatch, PLENTY_MB)
     bind_settings_like_a_session(sim_scope, objective_id='4x Oly')
     # The shipped settings, as the session hands them over: the controller
     # reads its keys without defaults (#789).

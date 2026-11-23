@@ -607,6 +607,7 @@ whose change concerns only Etaluma's own tools says so.
 | level 134 | A step and a saved still spell a fact one way. `StepRecord`'s `auto_focus`, `objective` and `well` are `autofocus`, `objective_id` and `well_label`, None for a step at no well (the protocol file keeps its `''`); `SavedStill`'s `plate_x_mm`, `plate_y_mm` and `stage_z_um` are `x_mm`, `y_mm` and `z_um`. The protocol file's columns and a saved image's keys are unchanged. |
 | level 135 | `ZProjectMethod`'s members are UPPER_CASE, as every other published closed set's: `MIN`, `MAX`, `AVERAGE`, `MEDIAN`, `SUM` and `STD_DEV`. Their values, the words a caller sends and REST answers (`'Min'` ... `'StdDev'`), and a projection's file name are unchanged. |
 | level 136 | The API spells a word one way, the US way: `CatalogueNameRefusedError` is `CatalogNameRefusedError`, and the reasons `'not_in_catalogue'`, `'objective_not_in_catalogue'` and `'not_cancellable'` are `'not_in_catalog'`, `'objective_not_in_catalog'` and `'not_cancelable'`, on the wire too. |
+| level 137 | A start short of free disk is refused one way: `RecordingRefusedError` says `'disk_space_insufficient'` ("Not Enough Disk Space") where it said `'insufficient_disk'`; a run, a recording and a build whose drive's free space cannot be read are refused `'capture_location_unusable'` (a run started unguarded, a recording and a build raised the `OSError`). |
 
 ---
 

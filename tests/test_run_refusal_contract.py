@@ -1120,21 +1120,41 @@ def test_every_runner_refusal_reason_is_covered():
     coverage because nothing coupled the scenario list to the refusal
     vocabulary.
     """
+    import typing
+
+    from _lumascope.modules.common_utils import NoRoomToStart
     from tests import ast_seams
 
     raised = set()
     unread = []
+    # A start's free-space refusal is the one judge's answer, handed on as it
+    # came (``reason=no_room.reason``): its reasons are the ones its record's
+    # type admits, read from that type, never a second list kept here.
+    judges = {'room_to_start': set(typing.get_args(typing.get_type_hints(NoRoomToStart)['reason']))}
 
     class ReasonCollector(ast.NodeVisitor):
         def __init__(self, rel_path):
             self.rel_path = rel_path
             self.params = [set()]
+            self.answers = [{}]
 
         def _visit_def(self, node):
             args = node.args
             names = {a.arg for a in args.posonlyargs + args.args + args.kwonlyargs}
             self.params.append(names)
+            # The names this function binds to a judge's answer.
+            answers = {}
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Assign) and isinstance(sub.value, ast.Call):
+                    func = sub.value.func
+                    judge = getattr(func, 'attr', None) or getattr(func, 'id', None)
+                    if judge in judges:
+                        for target in sub.targets:
+                            if isinstance(target, ast.Name):
+                                answers[target.id] = judges[judge]
+            self.answers.append(answers)
             self.generic_visit(node)
+            self.answers.pop()
             self.params.pop()
 
         visit_FunctionDef = visit_AsyncFunctionDef = _visit_def
@@ -1150,8 +1170,16 @@ def test_every_runner_refusal_reason_is_covered():
                 for kw in node.keywords:
                     if kw.arg != 'reason':
                         continue
+                    handed_on = (
+                        isinstance(kw.value, ast.Attribute)
+                        and kw.value.attr == 'reason'
+                        and isinstance(kw.value.value, ast.Name)
+                        and kw.value.value.id in self.answers[-1]
+                    )
                     if isinstance(kw.value, ast.Constant):
                         raised.add(kw.value.value)
+                    elif handed_on:
+                        raised.update(self.answers[-1][kw.value.value.id])
                     elif not (isinstance(kw.value, ast.Name) and kw.value.id in self.params[-1]):
                         unread.append(
                             f'{self.rel_path}:{node.lineno} reason={ast.unparse(kw.value)}'

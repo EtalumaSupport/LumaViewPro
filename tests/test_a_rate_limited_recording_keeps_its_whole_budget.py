@@ -15,7 +15,7 @@ end from the recording's manifest.
 
 import json
 
-import _lumascope.modules.manual_recording as manual_recording_module
+from tests.disk_fakes import PLENTY_MB, free_space_is
 from tests.protocol_drives import a_claim_its_scope_asks
 from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.manual_recording import ManualRecordingController
@@ -55,9 +55,7 @@ def test_a_manual_recordings_last_frame_held_on_its_way_is_kept(
 ):
     # The disk probe would report this machine's free space; ample free disk
     # keeps the recording's end the only thing under test.
-    monkeypatch.setattr(
-        manual_recording_module, 'check_disk_space_ok', lambda *_: (True, 1_000_000.0)
-    )
+    free_space_is(monkeypatch, PLENTY_MB)
     bind_settings_like_a_session(sim_scope, objective_id='4x Oly')
     sim_scope.simulation.delay_delivery(BACKLOG_FRAMES)
     scheduler = ThreadingTimerScheduler(name_prefix='TestWholeBudget')

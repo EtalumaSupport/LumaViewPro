@@ -21,6 +21,7 @@ import pytest
 
 import _lumascope.modules.autofocus_functions as autofocus_functions
 import _lumascope.modules.manual_recording as manual_recording_module
+from tests.disk_fakes import PLENTY_MB, free_space_is
 from tests.protocol_drives import fault_the_live_run, a_claim_its_scope_asks
 from _lumascope.modules.exceptions import ProtocolNotSavedError, RunEndedByStopNotice
 from _lumascope.modules.channel_record import release_colors
@@ -211,8 +212,9 @@ def test_two_recordings_stopped_by_a_full_disk_both_say_so(
         scheduler=scheduler,
         post_processing=post_processing,
     )
-    # The start's own probe finds room; every probe while recording finds
-    # the floor crossed, so each recording stops at its first.
+    # The start finds room; every probe while recording finds the floor
+    # crossed, so each recording stops at its first.
+    free_space_is(monkeypatch, PLENTY_MB)
     monkeypatch.setattr(
         manual_recording_module,
         'check_disk_space_ok',

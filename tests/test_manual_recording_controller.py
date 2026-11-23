@@ -33,6 +33,7 @@ from _lumascope.modules.notification_center import Severity
 from _lumascope.modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
 from _lumascope.modules.scope_capabilities import FrameSize
 from _lumascope.modules.video_cadence import stall_threshold_s
+from tests.disk_fakes import PLENTY_MB, free_space_is, free_space_unreadable
 from tests.scope_fakes import identity_with_layers
 from tests.settings_fixtures import complete_settings
 from tests.video_engine_harness import FakeClock, ManualFireScheduler, NotifyRecorder
@@ -74,9 +75,7 @@ def _a_lane_of_builds(monkeypatch):
 def _healthy_disk(monkeypatch):
     # The disk probe would report this machine's free space; the default
     # here reports ample free disk and the floor tests re-patch.
-    monkeypatch.setattr(
-        manual_recording_module, 'check_disk_space_ok', lambda *_: (True, 1_000_000.0)
-    )
+    free_space_is(monkeypatch, PLENTY_MB)
 
 
 class _FakeCamera:
@@ -365,14 +364,28 @@ class TestStartRefusals:
             controller.start()
         assert e.value.reason == 'camera_exposure_unknown'
 
-    def test_low_disk_refused(self, tmp_path, monkeypatch):
+    def test_low_disk_refused_as_a_run_is(self, tmp_path, monkeypatch):
+        # One fact, one reason and one title: a recording short of disk is
+        # refused as a run and a build are, with what is free, where and
+        # what is needed.
         controller, _, _ = make_controller(tmp_path)
-        monkeypatch.setattr(
-            manual_recording_module, 'check_disk_space_ok', lambda *_: (False, 100.0)
-        )
+        free_space_is(monkeypatch, 100.0)
         with pytest.raises(RecordingRefusedError) as e:
             controller.start()
-        assert e.value.reason == 'insufficient_disk'
+        assert e.value.reason == 'disk_space_insufficient'
+        assert e.value.title == 'Not Enough Disk Space'
+        assert '100.0 MB is free at' in e.value.message, e.value.message
+        assert 'needs 2.0 GB free to start' in e.value.message, e.value.message
+
+    def test_a_drive_whose_free_space_cannot_be_read_is_refused(self, tmp_path, monkeypatch):
+        # The folder is there, and the drive under it does not answer: the
+        # save location cannot be used, refused before anything is committed.
+        controller, _, _ = make_controller(tmp_path)
+        free_space_unreadable(monkeypatch)
+        with pytest.raises(RecordingRefusedError) as e:
+            controller.start()
+        assert e.value.reason == 'capture_location_unusable'
+        assert not controller.is_recording
 
     def test_refusal_commits_nothing(self, tmp_path):
         controller, scope, _ = make_controller(tmp_path)
@@ -1380,14 +1393,11 @@ class TestDiskFloor:
         controller, scope, clock = make_controller(tmp_path)
         recorder = NotifyRecorder(centre_posts)
 
-        checks = {'n': 0}
-
-        def _fake_check(path, required_mb):
-            checks['n'] += 1
-            # Pre-flight passes; every rolling probe reports a full disk.
-            return (checks['n'] == 1, 100.0)
-
-        monkeypatch.setattr(manual_recording_module, 'check_disk_space_ok', _fake_check)
+        # The start finds room (the fixture's disk); every rolling probe
+        # reports a full disk.
+        monkeypatch.setattr(
+            manual_recording_module, 'check_disk_space_ok', lambda *_: (False, 100.0)
+        )
         controller.start()
         feed_frames(scope, clock, 5, fps=10.0)
         controller._engine.wait_for_drain(timeout=10)
@@ -2024,9 +2034,10 @@ class TestARecordingsLanesAreItsOwn:
         probes = []
 
         def _a_full_disk(path, required_mb):
+            # The start finds room (the fixture's disk); every rolling probe
+            # finds it full.
             probes.append(threading.current_thread().name)
-            # The start's pre-flight passes; every rolling probe finds it full.
-            return (len(probes) == 1, 10.0)
+            return (False, 10.0)
 
         monkeypatch.setattr(manual_recording_module, 'check_disk_space_ok', _a_full_disk)
         # One elapsed instant for every probe: the interval admits the first
@@ -2037,5 +2048,5 @@ class TestARecordingsLanesAreItsOwn:
         assert controller._engine.wait_for_drain(timeout=10)
         finish(controller)
 
-        assert len(probes) == 2, probes
+        assert len(probes) == 1, probes
         assert recorder.severities().count('error') == 1

@@ -14,9 +14,10 @@ waited.
 Nor does a build that writes beside its folder start when that folder's drive
 has less free than the floor a run starts above
 (``'disk_space_insufficient'``): a video's size is not known before it is
-encoded, and one that fills the drive is lost with the time it took. The
-folder is read as there first, so a missing one is refused as missing,
-whatever else would refuse the build.
+encoded, and one that fills the drive is lost with the time it took; a drive
+whose free space cannot be read is refused as a save location that cannot be
+used (``'capture_location_unusable'``). The folder is read as there first, so
+a missing one is refused as missing, whatever else would refuse the build.
 
 Driven through the Session on the simulated scope.
 """
@@ -39,6 +40,7 @@ from _lumascope.modules.exceptions import (
 from _lumascope.modules.post_processing_api import Stitch
 from _lumascope.modules.sequential_io_executor import IOTask
 from _lumascope.modules.scope_session import ScopeSession
+from tests.disk_fakes import free_space_unreadable
 from tests.settings_fixtures import complete_settings
 from tests.test_run_refusal_contract import _a_closed_batch_still_writing
 
@@ -173,6 +175,21 @@ def test_a_build_on_a_drive_below_the_floor_is_refused_before_it_writes(
             wrong.append(f'{member}: was not refused')
 
     assert wrong == [], '\n'.join(wrong)
+    assert sorted(tmp_path.rglob('*')) == before
+
+
+def test_a_build_on_a_drive_that_cannot_be_read_is_refused_before_it_writes(
+    session, tmp_path, monkeypatch
+):
+    images = _a_folder_with_an_image(tmp_path)
+    before = sorted(tmp_path.rglob('*'))
+    free_space_unreadable(monkeypatch)
+
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        session.post_processing.stitch(images)
+
+    assert refused.value.reason == 'capture_location_unusable'
+    assert refused.value.title == 'Save Location Unusable'
     assert sorted(tmp_path.rglob('*')) == before
 
 
