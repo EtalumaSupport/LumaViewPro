@@ -12,7 +12,7 @@ import pathlib
 import re
 import struct
 from collections.abc import Iterable, Iterator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 import xml.etree.ElementTree as ET
 
 import cv2
@@ -1917,7 +1917,7 @@ def imwrite_color(
     raise NotImplementedError('Phase 2 activation pending')
 
 
-def videowriter_color(*, is_color_native: bool = False, **kwargs):
+def videowriter_color(*, is_color_native: bool = False, **kwargs: object) -> NoReturn:
     """Color-camera-aware VideoWriter constructor. Phase 2 activation pending.
 
     Stub factory that returns a VideoWriter configured for the camera's

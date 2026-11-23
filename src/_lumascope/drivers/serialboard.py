@@ -1231,7 +1231,7 @@ class SerialBoard:
                 return False
             return _write_file(self.driver, filename, data)
 
-    def repl_exec(self, code, timeout=10):
+    def repl_exec(self, code: str, timeout: float = 10) -> tuple[bytes, bytes] | None:
         """Execute arbitrary code in raw REPL (must be in raw REPL).
 
         Returns (stdout, stderr) as bytes tuple, or None on error.
