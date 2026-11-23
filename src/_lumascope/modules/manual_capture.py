@@ -158,10 +158,11 @@ class ManualCaptureController:
 
     @property
     def sum_progress(self) -> SumProgress | None:
-        """How far the still's sum has got, from its first kept frame until the still ends.
+        """How far the still's sum has got, from before its first frame until the still ends.
 
-        None for a still of one frame, before a sum keeps its first frame,
-        and once the still has ended however it ended.
+        ``kept`` is 0 until the sum keeps its first frame. None for a still
+        of one frame, before its grab starts, and once the still has ended
+        however it ended.
 
         Raises:
             Nothing.
@@ -341,15 +342,17 @@ class ManualCaptureController:
             # the lane task its taking admitted, and capture_still would be
             # admitted again, inline, against whatever holds the scope now -- a
             # run that took it after the still was put on the lane would refuse
-            # the still it waits for. A retake counts its own channel's sum.
-            self._sum_progress = None
+            # the still it waits for. A sum is counted from before its first
+            # frame, nothing kept yet, and a retake counts its own channel's sum.
+            sum_count = channel_config['sum']
+            self._sum_progress = SumProgress(kept=0, of=sum_count) if sum_count > 1 else None
             still = scope.imaging.capture_holding_channel_on_lane(
                 channel,
                 _MEMBER,
                 force_to_8bit=capture_config.capture_depth == 8,
                 all_ones_check=True,
                 timeout_s=_CAPTURE_RETRY_BUDGET_S,
-                sum_count=channel_config['sum'],
+                sum_count=sum_count,
                 sum_iteration_callback=self._record_sum_progress,
             )
             if first_capture is None:

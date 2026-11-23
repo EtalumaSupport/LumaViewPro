@@ -404,7 +404,7 @@ def test_a_still_being_saved_is_work(sim_session):
 
 
 def _still_read_at_each_summed_frame(session, also=None):
-    """The session's still item as read after each frame a still's sum keeps, on the lane.
+    """The session's still item as read when the grab starts and after each frame its sum keeps, on the lane.
 
     The real lane capture, observed: its own per-frame callback is called
     first, then the session is read, then ``also`` (handed the progress).
@@ -414,6 +414,7 @@ def _still_read_at_each_summed_frame(session, also=None):
     real = imaging.capture_holding_channel_on_lane
 
     def observed(channel, member, **capture):
+        seen.append(_item(session, live_work.WorkKind.STILL))
         own = capture['sum_iteration_callback']
 
         def each_frame(progress):
@@ -454,7 +455,9 @@ def test_a_summed_still_counts_its_frames_down_and_is_gone_once_saved(tmp_path):
             events=_read_as_the_still_is_shown(session, shown)
         ).result(timeout=30)
 
+        # Named a sum from the grab's start, with all its frames left.
         assert [(item.name, item.left) for item in seen] == [
+            ('Capturing a summed still', 4),
             ('Capturing a summed still', 3),
             ('Capturing a summed still', 2),
             ('Capturing a summed still', 1),
@@ -495,7 +498,7 @@ def test_a_change_mid_sum_starts_the_count_again_and_never_runs_past_the_sum(tmp
         session.manual_capture.start_save_still().result(timeout=30)
 
         lefts = [item.left for item in seen]
-        assert lefts == [2, 1, None, 2, 1, None], lefts
+        assert lefts == [3, 2, 1, None, 2, 1, None], lefts
 
 
 def test_a_camera_removed_mid_sum_leaves_no_still_and_no_count(tmp_path):
