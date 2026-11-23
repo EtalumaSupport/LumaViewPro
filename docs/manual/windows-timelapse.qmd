@@ -10,6 +10,10 @@ screen awake. Closing LumaViewPro withdraws the request. Closing a laptop's
 lid, choosing Sleep, or a restart for an update still puts the computer to
 sleep.
 
+On a laptop, plug it in for a long run. On battery, Windows may put the
+computer to sleep anyway, and the screen LumaViewPro keeps on runs the
+battery down.
+
 If the computer or its screen still goes to sleep during a run, or
 LumaViewPro shows the notice "Computer may sleep", set Windows to stay
 awake on its own: open Settings (the Start button, then the gear), choose
