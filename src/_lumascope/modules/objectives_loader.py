@@ -52,14 +52,14 @@ OBJECTIVE_CONFIRMED_ON_A_TURRET = 'turret'
 )
 @dataclass(frozen=True)
 class Objective:
-    """One objective of the installation's catalogue, read once at bring-up.
+    """One objective of the installation's catalog, read once at bring-up.
 
     Attributes:
-        id: The catalogue key, the objective's one identity everywhere in
+        id: The catalog key, the objective's one identity everywhere in
             the program.
         description: The objective's full name, for a person to read
             (``'1.25x Plan Apochromat Olympus'``).
-        manufacturer: Who makes the glass; the catalogue lists each maker's
+        manufacturer: Who makes the glass; the catalog lists each maker's
             objectives together (``Lumascope.all_objectives``).
         short_name: The token step and file names carry, derived from the
             id alone (``objective_short_name``).
@@ -131,10 +131,10 @@ _RETIRED_FILE_KEYS = frozenset({'z_settle_tolerance_um', 'z_settle_timeout_ms'})
 
 
 def under_field_names(stated: Mapping) -> dict:
-    """An objective as an image states it, each catalogue file key under its field's name.
+    """An objective as an image states it, each catalog file key under its field's name.
 
     An image written before its objective was saved under the field names
-    states it under the catalogue file's keys (``working_distance``,
+    states it under the catalog file's keys (``working_distance``,
     ``aperture``, ``DOF``, ...); one written since states the field names,
     which pass through, as does any key that is neither.
     """
@@ -143,7 +143,7 @@ def under_field_names(stated: Mapping) -> dict:
 
 
 def _read_objective(objective_id: object, entry: object, filepath: pathlib.Path) -> Objective:
-    """The record for one catalogue entry, or a refusal naming the file, the objective and the key.
+    """The record for one catalog entry, or a refusal naming the file, the objective and the key.
 
     Every declared key is required but the plugin's measured one, and a key
     no field declares is refused too: a misspelt key would otherwise leave
@@ -181,10 +181,10 @@ def _read_objective(objective_id: object, entry: object, filepath: pathlib.Path)
 def objective_short_name(objective_id: str) -> str:
     """The objective's token in step names and file names, derived from its id alone.
 
-    One function for every writer of a name -- the catalogue at capture and
+    One function for every writer of a name -- the catalog at capture and
     post-processing afterwards -- so one objective is never named two ways,
     and a run's files can be named from the id they recorded without any
-    catalogue, on any installation.
+    catalog, on any installation.
 
     Raises:
         TypeError: ``objective_id`` is not a string; a missing id is the
@@ -263,7 +263,7 @@ class ObjectiveLoader:
 
     @property
     def objectives(self) -> Mapping[str, Objective]:
-        """The catalogue, by id, in the order it is offered; read-only, as each record is.
+        """The catalog, by id, in the order it is offered; read-only, as each record is.
 
         Each maker's objectives are listed together, the makers in the order
         each first appears in the file; within a maker they rise by
@@ -272,9 +272,9 @@ class ObjectiveLoader:
         return self._objectives
 
     def get_objective_info(self, objective_id: str | None) -> Objective:
-        """The catalogue entry for one objective, or a refusal naming why not.
+        """The catalog entry for one objective, or a refusal naming why not.
 
-        The catalogue key is the objective's one identity everywhere inside
+        The catalog key is the objective's one identity everywhere inside
         the program: the settings store, the turret slots, a protocol step
         and the spinner all carry it. The short name is a filename token
         derived from it and the magnification a button label; neither names
@@ -283,7 +283,7 @@ class ObjectiveLoader:
         Raises:
             ObjectiveUnknownError: ``'none_selected'``, a null identifier.
             CatalogNameRefusedError: ``'objective_not_in_catalog'``, a
-                non-string or a key the catalogue does not hold; ``offered``
+                non-string or a key the catalog does not hold; ``offered``
                 carries the keys it has.
 
         Both are ``ConfigError``s: the launch path recovers from exactly

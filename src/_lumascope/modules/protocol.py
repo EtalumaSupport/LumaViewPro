@@ -355,9 +355,9 @@ def axes_outside_travel(
     position one of them admits is never one another refuses.
 
     Args:
-        position: Any of 'X' and 'Y' in plate millimetres, and 'Z' in stage
-            micrometres -- the frames a step stores them in.
-        axis_limits: Axis name to its travel in stage micrometres. Only
+        position: Any of 'X' and 'Y' in plate millimeters, and 'Z' in stage
+            micrometers -- the frames a step stores them in.
+        axis_limits: Axis name to its travel in stage micrometers. Only
             the axes present in both this and *position* are judged.
         labware: The plate X/Y are measured on; required when X or Y is judged.
         stage_offset: Where the plate is mounted; required when X or Y is
@@ -906,13 +906,13 @@ class StepRecord:
         z_um: Z in um; None as for X.
         autofocus: The step is autofocused before its capture.
         channel: The channel the step captures.
-        false_color: The channel's image is false-coloured.
+        false_color: The channel's image is false-colored.
         illumination_ma: The LED current, in mA.
         gain_db: The camera gain, in dB.
         auto_gain: The camera's auto-gain is on for the step.
         exposure_ms: The camera exposure, in ms.
         frames_summed: How many frames the capture sums.
-        objective_id: The objective's catalogue key.
+        objective_id: The objective's catalog key.
         well_label: The plate's label for the well; None for a step made at
             a position of the caller's.
         tile: The step's tile in its grid; '' for no tile.
@@ -1058,7 +1058,7 @@ class ChannelSettings:
     Read from the session (``ScopeSession.channel_settings``), every field
     is the channel's stored value; None is that value where the setting
     takes None (``acquire`` nothing, ``focus_z_um`` never saved,
-    ``display_color`` the catalogue's colour), and None for a setting the
+    ``display_color`` the catalog's color), and None for a setting the
     channel does not carry (stimulation is a fluorescence channel's; the
     composite threshold a fluorescence or luminescence channel's).
 
@@ -1073,12 +1073,12 @@ class ChannelSettings:
         gain_db: The camera gain, in dB.
         auto_gain: The camera's auto-gain is on.
         exposure_ms: The camera exposure, in ms.
-        false_color: The channel's image is false-coloured.
+        false_color: The channel's image is false-colored.
         frames_summed: How many frames a capture sums.
-        focus_z_um: The Z saved as the channel's focus, in micrometres.
+        focus_z_um: The Z saved as the channel's focus, in micrometers.
         autofocus: A step of the channel autofocuses.
-        display_color: The channel's colour as ``'#rrggbb'``; None, the
-            catalogue's.
+        display_color: The channel's color as ``'#rrggbb'``; None, the
+            catalog's.
         composite_brightness_threshold_pct: The brightness, as a percentage of
             full scale, below which the channel's pixels add nothing to a
             composite.
@@ -1762,7 +1762,7 @@ class Protocol:
     @api
     @property
     def labware_id(self) -> str:
-        """The catalogue key of the plate the protocol's steps are placed on.
+        """The catalog key of the plate the protocol's steps are placed on.
 
         Raises:
             Nothing.
@@ -2197,10 +2197,10 @@ class Protocol:
     def valid_colors() -> set:
         """The channel names a protocol Color column may carry.
 
-        Derived at call time from the release catalogue, so a channel added
-        to the catalogue validates without touching this class -- an
+        Derived at call time from the release catalog, so a channel added
+        to the catalog validates without touching this class -- an
         import-time constant would freeze the vocabulary at whatever the
-        catalogue said when this module first loaded.
+        catalog said when this module first loaded.
         """
         from _lumascope.modules.common_utils import get_channels
 
@@ -2263,7 +2263,7 @@ class Protocol:
         """Validate all step fields and return a list of error strings.
 
         Not published: no caller needs a call of its own, and its argument
-        is the scope's catalogue, which only the API holds. Every caller is
+        is the scope's catalog, which only the API holds. Every caller is
         told of a loaded protocol's invalid steps when the protocol loads,
         and a run start refuses them.
 
@@ -2340,8 +2340,8 @@ class Protocol:
         (``ProtocolsAPI.refuse_positions_outside_travel``).
 
         Args:
-            objective_helper: The scope's objective catalogue.
-            wellplate_loader: The scope's labware catalogue.
+            objective_helper: The scope's objective catalog.
+            wellplate_loader: The scope's labware catalog.
 
         Returns:
             List of error strings. Empty list if all checks pass.
@@ -3322,14 +3322,14 @@ class Protocol:
 
         The tile spacing derives from each step's objective and the scope's
         optics, so the caller that owns the scope hands its capabilities and
-        its objective catalogue in; a protocol is a data object handed a
+        its objective catalog in; a protocol is a data object handed a
         scale, never one that finds a scope. *axis_limits* holds the travel
         of each axis the scope has a motor for, and only those.
 
         Raises:
             ProtocolRunRefusedError: the grid is not one this installation
                 offers, the protocol is already tiled, a step's objective is
-                not in the catalogue, the scope has no X/Y motor, or a tile
+                not in the catalog, the scope has no X/Y motor, or a tile
                 falls outside the stage's travel. Each is refused before any
                 step changes, and reported once.
         """
@@ -3377,7 +3377,7 @@ class Protocol:
                 reason='objective_not_in_catalog',
                 message=(
                     f'The protocol names {", ".join(unknown)}, which is not in this '
-                    f"scope's objective catalogue, so its tile spacing cannot be worked out."
+                    f"scope's objective catalog, so its tile spacing cannot be worked out."
                 ),
             )
 
@@ -4141,8 +4141,8 @@ class Protocol:
         Returns Protocol object loaded from file on success
         Raises ProtocolNotLoadedError when the file cannot be read, and
         ProtocolFormatError on format issues and, when ``wellplate_loader``
-        (the installation's catalogue) is given, on a Labware row naming a
-        plate that catalogue does not have
+        (the installation's catalog) is given, on a Labware row naming a
+        plate that catalog does not have
 
         ``unit`` is the identity of the scope the protocol is read to run on,
         and each channel name the file holds -- a step's Color, a Layer

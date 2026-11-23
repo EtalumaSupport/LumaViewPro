@@ -97,7 +97,7 @@ from _lumascope.modules.video_writer import VideoWriter
 
 # Outcomes of run_blocking(), consumed by ProtocolImageWriter's video leg.
 COMPLETED = 'completed'  # recording ended normally (full or honest short delivery)
-CANCELLED = 'cancelled'  # run stop/abort ended the step early; kept frames are final
+CANCELLED = 'canceled'  # run stop/abort ended the step early; kept frames are final
 NO_FRAMES = 'no_frames'  # the camera delivered nothing -- a capture failure (strike)
 CAMERA_LOST = 'camera_lost'  # camera went inactive mid-step; kept frames are final (strike)
 ABORTED = 'aborted'  # the controller aborted the run (disk); no strike, no row here

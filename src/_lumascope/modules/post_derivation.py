@@ -155,7 +155,7 @@ def name_tokens(derivation: str) -> tuple[str, ...]:
 
 
 def color_text(color: tuple[float, float, float]) -> str:
-    """A colour as a setting's value: ``#rrggbb``."""
+    """A color as a setting's value: ``#rrggbb``."""
     return '#' + ''.join(f'{round(channel * 255):02x}' for channel in color)
 
 

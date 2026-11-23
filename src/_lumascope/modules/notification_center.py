@@ -125,7 +125,7 @@ class OutcomeKind(StrEnum):
     """What an outcome is, read from its type by the reporter.
 
     A string enum, so the value crosses a wire as itself. ``UNCLASSIFIED``
-    is a post made straight to the centre rather than through the
+    is a post made straight to the center rather than through the
     reporter: its kind was never declared, so the record says so rather
     than guessing from its severity. ``QUIET`` is never delivered to a
     listener, since a quiet outcome is never shown; it is the kind a caller
@@ -249,7 +249,7 @@ class Notification:
     """Immutable notification payload delivered to listeners.
 
     Every listener receives every post, shown or not: ``shown`` is the
-    centre's decision whether this one is for display now (shutdown, an
+    center's decision whether this one is for display now (shutdown, an
     unattended run's mute, an attended run that already showed the same post,
     and the dedup window say no), so a listener that
     displays opens only the shown ones and a listener that records keeps
@@ -335,7 +335,7 @@ class Notification:
 
 @dataclass
 class _RunScope:
-    """A live run, as the centre judges the posts made during it."""
+    """A live run, as the center judges the posts made during it."""
 
     attended: bool
     # (category, title, message) of every post shown during the run: an

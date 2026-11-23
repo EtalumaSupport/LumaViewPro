@@ -353,7 +353,7 @@ def capture_location_problem(parent_dir: pathlib.Path) -> str | None:
     into a fresh save location.
 
     Deliberately weaker than a write: it passes on a full disk, and on
-    mounts that report permissions they do not honour. Those reach
+    mounts that report permissions they do not honor. Those reach
     ``allocate_directory`` at commit time and are reported from there,
     as the failed run they are.
 
@@ -598,12 +598,12 @@ def resolve_data_file(
     The data root's (``get_source_root(source_path)``), but on an installed
     build: there a file the build ships for its own reading -- every one
     but ``USER_DATA_FILES`` -- is the build's (``build_root()/data``), so
-    the build that runs is the build whose template and catalogues are read,
+    the build that runs is the build whose template and catalogs are read,
     whatever an earlier build of the version left in the data folder. A
     file the build does not ship (``current.json``, anything the user
     keeps there) is the data folder's. A caller's ``source_path`` naming a
     folder of its own reads that folder's. The installed folder is
-    recognised as the folder it names, however the path is spelled: the
+    recognized as the folder it names, however the path is spelled: the
     hosts hand it on as a string.
     """
     root = get_source_root(source_path)

@@ -1068,7 +1068,7 @@ class ProtocolImageWriter:
     ):
         """Log a capture that produced no file in the execution record.
 
-        Called when a step ends without a write: a cancelled / zero-frame
+        Called when a step ends without a write: a canceled / zero-frame
         video, a failed save, or a wedged file writer. Without this the
         missing capture would be silently absent from the run record.
         """
@@ -1424,7 +1424,7 @@ class ProtocolImageWriter:
             True if the capture completed normally and left the step channel
             lit, so the caller should drive the step-boundary LED decision
             through the authority. False if the capture returned early
-            (aborted, failed, cancelled, or a fatal fault -- stalled writer,
+            (aborted, failed, canceled, or a fatal fault -- stalled writer,
             3-strike camera, disk floor -- which aborts the run); the caller
             must not apply a boundary hold in that case. Failure paths turn
             the LED off themselves; fatal faults route through

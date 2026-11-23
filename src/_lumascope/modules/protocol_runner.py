@@ -210,7 +210,7 @@ class ProtocolRunner:
                 unknown, so no frame could say what it was taken with. On a
                 turret scope ``'slot_unknown'``, ``'slot_unassigned'`` or
                 ``'not_in_catalog'``: the slot in the light path is not
-                known, has no objective, or has one the catalogue lacks.
+                known, has no objective, or has one the catalog lacks.
                 Without a turret ``'none_selected'``: no objective has been
                 confirmed. Nothing is started.
             ProtocolRunRefusedError: Fewer than two channels are set to
@@ -328,7 +328,7 @@ class ProtocolRunner:
                 unknown, so the focus could not say what it was found with.
                 On a turret scope ``'slot_unknown'``, ``'slot_unassigned'``
                 or ``'not_in_catalog'``: the slot in the light path is not
-                known, has no objective, or has one the catalogue lacks.
+                known, has no objective, or has one the catalog lacks.
                 Without a turret ``'none_selected'``: no objective has been
                 confirmed. Nothing is started.
             ProtocolRunRefusedError: The runner refused the request
@@ -456,7 +456,7 @@ class ProtocolRunner:
         unless the caller says otherwise.
 
         The stack's range, step size and reference -- whether the current
-        position is the top, centre or bottom of the sweep -- come from the
+        position is the top, center or bottom of the sweep -- come from the
         settings store, as does everything else about the capture, so this
         run and a click on the button resolve the same way. The channel is named by the
         caller for the same reason start_autofocus asks for it: an open
@@ -475,7 +475,7 @@ class ProtocolRunner:
                 already puts it.
             events: The run's event handlers (``RunEvents``); None for none.
             return_to_start: Whether to put the stage back where the stack
-                was centred when the run ends; a press of STOP
+                was centered when the run ends; a press of STOP
                 (``stop_motion``) leaves it where it stopped. On by default, because a
                 stack leaves Z at whichever end it finished on, which is
                 not where the operator was looking. A bool rather than a
@@ -503,7 +503,7 @@ class ProtocolRunner:
                 unknown, so no slice could say what it was taken with. On a
                 turret scope ``'slot_unknown'``, ``'slot_unassigned'`` or
                 ``'not_in_catalog'``: the slot in the light path is not
-                known, has no objective, or has one the catalogue lacks.
+                known, has no objective, or has one the catalog lacks.
                 Without a turret ``'none_selected'``: no objective has been
                 confirmed. Nothing is started.
             ProtocolRunRefusedError: The runner refused the request
@@ -787,7 +787,7 @@ class ProtocolRunner:
                 ``Manual/Z-Stacks`` under the live folder.
             events: The run's event handlers (``RunEvents``); None for none.
             return_to_start: Whether to put the stage back where the stack
-                was centred when the run ends; a press of STOP
+                was centered when the run ends; a press of STOP
                 (``stop_motion``) leaves it where it stopped.
             enable_image_saving: Whether the slices are written.
             timeout_s: How long to wait for the run to end, in seconds, from 0

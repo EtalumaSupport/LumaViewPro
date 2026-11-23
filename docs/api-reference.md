@@ -3720,7 +3720,7 @@ One still at a time, captured on the camera lane and saved.
 - `settings_snapshot`: Returns a private copy of the session's settings; one is taken per capture, when the capture is asked for.
 - `shown_channel`: Reads the session's shown channel, on the camera lane as the frame is taken: it is the still's channel when no LED is lit.
 - `engineering_mode`: Reads the session's engineering mode, once per capture, when the capture is asked for: a plugin may turn it on after the controller is built.
-- `channel_colors`: Reads every channel's colour, from the Session's one read of it, once per capture, when the capture is asked for.
+- `channel_colors`: Reads every channel's color, from the Session's one read of it, once per capture, when the capture is asked for.
 - `on_saved`: Told the folder of each still once its files are on disk, on the camera lane, before the caller is answered.
 
 <a id="ManualCaptureController.start_save_still"></a>
@@ -3742,16 +3742,16 @@ Capture one still and save it; returns at once.
 
 **Args**
 
-- `bullseye`: Also save a copy with the bullseye colour map.
-- `crosshairs`: Also save a copy with the centre crosshairs. With either overlay, one extra file is written, from the same frame, beside the unmarked one.
+- `bullseye`: Also save a copy with the bullseye color map.
+- `crosshairs`: Also save a copy with the center crosshairs. With either overlay, one extra file is written, from the same frame, beside the unmarked one.
 - `events`: The still sends `frame_captured` alone, once its unmarked file is written: the frame as the file got it, a sum when summing, read-only, with its sum count, its depth and the channel it was named for; on the camera lane, which waits for it, so it must not block. A handler's raise is reported once and fails nothing. None for none.
 
 The still is named for the shown channel (`session.show_channel`),
 read as its frame is taken, and the camera holds that channel's
 stored settings for the frame and after it; after a raw camera
 write it keeps the written values, and the frame's record says no
-channel was held. The file is rendered in false colour when that
-channel's stored `false_color` is on, grey when it is off -- how
+channel was held. The file is rendered in false color when that
+channel's stored `false_color` is on, gray when it is off -- how
 the file is rendered, never what it says was imaged. In the session's
 engineering mode the name carries the turret slot.
 
@@ -3780,7 +3780,7 @@ One manual-recording flow: snapshot, record, drain, finish.
 - `scope`: The Lumascope instance (frame listener, camera identity, exposure, stage position).
 - `settings_snapshot`: Returns a private copy of the session's settings; called once per `start`, after its refusals, and the recording's own settings (rate, duration, format, folder, overlay) are read from that one copy, so a change made while it starts applies to the next recording, not part of this one. The objective and the plate are read once the recording holds the scope, which refuses a change to either.
 - `shown_channel`: Reads the session's shown channel, once, at `start`, once the recording holds the scope: it names the recording.
-- `channel_colors`: Reads every channel's colour, from the Session's one read of it, once, at `start`.
+- `channel_colors`: Reads every channel's color, from the Session's one read of it, once, at `start`.
 - `activity_claim`: The session's compare-and-claim handle; passed through to the engine so a recording and a protocol run are mutually exclusive.
 - `scheduler`: The session's scheduler; the controller arms its own periodic health check on it at `start` and disarms at finish. Required: a controller that can start a recording but has no armed health bound is the trap this parameter exists to make unconstructible.
 - `post_processing`: The session's builds; a recording's stack is built through it.
@@ -3889,8 +3889,8 @@ toggle being off left the channel unnamed. The channel is the shown
 channel (`session.show_channel`), read once the recording
 holds the scope, when no light can change and the shown channel cannot
 move; a start that would make the name false is refused. The
-frames are rendered in false colour when that channel's stored
-`false_color` is on, grey when it is off.
+frames are rendered in false color when that channel's stored
+`false_color` is on, gray when it is off.
 
 **Returns**
 
@@ -3901,7 +3901,7 @@ The recording's `Operation`: done once its frames, MP4 close and any hyperstack 
 - `RecordingRefusedError`: The start cannot proceed, and nothing is committed: `'recording_active'`, a previous recording is still recording, draining or finishing; `'exclusive_activity_running'`, another exclusive activity is running; `'post_processing_running'`, a build is on the post-processing lane; `'falsifying_change_in_flight'`, a turret, frame or light change is under way; `'other_led_lit'`, an LED other than the shown channel's is lit; `'camera_holds_another_channel'`, the camera holds another channel's settings than the shown one's; `'camera_exposure_unknown'`, the camera has no known exposure; `'changes_not_in_force'`, a change the scope recorded did not come into force within a capture's limit, whether the feed is dead or the change never settles; `'capture_location_unusable'`, the save location cannot be used; `'names_exhausted'`, the recording's name and every numbered variant are taken there; `'insufficient_disk'`, free disk is below the floor.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after the scope's shutdown. Nothing is committed.
 - `ControlSessionRefusedError`: `'control_session_held'`, someone else holds the control session. Nothing is committed.
-- `ObjectiveUnknownError`: No one can say which objective is in the light path, so the recording's frames would carry no scale. On a turret scope `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalog'`: the slot in the light path is not known, has no objective, or has one the catalogue lacks. Without a turret `'none_selected'`: no objective has been confirmed. Nothing is committed.
+- `ObjectiveUnknownError`: No one can say which objective is in the light path, so the recording's frames would carry no scale. On a turret scope `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalog'`: the slot in the light path is not known, has no objective, or has one the catalog lacks. Without a turret `'none_selected'`: no objective has been confirmed. Nothing is committed.
 - `CameraReadFailedError`: The camera did not answer the read of its frame size, or the latch of its clock the recording maps every frame through. Nothing is committed.
 
 **Refusals by REST status**
@@ -9384,7 +9384,7 @@ One channel's settings, each typed: as the session holds them, or as a protocol'
 Read from the session (`ScopeSession.channel_settings`), every field
 is the channel's stored value; None is that value where the setting
 takes None (`acquire` nothing, `focus_z_um` never saved,
-`display_color` the catalogue's colour), and None for a setting the
+`display_color` the catalog's color), and None for a setting the
 channel does not carry (stimulation is a fluorescence channel's; the
 composite threshold a fluorescence or luminescence channel's).
 
@@ -9399,10 +9399,10 @@ step cannot supply it, and for every field the row has no column for
 - <a id="ChannelSettings.auto_gain"></a>`auto_gain`: `bool | None` -- The camera's auto-gain is on.
 - <a id="ChannelSettings.autofocus"></a>`autofocus`: `bool | None` -- A step of the channel autofocuses.
 - <a id="ChannelSettings.composite_brightness_threshold_pct"></a>`composite_brightness_threshold_pct`: `float | None` -- The brightness, as a percentage of full scale, below which the channel's pixels add nothing to a composite.
-- <a id="ChannelSettings.display_color"></a>`display_color`: `str | None` -- The channel's colour as `'#rrggbb'`; None, the catalogue's.
+- <a id="ChannelSettings.display_color"></a>`display_color`: `str | None` -- The channel's color as `'#rrggbb'`; None, the catalog's.
 - <a id="ChannelSettings.exposure_ms"></a>`exposure_ms`: `float | None` -- The camera exposure, in ms.
-- <a id="ChannelSettings.false_color"></a>`false_color`: `bool | None` -- The channel's image is false-coloured.
-- <a id="ChannelSettings.focus_z_um"></a>`focus_z_um`: `float | None` -- The Z saved as the channel's focus, in micrometres.
+- <a id="ChannelSettings.false_color"></a>`false_color`: `bool | None` -- The channel's image is false-colored.
+- <a id="ChannelSettings.focus_z_um"></a>`focus_z_um`: `float | None` -- The Z saved as the channel's focus, in micrometers.
 - <a id="ChannelSettings.frames_summed"></a>`frames_summed`: `int | None` -- How many frames a capture sums.
 - <a id="ChannelSettings.gain_db"></a>`gain_db`: `float | None` -- The camera gain, in dB.
 - <a id="ChannelSettings.illumination_ma"></a>`illumination_ma`: `float | None` -- The LED current, in mA.
@@ -9784,7 +9784,7 @@ A `frame_captured` event, sent for each frame whose write the run's writer has t
 
 **Fields**
 
-- <a id="FrameCaptured.channel"></a>`channel`: `str` -- The key name of the channel the frame was taken for, the step's; a display shows the frame in that channel's colour.
+- <a id="FrameCaptured.channel"></a>`channel`: `str` -- The key name of the channel the frame was taken for, the step's; a display shows the frame in that channel's color.
 - <a id="FrameCaptured.frame_significant_bits"></a>`frame_significant_bits`: `int` -- The depth each summed frame was delivered at; with `frames_summed` it gives the sum's depth and full scale.
 - <a id="FrameCaptured.frames_summed"></a>`frames_summed`: `int` -- How many frames are summed into `image`; 1 for a single frame.
 - <a id="FrameCaptured.image"></a>`image`: `np.ndarray` -- The frame as its file gets it, a sum when summing; read-only.
@@ -10345,7 +10345,7 @@ Delivered by: [`ScopeSession.add_outcome_listener`](#ScopeSession.add_outcome_li
 Immutable notification payload delivered to listeners.
 
 Every listener receives every post, shown or not: `shown` is the
-centre's decision whether this one is for display now (shutdown, an
+center's decision whether this one is for display now (shutdown, an
 unattended run's mute, an attended run that already showed the same post,
 and the dedup window say no), so a listener that
 displays opens only the shown ones and a listener that records keeps
@@ -10374,7 +10374,7 @@ them all.
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
 Returned by: [`Lumascope.all_objectives`](#Lumascope.all_objectives), [`Lumascope.objective`](#Lumascope.objective).
 
-One objective of the installation's catalogue, read once at bring-up.
+One objective of the installation's catalog, read once at bring-up.
 
 **Fields**
 
@@ -10385,13 +10385,13 @@ One objective of the installation's catalogue, read once at bring-up.
 - <a id="Objective.description"></a>`description`: `str` -- The objective's full name, for a person to read (`'1.25x Plan Apochromat Olympus'`).
 - <a id="Objective.focal_length_mm"></a>`focal_length_mm`: `float` -- The objective's focal length, in mm; with the tube lens's, it sets the size of an image's pixel.
 - <a id="Objective.focus_peak_fwhm_dense_um"></a>`focus_peak_fwhm_dense_um`: `float | None` -- The objective's measured focus-peak width (full width at half maximum), in um; None until it has been measured.
-- <a id="Objective.id"></a>`id`: `str` -- The catalogue key, the objective's one identity everywhere in the program.
+- <a id="Objective.id"></a>`id`: `str` -- The catalog key, the objective's one identity everywhere in the program.
 - <a id="Objective.jog_xy_coarse_um"></a>`jog_xy_coarse_um`: `float` -- The distance, in um, a coarse X or Y jog moves.
 - <a id="Objective.jog_xy_fine_um"></a>`jog_xy_fine_um`: `float` -- The distance, in um, a fine X or Y jog moves.
 - <a id="Objective.jog_z_coarse_um"></a>`jog_z_coarse_um`: `float` -- The distance, in um, a coarse Z jog moves.
 - <a id="Objective.jog_z_fine_um"></a>`jog_z_fine_um`: `float` -- The distance, in um, a fine Z jog moves.
 - <a id="Objective.magnification"></a>`magnification`: `float` -- The objective's nominal magnification (`10` for a 10x objective).
-- <a id="Objective.manufacturer"></a>`manufacturer`: `str` -- Who makes the glass; the catalogue lists each maker's objectives together (`Lumascope.all_objectives`).
+- <a id="Objective.manufacturer"></a>`manufacturer`: `str` -- Who makes the glass; the catalog lists each maker's objectives together (`Lumascope.all_objectives`).
 - <a id="Objective.numerical_aperture"></a>`numerical_aperture`: `float` -- The objective's numerical aperture, written into a saved file's metadata.
 - <a id="Objective.short_name"></a>`short_name`: `str` -- The token step and file names carry, derived from the id alone (`objective_short_name`).
 - <a id="Objective.working_distance_mm"></a>`working_distance_mm`: `float` -- The objective's working distance, in mm, written into a saved file's metadata.
@@ -10970,7 +10970,7 @@ labware_id: str  # property
 Marks: reads (changes nothing).  
 Route: `GET /api/v1/handles/Protocol/{handle_id}/labware_id`.
 
-The catalogue key of the plate the protocol's steps are placed on.
+The catalog key of the plate the protocol's steps are placed on.
 
 **Raises**
 
@@ -11362,7 +11362,7 @@ A run that ends any way returns its outcome, a stopped one included.
 - `sequence_name`: The name of the protocol file the run saves in its folder ('.tsv' added): a name, not a path.
 - `parent_dir`: The folder the run's own folder is made in; None for `Manual/Z-Stacks` under the live folder.
 - `events`: The run's event handlers (`RunEvents`); None for none.
-- `return_to_start`: Whether to put the stage back where the stack was centred when the run ends; a press of STOP (`stop_motion`) leaves it where it stopped.
+- `return_to_start`: Whether to put the stage back where the stack was centered when the run ends; a press of STOP (`stop_motion`) leaves it where it stopped.
 - `enable_image_saving`: Whether the slices are written.
 - `timeout_s`: How long to wait for the run to end, in seconds, from 0 to 30 days; None waits for its end.
 
@@ -11451,7 +11451,7 @@ The run's operation, to wait on or to ignore; its result() is the run's outcome.
 - `AxisMovingError`: `'axis_moving'`, an axis is moving, so the position the run is built around is a place it is passing through. Nothing is started.
 - `ArgumentRefusedError`: `'channel_unknown'`, or `'no_channel_selected'` for None; asked before anything is read from the scope.
 - `HardwareCommandRefusedError`: `'not_connected'`, the motor controller is not connected, so the position the run is built around cannot be read. Nothing is started.
-- `ObjectiveUnknownError`: The objective in the light path is unknown, so the focus could not say what it was found with. On a turret scope `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalog'`: the slot in the light path is not known, has no objective, or has one the catalogue lacks. Without a turret `'none_selected'`: no objective has been confirmed. Nothing is started.
+- `ObjectiveUnknownError`: The objective in the light path is unknown, so the focus could not say what it was found with. On a turret scope `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalog'`: the slot in the light path is not known, has no objective, or has one the catalog lacks. Without a turret `'none_selected'`: no objective has been confirmed. Nothing is started.
 - `ProtocolRunRefusedError`: The runner refused the request (already running, files still writing, hardware not connected); no state was committed.
 
 **Refusals by REST status**
@@ -11550,7 +11550,7 @@ The run's operation, to wait on or to ignore; its result() is the run's outcome.
 
 - `AxisMovingError`: `'axis_moving'`, an axis is moving, so the position the run is built around is a place it is passing through. Nothing is started.
 - `HardwareCommandRefusedError`: `'not_connected'`, the motor controller is not connected, so the position the run is built around cannot be read. Nothing is started.
-- `ObjectiveUnknownError`: The objective in the light path is unknown, so no frame could say what it was taken with. On a turret scope `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalog'`: the slot in the light path is not known, has no objective, or has one the catalogue lacks. Without a turret `'none_selected'`: no objective has been confirmed. Nothing is started.
+- `ObjectiveUnknownError`: The objective in the light path is unknown, so no frame could say what it was taken with. On a turret scope `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalog'`: the slot in the light path is not known, has no objective, or has one the catalog lacks. Without a turret `'none_selected'`: no objective has been confirmed. Nothing is started.
 - `ProtocolRunRefusedError`: Fewer than two channels are set to capture an image, so nothing could be merged; or the runner refused the run itself (already running, files still writing, hardware not connected).
 
 **Refusals by REST status**
@@ -11677,7 +11677,7 @@ its product, so unlike an autofocus this one saves its images
 unless the caller says otherwise.
 
 The stack's range, step size and reference -- whether the current
-position is the top, centre or bottom of the sweep -- come from the
+position is the top, center or bottom of the sweep -- come from the
 settings store, as does everything else about the capture, so this
 run and a click on the button resolve the same way. The channel is named by the
 caller for the same reason start_autofocus asks for it: an open
@@ -11693,7 +11693,7 @@ flattens the stack it was asked to capture.
 - `sequence_name`: The name of the protocol file the run saves in its folder ('.tsv' added): a name, not a path.
 - `parent_dir`: Parent directory for output. Defaults to 'Manual/Z-Stacks' under the live folder, where the button already puts it.
 - `events`: The run's event handlers (`RunEvents`); None for none.
-- `return_to_start`: Whether to put the stage back where the stack was centred when the run ends; a press of STOP (`stop_motion`) leaves it where it stopped. On by default, because a stack leaves Z at whichever end it finished on, which is not where the operator was looking. A bool rather than a position, so a caller cannot hand back coordinates in a frame this run never used.
+- `return_to_start`: Whether to put the stage back where the stack was centered when the run ends; a press of STOP (`stop_motion`) leaves it where it stopped. On by default, because a stack leaves Z at whichever end it finished on, which is not where the operator was looking. A bool rather than a position, so a caller cannot hand back coordinates in a frame this run never used.
 - `enable_image_saving`: Whether the slices are written. On by default; off, the stack moves and captures and writes no file, to exercise the stage without filling the disk.
 
 **Returns**
@@ -11705,7 +11705,7 @@ The run's operation, to wait on or to ignore; its result() is the run's outcome.
 - `AxisMovingError`: `'axis_moving'`, an axis is moving, so the position the run is built around is a place it is passing through. Nothing is started.
 - `ArgumentRefusedError`: `'channel_unknown'`, or `'no_channel_selected'` for None; asked before anything is read from the scope.
 - `HardwareCommandRefusedError`: `'not_connected'`, the motor controller is not connected, so the position the run is built around cannot be read. Nothing is started.
-- `ObjectiveUnknownError`: The objective in the light path is unknown, so no slice could say what it was taken with. On a turret scope `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalog'`: the slot in the light path is not known, has no objective, or has one the catalogue lacks. Without a turret `'none_selected'`: no objective has been confirmed. Nothing is started.
+- `ObjectiveUnknownError`: The objective in the light path is unknown, so no slice could say what it was taken with. On a turret scope `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalog'`: the slot in the light path is not known, has no objective, or has one the catalog lacks. Without a turret `'none_selected'`: no objective has been confirmed. Nothing is started.
 - `ProtocolRunRefusedError`: The runner refused the request (already running, files still writing, hardware not connected); no state was committed.
 
 **Refusals by REST status**
@@ -12419,13 +12419,13 @@ One step of a protocol, a field per column of its steps table.
 - <a id="StepRecord.channel_group_id"></a>`channel_group_id`: `int | None` -- The steps captured together as one composite share it; None for a step recorded before groups were.
 - <a id="StepRecord.custom_step"></a>`custom_step`: `bool` -- The step was made at a position of the caller's, not at a well of the plate.
 - <a id="StepRecord.exposure_ms"></a>`exposure_ms`: `float` -- The camera exposure, in ms.
-- <a id="StepRecord.false_color"></a>`false_color`: `bool` -- The channel's image is false-coloured.
+- <a id="StepRecord.false_color"></a>`false_color`: `bool` -- The channel's image is false-colored.
 - <a id="StepRecord.frames_summed"></a>`frames_summed`: `int` -- How many frames the capture sums.
 - <a id="StepRecord.gain_db"></a>`gain_db`: `float` -- The camera gain, in dB.
 - <a id="StepRecord.illumination_ma"></a>`illumination_ma`: `float` -- The LED current, in mA.
 - <a id="StepRecord.label"></a>`label`: `str` -- The caller's label for the step; '' for none.
 - <a id="StepRecord.name"></a>`name`: `str` -- The step's name, rendered from its other fields.
-- <a id="StepRecord.objective_id"></a>`objective_id`: `str` -- The objective's catalogue key.
+- <a id="StepRecord.objective_id"></a>`objective_id`: `str` -- The objective's catalog key.
 - <a id="StepRecord.tile"></a>`tile`: `str` -- The step's tile in its grid; '' for no tile.
 - <a id="StepRecord.tile_group_id"></a>`tile_group_id`: `int | None` -- The tile grid the step is one tile of; None for none.
 - <a id="StepRecord.turret_slot"></a>`turret_slot`: `int | None` -- The turret slot the step uses; None for none.
@@ -13384,7 +13384,7 @@ Held in: [`Notification.kind`](#Notification.kind).
 What an outcome is, read from its type by the reporter.
 
 A string enum, so the value crosses a wire as itself. `UNCLASSIFIED`
-is a post made straight to the centre rather than through the
+is a post made straight to the center rather than through the
 reporter: its kind was never declared, so the record says so rather
 than guessing from its severity. `QUIET` is never delivered to a
 listener, since a quiet outcome is never shown; it is the kind a caller

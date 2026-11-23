@@ -639,7 +639,7 @@ class PostProcessingAPI:
             settings_snapshot: The live user configuration, read when a
                 build needs a user setting (the composite's blend
                 thresholds).
-            channel_colors: Every channel's colour, from the Session's one
+            channel_colors: Every channel's color, from the Session's one
                 read of it, read as each build is asked for.
             scope_holder: What holds the scope now -- a run, a recording, a
                 diagnostic, a home -- or None; asked as each build starts.
@@ -1138,7 +1138,7 @@ class PostProcessingAPI:
         """Put a finished composite run's merge on the lane, without waiting.
 
         Not on the wire: the merge is the composite run's own, made from the
-        thresholds and colours the run took at its start, never the live
+        thresholds and colors the run took at its start, never the live
         settings a caller's composite reads, and in the format its frames
         were saved in, as every composite is. *written* is
         ``run_hyperstack``'s.
@@ -1245,7 +1245,7 @@ class PostProcessingAPI:
     def _composite_build(
         self, *, thresholds: dict, channel_colors: ChannelColors
     ) -> Callable[..., dict]:
-        """The composite of the thresholds and colours it is handed: one source per call."""
+        """The composite of the thresholds and colors it is handed: one source per call."""
         from _lumascope.modules.composite_generation import CompositeGeneration
 
         return functools.partial(

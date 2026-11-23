@@ -467,14 +467,14 @@ class PostProcessing:
 
         Returns:
             ``results_path``; ``method_path``; ``counted``, how many images
-            were analysed; ``left_out``, each image left out as its name and
+            were analyzed; ``left_out``, each image left out as its name and
             its ``LeftOutReason``; and ``message``, the outcome in words.
 
         Raises:
             PostProcessingRefusedError: ``protocol_data_unreadable``, the
                 run's record, its protocol or its post-processing record
                 cannot be read, or the protocol is gone; ``no_data``, no
-                image in the folder could be analysed -- none there, none to
+                image in the folder could be analyzed -- none there, none to
                 count, or none readable; ``names_exhausted``, every numbered
                 name for the results is taken.
             PostProcessingFailedError: The results or the method could not

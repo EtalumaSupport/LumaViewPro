@@ -166,7 +166,7 @@ class ManualRecordingController:
         shown_channel: Reads the session's shown channel, once, at
             ``start``, once the recording holds the scope: it names the
             recording.
-        channel_colors: Reads every channel's colour, from the Session's one
+        channel_colors: Reads every channel's color, from the Session's one
             read of it, once, at ``start``.
         activity_claim: The session's compare-and-claim handle; passed
             through to the engine so a recording and a protocol run are
@@ -338,8 +338,8 @@ class ManualRecordingController:
         channel (``session.show_channel``), read once the recording
         holds the scope, when no light can change and the shown channel cannot
         move; a start that would make the name false is refused. The
-        frames are rendered in false colour when that channel's stored
-        ``false_color`` is on, grey when it is off.
+        frames are rendered in false color when that channel's stored
+        ``false_color`` is on, gray when it is off.
 
         Returns:
             The recording's ``Operation``: done once its frames, MP4 close and
@@ -378,7 +378,7 @@ class ManualRecordingController:
                 light path, so the recording's frames would carry no scale.
                 On a turret scope ``'slot_unknown'``, ``'slot_unassigned'``
                 or ``'not_in_catalog'``: the slot in the light path is not
-                known, has no objective, or has one the catalogue lacks.
+                known, has no objective, or has one the catalog lacks.
                 Without a turret ``'none_selected'``: no objective has been
                 confirmed. Nothing is committed.
             CameraReadFailedError: The camera did not answer the read of its

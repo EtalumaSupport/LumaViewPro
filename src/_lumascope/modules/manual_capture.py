@@ -2,7 +2,7 @@
 """Capture a still and save it: the one path for the GUI, scripts and REST.
 
 The caller says only what it alone knows -- whether the shown channel is
-displayed in false colour, which overlays it wants -- and every other
+displayed in false color, which overlays it wants -- and every other
 decision (channel, folder, name, summing, format, depth, encoding,
 retry budget, overlay copy) is made here from the session's settings and the
 API. Two callers making the same call get the same file.
@@ -117,7 +117,7 @@ class ManualCaptureController:
         engineering_mode: Reads the session's engineering mode, once per
             capture, when the capture is asked for: a plugin may turn it on
             after the controller is built.
-        channel_colors: Reads every channel's colour, from the Session's one
+        channel_colors: Reads every channel's color, from the Session's one
             read of it, once per capture, when the capture is asked for.
         on_saved: Told the folder of each still once its files are on disk,
             on the camera lane, before the caller is answered.
@@ -164,8 +164,8 @@ class ManualCaptureController:
         """Capture one still and save it; returns at once.
 
         Args:
-            bullseye: Also save a copy with the bullseye colour map.
-            crosshairs: Also save a copy with the centre crosshairs. With
+            bullseye: Also save a copy with the bullseye color map.
+            crosshairs: Also save a copy with the center crosshairs. With
                 either overlay, one extra file is written, from the same
                 frame, beside the unmarked one.
             events: The still sends ``frame_captured`` alone, once its
@@ -179,8 +179,8 @@ class ManualCaptureController:
         read as its frame is taken, and the camera holds that channel's
         stored settings for the frame and after it; after a raw camera
         write it keeps the written values, and the frame's record says no
-        channel was held. The file is rendered in false colour when that
-        channel's stored ``false_color`` is on, grey when it is off -- how
+        channel was held. The file is rendered in false color when that
+        channel's stored ``false_color`` is on, gray when it is off -- how
         the file is rendered, never what it says was imaged. In the session's
         engineering mode the name carries the turret slot.
 

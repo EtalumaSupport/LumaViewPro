@@ -121,7 +121,7 @@ class FrameCaptured:
         frame_significant_bits: The depth each summed frame was delivered
             at; with ``frames_summed`` it gives the sum's depth and full scale.
         channel: The key name of the channel the frame was taken for, the
-            step's; a display shows the frame in that channel's colour.
+            step's; a display shows the frame in that channel's color.
     """
 
     image: np.ndarray

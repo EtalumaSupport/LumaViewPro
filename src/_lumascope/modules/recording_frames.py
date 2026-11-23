@@ -175,8 +175,8 @@ class FrameFact(NamedTuple):
     Read on the camera callback and carried with the frame to its write,
     because the write runs later, behind the backlog, and a read then
     would describe a different moment. Positions are None where the scope
-    did not know them: X and Y as a pair in plate millimetres, Z alone in
-    micrometres. ``moving`` says an axis was MOVING or HOMING when the
+    did not know them: X and Y as a pair in plate millimeters, Z alone in
+    micrometers. ``moving`` says an axis was MOVING or HOMING when the
     frame was delivered -- delivery follows exposure and readout, so this
     is the state at delivery, not during the exposure. What lit a recorded
     frame is read beside it (``arrival_facts``); a still's own record says
@@ -355,7 +355,7 @@ def write_frame(
         fallback_focus: Why the step's autofocus did not focus, for a video
             step recorded at its fallback focus; None otherwise.
         false_color_on: Whether the channel's false-color toggle was on.
-        channel_colors: Every channel's colour as the recording began.
+        channel_colors: Every channel's color as the recording began.
         save_encoding: The resolved image-mode save encoding.
     """
     fact, light, record = arrived

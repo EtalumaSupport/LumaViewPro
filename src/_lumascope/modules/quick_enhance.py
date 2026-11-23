@@ -187,21 +187,21 @@ class QuickEnhancer:
 
     @staticmethod
     def _channel_color(channel: str | None, channel_colors: ChannelColors) -> Color:
-        """The colour a derived image of ``channel`` is shown in: a channel's
-        colour in ``channel_colors`` (a stored old name's is its stock key's),
-        and grey for a source that names none (a foreign file, a composite,
-        an unrecognised token)."""
+        """The color a derived image of ``channel`` is shown in: a channel's
+        color in ``channel_colors`` (a stored old name's is its stock key's),
+        and gray for a source that names none (a foreign file, a composite,
+        an unrecognized token)."""
         return channel_colors.get(stored_key(channel), GREY)
 
     @staticmethod
     def colorize_mono_for_visual_output(
         image: np.ndarray, channel: str | None, channel_colors: ChannelColors
     ) -> np.ndarray:
-        """Return RGB false color for a mono derived image of a coloured channel.
+        """Return RGB false color for a mono derived image of a colored channel.
 
         Quick Enhance is a visual-export path. It retains mono images of a
-        grey channel (transmitted light, an unknown source) as mono, while
-        a coloured channel receives its display color only in the derived
+        gray channel (transmitted light, an unknown source) as mono, while
+        a colored channel receives its display color only in the derived
         output.
         """
         color = QuickEnhancer._channel_color(channel, channel_colors)
