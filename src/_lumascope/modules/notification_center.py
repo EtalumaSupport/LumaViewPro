@@ -289,7 +289,7 @@ class Notification:
         shown: Whether it is for display now; False when shutdown, an
             unattended run's mute, a run that already showed it, or the
             repeat window holds it back. The window never holds back a
-            run's ending.
+            post a run tells once, such as its ending.
         wall_time_epoch_s: When it was posted, in seconds since the epoch,
             for a client in another process.
     """
@@ -374,8 +374,9 @@ class NotificationCenter:
     Deduplication: a notification with the same ``(category, title)`` as
     one shown within ``dedup_window_s`` is not shown. Every listener still
     receives it, with ``shown`` False, and the full message still goes to
-    the log file. A run's ending is not held back by the window: each run
-    tells its ending once, so two same-titled endings are two runs.
+    the log file. What a run tells once -- its ending, its hyperstacks'
+    answer, its lost images -- is not held back by the window: two
+    same-titled ones are two runs.
     """
 
     def __init__(self, dedup_window_s: float = 10.0):
@@ -512,7 +513,7 @@ class NotificationCenter:
         fatal: bool = False,
         operation_key: str = '',
         solicited: bool = False,
-        ends_a_run: bool = False,
+        once_per_run: bool = False,
         reason: str = '',
         cause: RefusalCause | None = None,
         remedy: Remedy | None = None,
@@ -524,7 +525,7 @@ class NotificationCenter:
 
         ``notify()`` writes the display line first; ``report_outcome`` writes
         each outcome's one line itself, so an outcome is never logged twice.
-        ``ends_a_run`` is ``report_outcome``'s, and is described there.
+        ``once_per_run`` is ``report_outcome``'s, and is described there.
         """
         from _lumascope.modules import gui_logger
 
@@ -567,13 +568,12 @@ class NotificationCenter:
                 suppressed_reason = 'shown_this_run'
             else:
                 last = self._dedup.get(key, 0.0)
-                # The window still advances for a solicited notification or a
-                # run's ending, so a later ordinary repeat of the same
+                # The window still advances for a solicited notification or
+                # what a run tells once, so a later ordinary repeat of the same
                 # (category, title) is measured from the one the user saw.
                 # Neither repeats: a request asked twice is asked twice, and
-                # each run tells its ending once, so a second same-titled
-                # ending is another run's.
-                held_back_by_window = not solicited and not ends_a_run
+                # a second same-titled once-per-run post is another run's.
+                held_back_by_window = not solicited and not once_per_run
                 if held_back_by_window and (now - last) < self._dedup_window_s:
                     suppressed_reason = 'dedup'  # already shown recently
                 else:
@@ -674,7 +674,7 @@ class NotificationCenter:
         log_only: bool = False,
         untyped_title: str = UNTYPED_FAULT_TITLE,
         operation_key: str = '',
-        ends_a_run: bool = False,
+        once_per_run: bool = False,
     ) -> None:
         """Log an outcome once and show it at most once, as its type says.
 
@@ -712,12 +712,13 @@ class NotificationCenter:
         instead of opening beside it. A refusal given none replaces the last
         refusal shown.
 
-        ``ends_a_run`` says this outcome is how a run ended, which only the
-        report site knows: one type can be a step's failure in a scan and the
-        whole ending of another run. A run tells its ending once, so the
-        repeat window does not hold it back, and a second run ending the same
-        way inside the window is still shown; shutdown, an unattended run's
-        mute and an attended run's shown-once judge it as any other post.
+        ``once_per_run`` says a run (a protocol run, a recording) tells this
+        outcome once -- how it ended, its hyperstacks' answer, what its files
+        lost -- which only the report site knows: one type can be a step's
+        failure in a scan and the whole ending of another run. So the repeat
+        window does not hold it back, and a second run's same-titled one
+        inside the window is still shown; shutdown, an unattended run's mute
+        and an attended run's shown-once judge it as any other post.
 
         Each half happens once per exception object, whoever reports it and
         from whichever thread. Shown once means delivered once: a post that
@@ -772,7 +773,7 @@ class NotificationCenter:
                 exception.title,
                 words,
                 solicited=solicited,
-                ends_a_run=ends_a_run,
+                once_per_run=once_per_run,
                 operation_key=operation_key or REFUSAL_OPERATION_KEY,
                 reason=reason,
                 cause=outcome.cause,
@@ -788,7 +789,7 @@ class NotificationCenter:
                 exception.title,
                 words,
                 solicited=solicited,
-                ends_a_run=ends_a_run,
+                once_per_run=once_per_run,
                 operation_key=operation_key,
                 reason=reason,
                 cause=outcome.cause,
@@ -807,7 +808,7 @@ class NotificationCenter:
                 title,
                 body,
                 solicited=solicited,
-                ends_a_run=ends_a_run,
+                once_per_run=once_per_run,
                 operation_key=operation_key,
                 fatal=fatal,
                 reason=reason,

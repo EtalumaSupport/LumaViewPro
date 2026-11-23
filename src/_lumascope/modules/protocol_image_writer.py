@@ -913,7 +913,7 @@ class ProtocolImageWriter:
             solicited=False,
             category=domain,
             log_only=told is FatalTold.LOG,
-            ends_a_run=True,
+            once_per_run=True,
         )
 
     def _hold_video_step(self, recorder: ProtocolVideoStep) -> None:

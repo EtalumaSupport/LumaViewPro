@@ -57,8 +57,14 @@ def build_hyperstacks_for_run(
         The future the build settles.
     """
     key = operation_key(PostFunction.HYPERSTACK)
+    # A run builds once and answers once, so a second run's announcement or
+    # answer inside the repeat window is that run's, never a repeat.
     notifications.report_outcome(
-        HyperstacksSavingNotice(), solicited=False, category='Post-processing', operation_key=key
+        HyperstacksSavingNotice(),
+        solicited=False,
+        category='Post-processing',
+        operation_key=key,
+        once_per_run=True,
     )
 
     def answer(settled: concurrent.futures.Future) -> None:
@@ -71,6 +77,7 @@ def build_hyperstacks_for_run(
                     category='Post-processing',
                     untyped_title='Hyperstacks Not Saved',
                     operation_key=key,
+                    once_per_run=True,
                 )
                 return
             notifications.report_outcome(
@@ -78,6 +85,7 @@ def build_hyperstacks_for_run(
                 solicited=False,
                 category='Post-processing',
                 operation_key=key,
+                once_per_run=True,
             )
         finally:
             on_end()

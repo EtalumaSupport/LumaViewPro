@@ -1,12 +1,14 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Every run that ends tells the person how it ended.
+"""What a run tells once -- how it ended, its hyperstacks' answer -- every run tells.
 
 The notification centre hides a post whose (category, title) it showed in the
 last ten seconds, on the premise that the post repeats something the person
-was just told. A run's ending is told once per run, so a second same-titled
-ending is another run's, and the window hid it as a repeat. Seen on the bench:
-a scan stopped, then an autofocus run stopped 8 s later, and the second
-"Protocol Stopped" was logged ``not shown to the user (suppressed: dedup)``.
+was just told. What a run tells once (``report_outcome``'s ``once_per_run``)
+breaks the premise: a second same-titled one is another run's, and the window
+hid it as a repeat. Seen on the bench: a scan stopped, then an autofocus run
+stopped 8 s later, and the second "Protocol Stopped" was logged ``not shown
+to the user (suppressed: dedup)``; seen in a sim walk: the second of two short
+Hyperstack runs said nothing of its hyperstacks.
 
 Each test drives two runs of one kind inside the window, through the
 production path on the simulated scope, and counts what was shown. Every
@@ -21,8 +23,18 @@ import pytest
 
 import _lumascope.modules.autofocus_functions as autofocus_functions
 import _lumascope.modules.common_utils as common_utils
+import _lumascope.modules.image_mode as image_mode
+import _lumascope.modules.protocol_cleanup as protocol_cleanup
+import _lumascope.modules.stack_builder as stack_builder
 from tests.protocol_drives import fault_the_live_run, a_claim_its_scope_asks
-from _lumascope.modules.exceptions import ProtocolNotSavedError, RunEndedByStopNotice
+from _lumascope.modules.exceptions import (
+    HyperstacksSavedNotice,
+    HyperstacksSavingNotice,
+    ProtocolNotSavedError,
+    RunCleanupFailedError,
+    RunEndedByStopNotice,
+    SlowFileWritesNotice,
+)
 from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.manual_recording import ManualRecordingController
 from _lumascope.modules.notification_center import NotificationCenter, Severity
@@ -33,6 +45,7 @@ from tests.scope_fakes import bind_settings_like_a_session, home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT, _settings
 from tests.test_a_run_reports_what_it_captured import _no_frame, _run, _two_steps
+from tests.test_a_run_says_when_its_files_are_written import _scan
 from tests.test_a_stop_press_ends_the_live_run import (
     _HOLD_WAIT_S,
     _steps,
@@ -229,7 +242,7 @@ def test_an_ordinary_post_inside_the_window_after_an_ending_is_held_back():
     """A shown ending advances the window, as a solicited post does."""
     centre = NotificationCenter()
     ended = RunEndedByStopNotice()
-    centre.report_outcome(ended, solicited=False, category='Protocol', ends_a_run=True)
+    centre.report_outcome(ended, solicited=False, category='Protocol', once_per_run=True)
 
     shown = centre.notice('Protocol', ended.title, 'A repeat that is not a run ending.')
 
@@ -244,7 +257,61 @@ def test_an_ending_is_still_muted_on_an_unattended_run():
     centre.open_run_scope(attended=False)
 
     centre.report_outcome(
-        RunEndedByStopNotice(), solicited=False, category='Protocol', ends_a_run=True
+        RunEndedByStopNotice(), solicited=False, category='Protocol', once_per_run=True
     )
 
     assert [n.shown for n in told] == [False]
+
+
+def _hyperstack_run(runner, run_parent):
+    run = _scan(runner, run_parent, 'C1', sequenced_format=image_mode.OutputFormat.HYPERSTACK)
+    run.files.result(timeout=COMPLETION_TIMEOUT)  # settles after the build's answer
+
+
+def test_two_hyperstack_runs_both_say_what_became_of_their_stacks(tmp_path, centre_posts):
+    """The walk's case: two short Hyperstack runs, the second's build inside the window."""
+    with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
+        _hyperstack_run(runner, tmp_path / 'first')
+        _hyperstack_run(runner, tmp_path / 'second')
+
+    assert len(_shown(centre_posts, title=HyperstacksSavingNotice.title)) == 2
+    assert len(_shown(centre_posts, title=HyperstacksSavedNotice.title)) == 2
+
+
+def test_two_hyperstack_builds_that_failed_both_say_so(tmp_path, centre_posts, monkeypatch):
+    def _unreadable(self, *args, **kwargs):
+        # A stand-in by design: the simulator has no fault for a folder the
+        # builder cannot read, and an untyped raise is the one the build
+        # answers under its own title.
+        raise OSError('the run folder could not be read')
+
+    monkeypatch.setattr(stack_builder.StackBuilder, 'load_folder', _unreadable)
+    with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
+        _hyperstack_run(runner, tmp_path / 'first')
+        _hyperstack_run(runner, tmp_path / 'second')
+
+    assert len(_shown(centre_posts, title='Hyperstacks Not Saved')) == 2
+
+
+def test_two_runs_whose_cleanup_failed_both_say_so(tmp_path, centre_posts):
+    def unreachable(snapshot):
+        # A stand-in by design: the simulator has no fault for a camera lane
+        # that is gone at cleanup.
+        raise RuntimeError('the camera lane is gone')
+
+    with open_composite_session(headless_settings(tmp_path)) as (session, runner):
+        session.scope.camera.restore_camera_state = unreachable
+        endings = [_run(runner, tmp_path / name, _two_steps()) for name in ('first', 'second')]
+
+    assert [e.cleanup_failures for e in endings] == [('Restore camera settings',)] * 2
+    assert len(_shown(centre_posts, title=RunCleanupFailedError.title)) == 2
+
+
+def test_two_runs_whose_writes_were_slow_both_say_so(tmp_path, centre_posts, monkeypatch):
+    # Every run's capture loop waited at least 0 s for a write slot.
+    monkeypatch.setattr(protocol_cleanup, 'SLOW_WRITE_BLOCKED_WARN_S', 0.0)
+    with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
+        for name in ('first', 'second'):
+            _run(runner, tmp_path / name, _two_steps())
+
+    assert len(_shown(centre_posts, title=SlowFileWritesNotice.title)) == 2

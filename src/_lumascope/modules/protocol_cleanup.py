@@ -406,7 +406,10 @@ def run_cleanup(
         from _lumascope.modules.notification_center import notifications
 
         notifications.report_outcome(
-            RunCleanupFailedError(cleanup_errors), solicited=False, category='Protocol'
+            RunCleanupFailedError(cleanup_errors),
+            solicited=False,
+            category='Protocol',
+            once_per_run=True,
         )
 
     # Sustained-slow-write warning, demand-relative: the time this run's
@@ -419,7 +422,9 @@ def run_cleanup(
     if blocked_s >= SLOW_WRITE_BLOCKED_WARN_S:
         from _lumascope.modules.notification_center import notifications
 
-        notifications.report_outcome(SlowFileWritesNotice(), solicited=False, category='Protocol')
+        notifications.report_outcome(
+            SlowFileWritesNotice(), solicited=False, category='Protocol', once_per_run=True
+        )
 
     # The frames the run's video steps lost, told once at the run's end,
     # attended or not: a person who left the run reads it when they come
@@ -438,6 +443,7 @@ def run_cleanup(
             ),
             solicited=False,
             category='Protocol',
+            once_per_run=True,
         )
 
     # Saving that ran on long after the run's recordings ended, told once at
@@ -454,6 +460,7 @@ def run_cleanup(
             ),
             solicited=False,
             category='Protocol',
+            once_per_run=True,
         )
 
     # run_ended and files_written are the run's to send, once it has let go

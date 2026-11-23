@@ -626,7 +626,7 @@ class AutofocusRunner:
                 logger.warning(f'[AF] {failed} -- after its run ended, so not reported')
             else:
                 notifications.report_outcome(
-                    failed, solicited=False, category='Autofocus', ends_a_run=ends_its_run
+                    failed, solicited=False, category='Autofocus', once_per_run=ends_its_run
                 )
             # The object reported is the object raised, so whoever reads the
             # future holds what the one report named.

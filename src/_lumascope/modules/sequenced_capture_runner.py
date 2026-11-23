@@ -2139,7 +2139,7 @@ class SequencedCaptureRunner:
             RunFailedToStartError(reason=ending.reason, message=ending.message),
             solicited=False,
             category='Protocol',
-            ends_a_run=True,
+            once_per_run=True,
         )
 
     def _unwind_run_not_begun(self, ending: RunEnding, run: EngineRun) -> None:
@@ -2373,7 +2373,9 @@ class SequencedCaptureRunner:
             except Exception as failed:
                 from _lumascope.modules.notification_center import notifications
 
-                notifications.report_outcome(failed, solicited=False, category='Protocol')
+                notifications.report_outcome(
+                    failed, solicited=False, category='Protocol', once_per_run=True
+                )
                 return
             run._pending.record_focus_written(True)
         if ending.status in (RunStatus.ABORTED, RunStatus.FAILED):
@@ -2383,6 +2385,7 @@ class SequencedCaptureRunner:
                 FocusKeptNotice(focused=self._steps_focused, steps=self._protocol.num_steps),
                 solicited=False,
                 category='Protocol',
+                once_per_run=True,
             )
 
     def _account_for_captures(self, ending: RunEnding) -> RunEnding:
@@ -2417,7 +2420,7 @@ class SequencedCaptureRunner:
             from _lumascope.modules.notification_center import notifications
 
             notifications.report_outcome(
-                RunEndedByStopNotice(), solicited=False, category='Protocol', ends_a_run=True
+                RunEndedByStopNotice(), solicited=False, category='Protocol', once_per_run=True
             )
             return ending
         if ending.status != RunStatus.COMPLETED:
@@ -2436,7 +2439,7 @@ class SequencedCaptureRunner:
             from _lumascope.modules.notification_center import notifications
 
             notifications.report_outcome(
-                incomplete, solicited=False, category='Protocol', ends_a_run=True
+                incomplete, solicited=False, category='Protocol', once_per_run=True
             )
         return RunEnding(
             RunStatus.INCOMPLETE,
@@ -2491,7 +2494,9 @@ class SequencedCaptureRunner:
         except Exception as refused:
             from _lumascope.modules.notification_center import notifications
 
-            notifications.report_outcome(refused, solicited=False, category='Protocol')
+            notifications.report_outcome(
+                refused, solicited=False, category='Protocol', once_per_run=True
+            )
             return
         outcome.record_focus_written(True)
 
@@ -2792,11 +2797,11 @@ class SequencedCaptureRunner:
                         solicited=False,
                         category='Protocol',
                         untyped_title='Composite Failed',
-                        ends_a_run=True,
+                        once_per_run=True,
                     )
                 if incomplete is not None:
                     notifications.report_outcome(
-                        incomplete, solicited=False, category='Protocol', ends_a_run=True
+                        incomplete, solicited=False, category='Protocol', once_per_run=True
                     )
             finally:
                 outcome.resolve(
@@ -2924,7 +2929,11 @@ class SequencedCaptureRunner:
                     write_batch.not_written and not merge_reports_files
                 )
                 notifications.report_outcome(
-                    short, solicited=False, category='Protocol', log_only=told_of_images
+                    short,
+                    solicited=False,
+                    category='Protocol',
+                    log_only=told_of_images,
+                    once_per_run=True,
                 )
 
         def _files_written(outcome: FilesOutcome) -> None:
@@ -2962,7 +2971,11 @@ class SequencedCaptureRunner:
                 )
                 actions.append(
                     lambda: notifications.report_outcome(
-                        lost, solicited=False, category='Protocol', log_only=already_told
+                        lost,
+                        solicited=False,
+                        category='Protocol',
+                        log_only=already_told,
+                        once_per_run=True,
                     )
                 )
             if record is not None:

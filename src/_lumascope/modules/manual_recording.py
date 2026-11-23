@@ -854,7 +854,7 @@ class ManualRecordingController:
         logger.info(f'[ManualRecord] Camera feed lost mid-recording ({reason})')
         self._end(reason)
         notifications.report_outcome(
-            RecordingStoppedError(reason), solicited=False, category='Recording', ends_a_run=True
+            RecordingStoppedError(reason), solicited=False, category='Recording', once_per_run=True
         )
 
     @_guarded_write
@@ -997,7 +997,7 @@ class ManualRecordingController:
                 RecordingStoppedError('disk_space_critical'),
                 solicited=False,
                 category='Recording',
-                ends_a_run=True,
+                once_per_run=True,
             )
             self._end('disk_space_critical')
 
@@ -1054,29 +1054,37 @@ class ManualRecordingController:
             # The builder's reason is the whole answer, in its own words:
             # "check the log" is no answer to a REST caller or to a user who
             # cannot read one. The frames are on disk as recorded.
-            notifications.report_outcome(not_built, solicited=False, category='Recording')
+            notifications.report_outcome(
+                not_built, solicited=False, category='Recording', once_per_run=True
+            )
         except Exception as failed:
             fault = RecordingFinalizeError(protocol_step=False)
             fault.__cause__ = failed
-            notifications.report_outcome(fault, solicited=False, category='Recording')
+            notifications.report_outcome(
+                fault, solicited=False, category='Recording', once_per_run=True
+            )
         finally:
             # Reporting needs the measured truth; completing the recording
             # does not. Keeping them apart is what lets the operation end --
             # and the UI leave its recording state -- after a failed finish.
+            # Every report here is the recording's one answer, told once
+            # per recording, so the repeat window does not hold it back.
             if unfinished is not None:
-                notifications.report_outcome(unfinished, solicited=False, category='Recording')
+                notifications.report_outcome(
+                    unfinished, solicited=False, category='Recording', once_per_run=True
+                )
             if result is not None:
                 if result.writer_failure is not None:
                     died = VideoWriterFailedError(protocol_step=False)
                     died.__cause__ = result.writer_failure
                     notifications.report_outcome(
-                        died, solicited=False, category='Recording', ends_a_run=True
+                        died, solicited=False, category='Recording', once_per_run=True
                     )
                 if result.manifest_failure is not None:
                     unsaved = RecordingDetailsNotSavedError()
                     unsaved.__cause__ = result.manifest_failure
                     notifications.report_outcome(
-                        unsaved, solicited=False, category='Video Recording'
+                        unsaved, solicited=False, category='Video Recording', once_per_run=True
                     )
                 # Announce the artifact only once its existence is known.
                 # A recording that captured nothing leaves NO file at all --
@@ -1103,6 +1111,7 @@ class ManualRecordingController:
                         RecordingFramesUnstampedError(result.frames_unstamped, protocol_step=False),
                         solicited=False,
                         category='Recording',
+                        once_per_run=True,
                     )
                 elif (
                     result.lost_frames(writer_dropped) and not result.aborted and unfinished is None
@@ -1120,6 +1129,7 @@ class ManualRecordingController:
                         ),
                         solicited=False,
                         category='Recording',
+                        once_per_run=True,
                     )
                 save_wait_s = result.save_wait_to_tell(writer_dropped)
                 # The notice says every frame was kept, untrue of a file that
@@ -1133,6 +1143,7 @@ class ManualRecordingController:
                         ),
                         solicited=False,
                         category='Recording',
+                        once_per_run=True,
                     )
                 logger.info(f'[ManualRecord] Finished: {result.summary()}')
             finished = RecordingFinished(

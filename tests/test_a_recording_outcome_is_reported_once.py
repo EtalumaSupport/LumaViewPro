@@ -212,7 +212,7 @@ def test_a_lost_camera_is_reported_once_unsolicited(tmp_path, monkeypatch, post_
     ((fault, kw),) = reported
     assert isinstance(fault, RecordingStoppedError) and fault.reason == 'camera_disconnected'
     # The recording's end, so the repeat window does not hold it back.
-    assert kw == {'solicited': False, 'category': 'Recording', 'ends_a_run': True}
+    assert kw == {'solicited': False, 'category': 'Recording', 'once_per_run': True}
 
 
 def test_a_full_disk_is_reported_once_unsolicited(tmp_path, monkeypatch, post_processing):
@@ -231,7 +231,7 @@ def test_a_full_disk_is_reported_once_unsolicited(tmp_path, monkeypatch, post_pr
     ((fault, kw),) = stopped
     assert fault.reason == 'disk_space_critical'
     # The recording's end, so the repeat window does not hold it back.
-    assert kw == {'solicited': False, 'category': 'Recording', 'ends_a_run': True}
+    assert kw == {'solicited': False, 'category': 'Recording', 'once_per_run': True}
 
 
 def test_a_failed_finish_is_one_fault_chained_from_what_failed(
@@ -256,7 +256,8 @@ def test_a_failed_finish_is_one_fault_chained_from_what_failed(
     ((fault, kw),) = reported
     assert isinstance(fault, RecordingFinalizeError) and fault.protocol_step is False
     assert fault.__cause__ is failure
-    assert kw == {'solicited': False, 'category': 'Recording'}
+    # Told once per recording, so the repeat window does not hold it back.
+    assert kw == {'solicited': False, 'category': 'Recording', 'once_per_run': True}
 
 
 def test_a_refused_hyperstack_is_reported_in_the_builders_words(
@@ -283,7 +284,8 @@ def test_a_refused_hyperstack_is_reported_in_the_builders_words(
     ((fault, kw),) = reported
     assert isinstance(fault, HyperstackNotBuiltError) and str(fault) == 'the builder says no'
     assert fault.reason == 'builder_declined'
-    assert kw == {'solicited': False, 'category': 'Recording'}
+    # Told once per recording, so the repeat window does not hold it back.
+    assert kw == {'solicited': False, 'category': 'Recording', 'once_per_run': True}
 
 
 def test_frames_not_one_size_are_a_hyperstack_not_built_for_that_reason(
@@ -343,7 +345,8 @@ def test_dropped_frames_are_reported_once_unsolicited(tmp_path, monkeypatch, pos
     ((fault, kw),) = reported
     assert isinstance(fault, VideoFramesDroppedError)
     assert (fault.dropped, fault.lost_in) == (1, FramesLostIn.MANUAL_RECORDING)
-    assert kw == {'solicited': False, 'category': 'Recording'}
+    # Told once per recording, so the repeat window does not hold it back.
+    assert kw == {'solicited': False, 'category': 'Recording', 'once_per_run': True}
 
 
 def test_frames_skipped_for_memory_are_reported_once_in_their_own_words(
@@ -382,7 +385,8 @@ def test_frames_skipped_for_memory_are_reported_once_in_their_own_words(
         '3 frame(s) were skipped because this PC could not save frames as fast as the '
         'camera sent them'
     )
-    assert kw == {'solicited': False, 'category': 'Recording'}
+    # Told once per recording, so the repeat window does not hold it back.
+    assert kw == {'solicited': False, 'category': 'Recording', 'once_per_run': True}
 
 
 def test_frames_the_camera_lost_are_reported_once_and_never_told_as_kept(
@@ -401,7 +405,8 @@ def test_frames_the_camera_lost_are_reported_once_and_never_told_as_kept(
     assert isinstance(fault, VideoFramesDroppedError), 'a recording with gaps was told as kept'
     assert fault.lost_at_camera == 7
     assert '7 frame(s) the camera sent never reached the recording' in str(fault)
-    assert kw == {'solicited': False, 'category': 'Recording'}
+    # Told once per recording, so the repeat window does not hold it back.
+    assert kw == {'solicited': False, 'category': 'Recording', 'once_per_run': True}
 
 
 def test_a_limit_above_the_cameras_rate_shows_nothing(tmp_path, centre_posts, post_processing):
@@ -465,7 +470,8 @@ def test_a_manual_video_that_cannot_be_finished_is_reported_as_itself(
     ((fault, kw),) = reported
     assert isinstance(fault, VideoNotFinishedError)
     assert str(fault.output_path) == failing[0]
-    assert kw == {'solicited': False, 'category': 'Recording'}
+    # Told once per recording, so the repeat window does not hold it back.
+    assert kw == {'solicited': False, 'category': 'Recording', 'once_per_run': True}
     assert failing.packets_refused, 'no frame failed to encode; the case is not mid-stream'
     assert pathlib.Path(failing[0]).exists(), 'the only copy of the recording was removed'
 
