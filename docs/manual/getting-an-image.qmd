@@ -131,6 +131,12 @@ channel and the frames written. With [Video Recording Format]{.guilabel}
 set to [Frames]{.guilabel} or [Hyperstack]{.guilabel}, the frames are saved
 as separate images in a folder with that name instead (@sec-video-format).
 
+If the computer can't save frames as fast as the camera sends them,
+LumaViewPro skips frames rather than run out of memory. When the recording
+ends it tells you how many it skipped, so you know the video has gaps. A
+lower [Recording max FPS]{.guilabel} in [Advanced Settings]{.guilabel}
+(@sec-advanced-camera) avoids the skips.
+
 ## A Z-stack {#sec-image-zstack}
 
 *Motorized focus only.*
