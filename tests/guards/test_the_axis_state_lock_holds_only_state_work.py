@@ -40,6 +40,7 @@ _STATE_WORK = frozenset(
         'self._commanded_target',  # reads the move's fields and compares; a float at most
         'self._current_move.get',
         'self._position_known',  # a set-membership test on the state
+        'self._stop_reason',  # a dict read of the interlock stops' reasons
         'host_clock.steady_ns',
     }
 )

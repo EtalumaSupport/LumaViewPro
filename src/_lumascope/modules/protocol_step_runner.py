@@ -547,21 +547,22 @@ class ProtocolStepRunner:
         self._p._step_moves.append(move)
 
     def _raise_a_stopped_move(self) -> None:
-        """Raise the error of a move made since the last step committed that a STOP cut.
+        """Raise the error of a move made since the last step committed that a STOP or the lid cut.
 
         A move a STOP cut stands still with its position known, so the motion
         gate cannot tell it from one that arrived, and the step would capture
         where the stage stopped. Any STOP: a client's stop of its own move, or
-        a press whose tell found no run yet, which the run never hears. Each
-        move is waited, not polled: its operation settles after its axis
-        reads idle and its listeners have run. A move superseded or failed
-        otherwise is left to the checks that judge those.
+        a press whose tell found no run yet, which the run never hears; and
+        the stage's own stop when the lid opened while it moved. Each move is
+        waited, not polled: its operation settles after its axis reads idle
+        and its listeners have run. A move superseded or failed otherwise is
+        left to the checks that judge those.
         """
         p = self._p
         moves, p._step_moves = p._step_moves, []
         for move in moves:
             failure = move.exception()
-            if isinstance(failure, MoveStoppedError) and failure.reason == 'stopped':
+            if isinstance(failure, MoveStoppedError) and failure.reason != 'superseded':
                 raise failure
 
     def _move_turret_through_io(self, slot: int) -> None:

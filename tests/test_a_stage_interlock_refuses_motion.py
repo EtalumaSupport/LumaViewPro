@@ -10,7 +10,7 @@ did not take the command. Now a refusal before anything moved is
 ``HardwareCommandRefusedError`` naming the interlock, every axis keeping the
 state it had; a lid opened while a home moved fails the home naming the lid;
 a Stop that ends a home is named as one; a lid opened while X or Y moves
-stops the stage, and the move ends ``'stopped'``.
+stops the stage, and the move ends ``'lid_open_mid_move'``.
 
 Each test drives a real ``Lumascope(simulate=True)`` through the public
 members, with the simulated board standing in for one that has interlocks,
@@ -266,9 +266,10 @@ class TestAHomeTheInterlockRefuses:
 
 
 class TestALidOpenedDuringAMove:
-    def test_stops_the_ls720s_stage_and_ends_the_move_stopped(self):
+    def test_stops_the_ls720s_stage_and_ends_the_move_naming_the_lid(self):
         """The production TMCM-6110 driver over its simulated board: the lid is
-        read on every arrival poll of an X or Y move, not only at its start."""
+        read on every arrival poll of an X or Y move, not only at its start, and
+        the move it ends says the lid, not a Stop: no one pressed one."""
         ls720 = build_scope(simulate=True, sim_model='LS720', register_atexit=False)
         bind_settings_like_a_session(ls720)
         try:
@@ -291,7 +292,8 @@ class TestALidOpenedDuringAMove:
             with pytest.raises(MoveStoppedError) as ended:
                 move.result()
 
-            assert ended.value.reason == 'stopped'
+            assert (ended.value.reason, ended.value.title) == ('lid_open_mid_move', 'Lid Open')
+            assert 'lid was opened' in str(ended.value)
             stopped_at = ls720.motion.get_current_position('X')
             assert abs(stopped_at - far) > 10_000
             assert ls720.motion.get_axis_state('X') == AxisState.IDLE

@@ -385,8 +385,8 @@ class AutofocusRunner:
                 after the stage moved ('travel_exhausted'), or an unexpected
                 error ('unexpected_error', its cause chained).
             AutofocusStopped: abort_event was set during the run.
-            MoveStoppedError: a STOP cut a move of the sweep before its
-                run's ending was recorded; not reported here, since the run
+            MoveStoppedError: a STOP or the lid cut a move of the sweep
+                before its run's ending was recorded; not reported here, since the run
                 ends on it and tells it.
             AutofocusRunEnded: the run it belongs to had ended before it
                 took its LEDs.
@@ -1163,15 +1163,16 @@ class AutofocusRunner:
         self._last_move = self._scope.motion.start_move_z(position)
 
     def _raise_if_cut_by_a_stop(self) -> None:
-        """Raise the error of the sweep's last move when a STOP cut it and its run had not ended.
+        """Raise the error of the sweep's last move when a STOP or the lid cut it and its run had not ended.
 
         A move a STOP cut stands still with its position known, so the motion
         gate cannot tell it from one that arrived: a cut final move framed
         the step a few microns off the focus the sweep found. The STOP may
         be one the run never heard (a client's stop of its own move, a press
-        whose tell found no run yet), so the sweep ends as a person's stop
-        ends it, Z left where the stop left it, and its run ends on the
-        raise. Once the run's ending is recorded, the STOP is the run's own
+        whose tell found no run yet), or the stage's own when the lid opened,
+        so the sweep ends as a person's stop ends it, Z left where the stop
+        left it, and its run ends on the raise, naming the lid when it was
+        the lid. Once the run's ending is recorded, the STOP is the run's own
         halt, and the abort that follows unwinds the sweep. Waited, not
         polled: the move's operation settles after its axis reads idle.
         """
@@ -1181,7 +1182,7 @@ class AutofocusRunner:
         failure = move.exception()
         if (
             isinstance(failure, MoveStoppedError)
-            and failure.reason == 'stopped'
+            and failure.reason != 'superseded'
             and self._run_ending.get() is None
         ):
             self._ended_by_a_stop = True

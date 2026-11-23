@@ -123,15 +123,15 @@ def _ended(handle):
     return raised.value.reason
 
 
-def test_a_lid_refusal_ends_a_waited_move_on_another_axis_as_a_stop_does(homed):
+def test_a_lid_refusal_ends_a_waited_move_on_another_axis_naming_the_lid(homed):
     """The stage stops all three axes in refusing an X move for the lid, so
-    a Z move in flight learns it was stopped, as after stop_motion, instead
-    of reading its halt as arrival."""
+    a Z move in flight learns the lid stopped it, instead of reading its halt
+    as arrival or as a Stop someone pressed."""
     z = homed.motion.start_move_z(8_000)
     homed.simulation.interlock(lid_open=True)
     with pytest.raises(HardwareCommandRefusedError):
         homed.motion.move_xy(x_um=1_000)
-    assert _ended(z) == 'stopped'
+    assert _ended(z) == 'lid_open_mid_move'
     assert 0 < _at(homed, 'Z') < 8_000
 
 
@@ -158,7 +158,7 @@ def test_a_home_asked_as_the_lid_stops_a_move_is_refused_for_the_lid(homed, monk
     with pytest.raises(HardwareCommandRefusedError) as refused:
         homed.motion.home('Z')
     assert refused.value.reason == 'lid_open_before_motion'
-    assert x_ended == ['stopped']
+    assert x_ended == ['lid_open_mid_move']
     # X set out from its index position, down toward 100 mm.
     assert 100_000 < _at(homed, 'X') < 117_690
 

@@ -610,6 +610,7 @@ whose change concerns only Etaluma's own tools says so.
 | level 137 | A start short of free disk is refused one way: `RecordingRefusedError` says `'disk_space_insufficient'` ("Not Enough Disk Space") where it said `'insufficient_disk'`; a run, a recording and a build whose drive's free space cannot be read are refused `'capture_location_unusable'` (a run started unguarded, a recording and a build raised the `OSError`). |
 | level 138 | A disk filling while work writes is told one way: a manual recording stopped for it is `RecordingStoppedError` `'disk_space_critical'` ("Disk Space Critical"), as a run ends, where it was `'disk_floor'`, and its `RecordingFinished.end_reason` and manifest say `'disk_space_critical'`. Each write while a run or a recording writes needs its own size plus 500 MB; a recording keeps 2 GB beyond that for what it writes after a stop, so it stops at 2.5 GB free where it stopped at 2 GB. |
 | level 139 | A failed home says each fact in a failed move's words: `HomingFaultError` is `'driver_failed'` where it was `'error'`, and `'position_unread_after_move'` where it was `'unread'`. |
+| level 140 | A move the lid stopped says so: an X, Y, Z or turret move halted because the lid opened while the stage moved ends `MoveStoppedError` `'lid_open_mid_move'` ("Lid Open") where it ended `'stopped'`, and a run that meets it ends failed naming the lid (`'interlock'`) where it ended as a person's Stop. |
 
 ---
 

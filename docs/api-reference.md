@@ -1271,7 +1271,7 @@ work meanwhile.
 - `AxisStateUnknownError`: as `start_go_to_step`. Nothing changes.
 - `PositionOutOfRangeError`: as `start_go_to_step`; any move already started is stopped, nothing else changes.
 - `MoveFaultError`: `'driver_failed'`, the board did not take a command, and any move already started is stopped; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `MotionAPI.start_move_z`.
-- `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first. The channel and the preview are the step's.
+- `MoveStoppedError`: `'stopped'`, a stop ended a move; `'lid_open_mid_move'`, the lid was opened while it moved; `'superseded'`, another move or a home took an axis first. The channel and the preview are the step's.
 - `CameraSettingRejected`: the camera did not take a setting of the step's channel (its `reason` says how); the moves started are stopped.
 - `MotorStopFailedError`: a move already started could not be stopped, as `start_go_to_step`.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_go_to_step`. Nothing was started.
@@ -1281,7 +1281,7 @@ work meanwhile.
 - [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `turret_objectives_unassigned`, `turret_slot_reassigned`, `turret_slot_ambiguous`, `objective_not_mounted`, `step_position_missing`, `values_out_of_range`
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `not_on_this_scope`, `activity_ended`, `not_connected`, `scope_disconnected`
 - [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
-- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `lid_open_mid_move`, `superseded`
 - [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - [`StepNotFoundError`](#StepNotFoundError): `no_such_step`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`
@@ -2510,13 +2510,13 @@ objective already active is a no-op.
 - `HardwareCommandRefusedError`: A run, a diagnostic or a recording holds the scope (`'exclusive_activity_running'`), nothing written or moved; or the turret move's own refusal, `'not_connected'` or `'axis_absent'`, nothing moved.
 - `AxisStateUnknownError`: The turret has not been homed.
 - `MoveFaultError`: The Z park, the turret move or the Z restore did not arrive (see `MotionAPI.start_move_z`); the slot is unknown afterwards.
-- `MoveStoppedError`: `'stopped'` or `'superseded'`, the Z park, the turret move or the Z restore was ended; the slot is unknown afterwards.
+- `MoveStoppedError`: `'stopped'`, `'lid_open_mid_move'` or `'superseded'`, the Z park, the turret move or the Z restore was ended; the slot is unknown afterwards.
 
 **Refusals**
 
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `axis_absent`, `activity_ended`, `not_connected`, `scope_disconnected`
 - [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
-- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `lid_open_mid_move`, `superseded`
 - [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - [`CatalogNameRefusedError`](#CatalogNameRefusedError): `objective_not_in_catalog`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `objective_in_several_slots`, `objective_not_on_turret`
@@ -3238,7 +3238,7 @@ it is refused on the UI thread; a click calls it from a worker.
 - `HardwareCommandRefusedError`: `'not_connected'`, this scope's motor controller or camera is not connected, or its LED controller is not and the step's preview would light; `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or a manual recording runs and the step's channel is not the shown one or its preview would light an LED not lit above 0 mA. Nothing changes.
 - `PositionOutOfRangeError`: the step lies outside an axis's travel; any move already started is stopped, nothing else changes.
 - `MoveFaultError`: `'driver_failed'`, the board did not take an axis's command, and any move already started is stopped; or the turret's move to the step's slot did not arrive; see `MotionAPI.start_move_z`.
-- `MoveStoppedError`: `'stopped'` or `'superseded'`, the turret's move to the step's slot was ended.
+- `MoveStoppedError`: `'stopped'`, `'lid_open_mid_move'` or `'superseded'`, the turret's move to the step's slot was ended.
 - `CameraSettingRejected`: the camera did not take a setting of the step's channel (its `reason` says how); the moves started are stopped, and the channel and the preview are the step's.
 - `MotorStopFailedError`: a move already started could not be stopped: the board did not take the STOP, or the move did not settle after it.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread. Nothing was started.
@@ -3252,7 +3252,7 @@ raise goes on as it is.
 
 **Refusals by REST status**
 
-- 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `turret_objectives_unassigned`, `turret_slot_reassigned`, `turret_slot_ambiguous`, `objective_not_mounted`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `turret_objectives_unassigned`, `turret_slot_reassigned`, `turret_slot_ambiguous`, `objective_not_mounted`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `lid_open_mid_move`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `step_position_missing`, `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_read_failed`, `camera_rejected`, `camera_no_answer`; [`MoveFaultError`](#MoveFaultError): `driver_failed`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
@@ -6781,7 +6781,7 @@ as that activity's work and takes no claim of its own.
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `home_in_flight`, `lid_open_before_motion`, `axis_absent`, `activity_ended`, `not_connected`, `monitor_ended`, `scope_disconnected`
 - [`HomingStoppedError`](#HomingStoppedError): `stopped`
 - [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
-- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `lid_open_mid_move`, `superseded`
 - [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`
@@ -6846,7 +6846,7 @@ Move X and Y to `at` on the selected plate, and return once they have arrived.
 - `PositionOutOfRangeError`: As `start_move_to_plate`.
 - `AxisStateUnknownError`: As `start_move_to_plate`.
 - `MoveFaultError`: `'driver_failed'`, the board did not take a command; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `start_move_z`.
-- `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first.
+- `MoveStoppedError`: `'stopped'`, a stop ended a move; `'lid_open_mid_move'`, the lid was opened while it moved; `'superseded'`, another move or a home took an axis first.
 - `MotorStopFailedError`: as `start_move_to_plate`.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_move_to_plate`. Nothing was driven.
 
@@ -6854,7 +6854,7 @@ Move X and Y to `at` on the selected plate, and return once they have arrived.
 
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`, `axis_absent`, `activity_ended`, `not_connected`, `monitor_ended`, `scope_disconnected`
 - [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
-- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `lid_open_mid_move`, `superseded`
 - [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `plate_frame_axis`, `not_a_number`
 - [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
@@ -6897,7 +6897,7 @@ The point on the plate the stage went to, in mm; an axis not given is None.
 
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`, `axis_absent`, `activity_ended`, `not_connected`, `monitor_ended`, `scope_disconnected`
 - [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
-- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `lid_open_mid_move`, `superseded`
 - [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `plate_frame_axis`, `not_a_number`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
@@ -6928,14 +6928,14 @@ Move X and Y to the center of `well` on the selected plate, and return once they
 - `PositionOutOfRangeError`: As `start_move_to_plate`.
 - `AxisStateUnknownError`: As `start_move_to_plate`.
 - `MoveFaultError`: `'driver_failed'`, the board did not take a command; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `start_move_z`.
-- `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first.
+- `MoveStoppedError`: `'stopped'`, a stop ended a move; `'lid_open_mid_move'`, the lid was opened while it moved; `'superseded'`, another move or a home took an axis first.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_move_to_well`. Nothing was driven.
 
 **Refusals**
 
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`, `axis_absent`, `activity_ended`, `not_connected`, `monitor_ended`, `scope_disconnected`
 - [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
-- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `lid_open_mid_move`, `superseded`
 - [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `well_unknown`
 - [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
@@ -6969,13 +6969,13 @@ its own.
 - `AxisStateUnknownError`: The turret position is unknown.
 - `PositionOutOfRangeError`: The slot is not a whole number 1 to 4.
 - `MoveFaultError`: The Z park, the turret move or the Z restore did not arrive and its axis is UNKNOWN, as `start_move_z` lists the reasons; or `'driver_failed'`, the board did not take a command. The slot is unknown afterwards, whichever of the three it was.
-- `MoveStoppedError`: `'stopped'`, a stop ended one of the three; `'superseded'`, another move or a home took its axis first. The slot is unknown afterwards.
+- `MoveStoppedError`: `'stopped'`, a stop ended one of the three; `'lid_open_mid_move'`, the lid was opened while it moved; `'superseded'`, another move or a home took its axis first. The slot is unknown afterwards.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread; nothing was started.
 
 **Refusals**
 
 - [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
-- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `lid_open_mid_move`, `superseded`
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `axis_absent`, `activity_ended`, `not_connected`, `scope_disconnected`
 - [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
@@ -7014,7 +7014,7 @@ Move X and Y to a place, in um, each that is given, and return once they have ar
 - `PositionOutOfRangeError`: `'position_out_of_range'`, as `start_move_xy`.
 - `AxisStateUnknownError`: As `start_move_xy`.
 - `MoveFaultError`: `'driver_failed'`, the board did not take a command; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `start_move_z`.
-- `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first.
+- `MoveStoppedError`: `'stopped'`, a stop ended a move; `'lid_open_mid_move'`, the lid was opened while it moved; `'superseded'`, another move or a home took an axis first.
 - `MotorStopFailedError`: as `start_move_xy`.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_move_xy`. Nothing was driven.
 
@@ -7022,7 +7022,7 @@ Move X and Y to a place, in um, each that is given, and return once they have ar
 
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`, `axis_absent`, `activity_ended`, `not_connected`, `monitor_ended`, `scope_disconnected`
 - [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
-- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `lid_open_mid_move`, `superseded`
 - [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`
 - [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
@@ -7056,7 +7056,7 @@ Move X and Y by a distance, in um, each that is given, and return once they have
 - `PositionOutOfRangeError`: `'position_out_of_range'`, as `start_move_xy_by`.
 - `AxisStateUnknownError`: As `start_move_xy_by`.
 - `MoveFaultError`: `'driver_failed'`, the board did not take a command; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `start_move_z`.
-- `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first.
+- `MoveStoppedError`: `'stopped'`, a stop ended a move; `'lid_open_mid_move'`, the lid was opened while it moved; `'superseded'`, another move or a home took an axis first.
 - `MotorStopFailedError`: as `start_move_xy_by`.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_move_xy_by`. Nothing was driven.
 
@@ -7064,7 +7064,7 @@ Move X and Y by a distance, in um, each that is given, and return once they have
 
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `lid_open_before_motion`, `exclusive_activity_running`, `axis_absent`, `activity_ended`, `not_connected`, `monitor_ended`, `scope_disconnected`
 - [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
-- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `lid_open_mid_move`, `superseded`
 - [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`
 - [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
@@ -7104,14 +7104,14 @@ Move Z to a place, in um, and return once it has arrived.
 - `PositionOutOfRangeError`: `'position_out_of_range'`, as `start_move_z`.
 - `AxisStateUnknownError`: As `start_move_z`.
 - `MoveFaultError`: `'driver_failed'`, the board did not take a command; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `start_move_z`.
-- `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first.
+- `MoveStoppedError`: `'stopped'`, a stop ended a move; `'lid_open_mid_move'`, the lid was opened while it moved; `'superseded'`, another move or a home took an axis first.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_move_z`. Nothing was driven.
 
 **Refusals**
 
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `exclusive_activity_running`, `axis_absent`, `activity_ended`, `not_connected`, `monitor_ended`, `scope_disconnected`
 - [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
-- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `lid_open_mid_move`, `superseded`
 - [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`
 - [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
@@ -7144,14 +7144,14 @@ Move Z by a distance, in um, and return once it has arrived.
 - `PositionOutOfRangeError`: `'position_out_of_range'`, as `start_move_z_by`.
 - `AxisStateUnknownError`: As `start_move_z_by`.
 - `MoveFaultError`: `'driver_failed'`, the board did not take a command; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `start_move_z`.
-- `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first.
+- `MoveStoppedError`: `'stopped'`, a stop ended a move; `'lid_open_mid_move'`, the lid was opened while it moved; `'superseded'`, another move or a home took an axis first.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_move_z_by`. Nothing was driven.
 
 **Refusals**
 
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `exclusive_activity_running`, `axis_absent`, `activity_ended`, `not_connected`, `monitor_ended`, `scope_disconnected`
 - [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
-- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `lid_open_mid_move`, `superseded`
 - [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`
 - [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
@@ -7733,7 +7733,7 @@ is always taken the same way.
 
 **Returns**
 
-The move's `Operation`. It is done once Z has been set at rest, or given up, and the position listeners told: its `result()` returns None when Z arrived, and raises `MoveNotCompletedError` otherwise -- the monitor's fault (`'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`) or `'faulted'`, each leaving Z UNKNOWN; `MoveStoppedError` `'stopped'`, a stop the board took while it moved; `MoveStoppedError` `'superseded'`, another move or a home took Z first. The outcome is the one the move ended with, however late it is read. Its `stop()` is `stop_motion` while this move still has Z, and nothing once it has ended; the board's STOP halts every axis.
+The move's `Operation`. It is done once Z has been set at rest, or given up, and the position listeners told: its `result()` returns None when Z arrived, and raises `MoveNotCompletedError` otherwise -- the monitor's fault (`'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`) or `'faulted'`, each leaving Z UNKNOWN; `MoveStoppedError` `'stopped'`, a stop the board took while it moved, or `'lid_open_mid_move'`, the lid opened while it moved; `MoveStoppedError` `'superseded'`, another move or a home took Z first. The outcome is the one the move ended with, however late it is read. Its `stop()` is `stop_motion` while this move still has Z, and nothing once it has ended; the board's STOP halts every axis.
 
 **Raises**
 
@@ -15930,10 +15930,11 @@ the scope is closed its position is unknown.
 
 **Attributes**
 
-- `reason`: `'stopped'` -- a stop sent while it moved ended it: `stop_motion`, the stage's own stop in refusing a move, or the close's, even one the board did not take (that failure is reported once, as itself); a turret is then in no known slot. `'superseded'` -- another move or a home took the axis before this one arrived; that command's own outcome says where the axis went.
+- `reason`: `'stopped'` -- a stop sent while it moved ended it: `stop_motion`, or the close's, even one the board did not take (that failure is reported once, as itself); a turret is then in no known slot. `'lid_open_mid_move'` -- the lid was opened while it moved, and the stage stopped every axis: no one's Stop, and a run that meets it ends naming the lid. `'superseded'` -- another move or a home took the axis before this one arrived; that command's own outcome says where the axis went.
 
 | Reason | Cause | REST status |
 |---|---|---|
+| `lid_open_mid_move` | state | 409 |
 | `stopped` | state | 409 |
 | `superseded` | state | 409 |
 

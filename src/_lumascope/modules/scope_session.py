@@ -3686,6 +3686,7 @@ class ScopeSession:
                 ``'position_unread_after_move'``, ``'status_unread'`` or
                 ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``MotionAPI.start_move_z``.
             MoveStoppedError: ``'stopped'``, a stop ended a move;
+                ``'lid_open_mid_move'``, the lid was opened while it moved;
                 ``'superseded'``, another move or a home took an axis first.
             MotorStopFailedError: as ``start_go_to_bookmark``.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
@@ -3762,6 +3763,7 @@ class ScopeSession:
                 ``'monitor_ended_mid_move'``, or ``'faulted'``; see
                 ``MotionAPI.start_move_z``.
             MoveStoppedError: ``'stopped'``, a stop ended the move;
+                ``'lid_open_mid_move'``, the lid was opened while it moved;
                 ``'superseded'``, another move or a home took Z first.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_go_to_channel_focus``.
@@ -4136,6 +4138,7 @@ class ScopeSession:
                 ``'position_unread_after_move'``, ``'status_unread'`` or
                 ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``MotionAPI.start_move_z``.
             MoveStoppedError: ``'stopped'``, a stop ended a move;
+                ``'lid_open_mid_move'``, the lid was opened while it moved;
                 ``'superseded'``, another move or a home took an axis first.
                 The channel and the preview are the step's.
             CameraSettingRejected: the camera did not take a setting of the
@@ -4233,8 +4236,8 @@ class ScopeSession:
                 axis's command, and any move already started is stopped; or
                 the turret's move to the step's slot did not arrive; see
                 ``MotionAPI.start_move_z``.
-            MoveStoppedError: ``'stopped'`` or ``'superseded'``, the turret's
-                move to the step's slot was ended.
+            MoveStoppedError: ``'stopped'``, ``'lid_open_mid_move'`` or
+                ``'superseded'``, the turret's move to the step's slot was ended.
             CameraSettingRejected: the camera did not take a setting of the
                 step's channel (its ``reason`` says how); the moves started
                 are stopped, and the channel and the preview are the step's.
@@ -6688,9 +6691,9 @@ class ScopeSession:
             MoveFaultError: The Z park, the turret move or the Z restore
                 did not arrive (see ``MotionAPI.start_move_z``); the slot is
                 unknown afterwards.
-            MoveStoppedError: ``'stopped'`` or ``'superseded'``, the Z park,
-                the turret move or the Z restore was ended; the slot is
-                unknown afterwards.
+            MoveStoppedError: ``'stopped'``, ``'lid_open_mid_move'`` or
+                ``'superseded'``, the Z park, the turret move or the Z
+                restore was ended; the slot is unknown afterwards.
         """
         if not self._objective_changes(objective_id, 'select_objective'):
             return False

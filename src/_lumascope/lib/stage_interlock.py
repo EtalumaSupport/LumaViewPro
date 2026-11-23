@@ -24,3 +24,9 @@ INTERLOCK_TITLES = MappingProxyType(
 REFUSED_BEFORE_MOTION = MappingProxyType(
     {reason: f'{reason}_before_motion' for reason in INTERLOCK_TITLES}
 )
+
+# The reason a move the interlock's stop halted on its way ends with, by the
+# interlock: the stage stopped where it was, its position known, so neither
+# the refusal nor the fault, and a string of its own. Only the lid stops a
+# moving stage: the stage's power is read before a command, never during one.
+STOPPED_MID_MOVE = MappingProxyType({'lid_open': 'lid_open_mid_move'})

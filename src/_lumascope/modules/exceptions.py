@@ -16,7 +16,11 @@ from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
 from _lumascope.lib.real_numbers import is_integer_number, is_real_number
 from _lumascope.lib.lumascope_error import Fault, LumascopeError, RefusalCause, _Umbrella
-from _lumascope.lib.stage_interlock import INTERLOCK_TITLES, REFUSED_BEFORE_MOTION
+from _lumascope.lib.stage_interlock import (
+    INTERLOCK_TITLES,
+    REFUSED_BEFORE_MOTION,
+    STOPPED_MID_MOVE,
+)
 from _lumascope.drivers.camera import CameraNodeHasNoValue
 from _lumascope.drivers.exceptions import (
     CameraFirmwareMissingError,
@@ -5337,18 +5341,27 @@ class MoveStoppedError(Notice, MoveNotCompletedError):
 
     Attributes:
         reason: ``'stopped'`` -- a stop sent while it moved ended it:
-            ``stop_motion``, the stage's own stop in refusing a move, or
-            the close's, even one the board did not take (that failure is
-            reported once, as itself); a turret is then in no known slot.
-            ``'superseded'`` -- another move or a home took the axis before
-            this one arrived; that command's own outcome says where the axis
-            went.
+            ``stop_motion``, or the close's, even one the board did not take
+            (that failure is reported once, as itself); a turret is then in
+            no known slot. ``'lid_open_mid_move'`` -- the lid was opened while it
+            moved, and the stage stopped every axis: no one's Stop, and a
+            run that meets it ends naming the lid. ``'superseded'`` --
+            another move or a home took the axis before this one arrived;
+            that command's own outcome says where the axis went.
     """
 
-    title = 'Move Stopped'
     _SENTENCES: ClassVar[dict[str, str]] = {
         'stopped': 'the motors were stopped before it arrived.',
+        STOPPED_MID_MOVE['lid_open']: (
+            "the microscope's lid was opened, so the stage stopped where it was. "
+            'Close the lid to move it again.'
+        ),
         'superseded': 'another command on the {axis} axis was given before it arrived.',
+    }
+    titles: ClassVar[dict[str, str]] = {
+        'stopped': 'Move Stopped',
+        STOPPED_MID_MOVE['lid_open']: INTERLOCK_TITLES['lid_open'],
+        'superseded': 'Move Stopped',
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_SENTENCES, RefusalCause.STATE)
 

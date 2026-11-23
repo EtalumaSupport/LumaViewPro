@@ -152,7 +152,11 @@ _api_log = _logging.getLogger('LVP.api')
 # session's claim (``guarded_write``); a scope no session composes has none.
 _guarded_write = guarded_write(lambda motion: motion._scope._activity_claim)
 
-from _lumascope.lib.stage_interlock import INTERLOCK_TITLES, REFUSED_BEFORE_MOTION
+from _lumascope.lib.stage_interlock import (
+    INTERLOCK_TITLES,
+    REFUSED_BEFORE_MOTION,
+    STOPPED_MID_MOVE,
+)
 from _lumascope.modules.axes import Axis, AxisState, StageAxis
 from _lumascope.modules.lumascope_api.runtime_state import refuse_unless_frame_point
 from _lumascope.modules.lumascope_api._constants import (
@@ -242,8 +246,8 @@ class _Move:
             board's reached bit is this move's: set by ``_publish_drive``.
             Until then a reached bit is the previous target's, or the
             backlash leg's, and the monitor writes no verdict for the move.
-        outcome: ``'arrived'``, ``'stopped'``, ``'superseded'`` or
-            ``'faulted'``; None until settled.
+        outcome: ``'arrived'``, ``'stopped'``, ``'lid_open_mid_move'``,
+            ``'superseded'`` or ``'faulted'``; None until settled.
         fault: The error an UNKNOWN ending carried, or None.
         target: The final target the move wrote to the board, set by
             ``_publish_drive``; None until written, and for good when a stop
@@ -462,6 +466,14 @@ class MotionAPI:
         # nobody commanded; a waited move compares this against the value
         # it saw before driving to tell a stop from an arrival.
         self._stop_generation = 0
+        # The move's reason for each generation an interlock's stop began
+        # keyed by that generation; a generation with no entry was begun by
+        # a Stop. A move stopped short ends with the reason of the first
+        # generation after its own (``_stop_reason``): the stop that halted
+        # it. Written before the bump it names, so a move that reads the new
+        # generation reads its reason. One entry per lid opening that halted
+        # the stage, kept for the scope's life.
+        self._interlock_stops: dict[int, str] = {}
         # Bumped by the Stops someone asked for (stop_motion), not by the
         # scope's own halt (_stop: the teardown, a stall) or a stop the stage
         # made in refusing for an interlock:
@@ -628,10 +640,11 @@ class MotionAPI:
 
         Refused before anything moved, no target of the move reached the
         board, so the axis gets back the state it had (``_give_back_states``),
-        its position known. A stop the driver made in refusing is a Stop
-        (``_note_interlock_stop``), moved first, so the refused move settles
-        ``'stopped'`` and a move waiting on another axis the stage halted
-        raises ``'stopped'`` instead of reading the halt as arrival. A
+        its position known. A stop the driver made in refusing moves the
+        stop generation (``_note_interlock_stop``) first, so the refused move
+        settles with the interlock's reason and a move waiting on another
+        axis the stage halted raises it (``'lid_open_mid_move'``) instead of reading
+        the halt as arrival. A
         refusal after something moved is not a refusal, and fails the
         drive as any driver error does.
 
@@ -659,7 +672,7 @@ class MotionAPI:
         withheld is: the monitor sets it IDLE where it comes to rest. Any
         other state is written back as it was, and a move it ends is
         settled against the current stop generation, so the refused move
-        reads ``'stopped'`` when the stage stopped in refusing it.
+        reads the interlock's reason when the stage stopped in refusing it.
         """
         for axis, state in states.items():
             if state == AxisState.MOVING:
@@ -669,10 +682,11 @@ class MotionAPI:
                 self._set_axis_state(axis, state, stop_generation=self._stop_generation)
 
     def _note_interlock_stop(self, cause: MotionInterlockError) -> None:
-        """A stop the stage made in refusing is a Stop: the generation moves
-        as ``_send_stop`` moves it, so every move waiting on an axis the
-        stage halted raises ``'stopped'`` instead of reading the halt as
-        arrival.
+        """A stop the stage made in refusing moves the generation as
+        ``_send_stop`` moves it, recording the interlock as its reason, so
+        every move waiting on an axis the stage halted raises its reason
+        (``'lid_open_mid_move'``) instead of reading the halt as arrival, and is not
+        read as anyone's Stop.
 
         The bump lands once the driver has released its lock, not under
         ``_stop_lock`` across the exchange as ``_send_stop``'s does, so a
@@ -682,7 +696,18 @@ class MotionAPI:
         """
         if cause.stopped:
             with self._stop_lock:
+                self._interlock_stops[self._stop_generation + 1] = STOPPED_MID_MOVE[cause.reason]
                 self._stop_generation += 1
+
+    def _stop_reason(self, stop_generation: int) -> str:
+        """How a move begun under ``stop_generation`` and stopped short ends:
+        the reason of the stop that halted it, the first after its own.
+
+        ``'lid_open_mid_move'`` when that stop was the stage's for its lid, else
+        ``'stopped'``. A move asked before a press (``_ASKED_BEFORE_A_STOP``)
+        is that press's, so ``'stopped'``.
+        """
+        return self._interlock_stops.get(stop_generation + 1, 'stopped')
 
     def _axis_states(self, axes: Iterable[str]) -> dict[str, str]:
         """The states ``axes`` hold now, read together."""
@@ -1605,7 +1630,7 @@ class MotionAPI:
             # T's own wait judges only T; a stop after T arrived, before the
             # restore, ended the change all the same.
             if self._stopped_since(stop_generation):
-                raise MoveStoppedError('T', 'stopped')
+                raise MoveStoppedError('T', self._stop_reason(stop_generation))
             self._record_turret_slot(int(slot))
 
     @api
@@ -3157,6 +3182,7 @@ class MotionAPI:
                 ``'position_unread_after_move'``, ``'status_unread'`` or
                 ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``start_move_z``.
             MoveStoppedError: ``'stopped'``, a stop ended a move;
+                ``'lid_open_mid_move'``, the lid was opened while it moved;
                 ``'superseded'``, another move or a home took an axis first.
             MotorStopFailedError: as ``start_move_to_plate``.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
@@ -3321,6 +3347,7 @@ class MotionAPI:
                 ``'position_unread_after_move'``, ``'status_unread'`` or
                 ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``start_move_z``.
             MoveStoppedError: ``'stopped'``, a stop ended a move;
+                ``'lid_open_mid_move'``, the lid was opened while it moved;
                 ``'superseded'``, another move or a home took an axis first.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_move_to_well``.
@@ -3454,6 +3481,7 @@ class MotionAPI:
                 ``'position_unread_after_move'``, ``'status_unread'`` or
                 ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``start_move_z``.
             MoveStoppedError: ``'stopped'``, a stop ended a move;
+                ``'lid_open_mid_move'``, the lid was opened while it moved;
                 ``'superseded'``, another move or a home took an axis first.
             MotorStopFailedError: as ``start_move_xy``.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
@@ -3536,6 +3564,7 @@ class MotionAPI:
                 ``'position_unread_after_move'``, ``'status_unread'`` or
                 ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``start_move_z``.
             MoveStoppedError: ``'stopped'``, a stop ended a move;
+                ``'lid_open_mid_move'``, the lid was opened while it moved;
                 ``'superseded'``, another move or a home took an axis first.
             MotorStopFailedError: as ``start_move_xy_by``.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
@@ -3584,7 +3613,8 @@ class MotionAPI:
             ``'status_unread'`` or ``'monitor_ended_mid_move'``) or
             ``'faulted'``, each leaving Z UNKNOWN;
             ``MoveStoppedError`` ``'stopped'``, a stop the board took while
-            it moved; ``MoveStoppedError`` ``'superseded'``, another move or
+            it moved, or ``'lid_open_mid_move'``, the lid opened while it moved;
+            ``MoveStoppedError`` ``'superseded'``, another move or
             a home took Z first. The outcome is the one the move ended
             with, however late it is read. Its ``stop()`` is
             ``stop_motion`` while this move still has Z, and nothing once
@@ -3648,6 +3678,7 @@ class MotionAPI:
                 ``'position_unread_after_move'``, ``'status_unread'`` or
                 ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``start_move_z``.
             MoveStoppedError: ``'stopped'``, a stop ended a move;
+                ``'lid_open_mid_move'``, the lid was opened while it moved;
                 ``'superseded'``, another move or a home took an axis first.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_move_z``. Nothing was
@@ -3729,6 +3760,7 @@ class MotionAPI:
                 ``'position_unread_after_move'``, ``'status_unread'`` or
                 ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``start_move_z``.
             MoveStoppedError: ``'stopped'``, a stop ended a move;
+                ``'lid_open_mid_move'``, the lid was opened while it moved;
                 ``'superseded'``, another move or a home took an axis first.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_move_z_by``. Nothing
@@ -4146,6 +4178,7 @@ class MotionAPI:
                 command. The slot is unknown afterwards, whichever of the
                 three it was.
             MoveStoppedError: ``'stopped'``, a stop ended one of the three;
+                ``'lid_open_mid_move'``, the lid was opened while it moved;
                 ``'superseded'``, another move or a home took its axis first.
                 The slot is unknown afterwards.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
@@ -4344,7 +4377,9 @@ class MotionAPI:
                     stopped = stop_generation is not None and (
                         stop_generation != current.stop_generation
                     )
-                    settled = current.settle('stopped' if stopped else 'arrived')
+                    settled = current.settle(
+                        self._stop_reason(current.stop_generation) if stopped else 'arrived'
+                    )
                 elif (
                     state == AxisState.UNKNOWN
                     and fault is None
@@ -4352,14 +4387,16 @@ class MotionAPI:
                 ):
                     # An UNKNOWN with no fault of its own after a STOP, as the
                     # close writes after its STOP: the STOP ended the move.
-                    settled = current.settle('stopped')
+                    settled = current.settle(self._stop_reason(current.stop_generation))
                 elif state == AxisState.UNKNOWN:
                     settled = current.settle('faulted', fault or MoveFaultError(axis, 'faulted'))
                 else:
                     # A STOP the board took before this write halted the
                     # move, though the monitor has not yet seen it at rest.
                     stopped = self._stop_generation != current.stop_generation
-                    settled = current.settle('stopped' if stopped else 'superseded')
+                    settled = current.settle(
+                        self._stop_reason(current.stop_generation) if stopped else 'superseded'
+                    )
                 if settled:
                     ended = current
             self._axis_state[axis] = state

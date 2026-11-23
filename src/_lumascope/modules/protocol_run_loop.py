@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from _lumascope.drivers import host_clock
 from _lumascope.lib.lumascope_error import LumascopeError
+from _lumascope.lib.stage_interlock import STOPPED_MID_MOVE
 from _lumascope.lvp_logger import logger
 
 from _lumascope.modules.common_utils import room_to_write
@@ -384,13 +385,17 @@ class ProtocolRunLoop:
                     p.end_run_fatally(ending)
                     return ending
 
-                # A move the stage's interlock refused is not transient: the
-                # lid stays open until someone closes it, so every retry is
-                # refused the same way, and the strike ceiling would end the
-                # run three periods later blaming the cable. Decided by the
-                # refusal's type; the refused axis keeps its position, so the
-                # lost-position check below would not see it.
-                if isinstance(ex, HardwareCommandRefusedError) and ex.reason in INTERLOCK_REASONS:
+                # A move the stage's interlock refused, or one it stopped
+                # while it moved, is not transient: the lid stays open until
+                # someone closes it, so every retry is refused the same way,
+                # and the strike ceiling would end the run three periods
+                # later blaming the cable. Nor is a stopped one a person's
+                # Stop. Decided by the error's type and reason; the axis
+                # keeps its position, so the lost-position check below would
+                # not see it.
+                if (
+                    isinstance(ex, HardwareCommandRefusedError) and ex.reason in INTERLOCK_REASONS
+                ) or (isinstance(ex, MoveStoppedError) and ex.reason in STOPPED_MID_MOVE.values()):
                     logger.error(f'[Protocol] Stage interlock refused a move during scan: {ex}')
                     ending = RunEnding(
                         RunStatus.FAILED,

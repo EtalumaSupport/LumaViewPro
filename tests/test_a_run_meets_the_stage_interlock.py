@@ -7,7 +7,9 @@ open would fail its first step; one that met the lid mid-way was retried
 every period to the strike ceiling and ended telling the user to check the
 USB cable. Now ``prepare()`` refuses the run naming the lid, after telling
 an unhomed scope to home, and a step's move refused for the lid ends the run
-at once with the refusal's own words.
+at once with the refusal's own words. A lid opened while a step's move is
+under way ends the run the same way: the stage stopped short of the step,
+and no one pressed Stop.
 
 Driven through the Session on the simulated scope, its board standing in for
 one with a lid.
@@ -104,3 +106,31 @@ class TestARunThatMeetsTheLidEndsAtOnce:
         assert len(refused) == 1, f'the refused move was retried: {refused}'
         assert [title for title, _ in shown if title == outcome.title] == [outcome.title]
         assert not any('USB' in message for _, message in shown), 'an open lid is not a cable fault'
+
+    def test_a_lid_opened_mid_move_ends_it_failed_naming_the_lid_with_nothing_captured(
+        self, tmp_path
+    ):
+        """On the simulated LS720, its production TMCM-6110 driver: the lid
+        opens at the first arrival poll of the step's X or Y move."""
+        session = ScopeSession.create(
+            complete_settings(**_settings(tmp_path, microscope='LS720')), simulate=True
+        )
+        try:
+            session.scope.motion.home()
+            driver = session.scope._motion_driver
+            polled = driver.target_status
+
+            def lid_opens_while_x_or_y_moves(axis):
+                if axis in ('X', 'Y'):
+                    session.scope.simulation.interlock(lid_open=True)
+                return polled(axis)
+
+            driver.target_status = lid_opens_while_x_or_y_moves
+
+            outcome = _run(session, tmp_path)
+
+            assert (outcome.status, outcome.reason) == ('failed', 'interlock')
+            assert 'lid was opened' in outcome.message
+            assert _images(tmp_path) == [], 'the step captured where the lid stopped the stage'
+        finally:
+            session.shutdown()
