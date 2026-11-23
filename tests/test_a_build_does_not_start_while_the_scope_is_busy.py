@@ -11,22 +11,39 @@ holds the scope (``'scope_held'``) or a run's files are still being written
 the lane: a build queued behind another is refused if a hold began while it
 waited.
 
+Nor does a build that writes beside its folder start when that folder's drive
+has less free than the floor a run starts above
+(``'disk_space_insufficient'``): a video's size is not known before it is
+encoded, and one that fills the drive is lost with the time it took. The
+folder is read as there first, so a missing one is refused as missing,
+whatever else would refuse the build.
+
 Driven through the Session on the simulated scope.
 """
 
 import threading
 import time
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
+import tifffile
 
-from _lumascope.modules import live_work
-from _lumascope.modules.exceptions import PostProcessingRefusedError, RefusalCause
+from _lumascope.modules import common_utils, live_work
+from _lumascope.modules.cell_count_method import CellCountMethod
+from _lumascope.modules.exceptions import (
+    LiveFolderPathRefusedError,
+    PostProcessingRefusedError,
+    RefusalCause,
+)
+from _lumascope.modules.post_processing_api import Stitch
 from _lumascope.modules.sequential_io_executor import IOTask
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_run_refusal_contract import _a_closed_batch_still_writing
 
 QUEUED_WAIT_S = 10
+FLOOR_BYTES = common_utils.MIN_REQUIRED_DISK_MB * 1024**2
 
 
 @pytest.fixture
@@ -103,3 +120,86 @@ def test_a_build_queued_before_a_hold_is_refused_when_its_turn_comes(session, tm
     assert not caller.is_alive()
     assert isinstance(outcome.get('raised'), PostProcessingRefusedError), outcome
     assert outcome['raised'].reason == 'scope_held'
+
+
+def _the_drive_has(monkeypatch, free_bytes: int) -> None:
+    # The one probe's own seam (``tests/test_disk_space_helper.py``): a real
+    # drive with this little free is not one the suite can make on every host.
+    monkeypatch.setattr(
+        common_utils.psutil,
+        'disk_usage',
+        lambda path: SimpleNamespace(total=10**12, used=10**11, free=free_bytes),
+    )
+
+
+def _a_folder_with_an_image(tmp_path):
+    images = tmp_path / 'images'
+    images.mkdir()
+    tifffile.imwrite(images / 'frame.tif', np.full((64, 64), 100, dtype=np.uint16))
+    return images
+
+
+def _the_builds_that_write_beside_their_folder(session, images):
+    pp = session.post_processing
+    return {
+        'stitch': lambda: pp.stitch(images),
+        'zproject': lambda: pp.zproject(images),
+        'composite': lambda: pp.composite(images),
+        'video': lambda: pp.video(images),
+        'build': lambda: pp.build(images, stitch=Stitch()),
+        'enhance': lambda: pp.enhance(images / 'frame.tif'),
+        'count_cells': lambda: pp.count_cells(images, method=CellCountMethod()),
+    }
+
+
+def test_a_build_on_a_drive_below_the_floor_is_refused_before_it_writes(
+    session, tmp_path, monkeypatch
+):
+    images = _a_folder_with_an_image(tmp_path)
+    builds = _the_builds_that_write_beside_their_folder(session, images)
+    before = sorted(tmp_path.rglob('*'))
+    _the_drive_has(monkeypatch, FLOOR_BYTES - 1)
+
+    wrong = []
+    for member, build in builds.items():
+        try:
+            build()
+        except PostProcessingRefusedError as refused:
+            if refused.reason != 'disk_space_insufficient':
+                wrong.append(f'{member}: refused {refused.reason!r}')
+            elif refused.title != 'Not Enough Disk Space' or str(images) not in str(refused):
+                wrong.append(f'{member}: told {refused.title!r}: {refused}')
+        else:
+            wrong.append(f'{member}: was not refused')
+
+    assert wrong == [], '\n'.join(wrong)
+    assert sorted(tmp_path.rglob('*')) == before
+
+
+def test_a_build_on_a_drive_at_the_floor_starts(session, tmp_path, monkeypatch):
+    images = _a_folder_with_an_image(tmp_path)
+    _the_drive_has(monkeypatch, FLOOR_BYTES)
+
+    # Past the door, a folder of one still holds no recording to make a video of.
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        session.post_processing.video(images)
+
+    assert refused.value.reason != 'disk_space_insufficient'
+
+
+def test_a_graph_is_drawn_whatever_the_results_drive_has_free(session, tmp_path, monkeypatch):
+    # Its image goes to the path it is given, which may be on another drive.
+    results = tmp_path / 'results.csv'
+    results.write_text('file,count,mean_area\na.tif,3,1.5\nb.tif,5,2.5\n')
+    _the_drive_has(monkeypatch, 0)
+
+    drawn = session.post_processing.graph(results, tmp_path / 'g.png', x='count', y='mean_area')
+
+    assert drawn.path.is_file()
+
+
+def test_a_missing_folder_is_refused_as_missing_while_the_scope_is_held(session, tmp_path):
+    with session.diagnostic_claim(), pytest.raises(LiveFolderPathRefusedError) as refused:
+        session.post_processing.stitch(tmp_path / 'not_there')
+
+    assert refused.value.reason == 'path_not_found'

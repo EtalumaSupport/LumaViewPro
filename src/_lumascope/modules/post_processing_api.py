@@ -40,7 +40,7 @@ from matplotlib.figure import Figure
 
 from _lumascope.lib.real_numbers import is_integer_number, is_real_number
 from _lumascope.lvp_logger import logger
-from _lumascope.modules import channel_record, graph_analysis, live_work, path_utils
+from _lumascope.modules import channel_record, common_utils, graph_analysis, live_work, path_utils
 from _lumascope.modules.activity_claim import ActivityHolder, the_holder_named
 from _lumascope.modules.cell_count_method import CellCountMethod
 from _lumascope.lib.real_numbers import is_finite_number
@@ -754,6 +754,7 @@ class PostProcessingAPI:
             'stitch',
             pathlib.Path(folder),
             operation=PostProcessingOperation.STITCH,
+            writes_beside=True,
             saved_in=_built_folder,
             on_progress=on_progress,
         )
@@ -786,6 +787,7 @@ class PostProcessingAPI:
             'zproject',
             pathlib.Path(folder),
             operation=PostProcessingOperation.Z_PROJECTION,
+            writes_beside=True,
             saved_in=_built_folder,
             on_progress=on_progress,
         )
@@ -819,6 +821,7 @@ class PostProcessingAPI:
             'composite',
             pathlib.Path(folder),
             operation=PostProcessingOperation.COMPOSITE,
+            writes_beside=True,
             saved_in=_built_folder,
             on_progress=on_progress,
         )
@@ -865,6 +868,7 @@ class PostProcessingAPI:
             'video',
             pathlib.Path(folder),
             operation=PostProcessingOperation.VIDEO,
+            writes_beside=True,
             saved_in=_built_folder,
             on_progress=on_progress,
         )
@@ -1027,6 +1031,7 @@ class PostProcessingAPI:
             'build',
             pathlib.Path(folder),
             operation=PostProcessingOperation.POST_PROCESSING,
+            writes_beside=True,
             saved_in=_chained_folder,
             on_progress=on_progress,
             waiter=waiter,
@@ -1359,6 +1364,7 @@ class PostProcessingAPI:
             'enhance',
             pathlib.Path(target),
             operation=PostProcessingOperation.QUICK_ENHANCE,
+            writes_beside=True,
             saved_in=lambda result: result.output_folder,
             reads=_existing_file_or_folder,
             on_progress=on_progress,
@@ -1660,6 +1666,7 @@ class PostProcessingAPI:
             tiling_grids=self._tiling_grids,
             channel=channel,
             operation=PostProcessingOperation.CELL_COUNT,
+            writes_beside=True,
             saved_in=lambda result: result.results_path.parent,
             on_progress=on_progress,
             waiter=waiter,
@@ -1797,6 +1804,9 @@ class PostProcessingAPI:
             results,
             path,
             operation=PostProcessingOperation.GRAPHING,
+            # The image goes to *path*, which may be on another drive than
+            # the results it reads.
+            writes_beside=False,
             saved_in=lambda result: result.path.parent,
             x=x,
             y=y,
@@ -1807,13 +1817,25 @@ class PostProcessingAPI:
             reads=path_utils.existing_file,
         )
 
-    def _refuse_while_busy(self, operation: PostProcessingOperation) -> None:
-        """Refuse a build that would start while the scope's own work needs the host.
+    def _refuse_while_busy(
+        self, operation: PostProcessingOperation, beside: FilePath | None
+    ) -> None:
+        """Refuse a build that would start while the scope's own work needs the host, or with no room to write.
+
+        *beside* is the folder (or the file, whose folder it is) the build
+        writes its outputs beside, already read as there; None for a build
+        whose outputs land elsewhere. The build's size is not known before
+        it is made, so it is held to the floor a run and a recording start
+        above. A drive whose free space cannot be read is a fault, and the
+        probe's ``OSError`` goes to the reporter as it was raised: a build
+        has no later check that would catch the drive filling.
 
         Raises:
             PostProcessingRefusedError: ``'scope_held'``, naming what holds
                 the scope; ``'files_writing'``, a finished run's files are
-                still being written.
+                still being written; ``'disk_space_insufficient'``, the drive
+                under *beside* has less free than
+                ``common_utils.MIN_REQUIRED_DISK_MB``.
         """
         holder = self._scope_holder()
         if holder is not None:
@@ -1834,6 +1856,23 @@ class PostProcessingAPI:
                     'the writing down. Try again when they are written.'
                 ),
             )
+        if beside is None:
+            return
+        folder = pathlib.Path(beside)
+        if not folder.is_dir():
+            folder = folder.parent
+        fits, free_mb = common_utils.check_disk_space_ok(folder, common_utils.MIN_REQUIRED_DISK_MB)
+        if not fits:
+            raise PostProcessingRefusedError(
+                operation=operation,
+                reason='disk_space_insufficient',
+                message=(
+                    f'{common_utils.format_disk_size_mb(free_mb)} is free at {folder}, and a '
+                    'build needs at least '
+                    f'{common_utils.format_disk_size_mb(common_utils.MIN_REQUIRED_DISK_MB)} '
+                    'free to start. Free space or choose another folder, then try again.'
+                ),
+            )
 
     def _run(
         self,
@@ -1843,6 +1882,7 @@ class PostProcessingAPI:
         *args,
         operation: PostProcessingOperation,
         saved_in: Callable[[Any], pathlib.Path | None],
+        writes_beside: bool,
         reads=path_utils.existing_folder,
         waiter: concurrent.futures.Future | None = None,
         **kwargs,
@@ -1863,7 +1903,9 @@ class PostProcessingAPI:
         does not start while something holds the scope or a run's files are
         still being written, since it would share the cores, the
         interpreter lock and the disk with that work. A build already
-        running when a run starts runs on.
+        running when a run starts runs on. *writes_beside* says whether
+        the build's outputs land beside *folder*: its drive is then held to
+        the write floor before it starts.
         *saved_in* reads the folder the answer's files landed in, None when
         it wrote none; that folder, or the folder of the last file a build
         that failed part way did write, is told to ``on_saved`` on the lane
@@ -1890,7 +1932,9 @@ class PostProcessingAPI:
             member,
             folder,
             *args,
-            admit=functools.partial(self._refuse_while_busy, operation),
+            admit=functools.partial(
+                self._refuse_while_busy, operation, folder if writes_beside else None
+            ),
             reads=reads,
             waiter=waiter,
             **kwargs,
@@ -1910,8 +1954,10 @@ class PostProcessingAPI:
     ):
         """Run *action* on the post-processing lane once *admit* lets it start.
 
-        *admit* is asked on the lane, first: it raises when the build may
-        not start, and may wait until it can. *said* is what the end of the
+        *admit* is asked on the lane once *reads* has found the folder
+        there: it raises when the build may not start, and may wait until
+        it can. A folder that is not there is refused as that, whatever
+        else would refuse the build. *said* is what the end of the
         build's log line says of its answer. Given a *waiter*, the build is
         put on the lane without waiting and *waiter* is returned, settled
         with its answer or its raise; without one, the answer is returned.
@@ -1929,11 +1975,12 @@ class PostProcessingAPI:
 
         @functools.wraps(action)
         def build(path, *a, **kw):
+            read = reads(path)
             admit()
             logger.info(f'[PostProc  ] {member} started on {folder}')
             started = time.monotonic()
             try:
-                result = action(reads(path), *a, **kw)
+                result = action(read, *a, **kw)
             except BaseException as outcome:
                 logger.info(
                     f'[PostProc  ] {member} ended after {time.monotonic() - started:.1f} s: '

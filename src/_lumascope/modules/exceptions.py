@@ -2778,7 +2778,8 @@ class PostProcessingRefusedError(Refusal, CaptureError):
     started while something holds the scope or a run's files are still
     being written would share the process's cores, interpreter lock and
     disk with that work (``'scope_held'``, ``'files_writing'``), and the
-    same request may succeed once it ends.
+    same request may succeed once it ends; or the drive it would write on
+    has less free than a run needs to start (``'disk_space_insufficient'``).
 
     Attributes:
         operation: The operation's name as a person reads it ("Stitch").
@@ -2813,8 +2814,10 @@ class PostProcessingRefusedError(Refusal, CaptureError):
             ``'unsupported_source_format'`` -- the source images are not
             TIFF or OME-TIFF, which the build re-reads. ``'scope_held'`` --
             something holds the scope, and a build now would share the
-            computer with its work. ``'files_writing'``, as
-            ``ProtocolRunRefusedError`` explains it, ``'unreadable'``, as
+            computer with its work. ``'files_writing'`` and
+            ``'disk_space_insufficient'`` (the drive the build writes on has
+            less free than a run needs to start), as
+            ``ProtocolRunRefusedError`` explains them, ``'unreadable'``, as
             ``InputFramesUnusableError`` explains it, and
             ``'names_exhausted'``, as ``CaptureLocationError`` explains it
             (a cell count's results and every numbered name after them),
@@ -2841,6 +2844,7 @@ class PostProcessingRefusedError(Refusal, CaptureError):
         'unsupported_source_format': RefusalCause.REQUEST,
         'scope_held': RefusalCause.STATE,
         'files_writing': RefusalCause.STATE,
+        'disk_space_insufficient': RefusalCause.STATE,
         'names_exhausted': RefusalCause.STATE,
     }
     same_fact_as = (
@@ -2858,16 +2862,19 @@ class PostProcessingRefusedError(Refusal, CaptureError):
         "'ProtocolData/<timestamp>/' folder whose protocol included Z-stack steps."
     )
 
-    # Each operation's heading and the advice its words end with, and the one
-    # reason that names its own: a z-projection refused for want of Z-stack
-    # data says so, and where such a folder lives. A row carries its own
-    # advice, so a heading added for another reason says only what it names.
+    # Each operation's heading and the advice its words end with, and the
+    # reasons that name their own: a z-projection refused for want of Z-stack
+    # data says so, and where such a folder lives; a build of any operation
+    # refused for want of disk is titled as a run refused for it is. A row
+    # carries its own advice, so a heading added for another reason says only
+    # what it names.
     _WORDS: ClassVar[dict[object, tuple[str, str]]] = {
         **{operation: (f'{operation} Not Possible', '') for operation in PostProcessingOperation},
         (PostProcessingOperation.Z_PROJECTION, 'no_data'): (
             'No Z-Stack Data Found',
             _NO_ZSTACK_ADVICE,
         ),
+        'disk_space_insufficient': ('Not Enough Disk Space', ''),
     }
 
     def __init__(self, *, operation: str, reason: str, message: str):
@@ -2882,9 +2889,11 @@ class PostProcessingRefusedError(Refusal, CaptureError):
         return self._row()[0]
 
     def _row(self) -> tuple[str, str]:
-        """This refusal's heading and advice: its operation and reason's row, else its operation's."""
-        key = (self.operation, self.reason)
-        return self._WORDS[key if key in self._WORDS else self.operation]
+        """This refusal's heading and advice: its operation and reason's row, else its reason's, else its operation's."""
+        for key in ((self.operation, self.reason), self.reason):
+            if key in self._WORDS:
+                return self._WORDS[key]
+        return self._WORDS[self.operation]
 
 
 @api_fields('kind', 'count')

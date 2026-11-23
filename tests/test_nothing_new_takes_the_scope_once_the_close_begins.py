@@ -119,6 +119,7 @@ def test_a_post_processing_build_is_not_refused(sim_session, tmp_path):
             'stitch',
             tmp_path,
             operation=PostProcessingOperation.STITCH,
+            writes_beside=False,
             saved_in=lambda result: None,
         )
         is built

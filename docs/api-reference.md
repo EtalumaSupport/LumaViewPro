@@ -4004,7 +4004,7 @@ the members one by one.
 
 **Refusals**
 
-- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`, `scope_held`, `files_writing`, `invalid_setting`, `protocol_data_unreadable`, `no_images`, `unsupported_source_format`, `output_outside_folder`, `collision`, `excluded_inputs`
+- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`, `scope_held`, `files_writing`, `disk_space_insufficient`, `invalid_setting`, `protocol_data_unreadable`, `no_images`, `unsupported_source_format`, `output_outside_folder`, `collision`, `excluded_inputs`
 - [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`
 - [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 - [`SessionClosingError`](#SessionClosingError): `session_closing`
@@ -4093,7 +4093,7 @@ The results table, the method file, how many images were counted, each image lef
 
 **Refusals**
 
-- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`, `scope_held`, `files_writing`, `method_invalid`, `protocol_data_unreadable`, `no_data`
+- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`, `scope_held`, `files_writing`, `disk_space_insufficient`, `method_invalid`, `protocol_data_unreadable`, `no_data`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
 - [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`
 - [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
@@ -4159,7 +4159,7 @@ Each derived file, the folder they are in, and the outcome in words.
 
 **Refusals**
 
-- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `unreadable`, `no_data`
+- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `disk_space_insufficient`, `unreadable`, `no_data`
 - [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`
 - [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 - [`SessionClosingError`](#SessionClosingError): `session_closing`
@@ -4212,7 +4212,7 @@ The PNG written and the outcome in words.
 
 **Refusals by REST status**
 
-- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`
+- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `disk_space_insufficient`
 - 422: [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_file`, `wrong_extension`, `not_a_folder`; [`PostProcessingRefusedError`](#PostProcessingRefusedError): `graph_incomplete`, `results_unreadable`, `axis_not_plottable`, `fit_impossible`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`
 - 500: [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 
@@ -4395,7 +4395,7 @@ its end.
 
 **Refusals by REST status**
 
-- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`
+- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `disk_space_insufficient`
 - 422: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `invalid_setting`
 - 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
@@ -4436,7 +4436,7 @@ raised. A count has no stop: once started it runs to its end.
 
 **Refusals by REST status**
 
-- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`
+- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `disk_space_insufficient`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
 - 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
@@ -4475,7 +4475,7 @@ it runs to its end.
 
 **Refusals by REST status**
 
-- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`
+- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `disk_space_insufficient`
 - 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="Lumascope"></a>
@@ -16323,17 +16323,19 @@ person, and what to do. Or the scope's state refused it: a build
 started while something holds the scope or a run's files are still
 being written would share the process's cores, interpreter lock and
 disk with that work (`'scope_held'`, `'files_writing'`), and the
-same request may succeed once it ends.
+same request may succeed once it ends; or the drive it would write on
+has less free than a run needs to start (`'disk_space_insufficient'`).
 
 **Attributes**
 
 - `operation`: The operation's name as a person reads it ("Stitch").
-- `reason`: Machine-readable refusal code. `'axis_not_plottable'` -- a graph's X or Y names a column of the results file that axis cannot take. `'collision'` -- every image group would write an output under a name another group's output shares, so nothing could be built. `'excluded_inputs'` -- the folder holds only derived outputs, which the build does not take as input. `'fit_impossible'` -- the graphed values cannot give the trendline asked for. `'graph_incomplete'` -- a graph was asked for without a results file, an X axis and a Y axis. `'invalid_path'` -- no folder was given to process. `'invalid_setting'` -- a setting of the build is not one it can use, such as no build chosen, an image shape or scale that is not one, or a playback rate below 1 frame per second. `'method_invalid'` -- the cell-count method holds something the count cannot use. `'method_unreadable'` -- the cell-count method file cannot be read, is not JSON, or has no metadata naming its type and version. `'no_data'` -- the folder holds images, but not the data this operation needs: no Z-stack for a z-projection, no recording frames for a video, nothing a count could count, or a recording where stills are needed. `'no_images'` -- the folder holds no image files. `'no_scale'` -- the image states no scale, so it is counted in pixels, and the method filters a size in microns. `'output_outside_folder'` -- the folder's protocol names a step whose output would be written outside the folder. `'protocol_data_unreadable'` -- the folder's protocol data could not be loaded. `'results_unreadable'` -- the cell-count results file cannot be read as one LumaViewPro writes. `'unsupported_source_format'` -- the source images are not TIFF or OME-TIFF, which the build re-reads. `'scope_held'` -- something holds the scope, and a build now would share the computer with its work. `'files_writing'`, as `ProtocolRunRefusedError` explains it, `'unreadable'`, as `InputFramesUnusableError` explains it, and `'names_exhausted'`, as `CaptureLocationError` explains it (a cell count's results and every numbered name after them), are the same facts.
+- `reason`: Machine-readable refusal code. `'axis_not_plottable'` -- a graph's X or Y names a column of the results file that axis cannot take. `'collision'` -- every image group would write an output under a name another group's output shares, so nothing could be built. `'excluded_inputs'` -- the folder holds only derived outputs, which the build does not take as input. `'fit_impossible'` -- the graphed values cannot give the trendline asked for. `'graph_incomplete'` -- a graph was asked for without a results file, an X axis and a Y axis. `'invalid_path'` -- no folder was given to process. `'invalid_setting'` -- a setting of the build is not one it can use, such as no build chosen, an image shape or scale that is not one, or a playback rate below 1 frame per second. `'method_invalid'` -- the cell-count method holds something the count cannot use. `'method_unreadable'` -- the cell-count method file cannot be read, is not JSON, or has no metadata naming its type and version. `'no_data'` -- the folder holds images, but not the data this operation needs: no Z-stack for a z-projection, no recording frames for a video, nothing a count could count, or a recording where stills are needed. `'no_images'` -- the folder holds no image files. `'no_scale'` -- the image states no scale, so it is counted in pixels, and the method filters a size in microns. `'output_outside_folder'` -- the folder's protocol names a step whose output would be written outside the folder. `'protocol_data_unreadable'` -- the folder's protocol data could not be loaded. `'results_unreadable'` -- the cell-count results file cannot be read as one LumaViewPro writes. `'unsupported_source_format'` -- the source images are not TIFF or OME-TIFF, which the build re-reads. `'scope_held'` -- something holds the scope, and a build now would share the computer with its work. `'files_writing'` and `'disk_space_insufficient'` (the drive the build writes on has less free than a run needs to start), as `ProtocolRunRefusedError` explains them, `'unreadable'`, as `InputFramesUnusableError` explains it, and `'names_exhausted'`, as `CaptureLocationError` explains it (a cell count's results and every numbered name after them), are the same facts.
 
 | Reason | Cause | REST status |
 |---|---|---|
 | `axis_not_plottable` | request | 422 |
 | `collision` | request | 422 |
+| `disk_space_insufficient` | state | 409 |
 | `excluded_inputs` | request | 422 |
 | `files_writing` | state | 409 |
 | `fit_impossible` | request | 422 |

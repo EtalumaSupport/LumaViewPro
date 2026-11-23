@@ -201,6 +201,7 @@ def test_a_running_and_a_queued_build_both_finish(sim_session, tmp_path):
             'stitch',
             folder,
             operation=PostProcessingOperation.STITCH,
+            writes_beside=False,
             saved_in=lambda result: None,
         ).message
 

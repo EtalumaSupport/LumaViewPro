@@ -198,8 +198,10 @@ Each build takes only what the one before it in the call carried forward, so
 `zproject` and `stitch` together stitch the projections, and the same call made
 again rebuilds nothing already made and resumes where it stopped. A build does
 not start while a run, a recording, a home or a diagnostic holds the scope
-(`'scope_held'`) or a run's files are being written (`'files_writing'`); one
-already running when a run starts runs on, on its own lane.
+(`'scope_held'`) or a run's files are being written (`'files_writing'`), nor
+on a folder whose drive has less than 2 GB free, the floor a run starts above
+(`'disk_space_insufficient'`); one already running when a run starts runs on,
+on its own lane.
 
 `session.post_processing` also enhances an image (`enhance`), counts cells
 (`count_cells`, with saved methods: `save_cell_count_method`,
