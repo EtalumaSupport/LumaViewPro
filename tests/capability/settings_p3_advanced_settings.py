@@ -33,7 +33,7 @@ try:
     caps = s.scope.capabilities
     print(
         'caps conversion_gain / line_noise / xy_stage:',
-        caps.camera_supports_conversion_gain_mode,
+        caps.camera_supports_high_conversion_gain,
         caps.camera_supports_line_noise_reduction,
         caps.has_xy_stage,
     )

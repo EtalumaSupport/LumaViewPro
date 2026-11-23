@@ -2200,7 +2200,7 @@ class CaptureFailedError(Fault, CaptureError):
         'frame_size': 'the frame size change',
         'binning': 'the binning change',
         'black_level': 'the black level change',
-        'conversion_gain_mode': 'the conversion gain mode change',
+        'high_conversion_gain': 'the high conversion gain change',
         'line_noise_reduction': 'the line noise reduction change',
         'caller': 'the change made before the capture was asked for',
     }
@@ -5859,9 +5859,8 @@ class CameraSettingUnsupportedError(Refusal, ValueError):
             has no automatic exposure to turn on.
             ``'binning_unsupported'`` -- the binning size is not one this
             camera reports. ``'black_level_unsupported'`` -- this camera has
-            no black level setting. ``'conversion_gain_mode_unsupported'``
-            -- this camera has no high conversion gain, or the mode asked
-            for is neither High nor Low.
+            no black level setting. ``'high_conversion_gain_unsupported'``
+            -- this camera has no high conversion gain.
             ``'line_noise_reduction_unsupported'`` -- this camera has no
             line noise reduction to turn on. ``'camera_node_unsupported'``
             -- this camera has no named settings to read by name (a
@@ -5880,7 +5879,7 @@ class CameraSettingUnsupportedError(Refusal, ValueError):
             'auto_exposure_unsupported',
             'binning_unsupported',
             'black_level_unsupported',
-            'conversion_gain_mode_unsupported',
+            'high_conversion_gain_unsupported',
             'line_noise_reduction_unsupported',
             'camera_node_unsupported',
         ),

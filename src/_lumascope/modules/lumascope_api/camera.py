@@ -526,7 +526,7 @@ _READOUT_SOURCES = frozenset(
         FrameValiditySource.BINNING,
         FrameValiditySource.FRAME_SIZE,
         FrameValiditySource.PIXEL_FORMAT,
-        FrameValiditySource.CONVERSION_GAIN_MODE,
+        FrameValiditySource.HIGH_CONVERSION_GAIN,
         FrameValiditySource.LINE_NOISE_REDUCTION,
     }
 )
@@ -2651,7 +2651,7 @@ class CameraAPI:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected or one removed during the write.
                 Nothing is saved.
-            CameraSettingUnsupportedError: ``'conversion_gain_mode_unsupported'``,
+            CameraSettingUnsupportedError: ``'high_conversion_gain_unsupported'``,
                 on, for a camera without the mode. Nothing reaches the camera or
                 is saved.
             CameraSettingRejected: The camera refused it or raised from it
@@ -2664,12 +2664,12 @@ class CameraAPI:
         """
         self._dispatch_camera(
             self._saved_after(
-                self._set_conversion_gain_mode_impl,
+                self._set_high_conversion_gain_impl,
                 'set_high_conversion_gain',
                 {'camera.high_conversion_gain': enabled},
             ),
             'set_high_conversion_gain',
-            args=('High' if enabled else 'Low',),
+            args=(enabled,),
             timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
         )
 
@@ -3284,27 +3284,27 @@ class CameraAPI:
         )
         return True
 
-    def _set_conversion_gain_mode_impl(self, mode: str) -> bool:
-        """Set the camera sensor conversion gain mode.
+    def _set_high_conversion_gain_impl(self, enabled: bool) -> bool:
+        """Set the camera sensor's high conversion gain on or off.
 
         High conversion gain lowers the sensor read-noise floor (better
         low-light signal-to-noise) at the cost of dynamic range; Low is
         the standard wide-range mode. A camera without the mode
-        (``capabilities.camera_supports_conversion_gain_mode``) is already
-        at Low, so Low is its state rather than a write.
+        (``capabilities.camera_supports_high_conversion_gain``) is already
+        at Low, so off is its state rather than a write.
 
         Args:
-            mode: 'High' (low noise) or 'Low' (wide dynamic range).
+            enabled: True for High (low noise), False for Low (wide dynamic
+                range).
 
         Returns:
-            bool: True when the camera is in ``mode``. False only when the
-                camera is absent (an outside caller is refused before this
-                runs).
+            bool: True when the camera is in the mode asked for. False only
+                when the camera is absent (an outside caller is refused
+                before this runs).
 
         Raises:
-            CameraSettingUnsupportedError: ``'High'`` on a camera without
-                the mode, or a mode that is neither ``'High'`` nor ``'Low'``.
-                Nothing reaches the camera.
+            CameraSettingUnsupportedError: on, for a camera without the
+                mode. Nothing reaches the camera.
             CameraSettingRejected: The driver refused the change or raised
                 from it (chained).
                 Its reason is ``'camera_rejected'`` for a refusal,
@@ -3317,39 +3317,32 @@ class CameraAPI:
             return False
         driver = self._driver
         if not _has_settable_feature(
-            self._scope.capabilities.camera_supports_conversion_gain_mode,
+            self._scope.capabilities.camera_supports_high_conversion_gain,
             lambda: self._read_a_write_needs(
-                'set_conversion_gain_mode',
-                'conversion_gain_mode',
-                mode,
+                'set_high_conversion_gain',
+                'high_conversion_gain',
+                enabled,
                 driver.supports_conversion_gain_mode,
             ),
         ):
-            if mode == 'Low':
+            if not enabled:
                 self._commit_camera_writes({'high_conversion_gain': False})
                 return True
             raise _absent_mode_refusal(
-                'conversion_gain_mode',
-                mode,
+                'high_conversion_gain',
+                enabled,
                 'high conversion gain',
-                offered=('Low',),
+                offered=(False,),
                 consequence='It stays at its standard conversion gain.',
             )
-        if mode not in ('High', 'Low'):
-            raise CameraSettingUnsupportedError(
-                'conversion_gain_mode',
-                mode,
-                offered=('High', 'Low'),
-                message=f'There is no conversion gain mode {mode!r}: the modes are High and Low.',
-            )
         self._camera_write(
-            lambda: self._driver.set_conversion_gain_mode(mode),
-            member='set_conversion_gain_mode',
+            lambda: self._driver.set_conversion_gain_mode('High' if enabled else 'Low'),
+            member='set_high_conversion_gain',
             refusal=lambda held: _mode_rejection(
-                'conversion_gain_mode', mode, 'conversion gain mode', held
+                'high_conversion_gain', enabled, 'high conversion gain', held
             ),
-            invalidates=(FrameValiditySource.CONVERSION_GAIN_MODE,),
-            cache_update={'high_conversion_gain': mode == 'High'},
+            invalidates=(FrameValiditySource.HIGH_CONVERSION_GAIN,),
+            cache_update={'high_conversion_gain': enabled},
         )
         return True
 
@@ -4707,7 +4700,7 @@ class CameraAPI:
                 if now == wanted:
                     continue
                 if key == 'high_conversion_gain':
-                    self._set_conversion_gain_mode_impl('High' if wanted else 'Low')
+                    self._set_high_conversion_gain_impl(wanted)
                 elif key == 'line_noise_reduction':
                     self._set_line_noise_reduction_impl(wanted)
                 else:

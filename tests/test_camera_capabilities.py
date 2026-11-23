@@ -124,7 +124,7 @@ class TestScopeCapabilitiesIntegration:
 
     def test_mono_camera_surfaces_defaults(self):
         caps = capabilities_of(self._stub_camera())
-        assert caps.is_color_native is False
+        assert caps.camera_is_color is False
         assert caps.buffer_bit_depth == 16
         assert caps.camera_max_significant_bits == 8
 
@@ -137,14 +137,14 @@ class TestScopeCapabilitiesIntegration:
         reports is_color_native=True. Phase 1 ships the flag plumbing
         so Phase 2 can flip the flag without touching capabilities."""
         caps = capabilities_of(self._stub_camera(is_color_native=True))
-        assert caps.is_color_native is True
+        assert caps.camera_is_color is True
 
     def test_no_camera_safe_defaults(self):
         """``camera=None`` (headless / disconnected) yields mono / 16-bit
         defaults rather than raising. Matches the empty-default
         contract on the rest of ScopeCapabilities."""
         caps = capabilities_of(None)
-        assert caps.is_color_native is False
+        assert caps.camera_is_color is False
         assert caps.buffer_bit_depth == 16
         assert caps.camera_max_significant_bits is None
         assert caps.camera_supports_black_level is False

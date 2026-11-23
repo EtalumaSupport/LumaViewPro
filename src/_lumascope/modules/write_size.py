@@ -83,7 +83,7 @@ class FrameSizing:
         return cls(
             frame=frame,
             camera_bits=capabilities.camera_max_significant_bits,
-            color_native=capabilities.is_color_native,
+            color_native=capabilities.camera_is_color,
             capture_depth=capture_config.capture_depth,
             save_encoding=capture_config.save_encoding,
             channel_colors=dict(channel_colors),

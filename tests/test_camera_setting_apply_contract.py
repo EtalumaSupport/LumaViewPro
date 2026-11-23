@@ -472,7 +472,7 @@ def _a_camera_with_both_toggles(answer):
 
         scope.capabilities = dataclasses.replace(
             scope.capabilities,
-            camera_supports_conversion_gain_mode=True,
+            camera_supports_high_conversion_gain=True,
             camera_supports_line_noise_reduction=True,
         )
         scope._camera_driver.set_conversion_gain_mode = lambda mode: answer()
@@ -511,5 +511,5 @@ def test_initialize_contains_a_toggle_rejection_and_completes(monkeypatch):
         for exc, kw in reported
         if isinstance(exc, CameraSettingRejected)
     ]
-    assert rejections == [('conversion_gain_mode', False), ('line_noise_reduction', False)]
+    assert rejections == [('high_conversion_gain', False), ('line_noise_reduction', False)]
     assert reached_end, 'bring-up runs to completion past a refused toggle'

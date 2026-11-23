@@ -227,7 +227,7 @@ type BoardConfigValue = str | int | float | bool | list | dict | None
     'slide',
     'ronchi_lines_per_mm',
     'drift',
-    'conversion_gain_mode',
+    'camera_supports_high_conversion_gain',
     'unit_config',
     'camera_usb_bindings',
     'unidentified_usb_devices',
@@ -301,7 +301,7 @@ class SimulatedScope:
             stage position are the same picture, which a measurement of
             what a change does to the frames needs. The GUI simulator asks
             for it; nothing else does.
-        conversion_gain_mode: Whether the scope's camera has a switchable
+        camera_supports_high_conversion_gain: Whether the scope's camera has a switchable
             conversion gain, as an IDS on firmware 3.95 does, so the
             Advanced Settings toggle and a run in each mode are shown
             without one; the simulated camera's alone. False is the stock
@@ -339,7 +339,7 @@ class SimulatedScope:
     file_stall: SimulatedStall | None = None
     camera_present: bool = True
     slide: Slide = Slide.CELLS
-    conversion_gain_mode: bool = False
+    camera_supports_high_conversion_gain: bool = False
     unit_config: Mapping[str, BoardConfigValue] | None = None
     ronchi_lines_per_mm: float | None = None
     drift: bool = False

@@ -65,7 +65,7 @@ def body(session):
         'the camera',
         {
             'camera_max_significant_bits': scope.capabilities.camera_max_significant_bits,
-            'is_color_native': scope.capabilities.is_color_native,
+            'camera_is_color': scope.capabilities.camera_is_color,
             'frame': scope.camera.frame_size.to_dict(),
         },
     )

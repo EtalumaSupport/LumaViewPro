@@ -205,7 +205,7 @@ def test_the_census_finds_the_restarting_commands():
     assert counts['CameraAPI._frame_and_save_impl'] == 1
     assert counts['CameraAPI._bin_and_save_impl'] == 2
     assert counts['CameraAPI._set_pixel_format_impl'] == 1
-    assert counts['CameraAPI._set_conversion_gain_mode_impl'] == 1
+    assert counts['CameraAPI._set_high_conversion_gain_impl'] == 1
     assert counts['CameraAPI._restore_camera_state_impl'] == 5
     assert counts['CameraAPI._set_gain_db_impl'] == 0
 

@@ -433,7 +433,7 @@ def test_a_relative_live_folder_is_stored_absolute_and_created(tmp_path):
 @pytest.mark.parametrize(
     ('member', 'camera_body', 'path'),
     [
-        ('set_high_conversion_gain', '_set_conversion_gain_mode_impl', 'high_conversion_gain'),
+        ('set_high_conversion_gain', '_set_high_conversion_gain_impl', 'high_conversion_gain'),
         ('set_line_noise_reduction', '_set_line_noise_reduction_impl', 'line_noise_reduction'),
     ],
 )

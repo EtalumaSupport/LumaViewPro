@@ -1907,10 +1907,10 @@ class ScopeSession:
                 real drive, and only a simulated scope's boards and camera
                 take a fault. ``'needs_simulated_camera'``, the record's
                 ``camera_stall``, ``focal_spread_um`` or
-                ``conversion_gain_mode`` for a model simulated with an FX2
+                ``camera_supports_high_conversion_gain`` for a model simulated with an FX2
                 or with ``camera_present`` False (``argument`` names the
                 scope's ``sim_camera_stall``, ``sim_focal_spread_um`` or
-                ``sim_conversion_gain_mode``).
+                ``sim_camera_supports_high_conversion_gain``).
                 ``'not_injectable_on_board'``, its ``model_answer``,
                 ``refused_stream_starts``, ``refused_camera_writes``,
                 ``refused_camera_reads`` or ``camera_usb_bindings`` for a
@@ -2052,7 +2052,7 @@ class ScopeSession:
                 sim_camera_present=simulated.camera_present,
                 sim_slide=simulated.slide_on_stage,
                 sim_drift=simulated.drift,
-                sim_conversion_gain_mode=simulated.conversion_gain_mode,
+                sim_camera_supports_high_conversion_gain=simulated.camera_supports_high_conversion_gain,
                 sim_unit_config=simulated.unit_config,
                 sim_camera_usb_bindings=simulated.camera_usb_bindings,
                 sim_unidentified_usb_devices=simulated.unidentified_usb_devices,

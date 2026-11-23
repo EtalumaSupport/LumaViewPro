@@ -2,7 +2,7 @@
 """A camera feature probe that fails as the camera comes up is published as
 failed, never as "the camera lacks it".
 
-The five boolean camera capabilities (``camera_supports_conversion_gain_mode``,
+The five boolean camera capabilities (``camera_supports_high_conversion_gain``,
 ``camera_supports_line_noise_reduction``, ``camera_supports_black_level``,
 ``camera_has_clock_latch``, ``camera_reports_temperature``) are ``bool | None``:
 ``None`` is a probe that failed, and whether the camera has the feature is not
@@ -99,7 +99,7 @@ def test_as_shipped_a_camera_without_the_toggles_publishes_false_not_none():
     session = ScopeSession.create(complete_settings(), simulate=True, warn_pre_release=False)
     try:
         caps = session.scope.capabilities
-        assert caps.camera_supports_conversion_gain_mode is False
+        assert caps.camera_supports_high_conversion_gain is False
         assert caps.camera_supports_line_noise_reduction is False
         assert caps.camera_supports_black_level is True
     finally:
@@ -108,7 +108,7 @@ def test_as_shipped_a_camera_without_the_toggles_publishes_false_not_none():
 
 def test_a_failed_toggle_probe_keeps_the_saved_setting_and_is_on_the_record(toggles):
     scope = toggles.session.scope
-    assert scope.capabilities.camera_supports_conversion_gain_mode is None
+    assert scope.capabilities.camera_supports_high_conversion_gain is None
     assert scope.read_setting('camera.high_conversion_gain') is True
     assert scope.camera.high_conversion_gain is None, 'what the camera holds is not known'
     assert toggles.written == []
@@ -156,7 +156,7 @@ def test_a_write_on_a_failed_probe_probes_the_camera_live(toggles):
     camera.set_high_conversion_gain(True)
     assert toggles.written == ['High']
     assert camera.high_conversion_gain is True
-    assert toggles.session.scope.capabilities.camera_supports_conversion_gain_mode is None, (
+    assert toggles.session.scope.capabilities.camera_supports_high_conversion_gain is None, (
         "bring-up's record, which the setter's own probe does not rewrite"
     )
 
@@ -166,7 +166,7 @@ def test_rest_publishes_a_failed_probe_as_null(toggles):
         answer = client.get('/api/v1/scope/capabilities')
     assert answer.status_code == 200
     body = answer.json()
-    assert body['camera_supports_conversion_gain_mode'] is None
+    assert body['camera_supports_high_conversion_gain'] is None
     assert body['camera_supports_line_noise_reduction'] is False
 
 
@@ -239,7 +239,7 @@ def test_advanced_settings_offers_a_toggle_unless_the_camera_lacks_it(monkeypatc
     shown = {}
     for supported in (True, None, False):
         caps = SimpleNamespace(
-            camera_supports_conversion_gain_mode=supported,
+            camera_supports_high_conversion_gain=supported,
             camera_supports_line_noise_reduction=supported,
             has_xy_stage=True,
             has_firmware_stim=False,

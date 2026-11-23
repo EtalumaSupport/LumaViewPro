@@ -1745,7 +1745,7 @@ class ImagingAPI:
 
                 Shape is (H, W) 2D mono for mono-native cameras and
                 (H, W, 3) RGB for color-native cameras. Probe
-                `scope.capabilities.is_color_native` to disambiguate.
+                `scope.capabilities.camera_is_color` to disambiguate.
                 This method does NOT apply channel false-color -- apply
                 at the display / encode boundary via
                 `image_utils.mono_to_rgb_falsecolor(img, color)`.

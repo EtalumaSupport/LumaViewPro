@@ -86,7 +86,7 @@ def main():
         caps = session.scope.capabilities
         camera = session.scope.camera
         figure('camera', caps.camera_model)
-        has_cg = caps.camera_supports_conversion_gain_mode
+        has_cg = caps.camera_supports_high_conversion_gain
         has_ln = caps.camera_supports_line_noise_reduction
         figure('supports.conversion_gain_mode', has_cg)
         figure('supports.line_noise_reduction', has_ln)
@@ -131,7 +131,7 @@ def main():
                 'high_conversion_gain',
                 camera.set_high_conversion_gain,
                 'high_conversion_gain',
-                'conversion_gain_mode_unsupported',
+                'high_conversion_gain_unsupported',
             )
         if has_ln is False:
             _absent(

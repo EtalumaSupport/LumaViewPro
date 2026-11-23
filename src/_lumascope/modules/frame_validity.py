@@ -87,7 +87,7 @@ class FrameValiditySource(enum.StrEnum):
     FRAME_SIZE = 'frame_size'
     BINNING = 'binning'
     BLACK_LEVEL = 'black_level'
-    CONVERSION_GAIN_MODE = 'conversion_gain_mode'
+    HIGH_CONVERSION_GAIN = 'high_conversion_gain'
     LINE_NOISE_REDUCTION = 'line_noise_reduction'
     # A change the caller made outside LVP, declared at the call
     # (``capture_still``'s ``exposed_after_call``).
@@ -336,7 +336,7 @@ class FrameValidity:
         # Sensor settings that change the next frames like gain does. Unmeasured;
         # gain's count until a bench measurement goes into camera_timing.
         FrameValiditySource.BLACK_LEVEL: 2,
-        FrameValiditySource.CONVERSION_GAIN_MODE: 2,
+        FrameValiditySource.HIGH_CONVERSION_GAIN: 2,
         FrameValiditySource.LINE_NOISE_REDUCTION: 2,
     }
     # A caller's change waits the LED's count (``COUNTED_AS_LED``).

@@ -849,7 +849,7 @@ class Lumascope:
         sim_camera_present: bool = True,
         sim_slide: Slide | RonchiRuling = Slide.CELLS,
         sim_drift: bool = False,
-        sim_conversion_gain_mode: bool = False,
+        sim_camera_supports_high_conversion_gain: bool = False,
         sim_unit_config: Mapping[str, object] | None = None,
         sim_camera_usb_bindings: 'tuple[SimulatedUsbBinding, ...]' = (),
         sim_unidentified_usb_devices: int = 0,
@@ -951,7 +951,7 @@ class Lumascope:
                 so a running stream looks alive. Both simulated cameras take
                 it. False (the default) is a still slide. Refused on real
                 hardware.
-            sim_conversion_gain_mode: Whether the simulated camera has a
+            sim_camera_supports_high_conversion_gain: Whether the simulated camera has a
                 switchable conversion gain, as an IDS on firmware 3.95 does.
                 False (the default) is the stock dart, which has none.
                 Refused like ``sim_camera_stall``.
@@ -980,7 +980,7 @@ class Lumascope:
             ArgumentRefusedError: ``'needs_simulated_scope'``, a simulator
                 argument given for a real scope; ``'needs_simulated_camera'``,
                 ``sim_camera_stall``, a ``sim_focal_spread_um`` or
-                ``sim_conversion_gain_mode`` given for a scope whose camera
+                ``sim_camera_supports_high_conversion_gain`` given for a scope whose camera
                 is not the simulated camera, or with ``sim_camera_present``
                 False, a camera that is not there;
                 ``'needs_simulated_firmware'``, ``sim_unit_config`` for a
@@ -1005,7 +1005,11 @@ class Lumascope:
             ('sim_camera_present', sim_camera_present, not sim_camera_present),
             ('sim_slide', sim_slide, sim_slide != Slide.CELLS),
             ('sim_drift', sim_drift, sim_drift),
-            ('sim_conversion_gain_mode', sim_conversion_gain_mode, sim_conversion_gain_mode),
+            (
+                'sim_camera_supports_high_conversion_gain',
+                sim_camera_supports_high_conversion_gain,
+                sim_camera_supports_high_conversion_gain,
+            ),
             ('sim_unit_config', sim_unit_config, sim_unit_config is not None),
             ('sim_camera_usb_bindings', sim_camera_usb_bindings, bool(sim_camera_usb_bindings)),
             (
@@ -1049,9 +1053,9 @@ class Lumascope:
                     ('sim_camera_stall', sim_camera_stall, sim_camera_stall is not None),
                     ('sim_focal_spread_um', sim_focal_spread_um, sim_focal_spread_um != 0.0),
                     (
-                        'sim_conversion_gain_mode',
-                        sim_conversion_gain_mode,
-                        sim_conversion_gain_mode,
+                        'sim_camera_supports_high_conversion_gain',
+                        sim_camera_supports_high_conversion_gain,
+                        sim_camera_supports_high_conversion_gain,
                     ),
                 ):
                     if given:
@@ -1391,7 +1395,7 @@ class Lumascope:
             camera_kwargs['on_bus'] = sim_camera_present
             camera_kwargs['slide'] = sim_slide
             camera_kwargs['drift'] = sim_drift
-            camera_kwargs['conversion_gain_mode'] = sim_conversion_gain_mode
+            camera_kwargs['conversion_gain_mode'] = sim_camera_supports_high_conversion_gain
         # The exception a camera raised while connecting, kept until bring-up
         # reports it so the report carries the backend's own traceback.
         self._camera_failure: BaseException | None = None
@@ -1795,17 +1799,15 @@ class Lumascope:
             # record says so. The probe's failure was logged where it was
             # caught, with its words; bring-up reports nothing more.
             caps = self.capabilities
-            if caps.camera_supports_conversion_gain_mode is None:
+            if caps.camera_supports_high_conversion_gain is None:
                 self._record_camera_problem(
                     'settings_not_applied', _probe_failed_at_bring_up('conversion gain')
                 )
             else:
-                mode = (
-                    'High'
-                    if config.high_conversion_gain and caps.camera_supports_conversion_gain_mode
-                    else 'Low'
+                high = bool(
+                    config.high_conversion_gain and caps.camera_supports_high_conversion_gain
                 )
-                applies.append(lambda: self.camera._set_conversion_gain_mode_impl(mode))
+                applies.append(lambda: self.camera._set_high_conversion_gain_impl(high))
             if caps.camera_supports_line_noise_reduction is None:
                 self._record_camera_problem(
                     'settings_not_applied', _probe_failed_at_bring_up('line noise reduction')
@@ -1948,7 +1950,7 @@ class Lumascope:
         absent = []
         # Absent is False; None is a probe that failed, which says nothing
         # about whether the camera has the feature.
-        if config.high_conversion_gain and caps.camera_supports_conversion_gain_mode is False:
+        if config.high_conversion_gain and caps.camera_supports_high_conversion_gain is False:
             absent.append(('camera.high_conversion_gain', 'high conversion gain'))
         if config.line_noise_reduction and caps.camera_supports_line_noise_reduction is False:
             absent.append(('camera.line_noise_reduction', 'line noise reduction'))

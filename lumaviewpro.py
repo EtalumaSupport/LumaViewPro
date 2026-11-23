@@ -230,7 +230,7 @@ if __name__ == '__main__':
                 focal_spread_um=sim_focal_spread_um,
                 file_stall=sim_file_stall,
                 camera_present=_camera != 'absent',
-                conversion_gain_mode=_camera == 'hcg',
+                camera_supports_high_conversion_gain=_camera == 'hcg',
                 unit_config=sim_unit_config,
                 drift=_scene != 'still',
                 **sim_slide_fields,

@@ -63,7 +63,7 @@ _REFUSED = {
     'scope/camera/high_conversion_gain': (
         {'enabled': True},
         None,
-        'conversion_gain_mode_unsupported',
+        'high_conversion_gain_unsupported',
     ),
     'scope/camera/line_noise_reduction': (
         {'enabled': True},

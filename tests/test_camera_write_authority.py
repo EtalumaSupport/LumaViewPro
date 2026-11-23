@@ -118,7 +118,7 @@ def camera_capable(monkeypatch):
 
     # a stand-in by design: SimulatedCamera has no line-noise-reduction node (Pylon-only); the simulator's gap, and this subclass goes when it has one
     monkeypatch.setattr(_lumascope.camera_registry, 'create', _capable_camera)
-    return _sim_camera(sim_conversion_gain_mode=True)
+    return _sim_camera(sim_camera_supports_high_conversion_gain=True)
 
 
 def _read_fails(*_args):
@@ -283,7 +283,7 @@ class TestSdkPerfSetterSequences:
         before = camera_capable._frame_validity.invalidation_counts
         camera_capable.set_high_conversion_gain(True)
         assert camera_capable._frame_validity.invalidation_counts == _grown_by_one(
-            before, 'conversion_gain_mode'
+            before, 'high_conversion_gain'
         )
         assert camera_capable._driver._conversion_gain_mode == 'High'
 
@@ -300,8 +300,8 @@ class TestSdkPerfSetterSequences:
         before = camera_plain._frame_validity.invalidation_counts
         with pytest.raises(CameraSettingUnsupportedError) as caught:
             camera_plain.set_high_conversion_gain(True)
-        assert caught.value.reason == 'conversion_gain_mode_unsupported'
-        assert caught.value.offered == ('Low',)
+        assert caught.value.reason == 'high_conversion_gain_unsupported'
+        assert caught.value.offered == (False,)
         assert str(caught.value).startswith('This camera has no high conversion gain.')
         assert camera_plain._frame_validity.invalidation_counts == before
 
@@ -321,23 +321,6 @@ class TestSdkPerfSetterSequences:
         camera_plain.set_high_conversion_gain(False)
         camera_plain.set_line_noise_reduction(False)
         assert camera_plain._frame_validity.invalidation_counts == before
-
-    def test_a_mode_that_is_neither_high_nor_low_is_refused(self, camera_capable):
-        """Refused before the camera: nothing changed, so readiness is untouched.
-
-        The public toggle takes a bool and cannot name another mode, so the
-        camera's body is driven on its lane, as the toggle drives it."""
-        before = camera_capable._frame_validity.invalidation_counts
-        with pytest.raises(CameraSettingUnsupportedError) as caught:
-            camera_capable._dispatch_camera(
-                camera_capable._set_conversion_gain_mode_impl,
-                'set_high_conversion_gain',
-                args=('Bogus',),
-                timeout_s=camera_capable._CAMERA_GEOMETRY_TIMEOUT_S,
-            )
-        assert caught.value.offered == ('High', 'Low')
-        assert camera_capable._driver._conversion_gain_mode == 'Low'
-        assert camera_capable._frame_validity.invalidation_counts == before
 
     @pytest.mark.parametrize(
         ('member', 'driver_member', 'value'),
@@ -364,7 +347,7 @@ class TestSdkPerfSetterSequences:
             getattr(camera_capable, member)(value)
         assert caught.value.__cause__ is fault
         source = {
-            'set_high_conversion_gain': 'conversion_gain_mode',
+            'set_high_conversion_gain': 'high_conversion_gain',
             'set_line_noise_reduction': 'line_noise_reduction',
         }[member]
         assert camera_capable._frame_validity.invalidation_counts == _grown_by_one(before, source)

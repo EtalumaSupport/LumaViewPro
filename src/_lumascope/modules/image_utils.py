@@ -1857,7 +1857,7 @@ def build_hyperstack_output_metadata(
     return metadata
 
 
-def imread_color(path, *, is_color_native: bool = False) -> 'np.ndarray':
+def imread_color(path: str | pathlib.Path, *, is_color_native: bool = False) -> 'np.ndarray':
     """Color-camera-aware image read. Phase 2 activation pending.
 
     Stub helper that exists so Phase 2 (color-native camera path) can
@@ -1869,7 +1869,7 @@ def imread_color(path, *, is_color_native: bool = False) -> 'np.ndarray':
     Args:
         path: TIFF / PNG file path.
         is_color_native: Camera-capability flag from
-            ``scope.capabilities.is_color_native``.
+            ``scope.capabilities.camera_is_color``.
 
     Raises:
         NotImplementedError: Phase 2 activation pending.

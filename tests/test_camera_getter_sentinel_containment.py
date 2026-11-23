@@ -504,7 +504,7 @@ def test_save_camera_state_carries_both_fields_without_warning(sim_scope, caplog
     camera = sim_scope.camera
     # As bring-up does: a camera without either toggle is at its standard
     # setting, which the writer records without reaching the driver.
-    camera._set_conversion_gain_mode_impl('Low')
+    camera._set_high_conversion_gain_impl(False)
     camera._set_line_noise_reduction_impl(False)
     camera.set_gain_db(12.5)
     camera.set_exposure_ms(50.0)

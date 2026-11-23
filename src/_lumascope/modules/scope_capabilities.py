@@ -284,6 +284,7 @@ class CameraShutter(enum.StrEnum):
     'camera_firmware_version',
     'camera_gain_has_digital',
     'camera_has_clock_latch',
+    'camera_is_color',
     'camera_limits',
     'camera_max_significant_bits',
     'camera_model',
@@ -296,7 +297,7 @@ class CameraShutter(enum.StrEnum):
     'camera_supports_auto_exposure',
     'camera_supports_auto_gain',
     'camera_supports_black_level',
-    'camera_supports_conversion_gain_mode',
+    'camera_supports_high_conversion_gain',
     'camera_supports_line_noise_reduction',
     'camera_timestamp_tick_hz',
     'frame_rules',
@@ -304,7 +305,6 @@ class CameraShutter(enum.StrEnum):
     'has_focus',
     'has_turret',
     'has_xy_stage',
-    'is_color_native',
     'led_addresses',
     'led_channels',
     'led_max_ma',
@@ -394,7 +394,7 @@ class ScopeCapabilities:
             read that fails raises. None when the probe failed as the
             camera came up; the read is live, and answers as the camera
             does.
-        is_color_native: True when the camera delivers 3-channel color
+        camera_is_color: True when the camera delivers 3-channel color
             frames; False for a mono camera, as every shipped one is, and
             when the camera is unknown.
         buffer_bit_depth: The width of the buffers frames are delivered in,
@@ -408,7 +408,7 @@ class ScopeCapabilities:
             one that streams only 8 bits. None with no camera, or one whose
             formats are unknown. The depth of the frames it delivers now,
             which follows ``set_image_mode``, is ``imaging.significant_bits``.
-        camera_supports_conversion_gain_mode: True when the camera has a
+        camera_supports_high_conversion_gain: True when the camera has a
             switchable sensor conversion gain (High: low read noise, narrow
             range; Low: wide range). None when the probe failed as the
             camera came up: whether the camera has it is not known, the
@@ -477,10 +477,10 @@ class ScopeCapabilities:
     camera_analog_gain_max_db: float | None
     camera_gain_has_digital: bool
     camera_reports_temperature: bool | None
-    is_color_native: bool = False
+    camera_is_color: bool = False
     buffer_bit_depth: int = 16
     camera_max_significant_bits: int | None = None
-    camera_supports_conversion_gain_mode: bool | None = False
+    camera_supports_high_conversion_gain: bool | None = False
     camera_supports_line_noise_reduction: bool | None = False
     camera_has_clock_latch: bool | None = False
     frame_rules: Mapping[FrameValiditySource, FrameRule] = field(
@@ -591,10 +591,10 @@ class ScopeCapabilities:
         camera_analog_gain_max_db: float | None = None
         camera_gain_has_digital = False
         camera_reports_temperature = False
-        is_color_native = False
+        camera_is_color = False
         buffer_bit_depth = 16
         camera_max_significant_bits: int | None = None
-        camera_supports_conversion_gain_mode = False
+        camera_supports_high_conversion_gain = False
         camera_supports_line_noise_reduction = False
         camera_supports_black_level = False
         camera_has_clock_latch = False
@@ -638,13 +638,13 @@ class ScopeCapabilities:
                     frame_min=smallest,
                     frame_max=FrameSize(*camera_max_frame_size) if camera_max_frame_size else None,
                 )
-            is_color_native = bool(getattr(camera, 'is_color_native', False))
+            camera_is_color = bool(getattr(camera, 'is_color_native', False))
             buffer_bit_depth = int(getattr(camera, 'native_bit_depth', 16))
             if camera_pixel_formats:
                 camera_max_significant_bits = max(
                     int(camera.significant_bits_for_format(name)) for name in camera_pixel_formats
                 )
-            camera_supports_conversion_gain_mode = _probe(
+            camera_supports_high_conversion_gain = _probe(
                 'camera.supports_conversion_gain_mode',
                 lambda: bool(camera.supports_conversion_gain_mode()),
                 False,
@@ -680,7 +680,7 @@ class ScopeCapabilities:
             # whether they were available on this camera without debug mode.
             logger.info(
                 f'[CAPABILITIES] camera={camera_model!r} '
-                f'conversion_gain_mode={camera_supports_conversion_gain_mode} '
+                f'high_conversion_gain={camera_supports_high_conversion_gain} '
                 f'line_noise_reduction={camera_supports_line_noise_reduction} '
                 f'black_level={camera_supports_black_level} '
                 f'clock_latch={camera_has_clock_latch} '
@@ -713,10 +713,10 @@ class ScopeCapabilities:
             camera_analog_gain_max_db=camera_analog_gain_max_db,
             camera_gain_has_digital=camera_gain_has_digital,
             camera_reports_temperature=camera_reports_temperature,
-            is_color_native=is_color_native,
+            camera_is_color=camera_is_color,
             buffer_bit_depth=buffer_bit_depth,
             camera_max_significant_bits=camera_max_significant_bits,
-            camera_supports_conversion_gain_mode=camera_supports_conversion_gain_mode,
+            camera_supports_high_conversion_gain=camera_supports_high_conversion_gain,
             camera_supports_line_noise_reduction=camera_supports_line_noise_reduction,
             camera_supports_black_level=camera_supports_black_level,
             camera_has_clock_latch=camera_has_clock_latch,

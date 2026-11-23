@@ -140,7 +140,7 @@ def test_the_conversion_gain_and_line_noise_reduction_come_back_and_are_saved(
         'capabilities',
         replace(
             sim_scope.capabilities,
-            camera_supports_conversion_gain_mode=True,
+            camera_supports_high_conversion_gain=True,
             camera_supports_line_noise_reduction=True,
         ),
     )

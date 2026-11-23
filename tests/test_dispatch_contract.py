@@ -141,7 +141,7 @@ _BODY_OF = {
     'led_on_by_address': '_led_on_impl',
     'start_move_z': '_move_z_impl',
     'set_image_mode': '_set_pixel_format_impl',
-    'set_high_conversion_gain': '_set_conversion_gain_mode_impl',
+    'set_high_conversion_gain': '_set_high_conversion_gain_impl',
 }
 
 
