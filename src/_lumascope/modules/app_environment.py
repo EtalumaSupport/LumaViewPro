@@ -350,7 +350,7 @@ def capture_installer_logs(
 
     Returns:
         Names copied by THIS call. A log still in TEMP that was already
-        captured is recognised by modification time and only deleted; one
+        captured is recognized by modification time and only deleted; one
         that grew since (an install still writing when the app started) is
         recaptured. Timestamp rather than size, because a transcoded copy
         is never the size of its source -- and a same-size content change

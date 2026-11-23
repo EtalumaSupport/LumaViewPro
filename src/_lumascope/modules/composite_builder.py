@@ -23,7 +23,7 @@ _MAX_8BIT_VALUE = 255
 
 
 class CompositeChannel(NamedTuple):
-    """One channel's input to a composite: its image, the colour it is shown
+    """One channel's input to a composite: its image, the color it is shown
     in, and the scale it is shown at, carried together so no channel reaches
     the build without them.
 
@@ -38,7 +38,7 @@ class CompositeChannel(NamedTuple):
 
 
 class TransmittedBase(NamedTuple):
-    """The transmitted channel a composite is laid on: its grey image and the
+    """The transmitted channel a composite is laid on: its gray image and the
     scale it is shown at, carried together as a channel's are."""
 
     image: np.ndarray
@@ -81,7 +81,7 @@ def build_composite(
     """Build an 8-bit-per-channel RGB composite from grayscale channel images.
 
     A composite is a viewing product: it merges several channels' intensities
-    into one colour image for display, and once merged the per-channel
+    into one color image for display, and once merged the per-channel
     values are no longer separable for quantitative use. Its output is therefore
     always 8-bit RGB -- the form every viewer and monitor renders directly.
     Storing a composite at the camera's native 12-bit depth (right-aligned in a
@@ -93,17 +93,17 @@ def build_composite(
     post-processing orchestrators funnel through, so neither can reintroduce a
     depth-carrying composite.
 
-    The channels add: each contributes its intensity times its colour, summed
-    with saturation at 8 bits, so two channels that share a colour add
+    The channels add: each contributes its intensity times its color, summed
+    with saturation at 8 bits, so two channels that share a color add
     instead of the later one overwriting the earlier, and a sum past full
     scale holds at 255 instead of wrapping.
 
     Args:
         channels: Dict mapping channel name to its ``CompositeChannel``: a 2D
-            grayscale array at the capture's native depth, its colour, and the
+            grayscale array at the capture's native depth, its color, and the
             depth and white it is downconverted by.
         transmitted: Optional transmitted channel (BF/PC/DF) and its scale. Its
-            grey is the base; a pixel where any channel reaches its cutoff is
+            gray is the base; a pixel where any channel reaches its cutoff is
             that pixel's sum of the channels that reach it, in place of the
             base.
         brightness_thresholds: Dict mapping channel name to threshold value on the

@@ -84,7 +84,7 @@ def write_recorded_frame(
     arrived. It is written as a still is (``image_utils.write_tiff``): as
     OME-TIFF when its name is one (``image_utils.is_ome_tiff``), else as
     plain TIFF, a 12-bit frame in the ImageJ container; an 8-bit
-    fluorescence frame carries its colour as a palette, never baked into
+    fluorescence frame carries its color as a palette, never baked into
     its pixels.
 
     Args:
@@ -109,7 +109,7 @@ def write_recorded_frame(
             fallback focus.
         false_color_on: Whether the channel's false-color toggle was on --
             how the frame is shown, never what it is.
-        channel_colors: Every channel's colour as the recording began.
+        channel_colors: Every channel's color as the recording began.
         save_encoding: The resolved image-mode save encoding.
 
     Raises:
@@ -312,21 +312,21 @@ def generate_image_metadata(
 ) -> dict:
     """Build TIFF metadata dict for the current capture settings and position.
 
-    The XY position arrives in the frame the file records -- plate millimetres
+    The XY position arrives in the frame the file records -- plate millimeters
     -- and is written through unconverted. The parameters carry their frame in
     their names because the alternative was tried: they were `x` and `y`,
-    documented as stage micrometres, and the protocol writer filled them with
-    plate millimetres. This function converted a second time, so steps nine
-    millimetres apart were recorded nine microns apart and inverted, in numbers
+    documented as stage micrometers, and the protocol writer filled them with
+    plate millimeters. This function converted a second time, so steps nine
+    millimeters apart were recorded nine microns apart and inverted, in numbers
     that still looked like plate coordinates. A position whose frame is stated
     only in prose is a position that will arrive in the wrong one.
 
-    Z is unconverted in either direction: the file declares it in micrometres
+    Z is unconverted in either direction: the file declares it in micrometers
     and every producer already holds it that way.
 
     Args:
         scope: Read only for what does not change while a frame waits to be
-            written: the objective catalogue, the scope's identity and its
+            written: the objective catalog, the scope's identity and its
             pixel-size capabilities, and the motor board's serial and
             firmware.
         channel (str): Channel the frame was acquired on (e.g. "Ex405", "BF").
@@ -358,7 +358,7 @@ def generate_image_metadata(
         dict: Metadata including channel, positions, exposure, gain, pixel size.
 
     Raises:
-        CatalogNameRefusedError: ``objective_id`` is not a catalogue key
+        CatalogNameRefusedError: ``objective_id`` is not a catalog key
             (``'objective_not_in_catalog'``).
         ObjectiveUnknownError: ``objective_id`` is None (``'none_selected'``).
         ConfigError: ``labware`` is None.
@@ -681,13 +681,13 @@ def save_image(
         false_color_on: Whether the channel's false-color toggle was on --
             how the image is DISPLAYED. Required and keyword-only; drives the
             colormap and the JPG bake, and reaches no identity field.
-        channel_colors: Every channel's colour, from the Session's one read
+        channel_colors: Every channel's color, from the Session's one read
             of it; the channel's is the one it is shown in.
         output_format: "TIFF", "OME-TIFF", or "JPG".
         plate_x_mm: Plate X position in mm -- the frame the file records, and
             the frame the caller must supply. Named for its frame because the
             defect this replaces was a plate value passed into a parameter
-            documented as stage micrometres.
+            documented as stage micrometers.
         plate_y_mm: Plate Y position in mm.
         stage_z_um: Stage Z position in um.
         save_encoding: The derived on-disk encoding from the image_mode

@@ -455,8 +455,8 @@ def is_valid_binning_size(value: object) -> bool:
 def get_channels() -> list[str]:
     """The release's channel key names, in display order.
 
-    Derived from the release catalogue rather than authored here, so the
-    vocabulary has exactly one source and a catalogue change cannot leave
+    Derived from the release catalog rather than authored here, so the
+    vocabulary has exactly one source and a catalog change cannot leave
     this list silently disagreeing with it.
     """
     from _lumascope.modules.channel_record import release_catalog

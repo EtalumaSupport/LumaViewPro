@@ -152,7 +152,7 @@ def focus_of_the_final_pass(
 ) -> float:
     """Where the final pass's own points put the focus.
 
-    The centre of a Gaussian on a floor fitted to that pass alone: points
+    The center of a Gaussian on a floor fitted to that pass alone: points
     at one Z in different passes disagree by a few percent of the peak, and
     a curve's tails sit on a floor, so one model across every pass wanders
     from run to run on the same field where this one holds. A fit that
@@ -345,7 +345,7 @@ class AutofocusRunner:
 
         Args:
             objective_id: which objective profile to use.
-            center_um: the Z the first pass is centred on: the Z of the
+            center_um: the Z the first pass is centered on: the Z of the
                 step whose light the sweep runs in, which for a z-stack is
                 its reference slice, the slice built at the user's focus,
                 not the first slice, where the stage stands when the sweep
@@ -358,7 +358,7 @@ class AutofocusRunner:
                 a live-view auto-gain arm the sweep scans at the values
                 the lock read from the camera instead of camera_gain /
                 camera_exposure (see _apply_sweep_camera_targets).
-            abort_event: signalled by caller to abort the run. Required.
+            abort_event: signaled by caller to abort the run. Required.
             stay_put: set with an abort that is a person's stop; the sweep
                 then leaves Z where the stop left it.
             led_lease: the LED lease of the run AF executes inside -- AF

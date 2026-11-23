@@ -561,7 +561,7 @@ class LowSystemResourcesNotice(Notice, Exception):  # noqa: N818 -- a notice, no
 
 
 def _gb(size_bytes: int) -> str:
-    """A size in binary gigabytes, labelled GB as Windows shows it."""
+    """A size in binary gigabytes, labeled GB as Windows shows it."""
     return f'{size_bytes / 2**30:.1f} GB'
 
 
@@ -769,7 +769,7 @@ class ChannelRowsSkippedNotice(Notice, Exception):  # noqa: N818 -- a notice, no
 class StoredSettingReplacedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
     """Saved settings no write could store, replaced by the shipped values at load.
 
-    One notice names every value one load replaced: the notification centre
+    One notice names every value one load replaced: the notification center
     shows one notice of a kind at a time, so a notice per value showed the
     first and hid the rest. Each value is replaced for its key alone, in the
     settings the app runs on and so in the file at its next save.
@@ -797,7 +797,7 @@ class ChannelSettingCappedNotice(Notice, Exception):  # noqa: N818 -- a notice, 
     The saved value is the person's intent and is kept: a camera or an LED
     board that can reach it applies it again. One notice names every capped channel value
     one bring-up found, as ``StoredSettingReplacedNotice`` names every
-    replaced one, since the notification centre shows one notice of a kind
+    replaced one, since the notification center shows one notice of a kind
     at a time.
 
     Attributes:
@@ -1576,7 +1576,7 @@ class ServerRefusedError(Refusal, Exception):
         'overloaded': 'Overloaded',
         'server_closing': 'Server Closing',
         'no_frame_yet': 'No Frame Yet',
-        'not_cancelable': 'Not Cancellable',
+        'not_cancelable': 'Not Cancelable',
         'idempotency_key_reused': 'Idempotency Key Reused',
         'client_not_allowed': 'Client Not Allowed',
         'wrong_host': 'Wrong Host',
@@ -1766,13 +1766,13 @@ class ObjectiveUnknownError(Refusal, ConfigError):
     the slot in the light path, so it is unknown when the slot is unknown
     (the turret has not been homed or moved since it was last lost), when
     the slot has no assignment, or when its assignment names nothing in
-    the objective catalogue. Raised instead of answering with a stored
+    the objective catalog. Raised instead of answering with a stored
     objective, because an objective that is not in the light path puts a
     wrong scale into every image it names.
 
     On a scope with no turret it is unknown until a person has confirmed
     the selected objective: the shipped template's, or one put in place of
-    a stored one the catalogue does not hold, is not known to be mounted.
+    a stored one the catalog does not hold, is not known to be mounted.
 
     Attributes:
         reason: ``'slot_unknown'`` -- the turret is in no known slot: it has
@@ -1784,7 +1784,7 @@ class ObjectiveUnknownError(Refusal, ConfigError):
             ``'slot_unassigned'`` -- the slot in the light path has no
             objective assigned. ``'not_in_catalog'`` -- the slot in the
             light path is assigned an objective that is not in the objective
-            catalogue. ``'none_selected'`` -- no objective has been
+            catalog. ``'none_selected'`` -- no objective has been
             confirmed, as on a scope with no turret before a person says
             which objective is installed.
         slot: The slot in the light path, or None when that is what is
@@ -1801,7 +1801,7 @@ class ObjectiveUnknownError(Refusal, ConfigError):
             'turret slot {slot} has no objective assigned -- assign the objective installed there'
         ),
         'not_in_catalog': (
-            'turret slot {slot} is assigned an objective that is not in the catalogue'
+            'turret slot {slot} is assigned an objective that is not in the catalog'
             ' -- assign the objective installed there'
         ),
         'none_selected': 'no objective has been confirmed -- confirm the installed objective',
@@ -1864,35 +1864,35 @@ def _offered_words(offered: Iterable[object]) -> str:
 
 @api_fields('argument', 'offered')
 class CatalogNameRefusedError(Refusal, ConfigError):
-    """A labware, objective or scope model name the installation's catalogue does not hold.
+    """A labware, objective or scope model name the installation's catalog does not hold.
 
-    Raised by the catalogue's lookup -- ``Lumascope.plate`` for a plate,
+    Raised by the catalog's lookup -- ``Lumascope.plate`` for a plate,
     ``Lumascope.objective`` for an objective, ``ScopeSession.select_model``'s
     for a scope model -- before anything is stored, so every door that names
     one is refused alike. A scope model is also refused at bring-up when the
-    scope is to be built as a model the catalogue does not list. A
+    scope is to be built as a model the catalog does not list. A
     ``ConfigError``, because the same check reads a stored setting at
     bring-up and the callers that recover from a bad stored name catch that
     type.
 
-    The catalogue is the installation's, fixed for the process, so the same
+    The catalog is the installation's, fixed for the process, so the same
     name is refused every time it is sent.
 
     Attributes:
         reason: ``'labware_unknown'`` -- the labware name is no plate in the
-            labware catalogue. ``'objective_not_in_catalog'`` -- the
-            objective name is no key of the objective catalogue.
-            ``'model_unknown'`` -- the model is none the scope catalogue
+            labware catalog. ``'objective_not_in_catalog'`` -- the
+            objective name is no key of the objective catalog.
+            ``'model_unknown'`` -- the model is none the scope catalog
             lists: with no board naming its own, the model is a scope's
             whole description (its axes, channels and optics), so one the
-            catalogue lacks would bring a scope up with none of them.
+            catalog lacks would bring a scope up with none of them.
         argument: Where the name came from, so the person who gave it can
             find it: the owner's parameter (``labware_id``,
             ``objective_id``, ``model``), or, for a model met at bring-up,
             the stored setting ``microscope`` or the ``simulated`` scope
             ``ScopeSession.create`` was handed.
         value: What was given, as given.
-        offered: The catalogue's keys, in the catalogue's order.
+        offered: The catalog's keys, in the catalog's order.
 
     ``argument`` and ``offered`` are published, so a REST problem carries
     them beside the words. The run's ``ProtocolRunRefusedError`` names the
@@ -1904,17 +1904,17 @@ class CatalogNameRefusedError(Refusal, ConfigError):
     _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
         'labware_unknown': (
             'Labware Not Known',
-            '{argument} must be a plate in the labware catalogue, one of {offered}; '
+            '{argument} must be a plate in the labware catalog, one of {offered}; '
             '{value!r} is not one.',
         ),
         'objective_not_in_catalog': (
             'Objective Not Known',
-            '{argument} must be a key of the objective catalogue, one of {offered}; '
+            '{argument} must be a key of the objective catalog, one of {offered}; '
             '{value!r} is not one.',
         ),
         'model_unknown': (
             'Scope Model Not Known',
-            '{argument} must be a model in the scope catalogue, one of {offered}; '
+            '{argument} must be a model in the scope catalog, one of {offered}; '
             '{value!r} is not one.',
         ),
     }
@@ -3689,7 +3689,7 @@ class AutofocusFailedError(Fault, CaptureError):
 class AutofocusOutOfTravelError(Refusal, CaptureError):
     """An autofocus whose first window reaches past Z's travel, refused before the stage moves.
 
-    The window is centred on where Z stands, so the same autofocus started
+    The window is centered on where Z stands, so the same autofocus started
     further from the travel limit runs. A window the sweep reaches later,
     after the stage has moved, is ``AutofocusFailedError('travel_exhausted')``.
 
@@ -4557,11 +4557,11 @@ class ArgumentRefusedError(Refusal, ValueError):
             - ``'fan_duty_out_of_range'`` -- a fan duty outside 0 to 100
               percent.
             - ``'channel_unknown'`` -- the name is not one of this release's
-              channels (``offered``, the catalogue). Names are exact:
+              channels (``offered``, the catalog). Names are exact:
               ``'bf'`` is not ``'BF'``. A channel this model lacks is a
               name, and is refused as absent hardware, not here.
             - ``'no_channel_selected'`` -- the member needs a channel and was
-              given None (``offered``, the catalogue).
+              given None (``offered``, the catalog).
             - ``'led_address_unknown'`` -- an LED address that is not one of
               the attached LED board's addresses (``offered``). A ``bool`` is
               not an address.
@@ -5198,7 +5198,7 @@ class MoveNotCompletedError(_Umbrella, Exception):
 
 
 class MoveFaultError(Fault, MoveNotCompletedError):
-    """A move failed: the motor may have travelled any part of the way.
+    """A move failed: the motor may have traveled any part of the way.
 
     Attributes:
         reason: ``'driver_failed'`` -- the motor board did not take the

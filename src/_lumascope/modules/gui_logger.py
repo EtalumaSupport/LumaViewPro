@@ -142,7 +142,7 @@ def text_input(name: str, value: object) -> None:
     user acted, and the last thing typed before a freeze or a crash is already
     written.
 
-    A handler that CORRECTS the entry -- a clamp, a sanitiser, a substitution
+    A handler that CORRECTS the entry -- a clamp, a sanitizer, a substitution
     for something unparseable -- records the correction under
     ``<name>_APPLIED``. The pair is the contract, and both halves are needed:
     alone, the first says the user asked for something the app never did, and
@@ -175,7 +175,7 @@ def display(name: str, value: object, *, stage: str | None = None) -> None:
     """Log a change in what the window shows, as it changes.
 
     A press is recorded where the person made it; what the window then shows
-    -- the controls greyed, the homing banner, the title's event text -- is
+    -- the controls grayed, the homing banner, the title's event text -- is
     decided by the app and was in no record, so whether it appeared could only
     be asked of whoever was watching. Recorded only when it differs from the
     last one recorded for ``name``, so a writer that runs on every edge adds a
@@ -255,7 +255,7 @@ def view(zoom: float, image_px: tuple[int, int, int, int]) -> None:
 
     ``image_px`` is (left, top, width, height) in window pixels from the
     window's top left: where a person sees the image after every zoom, pan,
-    Fit, 1:1 and resize, so an image off centre is a number in the record,
+    Fit, 1:1 and resize, so an image off center is a number in the record,
     not a recollection. Recorded only when it differs from the last one, at
     INFO.
     """

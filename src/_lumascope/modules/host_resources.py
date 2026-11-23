@@ -13,7 +13,7 @@ from its ``create`` to its startup motion's end, keeps the reading
 once when anything is past its line.
 
 The lines are one byte count and one percent on every platform: sizes are
-binary gigabytes, labelled GB as Windows' Explorer and Task Manager show
+binary gigabytes, labeled GB as Windows' Explorer and Task Manager show
 them. The GPU is judged on Windows alone, the one platform that types a
 PC's GPUs as integrated and discrete to judge against.
 """

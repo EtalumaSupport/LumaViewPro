@@ -167,7 +167,7 @@ def draw_graph(
 
     Built without pyplot, so no figure is held after its last reference
     goes and two threads can each draw their own. With *x* or *y* None it
-    is the empty frame, labelled, that a graph shows before its axes are
+    is the empty frame, labeled, that a graph shows before its axes are
     chosen.
     """
     figure = Figure()

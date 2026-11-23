@@ -9350,9 +9350,9 @@ The resolved per-unit identity snapshot.
 
 - <a id="ChannelIdentity.channels"></a>`channels`: `tuple[ChannelRecord, ...]` -- The unit's channel records, in the release's order; empty when `source` is `UNRESOLVED`.
 - <a id="ChannelIdentity.filterset"></a>`filterset`: `str` -- The name of the unit's filterset: its board block's `Filterset`, else its model's row's; an empty string where neither names one.
-- <a id="ChannelIdentity.model"></a>`model`: `str | None` -- The scope model the resolver settled on, whichever rung answered: the override, else the model the board reports, else the operator's selection -- the only identity an FX2 scope has, since it cannot report its own. A model the catalogue lacks is still carried: with the stock module's channels, or with none when an override names it; None means there was no model at all. Every reader of "which model is this scope" takes it from here, so the channels, the capabilities and the saved files name one model.
+- <a id="ChannelIdentity.model"></a>`model`: `str | None` -- The scope model the resolver settled on, whichever rung answered: the override, else the model the board reports, else the operator's selection -- the only identity an FX2 scope has, since it cannot report its own. A model the catalog lacks is still carried: with the stock module's channels, or with none when an override names it; None means there was no model at all. Every reader of "which model is this scope" takes it from here, so the channels, the capabilities and the saved files name one model.
 - <a id="ChannelIdentity.model_named_by_board"></a>`model_named_by_board`: `bool` -- Whether the motor board named the model itself, so the board's name outranked the operator's selection: every EL-0940 board answering FULLINFO, the LS720's board, every OEM unit. Such a scope runs as the board's model at every start, whatever is selected. False where the selection decided: a Classic FX2, which has no board to ask, and a simulated scope built as the selection. It describes the board, not an engineering override.
-- <a id="ChannelIdentity.source"></a>`source`: `IdentitySource` -- Which rung answered: `MOTORCONFIG` (the unit's own block, authoritative and complete when present), `SCOPES` (the model's rows, what a pre-block unit of this model has), `STOCK` (the model is one the catalogue does not list, an OEM unit's own name, so the rows are those of the stock optics module, which every OEM unit carries), or `UNRESOLVED` (no block and no model, or an override naming a model the catalogue lacks; empty, and loud at the point of LED use rather than silently wrong here).
+- <a id="ChannelIdentity.source"></a>`source`: `IdentitySource` -- Which rung answered: `MOTORCONFIG` (the unit's own block, authoritative and complete when present), `SCOPES` (the model's rows, what a pre-block unit of this model has), `STOCK` (the model is one the catalog does not list, an OEM unit's own name, so the rows are those of the stock optics module, which every OEM unit carries), or `UNRESOLVED` (no block and no model, or an override naming a model the catalog lacks; empty, and loud at the point of LED use rather than silently wrong here).
 
 <a id="ChannelRecord"></a>
 ## `lumascope.ChannelRecord`
@@ -9364,14 +9364,14 @@ Identity of one channel on one unit.
 
 **Fields**
 
-- <a id="ChannelRecord.background"></a>`background`: `Background` -- Whether the channel's field of view is bright or dark, from its catalogue record.
-- <a id="ChannelRecord.display_color"></a>`display_color`: `str` -- The unit's colour for the channel, `'#rrggbb'`: its board block row's, else the catalogue record's.
+- <a id="ChannelRecord.background"></a>`background`: `Background` -- Whether the channel's field of view is bright or dark, from its catalog record.
+- <a id="ChannelRecord.display_color"></a>`display_color`: `str` -- The unit's color for the channel, `'#rrggbb'`: its board block row's, else the catalog record's.
 - <a id="ChannelRecord.display_name"></a>`display_name`: `str | None` -- The unit's name for the channel, free to change: a rename touches this field and nothing stored. None for a fluorescence channel a board's Channels block names by its excitation alone.
 - <a id="ChannelRecord.excitation_nm"></a>`excitation_nm`: `float | None` -- The excitation wavelength, in nm, and the number a fluorescence key names (`Ex<nm>`). None for broadband transmitted light and for a channel with no LED.
 - <a id="ChannelRecord.key_name"></a>`key_name`: `str` -- The stable name the channel is stored under (settings block keys, the protocol TSV's `Color`, file name tokens, the metadata's `channel`); it never changes when a channel is renamed.
 - <a id="ChannelRecord.label"></a>`label`: `str` -- What the channel is called wherever it is shown or written: a fluorescence channel's excitation (`'405 nm'`), any other channel's `display_name`.
 - <a id="ChannelRecord.led_addresses"></a>`led_addresses`: `tuple[int, ...]` -- The LED board addresses this channel drives, empty for a channel with no LED (luminescence). A tuple because a channel may drive several switches as one; every shipped row carries zero or one. A row in a model's file names them `led_channel`, read into this field by the one row reader.
-- <a id="ChannelRecord.modality"></a>`modality`: `Modality` -- The kind of light the channel images, from its catalogue record (`CatalogChannel`).
+- <a id="ChannelRecord.modality"></a>`modality`: `Modality` -- The kind of light the channel images, from its catalog record (`CatalogChannel`).
 
 <a id="ChannelSettings"></a>
 ## `lumascope.ChannelSettings`
@@ -9996,7 +9996,7 @@ Held in: [`SavedStill.statistics`](#SavedStill.statistics).
 
 What an image's pixel values are, in its own counts.
 
-Over every sample of the array, each colour channel's included, at the
+Over every sample of the array, each color channel's included, at the
 depth it holds: a 12-bit frame's counts run to 4095, a sum's to what it
 reached. Saturation and darkness are the frame record's, measured
 against the frame's full scale by the capture.
@@ -10048,7 +10048,7 @@ Whether one frame counts for one change, and the facts that decided it.
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
 Returned by: [`Lumascope.all_labware`](#Lumascope.all_labware), [`Lumascope.plate`](#Lumascope.plate).
 
-One multi-well plate of the installation's catalogue, read once at bring-up.
+One multi-well plate of the installation's catalog, read once at bring-up.
 
 Plate positions are in mm from the plate's top-left corner.
 
@@ -10056,14 +10056,14 @@ Plate positions are in mm from the plate's top-left corner.
 
 - <a id="Labware.columns"></a>`columns`: `int` -- The number of columns of wells; 0 for a plate with no wells (the Blank labware).
 - <a id="Labware.height_mm"></a>`height_mm`: `float` -- The plate's outline along Y, in mm.
-- <a id="Labware.name"></a>`name`: `str` -- The plate's name, its key in the catalogue.
-- <a id="Labware.offset_x_mm"></a>`offset_x_mm`: `float` -- The X of the first well's centre, in mm.
-- <a id="Labware.offset_y_mm"></a>`offset_y_mm`: `float` -- The Y of the first well's centre, in mm.
+- <a id="Labware.name"></a>`name`: `str` -- The plate's name, its key in the catalog.
+- <a id="Labware.offset_x_mm"></a>`offset_x_mm`: `float` -- The X of the first well's center, in mm.
+- <a id="Labware.offset_y_mm"></a>`offset_y_mm`: `float` -- The Y of the first well's center, in mm.
 - <a id="Labware.rows"></a>`rows`: `int` -- The number of rows of wells; 0 for a plate with no wells (the Blank labware).
-- <a id="Labware.spacing_x_mm"></a>`spacing_x_mm`: `float` -- The pitch between well centres along X, in mm.
-- <a id="Labware.spacing_y_mm"></a>`spacing_y_mm`: `float` -- The pitch between well centres along Y, in mm.
-- <a id="Labware.standard"></a>`standard`: `str` -- The plate standard the catalogue says the plate follows (`ANSI SLAS 2004`); '' where it states none.
-- <a id="Labware.well_diameter_mm"></a>`well_diameter_mm`: `float | None` -- A well's diameter, in mm; None where the catalogue states none.
+- <a id="Labware.spacing_x_mm"></a>`spacing_x_mm`: `float` -- The pitch between well centers along X, in mm.
+- <a id="Labware.spacing_y_mm"></a>`spacing_y_mm`: `float` -- The pitch between well centers along Y, in mm.
+- <a id="Labware.standard"></a>`standard`: `str` -- The plate standard the catalog says the plate follows (`ANSI SLAS 2004`); '' where it states none.
+- <a id="Labware.well_diameter_mm"></a>`well_diameter_mm`: `float | None` -- A well's diameter, in mm; None where the catalog states none.
 - <a id="Labware.width_mm"></a>`width_mm`: `float` -- The plate's outline along X, in mm.
 
 <a id="Labware.well_index"></a>
@@ -10075,10 +10075,10 @@ def well_index(self, x_mm: float, y_mm: float) -> tuple[int, int] | None
 
 Marks: in-process; reads (changes nothing).
 
-The (column, row) of the well centre nearest a plate position, each counted from 0.
+The (column, row) of the well center nearest a plate position, each counted from 0.
 
-None when that centre is outside the grid: the position is more
-than half a pitch beyond the outer well centres, off the plate's
+None when that center is outside the grid: the position is more
+than half a pitch beyond the outer well centers, off the plate's
 wells, or the plate has no wells at all (the Blank labware).
 Within the grid a position names its nearest well whether or not
 it is inside it: the well is judged by the spacing, never the
@@ -10106,7 +10106,7 @@ def well_position(self, i: int, j: int) -> tuple[float, float]
 
 Marks: in-process; reads (changes nothing).
 
-The centre of the well in column `i` and row `j`, in mm from the plate's top-left.
+The center of the well in column `i` and row `j`, in mm from the plate's top-left.
 
 **Args**
 
@@ -10115,7 +10115,7 @@ The centre of the well in column `i` and row `j`, in mm from the plate's top-lef
 
 **Raises**
 
-- `ArgumentRefusedError`: `'well_unknown'`, `i` is not a column or `j` not a row of this plate (every index on a plate with no wells, the Blank labware): a centre computed past the grid is a place no well is.
+- `ArgumentRefusedError`: `'well_unknown'`, `i` is not a column or `j` not a row of this plate (every index on a plate with no wells, the Blank labware): a center computed past the grid is a place no well is.
 
 **Refusals**
 
@@ -10132,7 +10132,7 @@ Marks: in-process; reads (changes nothing).
 
 A well's width and height in mm.
 
-Its diameter both ways, or, where the catalogue states none, its
+Its diameter both ways, or, where the catalog states none, its
 spacing on each axis, so each well fills its place in the grid.
 
 **Raises**
@@ -12046,7 +12046,7 @@ tuple.
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
 Returned by: [`Lumascope.all_scope_models`](#Lumascope.all_scope_models).
 
-One model of the installation's catalogue (`scopes.json`'s `Models`), read once at bring-up.
+One model of the installation's catalog (`scopes.json`'s `Models`), read once at bring-up.
 
 **Fields**
 
@@ -13797,7 +13797,7 @@ replaces were, so a caller catching a bad argument keeps working.
 
 **Attributes**
 
-- `reason`: One of: - `'not_offered'` -- a value of a closed set (a `StrEnum`) that is not one of `offered`: not a member, nor a member's plain string, or a member the taker does not take. Values are exact: `'off'` is not `'Off'`. - `'not_a_number'` -- a number was needed and the value is not a finite one: NaN, an infinity, a `bool` or not a number at all. Every comparison with NaN is False, so a range check alone passes it. - `'plate_frame_axis'` -- a plate coordinate for an axis the plate frame does not define (`offered`: X and Y). - `'well_unknown'` -- a well label the selected plate (`plate`) does not have. - `'out_of_range'` -- a number outside the `limits` its member takes. - `'fan_duty_out_of_range'` -- a fan duty outside 0 to 100 percent. - `'channel_unknown'` -- the name is not one of this release's channels (`offered`, the catalogue). Names are exact: `'bf'` is not `'BF'`. A channel this model lacks is a name, and is refused as absent hardware, not here. - `'no_channel_selected'` -- the member needs a channel and was given None (`offered`, the catalogue). - `'led_address_unknown'` -- an LED address that is not one of the attached LED board's addresses (`offered`). A `bool` is not an address. - `'illumination_out_of_range'` -- an LED current below 0 mA. A current above the attached LED board's maximum is lit at it (`ValueClampedNotice`), not refused. - `'missing_key'` -- a dictionary argument lacks a key its member reads; `argument` names the key's path. - `'wrong_kind'` -- an argument, or a value in a dictionary argument, is not of the kind its member reads (`takes`, in words). - `'protocol_source_ambiguous'` -- not exactly one of the protocol sources `offered` was given. - `'not_a_setting'` -- a dotted path that names no setting. The same fact a write is refused for as `SettingRefusedError('not_a_setting')`; this type says a read asked it. - `'has_member'` -- a dotted path to a setting that has a read of its own, named in `member` by its path from the session, so one setting has one read. - `'needs_simulated_scope'` -- an argument that exists only on a simulated scope, given for a real one. - `'needs_simulated_camera'` -- an argument that exists only on the simulated camera, given for a model simulated with an FX2. - `'needs_simulated_firmware'` -- an argument that exists only on the simulated motor firmware (the `firmware` and `realistic` simulator tiers, on a model with an EL-0940 motor board), given for a simulated scope whose motor board, named in `board`, does not run it. - `'exposure_not_recorded'` -- a frame the simulated camera holds no exposure record for: one it did not deliver, or one older than the records it keeps. - `'not_an_installation'` -- a folder the caller named that holds no settings template, so it is not an LVP installation root. - `'binning_size_invalid'` -- a binning label that is not a positive square `NxN`. - `'fault_unknown'` -- a simulated fault's board, or a device's hardware ID, that is not one of `offered`: sets this scope's boards and this machine's devices decide. - `'fault_bound'` -- a simulated fault's count, fraction or time outside what it takes (`takes`, in words). - `'not_injectable_on_board'` -- a simulated fault the board that would present it cannot produce; `argument` names the `scope.simulation` member, `board` the board. - `'argument_not_on_board'` -- an argument of a simulated fault the board cannot take; `board` names the board, `takes` what it takes for that argument. - `'slot_not_holding_objective'` -- a turret slot given for steps naming an objective the slot does not hold now (`offered`: the slots that hold it). - `'objective_in_several_slots'` -- an objective to turn the turret to that two or more slots hold (`offered`: the slots), so no one slot is meant. - `'objective_not_on_turret'` -- an objective to turn the turret to that no slot holds (`offered`: the objectives the slots hold, in slot order). - `'slot_required'` -- an objective confirmed on a turret scope with no slot named; the confirmation records the glass in a slot. - `'gain_range_inverted'` -- an auto-gain settings dictionary whose `min_gain_db` is above its `max_gain_db`; `value` holds the two. - `'key_unknown'` -- a key a dictionary argument does not take (`offered`: the keys it takes).
+- `reason`: One of: - `'not_offered'` -- a value of a closed set (a `StrEnum`) that is not one of `offered`: not a member, nor a member's plain string, or a member the taker does not take. Values are exact: `'off'` is not `'Off'`. - `'not_a_number'` -- a number was needed and the value is not a finite one: NaN, an infinity, a `bool` or not a number at all. Every comparison with NaN is False, so a range check alone passes it. - `'plate_frame_axis'` -- a plate coordinate for an axis the plate frame does not define (`offered`: X and Y). - `'well_unknown'` -- a well label the selected plate (`plate`) does not have. - `'out_of_range'` -- a number outside the `limits` its member takes. - `'fan_duty_out_of_range'` -- a fan duty outside 0 to 100 percent. - `'channel_unknown'` -- the name is not one of this release's channels (`offered`, the catalog). Names are exact: `'bf'` is not `'BF'`. A channel this model lacks is a name, and is refused as absent hardware, not here. - `'no_channel_selected'` -- the member needs a channel and was given None (`offered`, the catalog). - `'led_address_unknown'` -- an LED address that is not one of the attached LED board's addresses (`offered`). A `bool` is not an address. - `'illumination_out_of_range'` -- an LED current below 0 mA. A current above the attached LED board's maximum is lit at it (`ValueClampedNotice`), not refused. - `'missing_key'` -- a dictionary argument lacks a key its member reads; `argument` names the key's path. - `'wrong_kind'` -- an argument, or a value in a dictionary argument, is not of the kind its member reads (`takes`, in words). - `'protocol_source_ambiguous'` -- not exactly one of the protocol sources `offered` was given. - `'not_a_setting'` -- a dotted path that names no setting. The same fact a write is refused for as `SettingRefusedError('not_a_setting')`; this type says a read asked it. - `'has_member'` -- a dotted path to a setting that has a read of its own, named in `member` by its path from the session, so one setting has one read. - `'needs_simulated_scope'` -- an argument that exists only on a simulated scope, given for a real one. - `'needs_simulated_camera'` -- an argument that exists only on the simulated camera, given for a model simulated with an FX2. - `'needs_simulated_firmware'` -- an argument that exists only on the simulated motor firmware (the `firmware` and `realistic` simulator tiers, on a model with an EL-0940 motor board), given for a simulated scope whose motor board, named in `board`, does not run it. - `'exposure_not_recorded'` -- a frame the simulated camera holds no exposure record for: one it did not deliver, or one older than the records it keeps. - `'not_an_installation'` -- a folder the caller named that holds no settings template, so it is not an LVP installation root. - `'binning_size_invalid'` -- a binning label that is not a positive square `NxN`. - `'fault_unknown'` -- a simulated fault's board, or a device's hardware ID, that is not one of `offered`: sets this scope's boards and this machine's devices decide. - `'fault_bound'` -- a simulated fault's count, fraction or time outside what it takes (`takes`, in words). - `'not_injectable_on_board'` -- a simulated fault the board that would present it cannot produce; `argument` names the `scope.simulation` member, `board` the board. - `'argument_not_on_board'` -- an argument of a simulated fault the board cannot take; `board` names the board, `takes` what it takes for that argument. - `'slot_not_holding_objective'` -- a turret slot given for steps naming an objective the slot does not hold now (`offered`: the slots that hold it). - `'objective_in_several_slots'` -- an objective to turn the turret to that two or more slots hold (`offered`: the slots), so no one slot is meant. - `'objective_not_on_turret'` -- an objective to turn the turret to that no slot holds (`offered`: the objectives the slots hold, in slot order). - `'slot_required'` -- an objective confirmed on a turret scope with no slot named; the confirmation records the glass in a slot. - `'gain_range_inverted'` -- an auto-gain settings dictionary whose `min_gain_db` is above its `max_gain_db`; `value` holds the two. - `'key_unknown'` -- a key a dictionary argument does not take (`offered`: the keys it takes).
 - `argument`: The name of the argument refused.
 - `value`: What was given, as given.
 - `offered`: The values the argument takes, where it takes a list; None otherwise.
@@ -13954,7 +13954,7 @@ A refusal; bases `Refusal`, `CaptureError`.
 
 An autofocus whose first window reaches past Z's travel, refused before the stage moves.
 
-The window is centred on where Z stands, so the same autofocus started
+The window is centered on where Z stands, so the same autofocus started
 further from the travel limit runs. A window the sweep reaches later,
 after the stage has moved, is `AutofocusFailedError('travel_exhausted')`.
 
@@ -14657,26 +14657,26 @@ A still was saved, without its well or position, because X or Y is unknown.
 
 A refusal; bases `Refusal`, `ConfigError`.
 
-A labware, objective or scope model name the installation's catalogue does not hold.
+A labware, objective or scope model name the installation's catalog does not hold.
 
-Raised by the catalogue's lookup -- `Lumascope.plate` for a plate,
+Raised by the catalog's lookup -- `Lumascope.plate` for a plate,
 `Lumascope.objective` for an objective, `ScopeSession.select_model`'s
 for a scope model -- before anything is stored, so every door that names
 one is refused alike. A scope model is also refused at bring-up when the
-scope is to be built as a model the catalogue does not list. A
+scope is to be built as a model the catalog does not list. A
 `ConfigError`, because the same check reads a stored setting at
 bring-up and the callers that recover from a bad stored name catch that
 type.
 
-The catalogue is the installation's, fixed for the process, so the same
+The catalog is the installation's, fixed for the process, so the same
 name is refused every time it is sent.
 
 **Attributes**
 
-- `reason`: `'labware_unknown'` -- the labware name is no plate in the labware catalogue. `'objective_not_in_catalog'` -- the objective name is no key of the objective catalogue. `'model_unknown'` -- the model is none the scope catalogue lists: with no board naming its own, the model is a scope's whole description (its axes, channels and optics), so one the catalogue lacks would bring a scope up with none of them.
+- `reason`: `'labware_unknown'` -- the labware name is no plate in the labware catalog. `'objective_not_in_catalog'` -- the objective name is no key of the objective catalog. `'model_unknown'` -- the model is none the scope catalog lists: with no board naming its own, the model is a scope's whole description (its axes, channels and optics), so one the catalog lacks would bring a scope up with none of them.
 - `argument`: Where the name came from, so the person who gave it can find it: the owner's parameter (`labware_id`, `objective_id`, `model`), or, for a model met at bring-up, the stored setting `microscope` or the `simulated` scope `ScopeSession.create` was handed.
 - `value`: What was given, as given.
-- `offered`: The catalogue's keys, in the catalogue's order.
+- `offered`: The catalog's keys, in the catalog's order.
 
 `argument` and `offered` are published, so a REST problem carries
 them beside the words. The run's `ProtocolRunRefusedError` names the
@@ -14685,7 +14685,7 @@ same fact for a protocol's steps; `argument` is on this type only.
 **Fields**
 
 - <a id="CatalogNameRefusedError.argument"></a>`argument`: `str` -- Where the name came from, so the person who gave it can find it: the owner's parameter (`labware_id`, `objective_id`, `model`), or, for a model met at bring-up, the stored setting `microscope` or the `simulated` scope `ScopeSession.create` was handed.
-- <a id="CatalogNameRefusedError.offered"></a>`offered`: `tuple[str, ...]` -- The catalogue's keys, in the catalogue's order.
+- <a id="CatalogNameRefusedError.offered"></a>`offered`: `tuple[str, ...]` -- The catalog's keys, in the catalog's order.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -14764,7 +14764,7 @@ Saved channel gains, exposures or currents outside this scope's range; each runs
 The saved value is the person's intent and is kept: a camera or an LED
 board that can reach it applies it again. One notice names every capped channel value
 one bring-up found, as `StoredSettingReplacedNotice` names every
-replaced one, since the notification centre shows one notice of a kind
+replaced one, since the notification center shows one notice of a kind
 at a time.
 
 **Attributes**
@@ -15799,7 +15799,7 @@ moved, so no waited move reads itself as arrived.
 
 A fault; bases `Fault`, `MoveNotCompletedError`.
 
-A move failed: the motor may have travelled any part of the way.
+A move failed: the motor may have traveled any part of the way.
 
 **Attributes**
 
@@ -15977,17 +15977,17 @@ On a turreted scope the active objective is the objective assigned to
 the slot in the light path, so it is unknown when the slot is unknown
 (the turret has not been homed or moved since it was last lost), when
 the slot has no assignment, or when its assignment names nothing in
-the objective catalogue. Raised instead of answering with a stored
+the objective catalog. Raised instead of answering with a stored
 objective, because an objective that is not in the light path puts a
 wrong scale into every image it names.
 
 On a scope with no turret it is unknown until a person has confirmed
 the selected objective: the shipped template's, or one put in place of
-a stored one the catalogue does not hold, is not known to be mounted.
+a stored one the catalog does not hold, is not known to be mounted.
 
 **Attributes**
 
-- `reason`: `'slot_unknown'` -- the turret is in no known slot: it has not been homed or moved since its slot was last lost, or a turret command is still under way. The sentence names the two remedies that work in both: wait for the turret, or home the scope. A turret home or move is not one of them, since the motion gate refuses both while any axis has no known position. `'slot_unassigned'` -- the slot in the light path has no objective assigned. `'not_in_catalog'` -- the slot in the light path is assigned an objective that is not in the objective catalogue. `'none_selected'` -- no objective has been confirmed, as on a scope with no turret before a person says which objective is installed.
+- `reason`: `'slot_unknown'` -- the turret is in no known slot: it has not been homed or moved since its slot was last lost, or a turret command is still under way. The sentence names the two remedies that work in both: wait for the turret, or home the scope. A turret home or move is not one of them, since the motion gate refuses both while any axis has no known position. `'slot_unassigned'` -- the slot in the light path has no objective assigned. `'not_in_catalog'` -- the slot in the light path is assigned an objective that is not in the objective catalog. `'none_selected'` -- no objective has been confirmed, as on a scope with no turret before a person says which objective is installed.
 - `slot`: The slot in the light path, or None when that is what is unknown.
 
 | Reason | Cause | REST status |
@@ -17407,7 +17407,7 @@ A notice; bases `Notice`, `Exception`.
 
 Saved settings no write could store, replaced by the shipped values at load.
 
-One notice names every value one load replaced: the notification centre
+One notice names every value one load replaced: the notification center
 shows one notice of a kind at a time, so a notice per value showed the
 first and hid the rest. Each value is replaced for its key alone, in the
 settings the app runs on and so in the file at its next save.

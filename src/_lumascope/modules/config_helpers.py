@@ -331,7 +331,7 @@ def get_current_plate_position(
         AxisMovingError: ``'axis_moving'``, an axis it reads is moving, so
             its number is a place it is passing through.
         CatalogNameRefusedError: ``'labware_unknown'``, ``labware_id``
-            is not a plate the catalogue has. Converting through a different
+            is not a plate the catalog has. Converting through a different
             plate would put every position
             in the wrong frame.
     """
@@ -369,7 +369,7 @@ def kept_plate_position(
         AxisStateUnknownError: ``'position_unknown'``, an axis it reads is
             homing or lost its reference.
         CatalogNameRefusedError: ``'labware_unknown'``, ``labware_id``
-            is not a plate the catalogue has.
+            is not a plate the catalog has.
     """
     # The cable before the reference: with the controller gone every axis
     # is unknown, and the remedy is the cable, not a home.
@@ -1019,7 +1019,7 @@ def camera_max_gain_for_ui(limits: 'CameraSettingLimits | None') -> float | None
     maximum known (no camera, its range unread, or none declared), where a
     slider keeps its own.
 
-    Normalised to the same precision every other gain number in the app
+    Normalized to the same precision every other gain number in the app
     carries. A GenICam float node reports its maximum in continuous units and
     that value can carry a float tail past the last real step -- a 48 dB gain
     node reports 48.00000004350822 -- which the driver publishes raw whenever
@@ -1028,12 +1028,12 @@ def camera_max_gain_for_ui(limits: 'CameraSettingLimits | None') -> float | None
     slider maximum, the ceiling a typed entry is clamped to, and the value
     written into the store when a channel is reconciled down to the cap, so the
     tail reaches current.json and the gain box. This resolver is the one point
-    the whole chain passes through, so it is the one place to normalise it.
+    the whole chain passes through, so it is the one place to normalize it.
 
     The precision comes from the existing owner rather than a number chosen
     here: a second authority on the same quantity could disagree with the
     first. Rounding rather than flooring matches how every other gain value is
-    normalised, and the overshoot it can introduce is orders below the
+    normalized, and the overshoot it can introduce is orders below the
     driver's own short-circuit tolerance, so it cannot produce a request the
     camera treats as a change.
     """
@@ -1163,16 +1163,16 @@ def get_selected_labware_from_settings(
 ) -> tuple[str, object]:
     """The selected plate, as ``(labware_id, wellplate_object)``; never None.
 
-    The id is the catalogue's key for the stored name, so a plate renamed
+    The id is the catalog's key for the stored name, so a plate renamed
     since the settings named it is found under its old spelling.
 
     Raises:
         CatalogNameRefusedError: ``'labware_unknown'``, the settings name
-            a plate the catalogue does not have; ``offered`` carries the
+            a plate the catalog does not have; ``offered`` carries the
             plates it has. No other plate is substituted: a different plate's geometry puts
             every well position in the wrong place while the protocol reads
             as if it ran normally. Bring-up (``ScopeSession.create``)
-            replaces a stored plate the catalogue cannot resolve; this
+            replaces a stored plate the catalog cannot resolve; this
             reader still refuses one in settings no bring-up has read.
     """
     labware_id = wellplate_loader.resolve_plate_key(settings['protocol']['labware'])
@@ -1414,7 +1414,7 @@ def get_standalone_capture_config_from_settings(
     *channel* is a channel of this release: the members that build this
     (``ProtocolRunner.start_autofocus``, ``start_zstack``) judge it at their
     door, before they read the scope. Unjudged, an unknown name would not
-    fail here -- the channel selector below skips what the catalogue lacks
+    fail here -- the channel selector below skips what the catalog lacks
     -- and the run would be refused several steps later as "Protocol has
     no steps", naming a cause that has nothing to do with the mistake.
     """

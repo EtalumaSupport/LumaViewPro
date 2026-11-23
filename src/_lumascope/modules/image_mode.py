@@ -326,7 +326,7 @@ def available_modes() -> list[ImageMode]:
     """The image modes, in selector order: every one, on every camera.
 
     A mode is a save policy -- reduce to 8 bits, or keep the payload at the
-    depth the frame has -- so every camera can honour every mode.
+    depth the frame has -- so every camera can honor every mode.
     """
     return list(ImageMode)
 

@@ -57,10 +57,10 @@ def autofocus_score(
     image: np.ndarray,
     skip_score_logging: bool = False,
 ) -> float:
-    """The score autofocus judges a frame by: its centre quarter's focus score.
+    """The score autofocus judges a frame by: its center quarter's focus score.
 
     Every tool that measures what autofocus sees scores through here, so its
-    numbers are autofocus's own. NaN for a centre with nothing in it, and
+    numbers are autofocus's own. NaN for a center with nothing in it, and
     ``ValueError`` for a frame that is not 8-bit, as ``focus_function``.
     """
     height, width = image.shape

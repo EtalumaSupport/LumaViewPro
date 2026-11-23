@@ -37,10 +37,10 @@ _LABWARE_ALIASES = {
 
 
 def canonical_plate_name(labware_id: object) -> object:
-    """The catalogue spelling of ``labware_id``; a name the table does not
+    """The catalog spelling of ``labware_id``; a name the table does not
     know is returned as given.
 
-    This translates and does not judge: it needs no catalogue, so settings
+    This translates and does not judge: it needs no catalog, so settings
     preparation can call it before any helper exists. Whether the plate
     exists is ``WellPlateLoader.resolve_plate_key``'s question.
     """
@@ -75,7 +75,7 @@ def _above_zero(entry: dict, path: tuple[str, ...], name: str, filepath: pathlib
 
 
 def _read_plate(name: str, entry: object, filepath: pathlib.Path) -> labware.Labware:
-    """The record for one plate of the catalogue, or a refusal naming the file, the plate and the key."""
+    """The record for one plate of the catalog, or a refusal naming the file, the plate and the key."""
     if not isinstance(entry, dict):
         raise InstallationFileError(filepath, f'has a plate {name!r} that is not a plate')
     counts = {}
@@ -143,18 +143,18 @@ class WellPlateLoader:
 
     @property
     def plates(self) -> Mapping[str, labware.Labware]:
-        """The catalogue, by name; read-only, as each record is."""
+        """The catalog, by name; read-only, as each record is."""
         return self._plates
 
     def get_plate_list(self) -> list[str]:
         return list(self._plates)
 
     def resolve_plate_key(self, labware_id: str) -> str:
-        """The catalogue key for ``labware_id``, whatever spelling it arrived in.
+        """The catalog key for ``labware_id``, whatever spelling it arrived in.
 
         Raises:
             CatalogNameRefusedError: ``'labware_unknown'``, ``labware_id``
-                names a plate this catalogue does not have; ``offered``
+                names a plate this catalog does not have; ``offered``
                 carries the plates it has.
         """
         resolved_key = canonical_plate_name(labware_id)

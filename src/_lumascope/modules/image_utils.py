@@ -144,7 +144,7 @@ def fit_frame_to_shape(image: np.ndarray, target_shape: tuple[int, ...]) -> np.n
 class ImageStatistics:
     """What an image's pixel values are, in its own counts.
 
-    Over every sample of the array, each colour channel's included, at the
+    Over every sample of the array, each color channel's included, at the
     depth it holds: a 12-bit frame's counts run to 4095, a sum's to what it
     reached. Saturation and darkness are the frame record's, measured
     against the frame's full scale by the capture.
@@ -1235,7 +1235,7 @@ def read_file_record(path: pathlib.Path) -> dict | None:
     """A saved frame's record, read from its file whatever container holds it.
 
     The one reader of a saved file's record, for every consumer: a shaped
-    (8-bit, colour) or ImageJ (16-bit mono) TIFF's structured block, an OME
+    (8-bit, color) or ImageJ (16-bit mono) TIFF's structured block, an OME
     TIFF's schema attributes with its LVP MapAnnotation, and every recorded
     frame LVP has shipped (v2.3 to v4.0.0-beta30 wrote a flat dict), each
     read into the record's keys (``FILE_FACTS``), so a fact a file states is
@@ -1659,8 +1659,8 @@ def require_uniform_geometry(
 
 
 def stated_fields(**fields) -> dict:
-    """The fields that hold a value: a fact the catalogue or the instrument
-    did not give is absent, never a stand-in. ``''`` is a catalogue's empty
+    """The fields that hold a value: a fact the catalog or the instrument
+    did not give is absent, never a stand-in. ``''`` is a catalog's empty
     entry and states nothing either; a stand-in written into a file reads
     downstream as the instrument's own report."""
     return {key: value for key, value in fields.items() if value is not None and value != ''}
@@ -1686,7 +1686,7 @@ def _instrument_and_plate_blocks(record: dict) -> dict:
     record holds one. The OME container takes the Instrument alone: a schema
     Plate in each file would import into OMERO as a plate per file. Not yet
     rendered: an OME LightSource (LED wavelength and power are not tracked
-    per colour), the Detector's gain and zoom, an OME FilterSet (filter
+    per color), the Detector's gain and zoom, an OME FilterSet (filter
     wheel and dichroic are not tracked).
     """
     objective = record.get('objective') or {}
@@ -1753,7 +1753,7 @@ def build_hyperstack_output_metadata(
         input_records: Every input frame's record, as read_file_record
             read it.
         channel_names: One channel name per C-axis position.
-        channel_colors: Each channel's colour, in ``channel_names``' order.
+        channel_colors: Each channel's color, in ``channel_names``' order.
         plane_positions: Dict with PositionX / PositionY / PositionZ
             lists, one entry per T*Z*C plane in scan order, plus a
             required DeltaT entry: the per-plane seconds from the
@@ -1941,8 +1941,8 @@ def videowriter_color(*, is_color_native: bool = False, **kwargs):
 
 
 def add_false_color(array: np.ndarray, color: Color) -> np.ndarray:
-    """Bake ``color`` into a mono frame at a save boundary; a colour frame,
-    or a grey colour, is returned as it is.
+    """Bake ``color`` into a mono frame at a save boundary; a color frame,
+    or a gray color, is returned as it is.
 
     RGB ordering: index 0=Red, 1=Green, 2=Blue. Matches the canonical
     save-path convention shared with composite_builder. OpenCV consumers
@@ -1986,14 +1986,14 @@ def get_used_color_planes(image) -> list:
 
 def rgb_image_to_gray(image: np.ndarray, baked: bool = False) -> np.ndarray:
     """The mono an image holds: a mono image as it is; an image ``baked``
-    in a channel's colour by its brightest plane; any other colour image by
+    in a channel's color by its brightest plane; any other color image by
     its one populated plane, else by luminance.
 
-    A baked plane is the mono times its weight, and every stored colour has
+    A baked plane is the mono times its weight, and every stored color has
     a full weight on its brightest plane (``channel_record.parse_display_color``),
-    so that plane is the mono whatever the colour was: a magenta image
+    so that plane is the mono whatever the color was: a magenta image
     reads back at full intensity, where luminance reads it about 58% dim,
-    and a build needs no record of the colour a file was baked in.
+    and a build needs no record of the color a file was baked in.
     """
 
     def _is_grayscale(image):
@@ -2021,11 +2021,11 @@ def preview_jpeg(
     *,
     white_bits: int | None = None,
 ) -> bytes:
-    """An image as it is shown, for display only: 8-bit grey JPEG, no wider than *max_width*.
+    """An image as it is shown, for display only: 8-bit gray JPEG, no wider than *max_width*.
 
     Half the image's width when *max_width* is None; never wider than the
     image. ``white_bits`` puts white at one frame's full scale for a sum,
-    as ``convert_to_8bit`` does. A colour image is shown as the mean of its
+    as ``convert_to_8bit`` does. A color image is shown as the mean of its
     channels, which reads the same whichever order the channels came in.
 
     Shrunk before it is converted, so the conversion touches only the pixels
@@ -2096,7 +2096,7 @@ def encode_display_jpg(
 
     Args:
         array: Source image (2D mono, 8/12/16-bit) for one channel.
-        color: The colour the channel is shown in; ``GREY`` for grey.
+        color: The color the channel is shown in; ``GREY`` for gray.
         significant_bits: Payload depth of ``array`` so the 8-bit downconvert
             scales against the real range -- a summed frame is not indexed as
             12-bit (out of range) and a 10-bit frame is not crushed.
@@ -2300,7 +2300,7 @@ def maybe_apply_false_color(
 
     use_false_color_16bit is the resolved decision (the caller passed write_tiff
     a save_encoding; widening is save_encoding == 'rgb'). Already-RGB inputs,
-    8-bit inputs and a grey colour always pass through.
+    8-bit inputs and a gray color always pass through.
     """
     if data.dtype == np.uint16 and use_false_color_16bit:
         return add_false_color(data, color)
@@ -3103,7 +3103,7 @@ def _compute_scale_bar_overlay(
 
     Returns:
         ``(mask, box)``: the bar's and its text's pixels, and the row and column
-        slices of their bounding box, the region the bar's colour is chosen from.
+        slices of their bounding box, the region the bar's color is chosen from.
     """
     # Scale bar should be 1/8 to 1/4 the image length
     min_px = int(width / 8)

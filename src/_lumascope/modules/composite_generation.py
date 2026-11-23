@@ -235,7 +235,7 @@ class CompositeGeneration(ProtocolPostProcessor):
         the app bootstrap, so every headless caller found it None and
         crashed at the threshold lookup. Passing the values in makes the
         headless and GUI paths identical by construction. channel_colors is
-        the colour each channel is added in, handed in for the same reason.
+        the color each channel is added in, handed in for the same reason.
         """
 
         BF_present = False
@@ -409,7 +409,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                 # 'image': None below tells the base class the subclass
                 # has already written.
                 logger.info(
-                    'CompositeGeneration] Channel colours: '
+                    'CompositeGeneration] Channel colors: '
                     + ', '.join(
                         f'{channel} {tuple(round(w, 3) for w in channel.color)}'
                         for channel, channel in channel_images.items()

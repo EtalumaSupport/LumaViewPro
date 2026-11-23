@@ -1,5 +1,5 @@
 # Copyright Etaluma, Inc.
-"""The overlays a still can be saved with: the bullseye colour map and the
+"""The overlays a still can be saved with: the bullseye color map and the
 crosshairs.
 
 They live here, below the GUI, because the saved overlay copy is part of
@@ -68,7 +68,7 @@ def transform_to_bullseye(image: np.ndarray, out: np.ndarray | None = None) -> n
 
 
 def add_crosshairs(image: np.ndarray) -> np.ndarray:
-    """A copy of ``image`` with centre crosshairs and four radiating circles.
+    """A copy of ``image`` with center crosshairs and four radiating circles.
 
     Returns a copy: when no bullseye is drawn first, the input is the raw
     capture itself, and drawing into it would put the overlay into the

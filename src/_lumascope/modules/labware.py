@@ -22,25 +22,25 @@ from _lumascope.modules.api_surface import api, api_fields
 )
 @dataclass(frozen=True)
 class Labware:
-    """One multi-well plate of the installation's catalogue, read once at bring-up.
+    """One multi-well plate of the installation's catalog, read once at bring-up.
 
     Plate positions are in mm from the plate's top-left corner.
 
     Attributes:
-        name: The plate's name, its key in the catalogue.
+        name: The plate's name, its key in the catalog.
         rows: The number of rows of wells; 0 for a plate with no wells
             (the Blank labware).
         columns: The number of columns of wells; 0 for a plate with no
             wells (the Blank labware).
-        spacing_x_mm: The pitch between well centres along X, in mm.
-        spacing_y_mm: The pitch between well centres along Y, in mm.
-        offset_x_mm: The X of the first well's centre, in mm.
-        offset_y_mm: The Y of the first well's centre, in mm.
+        spacing_x_mm: The pitch between well centers along X, in mm.
+        spacing_y_mm: The pitch between well centers along Y, in mm.
+        offset_x_mm: The X of the first well's center, in mm.
+        offset_y_mm: The Y of the first well's center, in mm.
         width_mm: The plate's outline along X, in mm.
         height_mm: The plate's outline along Y, in mm.
         well_diameter_mm: A well's diameter, in mm; None where the
-            catalogue states none.
-        standard: The plate standard the catalogue says the plate follows
+            catalog states none.
+        standard: The plate standard the catalog says the plate follows
             (``ANSI SLAS 2004``); '' where it states none.
     """
 
@@ -61,7 +61,7 @@ class Labware:
     def well_size_mm(self) -> tuple[float, float]:
         """A well's width and height in mm.
 
-        Its diameter both ways, or, where the catalogue states none, its
+        Its diameter both ways, or, where the catalog states none, its
         spacing on each axis, so each well fills its place in the grid.
 
         Raises:
@@ -72,7 +72,7 @@ class Labware:
         return self.well_diameter_mm, self.well_diameter_mm
 
     def get_positions_with_labels(self) -> list[tuple[float, float, str]]:
-        """Every well's centre and label, row by row from the top, each row
+        """Every well's center and label, row by row from the top, each row
         the reverse of the one before so the stage snakes across the plate."""
         positions = []
         for j in range(self.rows):
@@ -86,7 +86,7 @@ class Labware:
     # Get center position of well on plate in mm given its index (i, j)
     @api(in_process=True, reads=True)
     def well_position(self, i: int, j: int) -> tuple[float, float]:
-        """The centre of the well in column ``i`` and row ``j``, in mm from the plate's top-left.
+        """The center of the well in column ``i`` and row ``j``, in mm from the plate's top-left.
 
         Args:
             i: The well's column, counted from 0 at the left.
@@ -95,7 +95,7 @@ class Labware:
         Raises:
             ArgumentRefusedError: ``'well_unknown'``, ``i`` is not a column
                 or ``j`` not a row of this plate (every index on a plate with
-                no wells, the Blank labware): a centre computed past the grid
+                no wells, the Blank labware): a center computed past the grid
                 is a place no well is.
         """
         if not (0 <= i < self.columns and 0 <= j < self.rows):
@@ -108,10 +108,10 @@ class Labware:
 
     @api(in_process=True, reads=True)
     def well_index(self, x_mm: float, y_mm: float) -> tuple[int, int] | None:
-        """The (column, row) of the well centre nearest a plate position, each counted from 0.
+        """The (column, row) of the well center nearest a plate position, each counted from 0.
 
-        None when that centre is outside the grid: the position is more
-        than half a pitch beyond the outer well centres, off the plate's
+        None when that center is outside the grid: the position is more
+        than half a pitch beyond the outer well centers, off the plate's
         wells, or the plate has no wells at all (the Blank labware).
         Within the grid a position names its nearest well whether or not
         it is inside it: the well is judged by the spacing, never the

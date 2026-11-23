@@ -80,21 +80,21 @@ GREY: Color = (1.0, 1.0, 1.0)
 
 
 def parse_display_color(text: object) -> Color:
-    """The red, green and blue weights, each 0 to 1, of a ``'#rrggbb'`` colour.
+    """The red, green and blue weights, each 0 to 1, of a ``'#rrggbb'`` color.
 
-    Lower-case hex digits only: an upper-case colour is refused, so a
-    colour has one stored form. Its brightest component is ``ff``: a
-    channel baked in its colour then keeps the mono whole in its brightest
-    plane, so a build reads it back without knowing the colour it was
-    baked in, which a colour changed since the capture would contradict.
-    How bright a channel is shown is the display range's, not its colour's.
+    Lower-case hex digits only: an upper-case color is refused, so a
+    color has one stored form. Its brightest component is ``ff``: a
+    channel baked in its color then keeps the mono whole in its brightest
+    plane, so a build reads it back without knowing the color it was
+    baked in, which a color changed since the capture would contradict.
+    How bright a channel is shown is the display range's, not its color's.
 
     Raises:
         ValueError: ``text`` is not a ``'#rrggbb'`` string, or its
             brightest component is not ``ff``.
     """
     if not isinstance(text, str) or not _DISPLAY_COLOR.fullmatch(text):
-        raise ValueError(f"{text!r} is not a '#rrggbb' colour")
+        raise ValueError(f"{text!r} is not a '#rrggbb' color")
     color = tuple(int(text[i : i + 2], 16) / 255 for i in (1, 3, 5))
     if max(color) != 1:
         raise ValueError(f'{text!r} is not at full brightness: its brightest component is not ff')
@@ -102,7 +102,7 @@ def parse_display_color(text: object) -> Color:
 
 
 def format_display_color(color: Color) -> str:
-    """The ``'#rrggbb'`` text of a colour, the inverse of ``parse_display_color``:
+    """The ``'#rrggbb'`` text of a color, the inverse of ``parse_display_color``:
     each weight to the nearest of the 256 steps."""
     return '#' + ''.join(f'{round(weight * 255):02x}' for weight in color)
 
@@ -126,12 +126,12 @@ class CatalogChannel:
     where the slider goes to the LED driver's cap. It is the slider's range,
     not the light's limit: the text entry reaches past it, up to what the
     connected board can be asked for.
-    `display_color` is the release's colour for the channel, ``'#rrggbb'``.
+    `display_color` is the release's color for the channel, ``'#rrggbb'``.
     `sim_light_per_ma_s` is the light the simulated cameras render for the
     channel, per mA of LED current and second of exposure at unity gain,
     through an objective of `SIM_LIGHT_MAGNIFICATION`; None for a channel
     with no LED. Each value puts the channel's shipped defaults
-    (`settings.json`) at brightness 1.0, the specimen at its own grey
+    (`settings.json`) at brightness 1.0, the specimen at its own gray
     levels: 1 / (exposure s x linear gain x mA), so BF's 2 ms, 1 dB and
     5 mA give 89.1 and fluorescence's 100 ms, 10 dB and 250 mA 0.0126.
     The defaults are what makes each channel look right on a scope, so they
@@ -170,7 +170,7 @@ class ChannelRecord:
 
     Attributes:
         id: The internal key and the display position, assigned from the
-            release catalogue's order; never stored in any per-unit or user
+            release catalog's order; never stored in any per-unit or user
             file, so it can renumber freely between releases.
         key_name: The stable name the channel is stored under (settings
             block keys, the protocol TSV's ``Color``, file name tokens, the
@@ -188,12 +188,12 @@ class ChannelRecord:
         excitation_nm: The excitation wavelength, in nm, and the number a
             fluorescence key names (``Ex<nm>``). None for broadband
             transmitted light and for a channel with no LED.
-        modality: The kind of light the channel images, from its catalogue
+        modality: The kind of light the channel images, from its catalog
             record (``CatalogChannel``).
         background: Whether the channel's field of view is bright or dark,
-            from its catalogue record.
-        display_color: The unit's colour for the channel, ``'#rrggbb'``: its
-            board block row's, else the catalogue record's.
+            from its catalog record.
+        display_color: The unit's color for the channel, ``'#rrggbb'``: its
+            board block row's, else the catalog record's.
         label: What the channel is called wherever it is shown or written:
             a fluorescence channel's excitation (``'405 nm'``), any other
             channel's ``display_name``.
@@ -268,7 +268,7 @@ class ChannelIdentity:
         model: The scope model the resolver settled on, whichever rung
             answered: the override, else the model the board reports, else
             the operator's selection -- the only identity an FX2 scope has,
-            since it cannot report its own. A model the catalogue lacks is
+            since it cannot report its own. A model the catalog lacks is
             still carried: with the stock module's channels, or with none
             when an override names it; None means there was no model at
             all. Every reader of "which model is this scope" takes it from
@@ -285,10 +285,10 @@ class ChannelIdentity:
         source: Which rung answered: ``MOTORCONFIG`` (the unit's own block,
             authoritative and complete when present), ``SCOPES`` (the
             model's rows, what a pre-block unit of this model has),
-            ``STOCK`` (the model is one the catalogue does not list, an OEM
+            ``STOCK`` (the model is one the catalog does not list, an OEM
             unit's own name, so the rows are those of the stock optics
             module, which every OEM unit carries), or ``UNRESOLVED`` (no
-            block and no model, or an override naming a model the catalogue
+            block and no model, or an override naming a model the catalog
             lacks; empty, and loud at the point of LED use rather than
             silently wrong here).
     """
@@ -398,7 +398,7 @@ _OLD_NAMES_CACHE: tuple[OldChannelName, ...] | None = None
 class OldChannelName:
     """A fluorescence key an earlier release stored, and the LED it meant.
 
-    Earlier releases named the fluorescence channels for their colour, and
+    Earlier releases named the fluorescence channels for their color, and
     every unit that stored one drove it on the same LED address, so the
     address is what an old name means. `stock_key` is the release key of
     the stock filterset's LED on that address: what a stored old name reads
@@ -420,8 +420,8 @@ def refuse_unknown_channel(channel: object, argument: str = 'channel') -> None:
 
     Raises:
         ArgumentRefusedError: ``'no_channel_selected'`` for None,
-            ``'channel_unknown'`` for anything else not in the catalogue;
-            each offers the catalogue.
+            ``'channel_unknown'`` for anything else not in the catalog;
+            each offers the catalog.
     """
     catalog = release_catalog()
     if channel is None:
@@ -447,7 +447,7 @@ def release_catalog() -> tuple[str, ...]:
 
 
 def release_channels() -> tuple[CatalogChannel, ...]:
-    """The release catalogue's records, in display order.
+    """The release catalog's records, in display order.
 
     Read from the installation's own folder, not a scope's: the settings
     bring-up needs it before any scope exists.
@@ -467,7 +467,7 @@ def release_channels() -> tuple[CatalogChannel, ...]:
 def release_old_names() -> tuple[OldChannelName, ...]:
     """The fluorescence keys earlier releases stored, from the release's own file.
 
-    Read from the installation's own folder, as the catalogue is: a stored
+    Read from the installation's own folder, as the catalog is: a stored
     name is read where no scope is known (an old step name, an old run
     folder).
 
@@ -538,7 +538,7 @@ def stored_key(name: object) -> object:
     """The release key a stored channel name reads as where no unit is known.
 
     An old name reads as its stock key, any other name as itself. For a file
-    read with no unit -- post-processing an old run folder: the colour,
+    read with no unit -- post-processing an old run folder: the color,
     modality and settings of its ``Blue`` are the stock key's, and the name
     it is read and written under stays ``Blue``. Nothing measured is ever
     taken from the stock key's record; the file states its own.
@@ -560,7 +560,7 @@ def stored_channel_names() -> tuple[str, ...]:
 
 
 def release_channel(key: object) -> CatalogChannel:
-    """The release catalogue's record for ``key``.
+    """The release catalog's record for ``key``.
 
     Raises:
         ArgumentRefusedError: as ``refuse_unknown_channel``.
@@ -571,10 +571,10 @@ def release_channel(key: object) -> CatalogChannel:
 
 
 def release_color(key: object) -> Color:
-    """The release's colour for the channel ``key`` (``parse_display_color``).
+    """The release's color for the channel ``key`` (``parse_display_color``).
 
-    Every unit's channel of this key has this colour today: a unit's record
-    takes its colour from the release record.
+    Every unit's channel of this key has this color today: a unit's record
+    takes its color from the release record.
 
     Raises:
         ArgumentRefusedError: as ``refuse_unknown_channel``.
@@ -589,16 +589,16 @@ type ChannelColors = Mapping[str, Color]
 
 
 def release_colors() -> dict[str, Color]:
-    """Every release channel's colour, ``release_color`` of each key."""
+    """Every release channel's color, ``release_color`` of each key."""
     return {key: release_color(key) for key in release_catalog()}
 
 
 def output_color(name: object, colors: ChannelColors) -> Color:
-    """The colour an image named for ``name`` is written in: the channel's
-    colour in ``colors``, and ``GREY`` for a composite
+    """The color an image named for ``name`` is written in: the channel's
+    color in ``colors``, and ``GREY`` for a composite
     (``PostFunction.COMPOSITE``), which is RGB and carries its own -- and is
-    grey once collapsed into a stack. A stored old name is its stock key's
-    colour (``stored_key``).
+    gray once collapsed into a stack. A stored old name is its stock key's
+    color (``stored_key``).
 
     Raises:
         ArgumentRefusedError: ``name`` is neither a channel of this release,
@@ -614,11 +614,11 @@ def output_color(name: object, colors: ChannelColors) -> Color:
 
 
 def shown_color(name: object, false_color_on: bool, colors: ChannelColors) -> Color:
-    """The colour an image named for ``name`` is shown in: its
-    ``output_color`` with false colour on, ``GREY`` with it off.
+    """The color an image named for ``name`` is shown in: its
+    ``output_color`` with false color on, ``GREY`` with it off.
 
     Raises:
-        ArgumentRefusedError: as ``output_color``, whether false colour is
+        ArgumentRefusedError: as ``output_color``, whether false color is
             on or off.
     """
     color = output_color(name, colors)
@@ -641,7 +641,7 @@ def _row_fields(modality: Modality) -> tuple[tuple[str, ...], frozenset[str]]:
 
 
 class LedBoardFamily(enum.StrEnum):
-    """The kind of board a model's LEDs are on, as its catalogue row names it.
+    """The kind of board a model's LEDs are on, as its catalog row names it.
 
     An EL-0940 is an LED board of its own; an FX2 drives its scope's camera
     and LEDs both.
@@ -652,7 +652,7 @@ class LedBoardFamily(enum.StrEnum):
 
 
 class MotorBoardFamily(enum.StrEnum):
-    """The kind of board a model's motor axes are on, as its catalogue row names it."""
+    """The kind of board a model's motor axes are on, as its catalog row names it."""
 
     EL_0940 = 'EL-0940'
     TMCM_6110 = 'TMCM-6110'
@@ -671,7 +671,7 @@ class MotorBoardFamily(enum.StrEnum):
 )
 @dataclass(frozen=True)
 class ScopeModel:
-    """One model of the installation's catalogue (``scopes.json``'s ``Models``), read once at bring-up.
+    """One model of the installation's catalog (``scopes.json``'s ``Models``), read once at bring-up.
 
     Attributes:
         id: The model's name, the key the operator selects and a board
@@ -733,11 +733,11 @@ _OPTICS_KEYS = {'PixelSize': 'sensor_pitch_um', 'LensFocalLength': 'lens_focal_l
 
 
 def load_scope_models(data_file: str | None = None) -> Mapping[str, ScopeModel]:
-    """The model catalogue -- scopes.json's `Models` section -- as records, or a refusal.
+    """The model catalog -- scopes.json's `Models` section -- as records, or a refusal.
 
     The scope reads it once, from the folder it was started on, before
     anything is started, and everything else reads the scope's copy. With
-    no catalogue the declared model has no entry, `capabilities.has_turret`
+    no catalog the declared model has no entry, `capabilities.has_turret`
     answers False, and a turret scope whose board did not come up is
     configured as turretless -- answering with its stored objective
     instead of the one in the light path. So an unusable file or a
@@ -764,7 +764,7 @@ def read_scope_models(
 ) -> Mapping[str, ScopeModel]:
     """``scopes_data``'s models as a read-only mapping of records by name, or a refusal naming ``path``.
 
-    Every row is whole or the catalogue is refused: the file ships with the
+    Every row is whole or the catalog is refused: the file ships with the
     release, so a row it cannot read is the release's defect, and read in
     part it would build a scope unlike the hardware (a missing ``Turret``
     makes a turret scope turretless).
@@ -853,20 +853,20 @@ def _scope_model(
 
 
 def model_axes(models: Mapping[str, ScopeModel], model: str, *, argument: str) -> frozenset[str]:
-    """The motor axes the catalogue says a model has, or a refusal.
+    """The motor axes the catalog says a model has, or a refusal.
 
-    A model the catalogue does not list is refused rather than answered
+    A model the catalog does not list is refused rather than answered
     as axis-less: an axis-less answer builds a manual scope, and a typo in
     the model name would then look like a scope with no motor board.
 
     Args:
-        models: The scope's model catalogue.
+        models: The scope's model catalog.
         model: The model to look up.
         argument: Where ``model`` came from, named in the refusal so the
             person who gave it can find it.
 
     Raises:
-        CatalogNameRefusedError: ``'model_unknown'``, the catalogue does
+        CatalogNameRefusedError: ``'model_unknown'``, the catalog does
             not list ``model``.
     """
     entry = models.get(model)
@@ -878,15 +878,15 @@ def model_axes(models: Mapping[str, ScopeModel], model: str, *, argument: str) -
 
 
 def entry_axes(entry: ScopeModel) -> frozenset[str]:
-    """The motor axes one catalogue entry declares. Empty for a manual
+    """The motor axes one catalog entry declares. Empty for a manual
     scope, which has no motor board at all."""
     return frozenset(axis for flag, axes in _AXES_BY_FLAG if getattr(entry, flag) for axis in axes)
 
 
 def entry_expects_motion(entry: ScopeModel | None) -> bool:
-    """Whether a scope with this catalogue entry has a motor board.
+    """Whether a scope with this catalog entry has a motor board.
 
-    No entry expects one: only the catalogue can say a scope is manual,
+    No entry expects one: only the catalog can say a scope is manual,
     and answering "manual" for a model it does not list would let a
     motorized scope's missing board pass as expected.
     """
@@ -896,9 +896,9 @@ def entry_expects_motion(entry: ScopeModel | None) -> bool:
 def load_channel_catalog(scopes_data: dict, path: str | os.PathLike) -> tuple[CatalogChannel, ...]:
     """The release's channel records, in display order, or a refusal naming ``path``.
 
-    The catalogue is the single authored order: a channel's id IS its
+    The catalog is the single authored order: a channel's id IS its
     position here, and every identity row (model or per-unit block) must
-    name a catalogued key to resolve. Deriving the order from the
+    name a cataloged key to resolve. Deriving the order from the
     per-model row lists instead would make id assignment depend on which
     model happens to be listed first, so the order is stated once. An
     empty vocabulary would let the settings check pass with no channels to
@@ -985,13 +985,13 @@ def _record(
 
     One reading of a row for both sources, the model's rows and a board's
     Channels block: the LED address, the excitation, the name, and an
-    optional colour. A fluorescence channel is labelled by its excitation,
-    so it must carry one and needs no name; any other channel is labelled by
+    optional color. A fluorescence channel is labeled by its excitation,
+    so it must carry one and needs no name; any other channel is labeled by
     its name. A fluorescence key is named for its excitation (``Ex<nm>``) and
     states that excitation a second time, so a row whose ``excitation_nm`` is
-    another describes no channel. A row's colour is held to the one stored
+    another describes no channel. A row's color is held to the one stored
     form and full brightness (`parse_display_color`); without one the
-    channel takes the catalogue's.
+    channel takes the catalog's.
     """
     raw_addresses = row.get('led_channel')
     if raw_addresses is None:
@@ -1068,8 +1068,8 @@ def _model_channels(
     Every row is whole or the model is refused, as its entry is: a row
     whose key is not in the release's vocabulary, that misses a field or
     carries an undeclared one, that ``_record`` cannot read, or that shares
-    an LED address with another. Each record takes its key's catalogue
-    fields from ``catalogue``. A row keyed by an old name's stock key sits
+    an LED address with another. Each record takes its key's catalog
+    fields from ``catalog``. A row keyed by an old name's stock key sits
     on that old name's address: a unit of the model stored its old name for
     that LED, and on any other address its old data would light another.
     """
@@ -1111,7 +1111,7 @@ def _model_channels(
 def _parse_channel_block(
     channels: object, catalog: tuple[CatalogChannel, ...], report: Callable[[Notice], None]
 ) -> tuple[ChannelRecord, ...]:
-    """Parse a board's Channels block: a mapping from catalogue key to its row.
+    """Parse a board's Channels block: a mapping from catalog key to its row.
 
     A row this release cannot read costs that row, and every such row is
     reported in one notice: a block is the unit's, written by a release
@@ -1164,7 +1164,7 @@ def resolve_channel_identity(
     hardware that does not exist); else the model's
     `scopes.json` rows, with the motor-reported model outranking the
     configured one because hardware truth beats a user selection; else,
-    for a model the catalogue does not list, the stock optics module's
+    for a model the catalog does not list, the stock optics module's
     rows (`stock`); else, with no model at all, the empty `unresolved`
     snapshot. Whichever rung answers, the snapshot
     carries the model the resolver settled on (`ChannelIdentity.model`).
@@ -1179,8 +1179,8 @@ def resolve_channel_identity(
     Channels, resolves from its model, reported through ``report``; so are
     the board block's skipped rows and an unusable block.
 
-    Reads nothing: ``models`` is the scope's model catalogue and
-    ``catalogue`` the release's channel records, each read once by its
+    Reads nothing: ``models`` is the scope's model catalog and
+    ``catalog`` the release's channel records, each read once by its
     owner, so rows are resolved against the one vocabulary every channel
     list in the process uses.
 
