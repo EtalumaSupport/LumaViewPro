@@ -2928,8 +2928,8 @@ class FX2Camera(Camera):
         leaves it; this is the nearest such value to the centered start, the
         lower of two equally near.
         """
-        centred = (2592 - column_size) // 2 + 16
-        return ((centred + 1) // 4) * 4
+        centered = (2592 - column_size) // 2 + 16
+        return ((centered + 1) // 4) * 4
 
     @staticmethod
     def _row_start(h: int) -> int:

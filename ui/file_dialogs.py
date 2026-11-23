@@ -103,7 +103,7 @@ def _macos_type_identifiers(extensions):
     """macOS's type identifier for each file extension ('json' -> 'public.json').
 
     `choose file of type` takes type identifiers, not extensions: given a bare
-    "json" it greys out every .json file. macOS names each identifier, so no
+    "json" it grays out every .json file. macOS names each identifier, so no
     table of them is kept here; an extension it does not know gets a dynamic
     identifier that still matches files by that extension. The lookup is its
     own script: the dialog script stays plain AppleScript.

@@ -64,8 +64,8 @@ def autofocus_score(
     ``ValueError`` for a frame that is not 8-bit, as ``focus_function``.
     """
     height, width = image.shape
-    centre = image[height // 4 : 3 * height // 4, width // 4 : 3 * width // 4]
-    return focus_function(image=centre, skip_score_logging=skip_score_logging)
+    center = image[height // 4 : 3 * height // 4, width // 4 : 3 * width // 4]
+    return focus_function(image=center, skip_score_logging=skip_score_logging)
 
 
 def focus_function(

@@ -55,8 +55,8 @@ class ContrastStretcher:
         if range_val_avg < _MIN_RANGE:
             # Capped: the window sits on the frame's centre, held inside
             # 0-255, so a dark frame stays dark and a saturated one bright.
-            centre = min_val_avg + range_val_avg / 2
-            min_val_avg = min(max(centre - _MIN_RANGE / 2, 0.0), 255.0 - _MIN_RANGE)
+            center = min_val_avg + range_val_avg / 2
+            min_val_avg = min(max(center - _MIN_RANGE / 2, 0.0), 255.0 - _MIN_RANGE)
             range_val_avg = _MIN_RANGE
 
         # Build a 256-entry uint8 LUT: avoids all per-pixel float math and

@@ -43,7 +43,7 @@ hardware lane, and of every member that writes a setting, a protocol file
 or a recording's pending frames, each a guarded write
 (``activity_claim.guarded_write``). The display preferences (``settings_paths.PREFERENCES``)
 are written by anyone; a support report and a logs zip are made by anyone,
-since each writes a support artefact and changes no scope state; and a
+since each writes a support artifact and changes no scope state; and a
 post-processing build is open to anyone, though refused while the scope's
 own work needs the host. A member that enters a hardware lane, a guarded
 write or a post-processing build's admission says so in its mark,

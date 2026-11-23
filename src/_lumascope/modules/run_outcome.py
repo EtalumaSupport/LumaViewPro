@@ -156,7 +156,7 @@ class RunEnding:
             reason's, from ``ENDING_TITLES``.
         message: The sentence a user reads. Never a raw exception
             string -- those go to the log, not into a field a remote
-            caller serialises.
+            caller serializes.
         unconnected_parts: The boards found disconnected, for a
             ``'hardware_disconnected'`` ending, which always names at least
             one; empty for every other ending.

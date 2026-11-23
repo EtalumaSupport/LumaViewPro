@@ -14,7 +14,7 @@ class HomingBanner(BoxLayout):
 
     The arc turns only while the banner is shown, so a hidden banner costs
     no frames. ``active`` is bound to the app's ``homing`` mirror, written on
-    the run-state edge that greys and frees the controls.
+    the run-state edge that grays and frees the controls.
     """
 
     active = BooleanProperty(False)

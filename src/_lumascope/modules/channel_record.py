@@ -302,7 +302,7 @@ class ChannelIdentity:
     def find(self, key_name: str) -> ChannelRecord | None:
         """Return the channel whose stable key name matches, else None.
 
-        The deserialisation boundary: a name arriving from disk or from
+        The deserialization boundary: a name arriving from disk or from
         an API caller is mapped to its record exactly once, here.
 
         Args:

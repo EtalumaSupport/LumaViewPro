@@ -100,11 +100,11 @@ class _PeriodicTimer:
         self._on_error = on_error
         self._name = name
         self._timer: threading.Timer | None = None
-        self._cancelled = threading.Event()
+        self._canceled = threading.Event()
         self._lock = threading.Lock()
 
     def _tick(self):
-        if self._cancelled.is_set():
+        if self._canceled.is_set():
             return
         try:
             self._callback()
@@ -121,12 +121,12 @@ class _PeriodicTimer:
                     logger.exception(f'[Scheduler ] on_error callback failed while handling: {e}')
         finally:
             # Re-arm only if not cancelled while we were running.
-            if not self._cancelled.is_set():
+            if not self._canceled.is_set():
                 self._arm()
 
     def _arm(self):
         with self._lock:
-            if self._cancelled.is_set():
+            if self._canceled.is_set():
                 return
             self._timer = threading.Timer(self._interval_s, self._tick)
             self._timer.daemon = True
@@ -137,8 +137,8 @@ class _PeriodicTimer:
         self._arm()
         return self  # Returning self so the scheduler can use it as the handle.
 
-    def cancel(self):
-        self._cancelled.set()
+    def cancel(self) -> None:
+        self._canceled.set()
         with self._lock:
             t = self._timer
             self._timer = None

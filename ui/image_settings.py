@@ -156,9 +156,9 @@ class ImageSettings(BoxLayout):
             control.exposure_summing_support = luminescence
             control.autogain_support = not luminescence
             # Transmitted light has no colour to tint or composite.
-            coloured = record.modality != channel_record.Modality.TRANSMITTED
-            control.false_color_support = coloured
-            control.show_cbt = coloured
+            colored = record.modality != channel_record.Modality.TRANSMITTED
+            control.false_color_support = colored
+            control.show_cbt = colored
         self._shown_channels = frozenset(records)
         self._resort_accordion()
 

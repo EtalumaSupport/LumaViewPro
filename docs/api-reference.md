@@ -1304,7 +1304,7 @@ Route: `GET /api/v1/held_by_other`.
 
 Whether the scope is held by anything but *run*, the operation a run member returned.
 
-What a run control greys on while leaving its own run's Stop live
+What a run control grays on while leaving its own run's Stop live
 (`live_work` names what holds the scope).
 
 **Args**

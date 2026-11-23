@@ -269,13 +269,13 @@ class Specimen:
         # there, whatever order a tile meets them in. One polygon a call:
         # cv2 fills a list of polygons by parity, which would cut a hole
         # where two overlap.
-        for parts, grey in (
+        for parts, gray in (
             (outlines(rx, ry), 150),
             (outlines(rx - membrane, ry - membrane), 85),
             (outlines(nucleus_x, nucleus_y), 175),
         ):
             for outline in parts:
-                cv2.fillPoly(canvas, [outline], grey, cv2.LINE_8, _SHIFT_BITS)
+                cv2.fillPoly(canvas, [outline], gray, cv2.LINE_8, _SHIFT_BITS)
         # A punctum is a pixel's size at every scale: the brightest parts a
         # layer at its shipped settings shows.
         for point in fixed(puncta[:, 0], puncta[:, 1]):
@@ -351,7 +351,7 @@ _RONCHI_BAR = round(_RONCHI_GAP * (1 - 0.9) / (1 + 0.9))
 # the 40x (22.4) and above it on the 10x, as the LS850T's Ronchi read on the
 # bench (116.5 on the 10x, 72.7 on the 20x, 31.5 on the 40x): any mean from
 # 1.437 to 1.796 keeps both in the band, and this is their geometric middle.
-_RONCHI_MEAN_GREY = 1.607
+_RONCHI_MEAN_GRAY = 1.607
 
 
 class Ronchi:
@@ -367,7 +367,7 @@ class Ronchi:
     pitch, so its mean gray, and the light it passes, are the same at every pitch.
     """
 
-    transmittance = _RONCHI_MEAN_GREY / ((_RONCHI_GAP + _RONCHI_BAR) / 2)
+    transmittance = _RONCHI_MEAN_GRAY / ((_RONCHI_GAP + _RONCHI_BAR) / 2)
 
     def __init__(self, ruling: RonchiRuling) -> None:
         self._period_um = ruling.period_um

@@ -2635,8 +2635,8 @@ class SequencedCaptureRunner:
     def held_by_other(self, run: Operation | None) -> bool:
         """Whether the scope is held by anything but *run* -- the operation a start() returned.
 
-        What a run control greys on: anything else holding the scope --
-        another run, a recording, a diagnostic, a home -- greys it, and its own run
+        What a run control grays on: anything else holding the scope --
+        another run, a recording, a diagnostic, a home -- grays it, and its own run
         leaves it live as that run's Stop. None asks whether anything holds
         it at all. Decided in one read under the run lock, so the
         answer never pairs one run's liveness with another's hold.
