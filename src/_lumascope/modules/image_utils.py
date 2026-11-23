@@ -682,6 +682,26 @@ def _unreadable(path: pathlib.Path, detail: str = '') -> InputFramesUnusableErro
     )
 
 
+def _refused_by_the_system(path: pathlib.Path, ex: OSError) -> InputFramesUnusableError:
+    """The unreadable refusal for a file the system would not read, in the system's words."""
+    return _unreadable(
+        path, 'no such file' if isinstance(ex, FileNotFoundError) else ex.strerror or str(ex)
+    )
+
+
+def _refuse_unless_present(path: pathlib.Path) -> None:
+    """Refuse a non-TIFF file the system cannot reach, as a TIFF's open does.
+
+    Its decoder answers a missing or locked file with no reason, and a file
+    in a folder the system will not search makes ``Path.exists`` itself
+    raise, so the file is asked after once, here.
+    """
+    try:
+        path.stat()
+    except OSError as ex:
+        raise _refused_by_the_system(path, ex) from ex
+
+
 @contextlib.contextmanager
 def _open_saved_tiff(path: pathlib.Path):
     """Open a saved TIFF whose first page can be decoded, or raise InputFramesUnusableError.
@@ -694,21 +714,32 @@ def _open_saved_tiff(path: pathlib.Path):
     undecodable file -- a ValueError, which is what their callers catch to
     skip it -- so every such state is raised as that, naming the file, with
     tifffile's own error chained.
+
+    A file the system will not read is the same refusal, in the system's
+    words: one that is not there, one it will not open (a permission, or a
+    folder it will not search), and a read through the open file that fails
+    (a disk error). Every read of a saved TIFF comes through here, so an
+    OSError that leaves a reader is never its input's.
     """
     try:
         tif = tf.TiffFile(str(path))
+    except OSError as ex:
+        raise _refused_by_the_system(path, ex) from ex
     except struct.error as ex:
         raise _unreadable(path) from ex
     except ValueError as ex:
         raise _unreadable(path, str(ex)) from ex
-    with tif:
-        try:
-            page = tif.pages[0]
-        except IndexError as ex:
-            raise _unreadable(path, 'it has no page') from ex
-        if page.dtype is None:
-            raise _unreadable(path, 'its first page has no pixel type')
-        yield tif
+    try:
+        with tif:
+            try:
+                page = tif.pages[0]
+            except IndexError as ex:
+                raise _unreadable(path, 'it has no page') from ex
+            if page.dtype is None:
+                raise _unreadable(path, 'its first page has no pixel type')
+            yield tif
+    except OSError as ex:
+        raise _refused_by_the_system(path, ex) from ex
 
 
 def _significant_bits_from_open(tif: 'tf.TiffFile', path: pathlib.Path) -> int:
@@ -810,8 +841,9 @@ def load_pixels(
         and renders at its depth.
 
     Raises:
-        InputFramesUnusableError: ``'unreadable'``, the path does not exist
-            or the file cannot be decoded as an image (a ValueError).
+        InputFramesUnusableError: ``'unreadable'``, the path does not exist,
+            the system will not read it, or the file cannot be decoded as an
+            image (a ValueError).
     """
     image, sig, white, _ = _load_pixels_and_timestamp(
         path,
@@ -842,7 +874,11 @@ def load_pixels_with_timestamp(
 
     Returns:
         (image, significant_bits, white_bits, timestamp). timestamp is None
-        when the file carries no readable per-frame capture time.
+        when the file states no per-frame capture time.
+
+    Raises:
+        InputFramesUnusableError: ``'unreadable'``, as load_pixels, and for a
+            record that does not parse, as read_file_record.
     """
     return _load_pixels_and_timestamp(
         path,
@@ -862,12 +898,10 @@ def _load_pixels_and_timestamp(
     Keeps a single source of truth for the pixel + depth read so the two public
     entry points cannot drift. When read_timestamp is True the per-frame capture
     time is recovered from the same open TIFF handle, so no caller opens a file
-    twice. A timestamp read that fails leaves the pixels intact: the frame still
-    loads, the overlay just falls back to its caller-supplied time.
+    twice. A file whose record does not parse is refused as unreadable, as
+    read_file_record refuses it: a broken record is one answer, whoever reads it.
     """
     path = pathlib.Path(path)
-    if not path.exists():
-        raise _unreadable(path, 'no such file')
 
     if is_tiff(path):
         # One open serves every read: the pixel array, the significant-bit depth,
@@ -887,7 +921,7 @@ def _load_pixels_and_timestamp(
             sig = _significant_bits_from_open(tif, path)
             white = _white_bits_from_open(tif, path, sig)
             if read_timestamp:
-                timestamp = stated_frame_time(_record_from_open(tif))
+                timestamp = stated_frame_time(_record_from_open(tif, path))
         if collapse_legacy_false_color:
             image = _collapse_legacy_false_color(image, path)
         # Debug (not info): load_pixels runs per-tile in stitch/zproject, so this
@@ -904,6 +938,7 @@ def _load_pixels_and_timestamp(
     # depth, and no per-frame timestamp metadata to recover. cv2 returns color
     # files in BGR channel order; the depth-sensitive payloads are mono, where
     # channel order is moot.
+    _refuse_unless_present(path)
     image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
     if image is None:
         raise _unreadable(path)
@@ -940,12 +975,11 @@ def read_image_geometry(path: pathlib.Path) -> tuple[tuple[int, ...], np.dtype]:
         (shape, dtype) of the stored array.
 
     Raises:
-        InputFramesUnusableError: ``'unreadable'``, the path does not exist
-            or the file cannot be decoded as an image (a ValueError).
+        InputFramesUnusableError: ``'unreadable'``, the path does not exist,
+            the system will not read it, or the file cannot be decoded as an
+            image (a ValueError).
     """
     path = pathlib.Path(path)
-    if not path.exists():
-        raise _unreadable(path, 'no such file')
     if is_tiff(path):
         with _open_saved_tiff(path) as tif:
             page = tif.pages[0]
@@ -1248,16 +1282,17 @@ def read_file_record(path: pathlib.Path) -> dict | None:
         file does not state reads back as ``pixel_size_um`` None.
 
     Raises:
-        InputFramesUnusableError: ``'unreadable'``, the path does not exist
-            or the file cannot be opened or decoded (a ValueError).
+        InputFramesUnusableError: ``'unreadable'``, the path does not exist,
+            the file cannot be opened or decoded (a ValueError), or its
+            record states a fact that does not parse (a time that is no
+            time, a scale that is no number).
     """
     path = pathlib.Path(path)
-    if not path.exists():
-        raise _unreadable(path, 'no such file')
     if not is_tiff(path):
+        _refuse_unless_present(path)
         return None
     with _open_saved_tiff(path) as tif:
-        return _record_from_open(tif)
+        return _record_from_open(tif, path)
 
 
 def is_ome_tiff(path: pathlib.Path | str) -> bool:
@@ -1292,21 +1327,29 @@ def derived_file_format(paths: Iterable[pathlib.Path | str]) -> image_mode.Outpu
     return image_mode.OutputFormat.TIFF
 
 
-def _record_from_open(tif: 'tf.TiffFile') -> dict | None:
+def _record_from_open(tif: 'tf.TiffFile', path: pathlib.Path) -> dict | None:
     """The record one open TIFF states, or None when it states none.
 
     Split out from read_file_record so a reader that decodes the pixels reads
     the record from the same handle instead of opening the file twice.
+
+    A record stating a fact that does not parse is broken, not silent: it is
+    refused as unreadable, so a record this returns is one whose time
+    ``stated_frame_time`` can read.
     """
-    structured = _structured_metadata(tif)
-    if structured is not None and 'Plane' in structured:
-        record = _structured_record(structured)
-    elif structured is not None:
-        record = _legacy_frame_record(structured)
-    elif tif.ome_metadata:
-        record = _read_ome_input_metadata(tif.ome_metadata)
-    else:
-        record = None
+    try:
+        structured = _structured_metadata(tif)
+        if structured is not None and 'Plane' in structured:
+            record = _structured_record(structured)
+        elif structured is not None:
+            record = _legacy_frame_record(structured)
+        elif tif.ome_metadata:
+            record = _read_ome_input_metadata(tif.ome_metadata)
+        else:
+            record = None
+        stated_frame_time(record)
+    except ValueError as ex:
+        raise _unreadable(path, f'its record does not parse: {ex}') from ex
     tag = tif.pages[0].tags.get('DateTime')
     if record is not None and 'datetime' not in record and tag is not None:
         stated = _parsed_tiff_datetime(tag.value)
@@ -1501,7 +1544,7 @@ def read_tiff_depth_and_record(path: pathlib.Path) -> tuple[int, dict | None]:
     stated_frame_time gives the record's capture time.
     """
     with _open_saved_tiff(path) as tif:
-        return _significant_bits_from_open(tif, path), _record_from_open(tif)
+        return _significant_bits_from_open(tif, path), _record_from_open(tif, path)
 
 
 def agreed_facts(records: Iterable[dict | None]) -> dict:

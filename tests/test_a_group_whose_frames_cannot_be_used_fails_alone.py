@@ -17,7 +17,11 @@ group, not a recorded file that does not exist.
 from __future__ import annotations
 
 import datetime
+import errno
+import os
 import pathlib
+import sys
+from typing import ClassVar
 
 import numpy as np
 import pandas as pd
@@ -73,6 +77,25 @@ def _write_frame(path: pathlib.Path, *, x: float, seed: int, size: int = 256) ->
 def _truncate(path: pathlib.Path) -> None:
     with open(path, 'r+b') as f:
         f.truncate(path.stat().st_size // 2)
+
+
+_MODES_BIND = pytest.mark.skipif(
+    sys.platform == 'win32' or os.geteuid() == 0,
+    reason='a file mode binds neither on Windows nor for root',
+)
+
+
+def _a_disk_that_fails_reading(monkeypatch, name: str) -> None:
+    """Every read of the pixels of the file called *name* fails as a failing disk does."""
+    # a stand-in by design: a disk read error, which no folder in a test produces
+    real_asarray = tf.TiffFile.asarray
+
+    def asarray(self, *args, **kwargs):
+        if pathlib.Path(self.filehandle.path).name == name:
+            raise OSError(errno.EIO, 'Input/output error')
+        return real_asarray(self, *args, **kwargs)
+
+    monkeypatch.setattr(tf.TiffFile, 'asarray', asarray)
 
 
 def _run_folder(tmp_path, frames: list[dict]) -> pathlib.Path:
@@ -183,16 +206,79 @@ class TestTheReader:
         assert refused.value.reason == 'unreadable'
         assert 'cut.tiff' in str(refused.value)
 
-    def test_a_missing_frame_is_refused_naming_it(self, tmp_path):
+    _EVERY_READER: ClassVar[dict] = {
+        'load_pixels': image_utils.load_pixels,
+        'load_pixels_with_timestamp': image_utils.load_pixels_with_timestamp,
+        'read_file_record': image_utils.read_file_record,
+        'read_image_geometry': image_utils.read_image_geometry,
+        'read_tiff_significant_bits': image_utils.read_tiff_significant_bits,
+        'read_tiff_depth_and_record': image_utils.read_tiff_depth_and_record,
+    }
+
+    @classmethod
+    def _misread(cls, path: pathlib.Path, words: str) -> list[str]:
+        """Each reader that does not refuse *path* as unreadable, naming it, in *words*."""
+        misread = []
+        for name, read in cls._EVERY_READER.items():
+            try:
+                read(path)
+            except InputFramesUnusableError as refused:
+                told = str(refused)
+                if refused.reason != 'unreadable' or path.name not in told or words not in told:
+                    misread.append(f'{name}: {refused.reason}: {told}')
+                elif '[Errno' in told:
+                    misread.append(f"{name}: in Python's rendering: {told}")
+            except Exception as other:  # the answer under test, recorded
+                misread.append(f'{name}: raised {type(other).__name__}: {other}')
+            else:
+                misread.append(f'{name}: read it')
+        return misread
+
+    @_MODES_BIND
+    def test_a_file_the_system_will_not_open_is_refused_by_every_reader_in_its_words(
+        self, tmp_path
+    ):
+        # A folder the system will not search makes even asking whether the
+        # file is there fail, as opening it does.
+        locked = tmp_path / 'locked.tiff'
+        _write_frame(locked, x=1.0, seed=0)
+        shut = tmp_path / 'shut'
+        shut.mkdir()
+        inside = shut / 'inside.tiff'
+        _write_frame(inside, x=1.0, seed=1)
+        locked.chmod(0)
+        shut.chmod(0)
+        try:
+            misread = self._misread(locked, 'Permission denied') + self._misread(
+                inside, 'Permission denied'
+            )
+        finally:
+            shut.chmod(0o700)
+            locked.chmod(0o600)
+
+        assert misread == []
+
+    def test_a_missing_file_is_refused_by_every_reader_as_no_such_file(self, tmp_path):
+        assert self._misread(tmp_path / 'gone.tiff', 'no such file') == []
+
+    def test_a_disk_that_fails_part_way_through_a_read_is_refused_naming_the_file(
+        self, tmp_path, monkeypatch
+    ):
+        frame = tmp_path / 'failing.tiff'
+        _write_frame(frame, x=1.0, seed=0)
+        _a_disk_that_fails_reading(monkeypatch, frame.name)
+
         with pytest.raises(InputFramesUnusableError) as refused:
-            image_utils.read_image_geometry(tmp_path / 'gone.tiff')
+            image_utils.load_pixels(frame)
 
         assert refused.value.reason == 'unreadable'
-        assert 'gone.tiff' in str(refused.value)
+        assert frame.name in str(refused.value)
+        assert 'Input/output error' in str(refused.value)
 
 
-# parametrize-justified: each case is a different builder over its own folder shape
-@pytest.mark.parametrize(
+# Each builder over its own folder shape, with the frame it is given that the
+# test damages.
+_EACH_BUILDER = pytest.mark.parametrize(
     ('folder_of', 'bad_frame', 'build'),
     [
         (_z_stacks, 'A1_BF_Z1_0000.tiff', lambda f: ZProjector(has_turret=False).load_folder(
@@ -204,6 +290,10 @@ class TestTheReader:
     ],
     ids=['z-projection', 'hyperstack', 'stitch'],
 )  # fmt: skip
+
+
+# parametrize-justified: each case is a different builder over its own folder shape
+@_EACH_BUILDER
 def test_a_frame_cut_short_fails_its_group_and_the_others_are_built(
     tmp_path, folder_of, bad_frame, build
 ):
@@ -214,6 +304,43 @@ def test_a_frame_cut_short_fails_its_group_and_the_others_are_built(
         build(folder)
 
     assert bad_frame in str(incomplete.value)
+    made = _outputs(folder)
+    assert any(name.startswith('A2') for name in made), made
+    assert not any(name.startswith('A1') for name in made), made
+
+
+# parametrize-justified: each case is a different builder over its own folder shape
+@_MODES_BIND
+@_EACH_BUILDER
+def test_a_frame_the_system_will_not_open_fails_its_group_and_the_others_are_built(
+    tmp_path, folder_of, bad_frame, build
+):
+    folder = folder_of(tmp_path)
+    (folder / bad_frame).chmod(0)
+
+    with pytest.raises(PostProcessingFailedError) as incomplete:
+        build(folder)
+
+    assert bad_frame in str(incomplete.value)
+    assert 'Permission denied' in str(incomplete.value)
+    made = _outputs(folder)
+    assert any(name.startswith('A2') for name in made), made
+    assert not any(name.startswith('A1') for name in made), made
+
+
+def test_a_hyperstack_plane_the_disk_fails_to_read_during_the_write_fails_its_group(
+    tmp_path, monkeypatch
+):
+    # The planes are read inside the stack's write, so the failure must be
+    # told as the input's, not the output's.
+    folder = _z_stacks(tmp_path)
+    _a_disk_that_fails_reading(monkeypatch, 'A1_BF_Z1_0000.tiff')
+
+    with pytest.raises(PostProcessingFailedError) as incomplete:
+        _hyperstack(folder)
+
+    told = str(incomplete.value)
+    assert 'A1_BF_Z1_0000.tiff' in told and 'Input/output error' in told, told
     made = _outputs(folder)
     assert any(name.startswith('A2') for name in made), made
     assert not any(name.startswith('A1') for name in made), made
@@ -346,7 +473,20 @@ def test_a_custom_steps_refusal_names_no_well(tmp_path):
     assert result['error'].startswith('Cannot build a hyperstack: its channels')
 
 
-def test_a_composite_of_a_simulator_runs_folder_fails_only_the_damaged_position(tmp_path):
+def _lock(path: pathlib.Path) -> None:
+    path.chmod(0)
+
+
+# parametrize-justified: a frame that will not decode and one the system will
+# not open are two clauses of the reader's one refusal
+@pytest.mark.parametrize(
+    'damage',
+    [
+        pytest.param(_truncate, id='cut-short'),
+        pytest.param(_lock, id='not-opened', marks=_MODES_BIND),
+    ],
+)
+def test_a_composite_of_a_simulator_runs_folder_fails_only_the_damaged_position(tmp_path, damage):
     """The folder is a simulator run's: two positions, BF and LED 1 at each."""
     from _lumascope.modules.composite_generation import CompositeGeneration
     from _lumascope.modules.scope_session import ScopeSession
@@ -373,7 +513,7 @@ def test_a_composite_of_a_simulator_runs_folder_fails_only_the_damaged_position(
         p for p in tmp_path.iterdir() if p.is_dir() and (p / 'protocol_record.tsv').exists()
     )
     bad_frame = next(run_dir.glob(f'p0_{LED1}*.tiff'))
-    _truncate(bad_frame)
+    damage(bad_frame)
 
     with pytest.raises(PostProcessingFailedError) as incomplete:
         CompositeGeneration(has_turret=False).load_folder(

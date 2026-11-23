@@ -394,3 +394,38 @@ def test_an_unreadable_file_is_refused_and_a_file_with_no_record_answers_none(tm
 
     assert refused.value.reason == 'unreadable'
     assert image_utils.read_file_record(bare) is None
+
+
+def test_a_record_whose_facts_do_not_parse_is_refused_by_both_record_readers(tmp_path):
+    """A file whose record states a time or a scale that is no time or scale
+    has a broken record, not a record stating nothing: the record's reader,
+    and the pixel read that takes the frame's time with them, each refuse it
+    as unreadable, naming it."""
+    shaped = {'Channel': {'Name': ['BF']}}
+    broken = {
+        'scale.tiff': {**shaped, 'Plane': {}, 'PhysicalSizeX': 'wide'},
+        'datetime.tiff': {**shaped, 'Plane': {}, 'DateTime': 'noon'},
+        'plane_time.tiff': {**shaped, 'Plane': {'Timestamp': 'noon'}},
+        'frame_time.tiff': {'timestamp': 'noon', 'frame_num': 3},
+    }
+    paths = [
+        _legacy_frame(tmp_path / name, description, datetime_tag=None)
+        for name, description in broken.items()
+    ]
+
+    misread = []
+    for read in (image_utils.read_file_record, image_utils.load_pixels_with_timestamp):
+        for path in paths:
+            try:
+                answer = read(path)
+            except InputFramesUnusableError as refused:
+                if refused.reason != 'unreadable' or path.name not in str(refused):
+                    misread.append(f'{read.__name__} {path.name}: {refused.reason}: {refused}')
+            except Exception as other:  # the answer under test, recorded
+                misread.append(
+                    f'{read.__name__} {path.name}: raised {type(other).__name__}: {other}'
+                )
+            else:
+                misread.append(f'{read.__name__} {path.name}: read as {answer!r:.80}')
+
+    assert misread == []

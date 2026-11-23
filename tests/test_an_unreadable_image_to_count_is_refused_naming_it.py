@@ -11,6 +11,9 @@ there is refused as any path that names nothing is (``not_found``).
 
 from __future__ import annotations
 
+import os
+import pathlib
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -67,6 +70,31 @@ def test_the_folder_count_names_an_unreadable_image_in_the_same_words(tmp_path):
             str(tmp_path), CellCountMethod(), tiling_grids=shipped_grids()
         )
     assert list(failed.value.errors) == [str(refused.value)]
+
+
+@pytest.mark.skipif(
+    sys.platform == 'win32' or os.geteuid() == 0,
+    reason='a file mode binds neither on Windows nor for root',
+)
+def test_the_folder_count_refuses_an_image_the_system_will_not_open_and_counts_the_rest(
+    tmp_path,
+):
+    tifffile.imwrite(tmp_path / 'good.tif', np.zeros((8, 8), np.uint8))
+    locked = tmp_path / 'locked.tif'
+    tifffile.imwrite(locked, np.zeros((8, 8), np.uint8))
+    locked.chmod(0)
+    try:
+        with pytest.raises(PostProcessingFailedError) as failed:
+            PostProcessing().apply_cell_count_to_folder(
+                str(tmp_path), CellCountMethod(), tiling_grids=shipped_grids()
+            )
+    finally:
+        locked.chmod(0o600)
+
+    [error] = failed.value.errors
+    assert str(locked) in error and 'Permission denied' in error, error
+    results = pathlib.Path(failed.value.produced_paths[0]).read_text(encoding='utf-8')
+    assert 'good.tif' in results and 'locked.tif' not in results, results
 
 
 def test_a_folder_named_like_an_image_is_not_counted_and_named(tmp_path):

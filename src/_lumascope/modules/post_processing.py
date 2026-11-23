@@ -172,13 +172,13 @@ def read_cell_count_image(path: str | os.PathLike) -> tuple[np.ndarray, int]:
         LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at ``path``;
             ``'not_a_file'``, a folder is.
         PostProcessingRefusedError: reason ``unreadable``; the file is not
-            an image, and the message names it.
+            an image, or the system will not read it, and the message names it.
     """
     path = path_utils.existing_file(path)
     try:
         image, significant_bits, _ = image_utils.load_pixels(path)
         return image, significant_bits
-    except (FileNotFoundError, ValueError) as e:
+    except ValueError as e:
         raise PostProcessingRefusedError(
             operation=CELL_COUNT_OPERATION,
             reason='unreadable',

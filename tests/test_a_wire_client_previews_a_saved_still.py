@@ -9,7 +9,9 @@ goes through ``ScopeSession.live_folder_path``, as a download's does.
 
 from __future__ import annotations
 
+import os
 import pathlib
+import sys
 
 import cv2
 import numpy as np
@@ -127,6 +129,27 @@ def test_a_file_stating_a_depth_no_frame_has_is_refused_and_the_server_keeps_ans
     )
 
     refused = client.get('/api/v1/previews/other.tif')
+
+    assert refused.status_code == 422, refused.text
+    assert refused.json()['reason'] == 'unreadable', refused.json()
+    _jpeg(client.get(f'/api/v1/previews/{_name(session, still)}?max_width=100'))
+
+
+@pytest.mark.skipif(
+    sys.platform == 'win32' or os.geteuid() == 0,
+    reason='a file mode binds neither on Windows nor for root',
+)
+def test_a_file_the_system_will_not_open_is_refused_as_unreadable_and_the_server_keeps_answering(
+    summed,
+):
+    session, client, (still,) = summed
+    locked = pathlib.Path(session.setting('live_folder')) / 'locked.tif'
+    tf.imwrite(locked, np.zeros((8, 8), np.uint8))
+    locked.chmod(0)
+    try:
+        refused = client.get('/api/v1/previews/locked.tif')
+    finally:
+        locked.chmod(0o600)
 
     assert refused.status_code == 422, refused.text
     assert refused.json()['reason'] == 'unreadable', refused.json()
