@@ -852,12 +852,12 @@ def test_every_quantity_names_its_unit(
 # API owns. Each entry below is read one by one, none admitted by pattern,
 # and each must still be a hit, so a str made a StrEnum deletes it here.
 _CHANNEL = "a channel key, the release's layer vocabulary (W5c)"
-_OBJECTIVE = 'an objective catalogue key'
-_LABWARE = 'a labware catalogue key'
-_MODEL = 'a model catalogue key'
-_TILING = 'a tiling catalogue key'
-_FILTERSET = 'a filterset, as the catalogue or the board names it'
-_CATALOGUE_TEXT = 'catalogue text, as the installation file writes it'
+_OBJECTIVE = 'an objective catalog key'
+_LABWARE = 'a labware catalog key'
+_MODEL = 'a model catalog key'
+_TILING = 'a tiling catalog key'
+_FILTERSET = 'a filterset, as the catalog or the board names it'
+_CATALOGUE_TEXT = 'catalog text, as the installation file writes it'
 _WELL = 'a well label of the selected plate'
 _TILE = "a tile label of the step's grid"
 _STEP = "a protocol step's name or label"

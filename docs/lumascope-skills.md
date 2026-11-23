@@ -14,7 +14,7 @@ it rather than repeating it. The guide is this page and the files under
 > and file columns. If you build on the API before `4.0.0`, **contact Etaluma
 > support**, so we can consult you before a structural change. From `4.0.0` a
 > 4.x release changes the API only as the [Changelog](#changelog)'s rules
-> allow -- an addition or a behaviour change at a minor version, never a rename
+> allow -- an addition or a behavior change at a minor version, never a rename
 > or removal without a deprecation cycle -- and records each change there. What freezes is what the
 > [API reference](api-reference.md) lists, and the plugin contract
 > ([Plugins](#plugins)), with one exception: the simulator's surface,

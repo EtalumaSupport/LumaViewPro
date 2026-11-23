@@ -17,7 +17,7 @@ try:
 
     models = load_scope_models()
     print('models a script can list:', sorted(models))
-    _common.ok('the catalogue is reachable below the GUI', bool(models))
+    _common.ok('the catalog is reachable below the GUI', bool(models))
     print(
         'same load duplicated in ui/microscope_settings.py:146-173 '
         "(json.load(...)['Models'] + _validate_scopes)"
@@ -28,12 +28,12 @@ try:
     try:
         s.select_model('NotAScope')
         _common.ok(
-            'a model outside the catalogue is refused',
+            'a model outside the catalog is refused',
             False,
             f'stored {s.settings_snapshot["microscope"]!r}',
         )
     except CatalogNameRefusedError as e:
-        _common.ok('a model outside the catalogue is refused', True, str(e))
+        _common.ok('a model outside the catalog is refused', True, str(e))
     # capabilities still follow the hardware, not the stored model
     print(
         'capabilities after a bogus model: '

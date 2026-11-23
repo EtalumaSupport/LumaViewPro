@@ -76,10 +76,10 @@ def test_a_remembered_file_that_cannot_be_read_is_forgotten_and_raised(
 @pytest.mark.parametrize(
     'contents',
     [None, 'not a protocol\n'],
-    ids=['plate-not-in-catalogue', 'malformed'],
+    ids=['plate-not-in-catalog', 'malformed'],
 )
 def test_a_refused_remembered_file_keeps_its_path(session, tmp_path, contents):
-    path = _protocol_file(tmp_path, 'A plate no catalogue has')
+    path = _protocol_file(tmp_path, 'A plate no catalog has')
     if contents is not None:
         path.write_text(contents)
     _remember(session, path)

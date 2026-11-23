@@ -63,7 +63,7 @@ the dict you pass: `create` changes nothing in it, and a write into it afterward
 changes no setting; `session.update_settings(path, value)` does. The copy is
 completed from the template, and each of its values is judged as a write of it
 would be: a value outside its range is refused (`SettingRefusedError`, naming
-the path), never clamped. When the motor board reports a model the catalogue
+the path), never clamped. When the motor board reports a model the catalog
 knows and it differs from `settings['microscope']`, bring-up stores the board's
 model, `session.setting('microscope')`: the hardware outranks the stored
 selection.

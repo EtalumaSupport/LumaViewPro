@@ -167,7 +167,7 @@ then, once, as an outcome.
 and objectives are `scope.all_labware` and `scope.all_objectives`, in the
 order they are offered, each record carrying the name `select_labware` or
 `select_objective` takes; `scope.plate` and `scope.objective` look one up, a
-plate under a name it has retired too, and refuse a name the catalogue does
+plate under a name it has retired too, and refuse a name the catalog does
 not hold (`CatalogNameRefusedError`, its `offered` the names it holds).
 The objective is chosen by
 `select_objective`; on a scope with a turret that turns the turret to the slot
@@ -417,10 +417,10 @@ A quantity's unit is the last part of its name: `z_um`, `exposure_ms`,
 seconds; the protocol file and the settings keep a run's period in minutes and
 its duration in hours, as LumaViewPro's window shows them.
 
-**Two frames.** The stage moves in **stage micrometres**, each axis measured
+**Two frames.** The stage moves in **stage micrometers**, each axis measured
 from where it homes; X and Y count from the stage's bottom-right, so a larger
 stage X is further left on the plate. A plate is addressed in **plate
-millimetres**, X and Y from the plate's top-left corner. The two are related by
+millimeters**, X and Y from the plate's top-left corner. The two are related by
 the plate's geometry and the **stage offset**, where the plate sits on the
 stage.
 
@@ -435,11 +435,11 @@ assert round(stage.x_um) == 60000 and round(stage.y_um) == 40000
 Both conversions use the selected plate and the live offset unless you name
 another (`labware_id=`, `stage_offset=`). A conversion is not a range check: a
 position off the stage's travel converts, and the move to it is refused. A protocol carries its own plate, and
-its steps' X and Y are in plate millimetres on that plate; a run keeps the
+its steps' X and Y are in plate millimeters on that plate; a run keeps the
 offset it started with.
 
 **Moving in plate terms.** `scope.motion.move_to_well` and `move_to_plate`
-move X and Y on the selected plate; Z stays in stage micrometres, so a
+move X and Y on the selected plate; Z stays in stage micrometers, so a
 `PlateLocation` for `move_to_plate` gives Z as None.
 
 ```python

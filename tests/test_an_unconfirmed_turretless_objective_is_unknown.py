@@ -59,7 +59,7 @@ UNCONFIRMED = {
         _handed,
         {'objective_confirmed': OBJECTIVE_CONFIRMED_ON_A_TURRET, 'objective_id': '40x Phase'},
     ),
-    'a confirmed id the catalogue lacks, replaced at bring-up': (
+    'a confirmed id the catalog lacks, replaced at bring-up': (
         _handed,
         {'objective_confirmed': 'Not An Objective', 'objective_id': 'Not An Objective'},
     ),
@@ -67,7 +67,7 @@ UNCONFIRMED = {
         _from_a_file,
         {'objective_id': None, 'objective_confirmed': 'turretless'},
     ),
-    'an undated confirmation of an id the catalogue lacks': (
+    'an undated confirmation of an id the catalog lacks': (
         _handed,
         {'objective_confirmed': True, 'objective_id': 'Not An Objective'},
     ),

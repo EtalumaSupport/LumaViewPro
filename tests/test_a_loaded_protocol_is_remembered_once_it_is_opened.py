@@ -52,7 +52,7 @@ def test_a_refused_file_leaves_the_remembered_path(session, tmp_path):
     session.set_protocol_filepath(PREVIOUS)
 
     with pytest.raises(ProtocolFormatError):
-        session.open_protocol(_protocol_file(tmp_path, 'A plate no catalogue has'))
+        session.open_protocol(_protocol_file(tmp_path, 'A plate no catalog has'))
 
     assert _remembered(session) == PREVIOUS
 

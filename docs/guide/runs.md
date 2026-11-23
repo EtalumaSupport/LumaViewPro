@@ -43,9 +43,9 @@ the runner's `start_zstack` all read `zstack.range`, `zstack.step_size` and
 stack), so a different stack is those settings written first.
 
 A z-stack whose channel autofocuses is focused once, by a sweep fired at its
-first slice and centred on its reference slice, and the found focus lands on
+first slice and centered on its reference slice, and the found focus lands on
 that reference slice -- the slice built at the channel's focus: the middle
-slice of a centre stack (the lower middle of an even count), the top of a
+slice of a center stack (the lower middle of an even count), the top of a
 top stack, the bottom of a bottom stack. Every slice keeps its distance from
 that slice, its record's `z_stack_offset_um`, whichever of its slices a
 caller turned autofocus on or moved.
@@ -97,8 +97,8 @@ and that block is then the protocol's (`channel_settings`). The copy a run
 saves in its folder has the block the protocol was last read with or saved
 with, so a protocol built in memory and never saved runs to a file with none.
 
-`X` and `Y` are plate millimetres from the plate's top-left, `Z` stage
-micrometres, `Illumination` milliamps, `Gain` dB, `Exposure` milliseconds, and
+`X` and `Y` are plate millimeters from the plate's top-left, `Z` stage
+micrometers, `Illumination` milliamps, `Gain` dB, `Exposure` milliseconds, and
 `Sum` the frames summed. A file of version 2 or later is converted when it is
 read; version 1 and a newer one than this release's are refused
 (`ProtocolFormatError`). A load refuses a plate the installation does not know

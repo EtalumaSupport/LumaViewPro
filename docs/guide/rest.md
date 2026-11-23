@@ -42,7 +42,7 @@ folder, `capture/` under the source folder as shipped (`live_folder`
 `./capture`, a relative path being the source folder's).
 
 `--source-path FOLDER` runs it on another folder's `data/` instead: its
-settings, its catalogues, and the live folder they name. A simulated server
+settings, its catalogs, and the live folder they name. A simulated server
 on a copy of `data/` leaves your own settings and captures untouched. The
 copy carries the same single-instance lock, so one server still runs at a
 time. A folder with no `data/settings.json` in it is refused, and the
@@ -339,7 +339,7 @@ the top of the picture, as LumaViewPro's window and its saved files have it.
   after the call, for a light or shutter LVP did not switch. It answers when
   the still is taken, never as a job.
 
-The live view and previews are display: 8-bit grey, lossy, with no metadata.
+The live view and previews are display: 8-bit gray, lossy, with no metadata.
 The data is the file. Every answer carries `X-Request-ID`, which a problem
 names as its `instance`, and each request is one line of
 `lumaviewpro_rest_api.log`.
@@ -371,7 +371,7 @@ job; poll the job at once with `Prefer: respond-async`, or read it with
 are on disk. A new install has not been told which objective is mounted, and a
 protocol is refused until it has (`GET $API/objective_question` asks), so the
 first lines say which it is. `GET $API/current_slot_objective_question` always
-answers: on a new install it proposes the catalogue's default, and on a scope
+answers: on a new install it proposes the catalog's default, and on a scope
 already told, the objective stored or the turret slot's, so the answer changes
 nothing there. Its `turret_slot` is `null` without a turret.
 
@@ -449,7 +449,7 @@ On the scope PC:
   network address needs one. Windows asks, the first time LumaViewPro serves
   on a network, whether to allow it, and answering needs an administrator.
   Allow it on Public networks too: a direct cable with fixed addresses is an
-  unidentified network, which Windows counts as Public. Cancelling the prompt
+  unidentified network, which Windows counts as Public. Canceling the prompt
   makes Windows block LumaViewPro, and a block outranks any allow. Where no
   one can answer the prompt, or after a cancel, an administrator opens it in
   a Command Prompt run as administrator, the first line removing any block:

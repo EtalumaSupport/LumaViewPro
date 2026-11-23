@@ -77,8 +77,8 @@ def test_no_production_module_lists_channels_by_name():
         if (rel_path, qualname) not in _FOREIGN_FILE_TABLES
     ]
     assert found == [], (
-        'a list of channel keys leaves out every channel the catalogue adds; '
-        f'compute the set from the catalogue records (common_utils): {found}'
+        'a list of channel keys leaves out every channel the catalog adds; '
+        f'compute the set from the catalog records (common_utils): {found}'
     )
 
 

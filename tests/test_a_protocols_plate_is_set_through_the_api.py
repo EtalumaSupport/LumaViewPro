@@ -104,7 +104,7 @@ class TestSetProtocolLabware:
     ):
         protocol = stage_scope.create_empty_protocol()
 
-        with pytest.raises(CatalogNameRefusedError, match='labware catalogue'):
+        with pytest.raises(CatalogNameRefusedError, match='labware catalog'):
             stage_scope.set_protocol_labware(protocol, 'a plate nobody makes')
 
         assert protocol.labware_id == STORED_PLATE

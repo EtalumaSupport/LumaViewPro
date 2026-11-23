@@ -120,7 +120,7 @@ class TestTheBringUpRunsAsTheReportedModel:
         )
         try:
             assert session.settings['microscope'] == 'LS850T'
-            assert any('not in the catalogue' in r.getMessage() for r in session_log())
+            assert any('not in the catalog' in r.getMessage() for r in session_log())
         finally:
             session.shutdown()
 

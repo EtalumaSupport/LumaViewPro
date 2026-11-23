@@ -67,7 +67,7 @@ def test_no_module_but_the_scope_builds_a_catalogue():
             found.append(f'{rel_path}:{lineno} {qualname} builds {name}')
     assert found == [], (
         'only Lumascope._read_catalogs may build a labware or objective '
-        f"catalogue or the tiling grids; read the scope's copy instead: {found}"
+        f"catalog or the tiling grids; read the scope's copy instead: {found}"
     )
 
 

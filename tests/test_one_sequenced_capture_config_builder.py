@@ -85,7 +85,7 @@ def test_an_unknown_labware_is_refused_before_the_config_is_built():
 
     with pytest.raises(
         CatalogNameRefusedError,
-        match=r"labware catalogue.*'a plate that does not exist' is not one",
+        match=r"labware catalog.*'a plate that does not exist' is not one",
     ):
         settings = _settings()
         settings['protocol']['labware'] = 'a plate that does not exist'

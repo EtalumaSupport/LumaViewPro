@@ -89,7 +89,7 @@ try:
 
     banner('SET TILING')
     tc = session.scope.protocols.tiling_grids()
-    print('tiling catalogue:', session.tiling_config.available)
+    print('tiling catalog:', session.tiling_config.available)
     print('no-tiling label :', tc.no_tiling_label())
     before = p.num_steps
     session.apply_tiling(p, '2x2')

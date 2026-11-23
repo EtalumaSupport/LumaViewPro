@@ -113,7 +113,7 @@ class TestRefusals:
         session = sessions()
         before = _runtime_plate(session)
 
-        with pytest.raises(CatalogNameRefusedError, match='labware catalogue'):
+        with pytest.raises(CatalogNameRefusedError, match='labware catalog'):
             session.select_labware('Acme 1536 Ultra Plate')
 
         assert session.settings['protocol']['labware'] == STARTING_PLATE

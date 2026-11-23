@@ -347,7 +347,7 @@ def test_the_server_prints_a_model_it_does_not_know_exits_1_and_gives_the_lock_b
     # The refusal's own words, not the crash hook's class-prefixed line.
     [line] = said.err.strip().splitlines()
     # Named by the setting the operator's current.json holds it under.
-    assert line.startswith('microscope must be a model in the scope catalogue, one of ')
+    assert line.startswith('microscope must be a model in the scope catalog, one of ')
     assert "'LS999' is not one." in line
     assert 'LS850' in line
     assert 'REST server:' not in said.out

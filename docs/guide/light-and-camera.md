@@ -148,7 +148,7 @@ binning) is set at that limit and reported (`'value_clamped'`), and the frame
 is floored to even sides; a side of 0 or below is refused `'wrong_kind'`.
 `frame_at_binning(size)` answers the frame `set_binning(size)` will ask for,
 without applying it. `set_image_mode(mode)` chooses the
-`ImageMode`: 8-bit, or 12-bit scientific, scaled or false-colour. A camera that
+`ImageMode`: 8-bit, or 12-bit scientific, scaled or false-color. A camera that
 lacks a binning factor or a feature refuses it `CameraSettingUnsupportedError`.
 
 ```python

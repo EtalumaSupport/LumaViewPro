@@ -3,9 +3,9 @@
 """A saved z-stack, on the simulator.
 
 A z-stack is a run: its range, step and reference -- whether the stage's
-position is the stack's top, centre or bottom -- are settings, and it saves a
+position is the stack's top, center or bottom -- are settings, and it saves a
 slice per step around where the stage is. This sets a 20 um stack in 5 um
-steps centred on the stage, runs it on brightfield over well B2, waits for
+steps centered on the stage, runs it on brightfield over well B2, waits for
 its slices to be written, and prints each slice's file. Each file carries
 its own record, its Z among it, which Fiji and other Bio-Formats readers show.
 

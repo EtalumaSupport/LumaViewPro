@@ -50,10 +50,10 @@ where the position has none and the number counting up from `000001`; with
 `separate_folder_per_channel` set it is in a folder per channel under
 `Manual/`. The live folder is `live_folder` in the settings, set by
 `session.set_live_folder(folder)`, which creates it. The channel's stored
-`false_color` setting (`<channel>.false_color`, the false-colour toggle of
+`false_color` setting (`<channel>.false_color`, the false-color toggle of
 LumaViewPro's channel controls) decides how the file is rendered: on, it
-carries the channel's colour for display ([Saved files](#saved-files)); off,
-it is grey. A manual recording follows the same setting. It changes how the
+carries the channel's color for display ([Saved files](#saved-files)); off,
+it is gray. A manual recording follows the same setting. It changes how the
 file is shown, never what it records.
 
 ```python
@@ -94,11 +94,11 @@ never by your program from the array ([Saved files](#saved-files)).
 **What a still holds.** A still is saved under the live folder in the format
 the settings name (`OutputFormat`: TIFF, OME-TIFF or JPG; a run may instead
 build an OME-TIFF hyperstack per well). A TIFF or OME-TIFF keeps mono pixels.
-With false colour off they are grey and carry no colour. With it on, the
-channel's colour (grey for BF, PC and DF, so they stay grey) is carried beside them for display -- an 8-bit file as a
+With false color off they are gray and carry no color. With it on, the
+channel's color (gray for BF, PC and DF, so they stay gray) is carried beside them for display -- an 8-bit file as a
 palette, a full-depth one as an ImageJ lookup table or OME `Channel.Color` --
 except in `FALSE_COLOR_RGB`, which bakes it into three-channel pixels. A JPG
-is the image as it is shown: 8-bit, grey or its channel's colour baked into
+is the image as it is shown: 8-bit, gray or its channel's color baked into
 its pixels, and no record in the file; a manual still's record is the
 `SavedStill` its capture answered.
 
@@ -107,8 +107,8 @@ captures and saves 8-bit mono, and saves a sum of frames as it is shown,
 saturating at one frame's white. The full-depth modes capture what the camera
 has -- 12 bits where it delivers 12 -- and save it right-aligned (`SCIENTIFIC`:
 a 12-bit frame is 0 to 4095 in a 16-bit container), shifted to fill the
-container (`SCALED`), or, with false colour on, as three-channel RGB in the
-channel's colour (`FALSE_COLOR_RGB`). The file states the depth its values
+container (`SCALED`), or, with false color on, as three-channel RGB in the
+channel's color (`FALSE_COLOR_RGB`). The file states the depth its values
 reach, its record's `significant_bits` -- 12 for a 12-bit `SCIENTIFIC` frame,
 16 for a `SCALED` one -- so divide by `(1 << significant_bits) - 1` to scale
 it. Every TIFF also carries it in private tag 65123, and an OME-TIFF in its
@@ -172,8 +172,8 @@ assert view['channel'] == 'BF' and view['dark'] == 'false'
 **Derived files.** A z-projection, a stitch, a composite or a video states a
 fact only when every input states the same: a composite of several channels
 states no current, and a sum of slices no `FramesSummed`. A run's hyperstack is
-an OME-TIFF per well and scan, its channels coloured by OME `Channel.Color`; in
-Fiji open it with `Plugins > Bio-Formats > Importer`, colour mode Composite.
+an OME-TIFF per well and scan, its channels colored by OME `Channel.Color`; in
+Fiji open it with `Plugins > Bio-Formats > Importer`, color mode Composite.
 
 **Recordings.** A recording is saved as numbered TIFFs, each frame with its
 own record (position, whether the stage was moving, the channel and its

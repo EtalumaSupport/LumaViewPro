@@ -33,7 +33,7 @@ def _resolve(**kwargs):
         'motor_model': None,
         'configured_model': None,
         'models': channel_record.load_scope_models(),
-        'catalogue': channel_record.release_channels(),
+        'catalog': channel_record.release_channels(),
         'report': refuse_a_report,
     }
     args.update(kwargs)

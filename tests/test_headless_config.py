@@ -145,7 +145,7 @@ class TestGetSelectedLabware:
 
     def test_an_unknown_plate_is_refused_by_name(self):
         with pytest.raises(
-            CatalogNameRefusedError, match=r"labware catalogue.*'nonexistent' is not one"
+            CatalogNameRefusedError, match=r"labware catalog.*'nonexistent' is not one"
         ) as refused:
             get_selected_labware_from_settings(
                 {'protocol': {'labware': 'nonexistent'}}, _wellplate_loader()
@@ -162,7 +162,7 @@ class TestGetSelectedLabware:
         assert [n for n in centre_posts if n.severity == Severity.WARNING] == []
 
     def test_an_empty_name_is_refused_not_defaulted(self):
-        with pytest.raises(CatalogNameRefusedError, match=r"labware catalogue.*'' is not one"):
+        with pytest.raises(CatalogNameRefusedError, match=r"labware catalog.*'' is not one"):
             get_selected_labware_from_settings({'protocol': {'labware': ''}}, _wellplate_loader())
 
 

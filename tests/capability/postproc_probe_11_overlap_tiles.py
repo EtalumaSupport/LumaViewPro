@@ -47,7 +47,7 @@ def _arguments():
         help="the sets are taken at the installation's X, Y and Z bookmark",
     )
     parser.add_argument(
-        '--objective', default=None, help='a catalogue key; selected before the sets are taken'
+        '--objective', default=None, help='a catalog key; selected before the sets are taken'
     )
     parser.add_argument(
         '--out',

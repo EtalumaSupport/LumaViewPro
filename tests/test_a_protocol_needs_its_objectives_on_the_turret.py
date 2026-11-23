@@ -285,7 +285,7 @@ class TestAnObjectiveThatDoesNotExistIsNotATurretProblem:
             _prepare(executor, _protocol('zzz-no-such-objective'), tmp_path)
 
         assert refusal.value.reason == 'validation_failed', (
-            'an objective outside the catalogue is a validation defect, not an '
+            'an objective outside the catalog is a validation defect, not an '
             f'addressability one: {refusal.value.message!r}'
         )
 

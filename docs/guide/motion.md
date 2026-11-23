@@ -36,7 +36,7 @@ scope.motion.home(put_back=True)            # back on its objective, Z where it 
 ```
 
 **A position to keep is read at rest.** A position you will act on later -- a
-step, a bookmark, a sweep's centre -- is read while its axes are still, by
+step, a bookmark, a sweep's center -- is read while its axes are still, by
 `scope.motion.positions_to_keep`. It is refused `AxisMovingError` (`'axis_moving'`)
 while an axis it names moves, and `AxisStateUnknownError` (`'position_unknown'`)
 while one of them has no position: a number is never
@@ -48,7 +48,7 @@ print(kept['Z'])
 ```
 
 
-**Moves.** A move is asked for by what it moves, in stage micrometres:
+**Moves.** A move is asked for by what it moves, in stage micrometers:
 `move_xy(x_um, y_um)` moves X and Y as one request, an axis given as None left
 where it is; `move_z(z_um)` moves the focus; `move_xy_by` and `move_z_by` move
 by a distance. Each returns once the move has ended. A target outside an axis's
@@ -135,7 +135,7 @@ refusal says to home the scope. `jog_step_um(axis,
 coarse)` answers the step itself, for showing it.
 
 **Centering on a point.** `start_center_on(x_fraction, y_fraction)` moves X
-and Y so a point of the camera's frame comes to its centre: the point is a
+and Y so a point of the camera's frame comes to its center: the point is a
 fraction of the frame's width from column 0 and of its height from row 0, in
 the frame as `capture_still().image` holds it (row 0 is the top of the
 picture, as in the live view and a saved file). A fraction is the same place on the sample at
