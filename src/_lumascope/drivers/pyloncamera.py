@@ -2028,7 +2028,7 @@ class PylonCamera(Camera):
         Sets ``self.timestamp_tick_frequency_hz``. Tries the GigE node names
         first; falls back to the documented USB3 default (1 GHz) when no
         node is available; sets None if the device-info transport is
-        unrecognised so downstream metadata is honest about the unknown.
+        unrecognized so downstream metadata is honest about the unknown.
         """
         camera = self.active
         if camera is None:
@@ -2874,10 +2874,10 @@ class PylonCamera(Camera):
 
         Raises:
             CameraWriteFailedError: The camera did not take a Width / Height
-                write or a recentre, or no camera is open.
+                write or a recenter, or no camera is open.
             CameraReadFailedError: The grab-state read the config guard needs
                 failed; nothing was written.
-            CameraNoAnswerError: A Width / Height write or a recentre timed
+            CameraNoAnswerError: A Width / Height write or a recenter timed
                 out; the camera is not marked disconnected.
         """
         width, height = plan.acq_width, plan.acq_height
@@ -3726,7 +3726,7 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
     base grew. The two bases coexist: the SWIG proxy's metaclass is ``type``
     and it defines none of the base's names (verified on pypylon 26.10).
     The SDK ``__init__`` does not forward along the MRO, so both bases are
-    initialised explicitly.
+    initialized explicitly.
     """
 
     def __init__(self, parent_cam: PylonCamera):
@@ -4325,7 +4325,7 @@ class _PylonImageGrabWorker:
             # undocumented removal-time err_code would otherwise count
             # toward MAX_CONSECUTIVE_FAILURES.
             logger.debug(
-                f'[CAM Class ] Grab cancelled (SDK lifecycle, '
+                f'[CAM Class ] Grab canceled (SDK lifecycle, '
                 f'not a failure) err_code={err_code} desc={err_desc!r} '
                 f'device_removed={self._parent._device_removed}'
             )

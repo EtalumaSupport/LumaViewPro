@@ -155,7 +155,7 @@ def show_merged_composite(run: 'Operation[RunOutcome]') -> None:
     where the merged file is read, so the Kivy thread only draws it; then live
     view comes back by itself. A run that merged nothing shows nothing here:
     its outcome is the engine's to report. The merge is a lossless 8-bit RGB
-    TIFF, so the file is the image, read as the colour image it is: a
+    TIFF, so the file is the image, read as the color image it is: a
     composite whose other channels were dark is not collapsed to its one
     populated plane.
     """

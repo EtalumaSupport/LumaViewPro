@@ -151,7 +151,7 @@ class SimulatedMotorBoard:
         **kwargs,
     ):
         """``axes``: the motor axes the board carries. A simulated scope
-        passes its model's axes from the catalogue; a board built on its
+        passes its model's axes from the catalog; a board built on its
         own, with none given, carries X/Y/Z for an LS85x model and Z
         otherwise, plus T for a model whose name ends in T."""
         logger.info('[XYZ Sim   ] SimulatedMotorBoard.__init__()')

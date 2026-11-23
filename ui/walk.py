@@ -634,9 +634,9 @@ def _until_drawers_settle(target, path: str):
 
 
 def _without_trailing_background(pixels: numpy.ndarray) -> numpy.ndarray:
-    """``pixels`` (rows from the bottom up) less its bottom rows of one colour, all but a margin.
+    """``pixels`` (rows from the bottom up) less its bottom rows of one color, all but a margin.
 
-    The colour is the bottom-left pixel's; a bottom row with anything else in
+    The color is the bottom-left pixel's; a bottom row with anything else in
     it trims nothing.
     """
     blank = (pixels == pixels[0, 0]).all(axis=(1, 2))

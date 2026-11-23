@@ -12,7 +12,7 @@ The device answers only what the driver sends on the wire: the firmware
 upload on the bootloader, then ``VR_I2C_WRITE`` to the sensor or the LED
 peripheral and the stream's start and stop on the running firmware. Any
 other request, or an I2C address it does not model, raises, so a new driver
-request cannot pass unmodelled. A fault of the device's own (off the bus, a
+request cannot pass unmodeled. A fault of the device's own (off the bus, a
 stalled pipe) raises ``OSError``, as the USB libraries do; a request the
 driver should not have sent raises as the driver's own defect.
 

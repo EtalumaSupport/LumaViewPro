@@ -8,7 +8,7 @@ and read files from the board's filesystem, then exit cleanly so the
 firmware restarts.
 
 This module is designed for FIELD-DEPLOYED instruments. Every function
-prioritises reliability over speed:
+prioritizes reliability over speed:
   - Retries with backoff on entering raw REPL
   - Soft reset for clean state before file operations
   - SHA256 verification after every file write

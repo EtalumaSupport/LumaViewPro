@@ -50,7 +50,7 @@ def _input(prompt: str = '') -> str:
         if c in (CTRL_D, CTRL_E):
             # Delete-at-cursor and end-of-line, with the cursor at the end.
             continue
-        raise ValueError(f'console: byte {repr(c)} would reach line editing, not modelled')
+        raise ValueError(f'console: byte {repr(c)} would reach line editing, not modeled')
 
 
 if sys.implementation.version[:2] == (1, 19):

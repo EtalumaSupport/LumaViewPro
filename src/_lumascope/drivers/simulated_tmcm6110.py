@@ -17,7 +17,7 @@ may run fast.
 
 The switches sit where the bench measured them, read from the section of
 the motor defaults the driver reads: each far switch at the section's
-travel, each X/Y home switch a quarter millimetre beyond the index, and
+travel, each X/Y home switch a quarter millimeter beyond the index, and
 the registers power up at the section's axis parameters. What no source
 records is chosen here and said so: where each axis sits at power-up.
 

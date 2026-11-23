@@ -591,7 +591,7 @@ def _add_preview_route(app: fastapi.FastAPI, session: ScopeSession) -> None:
     async def preview(request: fastapi.Request, name: str) -> fastapi.Response:
         """A saved image in the live folder, by its name there, as a downscaled JPEG; ``max_width`` as for ``/live``.
 
-        Display only, as the live view is: 8-bit grey, lossy, no metadata. It
+        Display only, as the live view is: 8-bit gray, lossy, no metadata. It
         is rendered from the file's own depth and white, so a summed still
         is as bright as it is shown; the data is the file (``/files``).
         """
@@ -692,7 +692,7 @@ def _add_live_routes(app: fastapi.FastAPI, live: live_view.LiveView, closing: Cl
 
         ``max_width`` (pixels) bounds each frame's width; half the camera's
         frame by default. Each part carries ``X-Frame-Ordinal`` and
-        ``X-Frame-Timestamp``. Display only: 8-bit grey, lossy, no metadata.
+        ``X-Frame-Timestamp``. Display only: 8-bit gray, lossy, no metadata.
         """
         max_width = _max_width(request)
         if closing.begun:

@@ -407,7 +407,7 @@ class VerticalControl(BoxLayout):
         are provisional). This widget only shows the question and hands
         the choice back. The question runs through the boundary: this runs
         on Clock callbacks, which nothing waits on, and the Session's
-        refusal -- the turret in no known slot, an unreadable catalogue --
+        refusal -- the turret in no known slot, an unreadable catalog --
         is shown once by the one reporter, in its own words.
 
         Args:

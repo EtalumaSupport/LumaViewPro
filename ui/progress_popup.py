@@ -166,7 +166,7 @@ class CustomPopup(Popup):
         popup unblocks the UI -- the way out when a long post-processing op
         stalls. Any later result the thread posts to this popup is a harmless
         no-op once it is dismissed."""
-        logger.info('[Popup    ] progress popup cancelled by user')
+        logger.info('[Popup    ] progress popup canceled by user')
         gui_logger.popup_response(self.title, 'CANCEL')
         self.dismiss()
 

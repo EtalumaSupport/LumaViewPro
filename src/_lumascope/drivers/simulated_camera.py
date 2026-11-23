@@ -116,7 +116,7 @@ class SensorExposure:
         depth_of_field_um: The objective's depth of field the frame was
             focused through; None when no objective is known.
         pixel_size_um: The objective's image scale the frame was drawn at,
-            micrometres of stage per sensor pixel at binning 1; None when no
+            micrometers of stage per sensor pixel at binning 1; None when no
             objective or no optics are known, and the frame is drawn at the
             scene's nominal scale.
     """
@@ -1571,7 +1571,7 @@ class SimulatedCamera(Camera):
     # Image generation
     # ------------------------------------------------------------------
     def _make_focus_target(self, h: int, w: int) -> np.ndarray:
-        """A sharp focus target with multi-scale features, in 8-bit grey levels.
+        """A sharp focus target with multi-scale features, in 8-bit gray levels.
 
         Edges at several spatial frequencies, so Vollath F4 (and other focus
         metrics) produce a smooth, peaked response as it is defocused.
@@ -1615,11 +1615,11 @@ class SimulatedCamera(Camera):
     ) -> tuple[np.ndarray, str, tuple]:
         """The in-focus specimen as this frame sees it, which drift step it is, and where it was cut.
 
-        The frame is a region of the sensor, centred on the stage where
+        The frame is a region of the sensor, centered on the stage where
         ``exposure`` started: drawn at binning 1 at the objective's scale,
         then binned, as the sensor sums its pixels. The drift, when the camera
         was built with it, moves it a binned pixel a step; a still slide is
-        cut at the centre every frame.
+        cut at the center every frame.
         """
         step = self._drift_index % len(self._drift_steps)
         self._drift_index += 1
@@ -1750,7 +1750,7 @@ class SimulatedCamera(Camera):
 
     @staticmethod
     def _brightness(exposure: SensorExposure) -> float:
-        """The fraction of the specimen's own grey levels ``exposure`` renders:
+        """The fraction of the specimen's own gray levels ``exposure`` renders:
         exposure (s) x linear gain x the light on the sample; 1.0 shows the
         field as it is, above 1 its bright parts saturate.
 

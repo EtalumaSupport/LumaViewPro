@@ -946,7 +946,7 @@ class ChannelControl(BoxLayout):
 
     def show_as_shown(self):
         """Display this channel as the shown channel: its histogram, its
-        auto-gain box and its false-colour shader. Display only."""
+        auto-gain box and its false-color shader. Display only."""
         ctx = _app_ctx.ctx
         from ui.image_settings import set_histogram_channel
 
@@ -972,12 +972,12 @@ class ChannelControl(BoxLayout):
             self.update_shader(dt=0)
 
     def update_shader(self, dt):
-        """Show live frames in this channel's shown colour."""
+        """Show live frames in this channel's shown color."""
         _app_ctx.ctx.viewer.set_live_color(self.shown_color())
 
     def shown_color(self):
-        """This channel's colour on screen: its display colour with its
-        false colour box ticked, grey without; during a run, the box the
+        """This channel's color on screen: its display color with its
+        false color box ticked, gray without; during a run, the box the
         run's step set."""
         return channel_record.shown_color(
             self.channel, self.ids['false_color'].active, _app_ctx.ctx.session.channel_colors

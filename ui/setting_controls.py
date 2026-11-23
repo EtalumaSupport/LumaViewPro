@@ -51,7 +51,7 @@ class Picker:
         for choice in self.choices:
             if self.label(choice) == label:
                 return choice
-        raise KeyError(f'{self.widget} offers no choice labelled {label!r}')
+        raise KeyError(f'{self.widget} offers no choice labeled {label!r}')
 
 
 SettingControl = Toggle | Picker

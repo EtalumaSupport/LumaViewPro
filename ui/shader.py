@@ -362,13 +362,13 @@ void main (void) {
         self._show_what_is_drawn()
 
     def show_drawn(self, colorfmt: str, held_channel: str | None = None):
-        """Show the view in the colour of what was just drawn into the display.
+        """Show the view in the color of what was just drawn into the display.
 
-        A texture whose pixels carry their colour (``'rgb'``, ``'bgr'``: the
+        A texture whose pixels carry their color (``'rgb'``, ``'bgr'``: the
         bullseye, a derived image, a composite) is shown untinted; a held
-        mono frame in its own channel's shown colour, so a run's frame is
+        mono frame in its own channel's shown color, so a run's frame is
         not drawn in the step that followed it; a live mono frame in the
-        live colour.
+        live color.
 
         Args:
             colorfmt: The drawn texture's format.
@@ -393,7 +393,7 @@ void main (void) {
 
     def _show_in(self, color: Color):
         """Show the view in ``color``: each plane's white point is the view's
-        white times the colour's weight on that plane (``GREY`` shows mono)."""
+        white times the color's weight on that plane (``GREY`` shows mono)."""
         c = self.canvas
         c['time'] = Clock.get_boottime()
         c['resolution'] = list(map(float, self.size))

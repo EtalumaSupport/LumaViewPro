@@ -7,7 +7,7 @@ plugins, the metrics -- and serves the declared API through
 ``_lumascope.rest.server.build_server`` on ``rest_api.address`` and ``rest_api.port``
 (shipped ``127.0.0.1:8000``, this computer only). ``--source-path`` names
 the installation folder it runs on, its ``data/`` the settings and the
-catalogues, as ``ScopeSession.create`` takes it; by default this one. A
+catalogs, as ``ScopeSession.create`` takes it; by default this one. A
 copy of ``data/`` keeps a simulated server's writes out of the user's
 files; it carries the same instance-lock port, so one server runs at a
 time whichever folder it runs on. It has no credentials:

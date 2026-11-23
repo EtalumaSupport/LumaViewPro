@@ -138,7 +138,7 @@ def _usteps(pos: int) -> int:
 
 
 def _sub(distance: float) -> int:
-    """A distance travelled, in microsteps, as a position increment."""
+    """A distance traveled, in microsteps, as a position increment."""
     return int(distance * _SUB)
 
 

@@ -57,7 +57,7 @@ class Tmcm6110Config:
     Each axis's index position is where the API places the board's 0: its
     registration against the plate, measured on the bench (X and Y; Z's is
     0). X and Y's board 0 is their index pulse. Z's is its switch backed off
-    upward: a move back down meets the switch a few micrometres above the 0
+    upward: a move back down meets the switch a few micrometers above the 0
     its search sets (1.04 um and 9.39 um on two bench LS720s), so a 0 at
     the switch itself could not be reached. Some Z actuators shipped
     without an index pulse, so Z cannot home to one. The direction is the
@@ -293,7 +293,7 @@ class Tmcm6110Config:
         return {'min': min(index, far), 'max': max(index, far)}
 
     def axis_parameters(self, axis: str) -> Mapping:
-        """The TMCL axis parameters the axis is initialised with, by name."""
+        """The TMCL axis parameters the axis is initialized with, by name."""
         return self._axis_parameters[axis.upper()]
 
     def homing(self, axis: str) -> Mapping:
@@ -307,9 +307,9 @@ class Tmcm6110Config:
         return None
 
     def pixel_size(self) -> None:
-        """None: the 6110 carries no optics; the model's catalogue row does."""
+        """None: the 6110 carries no optics; the model's catalog row does."""
         return None
 
     def lens_focal_length(self) -> None:
-        """None: the 6110 carries no optics; the model's catalogue row does."""
+        """None: the 6110 carries no optics; the model's catalog row does."""
         return None

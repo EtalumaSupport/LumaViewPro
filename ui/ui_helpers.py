@@ -298,7 +298,7 @@ def schedule_ui_interval(
 
     Returns the Kivy event, the one handle that cancels the schedule. The
     schedule holds *callback*, and the object it is bound to, until that
-    handle is cancelled.
+    handle is canceled.
     """
 
     def _tick(dt: float) -> object:
@@ -532,7 +532,7 @@ def show_captured_frame(
 
     On the run's thread, where the engine delivers the event; the display
     renders the frame on its own thread, so the run does not wait for it,
-    and draws it in its own channel's colour. The display is looked up when
+    and draws it in its own channel's color. The display is looked up when
     the frame arrives, not when the run starts.
     """
     _app_ctx.ctx.scope_display.hold_protocol_saved_image(
@@ -564,7 +564,7 @@ def restore_display_after_run(*_ended) -> None:
     """Put the display back on the user's settings once a run has ended.
 
     A run shows each step in the channel panel and in the shader's false
-    colour without writing the user's settings; this puts every channel's
+    color without writing the user's settings; this puts every channel's
     widgets back on the settings and the shader back on the shown channel's
     channel. Takes and ignores ``run_ended``'s values.
     """

@@ -599,7 +599,7 @@ def show_objective_selection_popup(
     and pressing the slot (or Assign Objective, without a turret) asks
     again. Without it a person who does
     not know what is installed could only answer by writing an objective
-    nobody named -- the catalogue default, preselected. The popup has no
+    nobody named -- the catalog default, preselected. The popup has no
     X: Cancel is the one way to leave it unanswered, and it runs every
     folded caller's continuation as Confirm does.
 

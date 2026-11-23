@@ -12085,7 +12085,7 @@ gain its pixels were made at.
 - <a id="SensorExposure.illumination_ma"></a>`illumination_ma`: `float` -- The LED current lighting the sample, summed over the lit addresses; 0 for an unlit field.
 - <a id="SensorExposure.light"></a>`light`: `float` -- The light on the sample per second of exposure at unity gain: each lit address's current times its layer's light per mA-second, summed, and the light from outside the scope; 0 for an unlit field.
 - <a id="SensorExposure.outside_light_ma"></a>`outside_light_ma`: `float` -- The light from outside the scope on the sample, as the camera's reference LED lit at this current would make it; 0 when there is none (`set_outside_light`).
-- <a id="SensorExposure.pixel_size_um"></a>`pixel_size_um`: `float | None` -- The objective's image scale the frame was drawn at, micrometres of stage per sensor pixel at binning 1; None when no objective or no optics are known, and the frame is drawn at the scene's nominal scale.
+- <a id="SensorExposure.pixel_size_um"></a>`pixel_size_um`: `float | None` -- The objective's image scale the frame was drawn at, micrometers of stage per sensor pixel at binning 1; None when no objective or no optics are known, and the frame is drawn at the scene's nominal scale.
 - <a id="SensorExposure.started_ticks"></a>`started_ticks`: `int` -- The camera's clock when the exposure started, as the frame's `Timestamp` chunk carries it.
 - <a id="SensorExposure.x_um"></a>`x_um`: `float | None` -- The stage's X when the exposure started; None on a scope with no X axis.
 - <a id="SensorExposure.y_um"></a>`y_um`: `float | None` -- The stage's Y, likewise.

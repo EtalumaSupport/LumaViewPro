@@ -23,7 +23,7 @@ _SPACING_DP = 12
 
 
 class BringUpView(BoxLayout):
-    """A small splash image over a progress bar and the step bring-up is on, centred in the window."""
+    """A small splash image over a progress bar and the step bring-up is on, centered in the window."""
 
     def __init__(self, splash: str, **kwargs):
         """A view showing ``splash``, the image file's path, before any step is told."""

@@ -16,7 +16,7 @@ again for the next, and the drawn tiles are capped for the process however
 many cameras come and go. A camera with its own sample drew every region
 again from cold, between a frame's hand-over and its store.
 
-The sample is laid out in stage micrometres. A stage position shows the
+The sample is laid out in stage micrometers. A stage position shows the
 same cells every time it is imaged, two frames whose fields overlap on the
 stage overlap in their images, and the sample never repeats, so a stitch
 or a likeness judge on the simulator has a known answer. A frame draws the
@@ -155,7 +155,7 @@ class Specimen:
         um_per_px: float | None,
         shift: tuple[int, int] = (0, 0),
     ) -> np.ndarray:
-        """The in-focus ``h`` x ``w`` window centred on the stage at (``x_um``, ``y_um``).
+        """The in-focus ``h`` x ``w`` window centered on the stage at (``x_um``, ``y_um``).
 
         Stage X runs along the columns and Y along the rows, so as the stage
         moves to higher X and Y the sample moves toward lower column and
@@ -180,7 +180,7 @@ class Specimen:
             A grayscale uint8 array of shape ``(h, w)``: cells with a bright
             membrane, a fainter cytoplasm, a bright nucleus and small bright
             puncta, with edges at several scales, so a focus metric has a
-            sharp peak at focus and falls away on either side. Grey values
+            sharp peak at focus and falls away on either side. Gray values
             stay inside a mid band, so no frame is fully black or blown out
             and a caller's brightness scaling reads as exposure.
         """
@@ -289,7 +289,7 @@ class Specimen:
         """The cells grid square (``gx``, ``gy``) holds, the same every time it is asked.
 
         Returns:
-            The cells, one row each of centre x, centre y, radius x and
+            The cells, one row each of center x, center y, radius x and
             radius y in um and angle in degrees; and their puncta, one row
             each of x and y in um.
         """
@@ -357,14 +357,14 @@ _RONCHI_MEAN_GREY = 1.607
 class Ronchi:
     """A Ronchi ruling on the stage, drawn as a camera sees it.
 
-    Laid out in stage micrometres as the cell specimen is, its bars along
+    Laid out in stage micrometers as the cell specimen is, its bars along
     the image's rows, so a Z move changes how sharp the bars are and
     nothing else: the score a focus metric reads from row differences
-    follows it. Its grey levels are full-range, and its transmittance
+    follows it. Its gray levels are full-range, and its transmittance
     brings it to the bench's light. It renders as lit under a fluorescence
     layer as under brightfield, which no ruling on the bench does; no stage
     or test reads it under fluorescence. Bars and gaps are equal at every
-    pitch, so its mean grey, and the light it passes, are the same at every pitch.
+    pitch, so its mean gray, and the light it passes, are the same at every pitch.
     """
 
     transmittance = _RONCHI_MEAN_GREY / ((_RONCHI_GAP + _RONCHI_BAR) / 2)
@@ -381,14 +381,14 @@ class Ronchi:
         um_per_px: float | None,
         shift: tuple[int, int] = (0, 0),
     ) -> np.ndarray:
-        """The in-focus ``h`` x ``w`` window centred on the stage at (``x_um``, ``y_um``).
+        """The in-focus ``h`` x ``w`` window centered on the stage at (``x_um``, ``y_um``).
 
         Args and the window's placement are ``Specimen.view``'s. Each pixel
-        row is the share of it the gaps cover, between bar and gap grey,
+        row is the share of it the gaps cover, between bar and gap gray,
         blurred by the objective's resolution as the cells are.
 
         Returns:
-            A grayscale uint8 array of shape ``(h, w)``, each row one grey.
+            A grayscale uint8 array of shape ``(h, w)``, each row one gray.
         """
         scale = NOMINAL_UM_PER_PX if um_per_px is None else float(um_per_px)
         top = round((y_um or 0.0) / scale) - h // 2 + shift[0]

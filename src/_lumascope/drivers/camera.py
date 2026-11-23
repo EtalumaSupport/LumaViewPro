@@ -36,8 +36,8 @@ class FrameGrid:
 
     ``plan_aoi`` reads it: the legal sizes are ``size_min + k * step`` up to
     ``max_size``, and the legal offsets ``offset_min + k * offset_step``. A
-    camera that centres its own window (``offset_step`` 1) is handed offsets
-    it does not write; the crop centres on the window either way.
+    camera that centers its own window (``offset_step`` 1) is handed offsets
+    it does not write; the crop centers on the window either way.
     """
 
     step: tuple[int, int]
@@ -53,7 +53,7 @@ class FrameWindow:
     """The window a camera acquires and the part of it the camera delivers.
 
     The acquired size travels with the crop, so a frame of any other size, made
-    under a window no longer set, is recognised and not stored rather than
+    under a window no longer set, is recognized and not stored rather than
     cropped wrong. ``crop`` is ``(x0, y0, width, height)``, or None when the
     acquired window is the delivered one.
     """
@@ -1236,7 +1236,7 @@ class Camera(ABC):
         """Deliver frames of exactly ``w`` x ``h``: acquire the next window up and crop back.
 
         A camera sets its window on a grid, so a size off it cannot be
-        acquired. The window planned is the next legal one up, centred, and
+        acquired. The window planned is the next legal one up, centered, and
         every stored frame is cropped back to the request (``_store_frame``).
         The window is recorded before the hardware is written, so a frame
         made under the old window after the write is not stored at the old
@@ -1318,7 +1318,7 @@ class Camera(ABC):
 
     @abstractmethod
     def _set_hardware_window(self, plan: AoiPlan) -> None:
-        """Acquire ``plan.acq_width`` x ``plan.acq_height``, centred.
+        """Acquire ``plan.acq_width`` x ``plan.acq_height``, centered.
 
         Raises:
             CameraReadFailedError: A read the write needs failed; nothing was
@@ -2148,7 +2148,7 @@ class Camera(ABC):
 
         The caller records the answer in its camera cache, as the
         frame-validity chunk target and as the value its listeners hear. A
-        driver may not be able to honour the request exactly -- a node that
+        driver may not be able to honor the request exactly -- a node that
         clamps to its range, a register that quantizes -- so a driver that
         answered only "applied" would leave all three naming a gain the
         sensor is not at, and on a camera that reports gain in chunk data

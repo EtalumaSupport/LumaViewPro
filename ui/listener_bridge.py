@@ -351,7 +351,7 @@ class UIListenerBridge:
 
         The LED listener above is edge-triggered: a widget left stale by a
         writer whose expected LED event never fired (e.g. a run-indicator
-        write for a step a Stop cancelled, restored by an all-dark diff that
+        write for a step a Stop canceled, restored by an all-dark diff that
         emits no events) is never corrected by events alone. Call this at
         run completion, AFTER the hardware restore has settled, so the
         read is the run's true end state.

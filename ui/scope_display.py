@@ -65,7 +65,7 @@ class HeldFrame:
     Attributes:
         seconds: Its time on screen, counted again from its draw.
         channel: The key name of the channel the frame was taken for; it is
-            drawn in that channel's shown colour.
+            drawn in that channel's shown color.
     """
 
     seconds: float

@@ -180,7 +180,7 @@ def _platform_native_choose_folder(initial_dir, title='Select folder'):
     native picker on every platform, and the in-app Kivy picker that once
     replaced it was rejected as worse UX. What the user sees inside a
     candidate folder is the platform's choice, not ours: macOS's choose
-    folder panel lists the files greyed; Windows lists folders only, by
+    folder panel lists the files grayed; Windows lists folders only, by
     design of its pick-folders dialog (Tk already opens the modern one,
     and no flag makes it show files); Linux lists folders only too, in
     the directory chooser Tk draws itself. On both, the user picks by
@@ -463,7 +463,7 @@ class FileChooseBTN(HoverBehavior, Button):
             self,
             lambda: _platform_native_open_file(initial_dir=selected_path, filetypes=filetypes_tk),
             lambda path: self.handle_selection(selection=[path]),
-            on_cancel=lambda: gui_logger.select('FILE_CHOOSE', f'context={context} cancelled'),
+            on_cancel=lambda: gui_logger.select('FILE_CHOOSE', f'context={context} canceled'),
         )
 
     def handle_selection(self, selection):
@@ -549,7 +549,7 @@ class FolderChooseBTN(HoverBehavior, Button):
                 title=f'Select folder ({context})',
             ),
             lambda chosen: self.handle_selection(selection=[chosen]),
-            on_cancel=lambda: gui_logger.select('FOLDER_CHOOSE', f'context={context} cancelled'),
+            on_cancel=lambda: gui_logger.select('FOLDER_CHOOSE', f'context={context} canceled'),
         )
 
     def handle_selection(self, selection):
@@ -627,7 +627,7 @@ class FileSaveBTN(HoverBehavior, Button):
             self,
             lambda: _platform_native_save_file(initial_dir=selected_path, filetypes=filetypes),
             deliver,
-            on_cancel=lambda: gui_logger.select('FILE_SAVE', f'context={context} cancelled'),
+            on_cancel=lambda: gui_logger.select('FILE_SAVE', f'context={context} canceled'),
         )
 
     def handle_selection(self, selection):

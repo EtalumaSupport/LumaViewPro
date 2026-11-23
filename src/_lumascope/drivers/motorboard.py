@@ -851,7 +851,7 @@ class MotorBoard(SerialBoard):
     def _wait_for_arrival(self, axes, what: str) -> None:
         """Return once every axis has reached its target.
 
-        The field firmware answers HOME before its move to the centre of
+        The field firmware answers HOME before its move to the center of
         travel ends and THOME before its Z restore ends, so the reply says
         the home is done, not that the stage has stopped. The 3.0 firmware
         waits before it answers, and there the first poll returns.

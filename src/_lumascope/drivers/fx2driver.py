@@ -2759,7 +2759,7 @@ class FX2Camera(Camera):
 
         The sizes written are one larger than the window; the sensor outputs
         two more columns and rows than the window, of which the wire keeps
-        the window (``frame_layout``). The sensor centres the window itself
+        the window (``frame_layout``). The sensor centers the window itself
         (``_column_start``, ``_row_start``).
 
         Raises:
@@ -2922,10 +2922,10 @@ class FX2Camera(Camera):
 
     @staticmethod
     def _column_start(column_size: int) -> int:
-        """The Column_Start that centres a window of ``column_size`` on the active array.
+        """The Column_Start that centers a window of ``column_size`` on the active array.
 
         RR R0x02 requires the form 4n with Mirror_Column clear, as the driver
-        leaves it; this is the nearest such value to the centred start, the
+        leaves it; this is the nearest such value to the centered start, the
         lower of two equally near.
         """
         centred = (2592 - column_size) // 2 + 16
@@ -2935,7 +2935,7 @@ class FX2Camera(Camera):
     def _row_start(h: int) -> int:
         """The Row_Start of an ``h``-row window: LumaView Classic's.
 
-        The window centred on the 1944-row active array, which starts at row
+        The window centered on the 1944-row active array, which starts at row
         54, made even by rounding up, as Classic made it.
         """
         start = (1944 - h) // 2 + 54

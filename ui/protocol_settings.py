@@ -370,7 +370,7 @@ class ProtocolSettings(FloatLayout):
         The spinner is the protocol's plate, so the two move together: the
         protocol takes the plate only once the scope has, and a refusal --
         a plate change while a recording holds the scope, or a name the
-        catalogue no longer has -- leaves both where they were. The spinner
+        catalog no longer has -- leaves both where they were. The spinner
         then shows the Session's plate, so it never names one the scope is
         not on.
         """

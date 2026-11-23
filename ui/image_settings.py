@@ -31,11 +31,11 @@ class AccordionItemXyStageControl(LoggedAccordionItem):
 
 class ChannelDrawer(LoggedAccordionItem):
     """One channel's drawer: its controls, titled by the channel's label (a
-    fluorescence channel's as its excitation) beside a swatch of its colour.
+    fluorescence channel's as its excitation) beside a swatch of its color.
 
-    One class for every catalogue key. What differs between channels is the
+    One class for every catalog key. What differs between channels is the
     channel's record, applied by ``ImageSettings.show_drawers``; a key added to
-    the catalogue gets a drawer with no code naming it.
+    the catalog gets a drawer with no code naming it.
     """
 
     channel = StringProperty('')
@@ -134,7 +134,7 @@ class ImageSettings(BoxLayout):
         Visibility, titles and controls are per channel from the identity, so a
         filterset carrying only some channels (an Ex488-only unit) shows
         exactly what the unit has. A drawer is titled by its channel's label
-        (``_drawer_title``) beside a swatch of its colour, and has illumination controls where
+        (``_drawer_title``) beside a swatch of its color, and has illumination controls where
         the unit's row drives an LED.
         """
         records = {record.key_name: record for record in identity.channels}
@@ -167,11 +167,11 @@ class ImageSettings(BoxLayout):
             self.channel_control_lookup(channel=channel).focus_support = visible
 
     def _resort_accordion(self):
-        """Put the channel accordion back in catalogue order after a model switch.
+        """Put the channel accordion back in catalog order after a model switch.
 
         Live scope-model transitions (LS620 -> LS850, etc.) change which
         drawers are shown; each change puts them back in order. Display order
-        IS the catalogue order (a channel's id is its position there), so no
+        IS the catalog order (a channel's id is its position there), so no
         second order is authored here.
         """
         accordion = self.ids.get('accordion_id') if hasattr(self, 'ids') else None

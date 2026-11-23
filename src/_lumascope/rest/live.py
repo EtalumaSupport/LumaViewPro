@@ -3,7 +3,7 @@
 
 ``GET /api/v1/live`` is ``multipart/x-mixed-replace``, one JPEG part per
 frame the client is ready for; ``GET /api/v1/live.jpg`` is one frame. Both
-are display -- 8-bit grey, lossy, no metadata; data is a capture, a file
+are display -- 8-bit gray, lossy, no metadata; data is a capture, a file
 in the live folder.
 
 One frame listener serves every watcher, attached while anyone watches. It
@@ -59,7 +59,7 @@ class Frame:
 
 
 def encode(frame: Frame, max_width: int | None) -> bytes:
-    """The frame in 8-bit grey, as JPEG, no wider than *max_width* (half its width when None)."""
+    """The frame in 8-bit gray, as JPEG, no wider than *max_width* (half its width when None)."""
     return image_utils.preview_jpeg(frame.image, frame.significant_bits, max_width)
 
 

@@ -244,7 +244,7 @@ _NODE_ACCESS_STATUS_NAMES = {
 
 def _access_status_name(raw) -> str:
     """Symbolic name for an ids_peak NodeAccessStatus value; falls back to a
-    labelled integer (unknown code) or its string form (non-integer)."""
+    labeled integer (unknown code) or its string form (non-integer)."""
     try:
         code = int(raw)
     except (TypeError, ValueError):
@@ -1989,7 +1989,7 @@ class IDSCamera(Camera):
         """The AOI nodes' grid at the current binning; None when not connected.
 
         The IMX676 AOI snaps to a coarse grid (48 px wide, 4 px tall), so the
-        base acquires the next legal AOI up, centred on the sensor, and
+        base acquires the next legal AOI up, centered on the sensor, and
         crops back to the request. Each node's Minimum is the grid PHASE, not
         just a request floor: the legal set is Min + k*Inc, and a binned Height
         reports Min=418 with Inc=4 -- off the plain-multiple grid, so a
@@ -2046,7 +2046,7 @@ class IDSCamera(Camera):
         )
 
     def _set_hardware_window(self, plan) -> None:
-        """Set the planned AOI and its centring offsets.
+        """Set the planned AOI and its centering offsets.
 
         Raises:
             CameraWriteFailedError: The camera did not take a write, or no
@@ -2133,12 +2133,12 @@ class IDSCamera(Camera):
         static profile, so ANY IDS body is driven by what it really exposes.
 
         MONO ONLY: this driver's unpack/blit path delivers a single-channel
-        frame, so a colour (Bayer/RGB) entry is never a valid default -- return
+        frame, so a color (Bayer/RGB) entry is never a valid default -- return
         None rather than feed the mono pipeline a mosaic. Among mono entries,
         prefer lowest delivered bandwidth: by bit depth (8 < 10 < 12), then a
         PACKED entry (IDS 'g..IDS' / 'p' grouped names, fewer bytes on the wire)
         over an unpacked one of the same depth. Returns None when the body
-        advertises no mono entry (a colour-only body, or an empty/failed read).
+        advertises no mono entry (a color-only body, or an empty/failed read).
 
         Pure-logic + staticmethod for unit-testability without an SDK
         connection (same pattern as _resolve_logical_format_name).
@@ -2528,7 +2528,7 @@ class IDSCamera(Camera):
 
     def set_max_transfer_size(self, value_bytes: int) -> None:
         """Set the DataStream U3vStreamChannelBulkTransferSize -- the IDS
-        analogue of Pylon's StreamGrabber MaxTransferSize (bytes per USB
+        analog of Pylon's StreamGrabber MaxTransferSize (bytes per USB
         transfer the SDK requests). Bench-confirmed ReadWrite on the
         U3-34L0XCP-M; locked while the stream is grabbing, as
         ``set_num_max_queued_urbs``'s node is.
@@ -2540,7 +2540,7 @@ class IDSCamera(Camera):
 
     def set_num_max_queued_urbs(self, value: int) -> None:
         """Set the DataStream U3vStreamChannelTransferRequestCount -- the IDS
-        analogue of Pylon's StreamGrabber NumMaxQueuedUrbs (count of in-flight
+        analog of Pylon's StreamGrabber NumMaxQueuedUrbs (count of in-flight
         USB transfer requests). Bench-confirmed ReadWrite on the U3-34L0XCP-M
         (observed range up to 6). The channel parameters are typically locked
         while the stream is grabbing, so a write then is refused.

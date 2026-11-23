@@ -9,7 +9,7 @@ section of the shipped motor defaults (``Tmcm6110Config``).
 
 Positions are microsteps on the board, 0 at each axis's index (Z's: its
 switch, backed off upward) and negative away from it. The API sees
-micrometres in the frame the plate transform shares with every model: the
+micrometers in the frame the plate transform shares with every model: the
 board's 0 sits at the axis's index position from the config, and its
 direction says which way the API's position grows. X grows away from the plate's column-12 end, as
 on the EL-0940, so X runs down from its index; Y and Z run up from theirs.
@@ -541,7 +541,7 @@ class Tmcm6110Board:
         return 0.0
 
     def move_abs_pos(self, axis: str, pos: float) -> None:
-        """Move to ``pos`` micrometres, in one leg.
+        """Move to ``pos`` micrometers, in one leg.
 
         Travel is not checked here: the motion API refuses a target
         outside travel before it calls this.
@@ -568,7 +568,7 @@ class Tmcm6110Board:
         return self._read_usteps(axis, AP_ACTUAL_POSITION)
 
     def steps_to_position(self, axis: str, steps: int) -> float:
-        """The micrometres ``current_pos`` answers for ``steps`` API microsteps.
+        """The micrometers ``current_pos`` answers for ``steps`` API microsteps.
 
         Raises:
             HardwareError: ``axis`` is not X, Y or Z: the stage has no turret.
@@ -577,7 +577,7 @@ class Tmcm6110Board:
         return motion_units.steps_to_position(self.motorconfig, axis, steps)
 
     def position_to_steps(self, axis: str, position: float) -> int:
-        """The API microsteps of ``position`` micrometres.
+        """The API microsteps of ``position`` micrometers.
 
         Raises:
             HardwareError: ``axis`` is not X, Y or Z: the stage has no turret.
@@ -586,7 +586,7 @@ class Tmcm6110Board:
         return motion_units.position_to_steps(self.motorconfig, axis, position)
 
     def target_pos(self, axis: str) -> float:
-        """The board's target in micrometres.
+        """The board's target in micrometers.
 
         Raises:
             HardwareError: the board did not report the position.
@@ -594,7 +594,7 @@ class Tmcm6110Board:
         return self.steps_to_position(axis, self.target_pos_steps(axis))
 
     def current_pos(self, axis: str) -> float:
-        """The actual position in micrometres.
+        """The actual position in micrometers.
 
         Raises:
             HardwareError: the board did not report the position.
@@ -758,7 +758,7 @@ class Tmcm6110Board:
 
     def _home_z(self) -> None:
         """Z to its switch, then up off it, where the position becomes 0:
-        a move back down meets the switch a few micrometres above the 0 the
+        a move back down meets the switch a few micrometers above the 0 the
         search sets, so a 0 on the switch would stop Z short of every move
         to 0."""
         search = self.motorconfig.homing('Z')['Switch Search']
