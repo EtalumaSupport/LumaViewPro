@@ -70,6 +70,16 @@ class TestEndingLatch:
         assert len(wins) == 1, f'{len(wins)} writers each believed they were first'
         assert latch.get().reason == reasons[wins[0]]
 
+    def test_a_reason_is_a_member_of_the_published_set_and_any_other_word_is_refused(self):
+        # A caller branches on the reason, so it is one closed set the
+        # reference lists, and the titles are that set's, not a second list.
+        from lumascope import RunEndReason
+
+        assert set(ENDING_TITLES) == set(RunEndReason)
+        assert RunEnding('aborted', 'stopped', 'Stopped by test').reason is RunEndReason.STOPPED
+        with pytest.raises(TypeError, match="'user_stop'"):
+            RunEnding('aborted', 'user_stop', 'not a run ending')
+
     def test_the_record_cannot_be_mutated_after_the_fact(self):
         ending = RunEnding('aborted', 'stopped', 'Stopped by test')
         with pytest.raises(dataclasses.FrozenInstanceError):

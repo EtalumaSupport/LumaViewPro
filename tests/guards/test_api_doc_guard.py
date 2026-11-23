@@ -1463,7 +1463,7 @@ class _ProseOwners:
             # A kind itself (Refusal, Fault, ...) carries no reasons; its classes do.
             {r for cls in outcome_classes().values() for r in getattr(cls, 'causes', ())}
             | set(_SERVER_STATUS)
-            | set(run_outcome.ENDINGS)
+            | set(run_outcome.RunEndReason)
         )
 
     def judge(self, token):

@@ -1059,7 +1059,6 @@ OPEN_STRINGS: dict[str, str] = {
     'RunOutcome.cleanup_failures field': _PROSE,
     'RunOutcome.merge_reason field': _REASON,
     'RunOutcome.message field': _PROSE,
-    'RunOutcome.reason field': _REASON,
     'RunOutcome.title field': _PROSE,
     'RuntimeState.plate_to_stage parameter labware_id': _LABWARE,
     'RuntimeState.stage_to_plate parameter labware_id': _LABWARE,

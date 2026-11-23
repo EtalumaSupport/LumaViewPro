@@ -99,46 +99,61 @@ class EndingKind(enum.StrEnum):
     FAILURE = 'failure'
 
 
-# Each way a run can end, by the ending's reason: its heading and its kind.
-# The one place an ending is titled, so the popup, the run's outcome and the
-# failure raised to a caller title one ending one way wherever it was
-# recorded; and the one place it is a failure, so the run's faults carry the
-# failures and nothing else.
-ENDINGS: dict[str, tuple[str, EndingKind]] = {
-    'completed': ('Protocol Complete', EndingKind.COMPLETION),
-    'stopped': ('Protocol Stopped', EndingKind.STOP),
-    'stage_stopped': ('Protocol Stopped', EndingKind.STOP),
-    'shutdown': ('Protocol Stopped', EndingKind.STOP),
-    'captures_failed': ('Run Incomplete', EndingKind.FAILURE),
-    'start_failed': ('Run failed to start', EndingKind.FAILURE),
-    'dispatch_refused': ('Run failed to start', EndingKind.FAILURE),
-    'capture_location_failed': ('Run failed to start', EndingKind.FAILURE),
-    'run_dir_init_failed': ('Run failed to start', EndingKind.FAILURE),
-    'camera_lane_stalled': ('Camera Busy', EndingKind.FAILURE),
-    'camera_read_failed': (CameraReadFailedError.title, EndingKind.FAILURE),
-    'run_loop_crashed': ('Protocol Crashed', EndingKind.FAILURE),
-    'hardware_disconnected': ('Protocol Aborted', EndingKind.FAILURE),
-    'consecutive_scan_failures': ('Protocol Aborted', EndingKind.FAILURE),
-    'interlock': ('Protocol Aborted -- Stage Interlock', EndingKind.FAILURE),
-    'position_lost': ('Protocol Aborted -- Position Lost', EndingKind.FAILURE),
-    'disk_space_critical': ('Disk Space Critical', EndingKind.FAILURE),
-    'file_writer_stalled': ('File Writer Stalled', EndingKind.FAILURE),
-    'video_writer_died': ('Recording Failed', EndingKind.FAILURE),
-    'led_channel_unavailable': ('Channel not available', EndingKind.FAILURE),
-    'camera_failure': ('Camera Failure', EndingKind.FAILURE),
-    'autofocus_failed': ('Autofocus Failed', EndingKind.FAILURE),
-    'autofocus_not_started': ('Autofocus Not Started', EndingKind.FAILURE),
-}
-ENDING_TITLES: dict[str, str] = {reason: title for reason, (title, _) in ENDINGS.items()}
-# The endings a run's faults carry, in the table's order.
+class RunEndReason(enum.StrEnum):
+    """Why a run ended: every reason a run can end with.
+
+    The one place an ending is named, titled and classed, so the popup, the
+    run's outcome and the failure raised to a caller title one ending one
+    way wherever it was recorded, and the run's faults carry the failures
+    and nothing else.
+    """
+
+    _heading: str
+    _kind: EndingKind
+
+    def __new__(cls, value: str, heading: str, kind: EndingKind) -> RunEndReason:
+        member = str.__new__(cls, value)
+        member._value_ = value
+        member._heading = heading
+        member._kind = kind
+        return member
+
+    COMPLETED = 'completed', 'Protocol Complete', EndingKind.COMPLETION
+    STOPPED = 'stopped', 'Protocol Stopped', EndingKind.STOP
+    STAGE_STOPPED = 'stage_stopped', 'Protocol Stopped', EndingKind.STOP
+    SHUTDOWN = 'shutdown', 'Protocol Stopped', EndingKind.STOP
+    CAPTURES_FAILED = 'captures_failed', 'Run Incomplete', EndingKind.FAILURE
+    START_FAILED = 'start_failed', 'Run failed to start', EndingKind.FAILURE
+    DISPATCH_REFUSED = 'dispatch_refused', 'Run failed to start', EndingKind.FAILURE
+    CAPTURE_LOCATION_FAILED = 'capture_location_failed', 'Run failed to start', EndingKind.FAILURE
+    RUN_DIR_INIT_FAILED = 'run_dir_init_failed', 'Run failed to start', EndingKind.FAILURE
+    CAMERA_LANE_STALLED = 'camera_lane_stalled', 'Camera Busy', EndingKind.FAILURE
+    CAMERA_READ_FAILED = 'camera_read_failed', CameraReadFailedError.title, EndingKind.FAILURE
+    RUN_LOOP_CRASHED = 'run_loop_crashed', 'Protocol Crashed', EndingKind.FAILURE
+    HARDWARE_DISCONNECTED = 'hardware_disconnected', 'Protocol Aborted', EndingKind.FAILURE
+    CONSECUTIVE_SCAN_FAILURES = 'consecutive_scan_failures', 'Protocol Aborted', EndingKind.FAILURE
+    INTERLOCK = 'interlock', 'Protocol Aborted -- Stage Interlock', EndingKind.FAILURE
+    POSITION_LOST = 'position_lost', 'Protocol Aborted -- Position Lost', EndingKind.FAILURE
+    DISK_SPACE_CRITICAL = 'disk_space_critical', 'Disk Space Critical', EndingKind.FAILURE
+    FILE_WRITER_STALLED = 'file_writer_stalled', 'File Writer Stalled', EndingKind.FAILURE
+    VIDEO_WRITER_DIED = 'video_writer_died', 'Recording Failed', EndingKind.FAILURE
+    LED_CHANNEL_UNAVAILABLE = 'led_channel_unavailable', 'Channel not available', EndingKind.FAILURE
+    CAMERA_FAILURE = 'camera_failure', 'Camera Failure', EndingKind.FAILURE
+    AUTOFOCUS_FAILED = 'autofocus_failed', 'Autofocus Failed', EndingKind.FAILURE
+    AUTOFOCUS_NOT_STARTED = 'autofocus_not_started', 'Autofocus Not Started', EndingKind.FAILURE
+
+
+ENDING_TITLES: dict[str, str] = {reason: reason._heading for reason in RunEndReason}
+ENDING_KINDS: dict[str, EndingKind] = {reason: reason._kind for reason in RunEndReason}
+# The endings a run's faults carry, in the set's order.
 FAILURE_REASONS: tuple[str, ...] = tuple(
-    reason for reason, (_, kind) in ENDINGS.items() if kind == EndingKind.FAILURE
+    reason for reason, kind in ENDING_KINDS.items() if kind == EndingKind.FAILURE
 )
 
 
 # The endings a person's stop makes: the run's own Stop, and STOP pressed
 # while it ran. A stop leaves the stage where it stopped it.
-STOP_REASONS = frozenset({'stopped', 'stage_stopped'})
+STOP_REASONS = frozenset({RunEndReason.STOPPED, RunEndReason.STAGE_STOPPED})
 
 
 @dataclasses.dataclass(frozen=True)
@@ -148,12 +163,10 @@ class RunEnding:
     Attributes:
         status: How the run ended; a plain string of the set is taken as
             its member, and any other word fails where the ending is made.
-        reason: Machine-readable cause, stable enough for a caller to
-            branch on ('position_lost', 'disk_space_critical',
-            'stopped', ...); one of ``ENDING_TITLES``' keys, or the
-            ending fails where it is made.
+        reason: Why the run ended; a plain string of the set is taken as
+            its member, and any other word fails where the ending is made.
         title: Short human sentence, suitable as a popup heading: the
-            reason's, from ``ENDING_TITLES``.
+            reason's heading.
         message: The sentence a user reads. Never a raw exception
             string -- those go to the log, not into a field a remote
             caller serializes.
@@ -166,7 +179,7 @@ class RunEnding:
     """
 
     status: RunStatus
-    reason: str
+    reason: RunEndReason
     message: str
     unconnected_parts: tuple[Board, ...] = ()
     axes_without_position: dict[Axis, AxisState] = dataclasses.field(default_factory=dict)
@@ -177,6 +190,7 @@ class RunEnding:
         object.__setattr__(self, 'status', RunStatus(self.status))
         if self.reason not in ENDING_TITLES:
             raise TypeError(f'a run cannot end with the reason {self.reason!r}: it has no title')
+        object.__setattr__(self, 'reason', RunEndReason(self.reason))
         object.__setattr__(
             self, 'unconnected_parts', tuple(Board(part) for part in self.unconnected_parts)
         )
@@ -197,7 +211,7 @@ class RunEnding:
     @property
     def title(self) -> str:
         """The reason's heading."""
-        return ENDING_TITLES[self.reason]
+        return self.reason._heading
 
 
 def hardware_disconnected_ending(parts: tuple[Board, ...]) -> RunEnding:
@@ -237,7 +251,13 @@ def hardware_disconnected_at_start_ending(parts: tuple[Board, ...]) -> RunEnding
 # all written: the disk floor, a stuck file writer, a video writer that
 # died. The images not saved and the record rows missing after one of them
 # are that same cause, so they are logged and not shown again.
-FILES_LOST_ENDINGS = frozenset({'disk_space_critical', 'file_writer_stalled', 'video_writer_died'})
+FILES_LOST_ENDINGS = frozenset(
+    {
+        RunEndReason.DISK_SPACE_CRITICAL,
+        RunEndReason.FILE_WRITER_STALLED,
+        RunEndReason.VIDEO_WRITER_DIED,
+    }
+)
 
 
 class FatalTold(enum.Enum):
@@ -473,8 +493,7 @@ class RunOutcome:
 
     Attributes:
         status: How the run ended.
-        reason: Why the RUN ended ('stopped', 'position_lost',
-            'captures_failed', ...).
+        reason: Why the RUN ended.
         title: Short human sentence, suitable as a popup heading.
         message: The sentence a user reads.
         unconnected_parts: The boards found disconnected when the run
@@ -543,7 +562,7 @@ class RunOutcome:
     """
 
     status: RunStatus
-    reason: str
+    reason: RunEndReason
     title: str
     message: str
     unconnected_parts: tuple[Board, ...]

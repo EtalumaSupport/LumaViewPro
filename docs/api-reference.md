@@ -11971,7 +11971,7 @@ shape for every run kind.
 - <a id="RunOutcome.merge_reason"></a>`merge_reason`: `str` -- Why the MERGE produced no file ('write_batch_timeout', 'write_batch_abandoned', 'write_batch_not_taken', 'write_batch_save_failed', 'write_batch_disk_full', 'write_batch_video_unfinished', 'no_run_dir', 'shutdown', ...). Empty on success and on every run that has no merge, so a caller can branch on merged and still log one field.
 - <a id="RunOutcome.merged"></a>`merged`: `bool` -- True only when an artifact was produced.
 - <a id="RunOutcome.message"></a>`message`: `str` -- The sentence a user reads.
-- <a id="RunOutcome.reason"></a>`reason`: `str` -- Why the RUN ended ('stopped', 'position_lost', 'captures_failed', ...).
+- <a id="RunOutcome.reason"></a>`reason`: `RunEndReason` -- Why the RUN ended.
 - <a id="RunOutcome.status"></a>`status`: `RunStatus` -- How the run ended.
 - <a id="RunOutcome.title"></a>`title`: `str` -- Short human sentence, suitable as a popup heading.
 - <a id="RunOutcome.unconnected_parts"></a>`unconnected_parts`: `tuple[Board, ...]` -- The boards found disconnected when the run ended `'hardware_disconnected'`, each by its `Board`; empty for every other reason.
@@ -13586,6 +13586,42 @@ The remedies a refusal can name, each one the Session applies (`ScopeSession.app
 
 - `recover_file_writer`
 - `repair_camera_driver`
+
+<a id="RunEndReason"></a>
+### `lumascope.RunEndReason`
+
+Held in: [`RunOutcome.reason`](#RunOutcome.reason).
+
+Why a run ended: every reason a run can end with.
+
+The one place an ending is named, titled and classed, so the popup, the
+run's outcome and the failure raised to a caller title one ending one
+way wherever it was recorded, and the run's faults carry the failures
+and nothing else.
+
+- `completed`
+- `stopped`
+- `stage_stopped`
+- `shutdown`
+- `captures_failed`
+- `start_failed`
+- `dispatch_refused`
+- `capture_location_failed`
+- `run_dir_init_failed`
+- `camera_lane_stalled`
+- `camera_read_failed`
+- `run_loop_crashed`
+- `hardware_disconnected`
+- `consecutive_scan_failures`
+- `interlock`
+- `position_lost`
+- `disk_space_critical`
+- `file_writer_stalled`
+- `video_writer_died`
+- `led_channel_unavailable`
+- `camera_failure`
+- `autofocus_failed`
+- `autofocus_not_started`
 
 <a id="RunStatus"></a>
 ### `lumascope.RunStatus`

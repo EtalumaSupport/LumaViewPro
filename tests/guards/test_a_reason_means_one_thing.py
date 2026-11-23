@@ -13,7 +13,7 @@ carries is the same fact only when the class names that class in
 fails where it is built, whichever class builds it.
 
 Two record vocabularies carry reasons outside any class: the run's endings
-(``run_outcome.ENDINGS``, each with its kind) and the bring-up record's
+(``run_outcome.ENDING_KINDS``, each with its kind) and the bring-up record's
 causes (``bring_up.CAUSE_PHRASES``, why a part is not up). A string in
 either that a class also carries is carried with the record's kind: a
 failed run's ending and a part's cause by a fault, a stopped run's ending by
@@ -46,7 +46,7 @@ from _lumascope.modules.exceptions import (
 from _lumascope.modules.lumascope_api.bring_up import CAUSE_PHRASES
 from _lumascope.modules.path_utils import CaptureLocationError
 from _lumascope.modules.plugins import PluginRegistrationError
-from _lumascope.modules.run_outcome import ENDINGS, EndingKind
+from _lumascope.modules.run_outcome import ENDING_KINDS, EndingKind
 from _lumascope.rest.problems import outcome_classes
 from tests.case_walk import failing_cases
 from tests.guards.test_every_outcome_joins_the_root import RAISABLE
@@ -374,7 +374,7 @@ def _carried_with_another_kind(kinds_of: dict[str, tuple[type, ...]], classes) -
 
 
 def _endings_kinds():
-    return {reason: _KINDS_OF_ENDING[kind] for reason, (_, kind) in ENDINGS.items()}
+    return {str(reason): _KINDS_OF_ENDING[kind] for reason, kind in ENDING_KINDS.items()}
 
 
 def _part_causes_kinds():
