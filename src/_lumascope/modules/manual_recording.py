@@ -52,7 +52,7 @@ from _lumascope.modules.config_helpers import (
 from _lumascope.modules.exceptions import (
     POST_PROCESSING_RUNNING_MESSAGE,
     FramesLostIn,
-    HyperstackRefusedError,
+    HyperstackNotBuiltError,
     InputFramesUnusableError,
     RecordingDetailsNotSavedError,
     RecordingFinalizeError,
@@ -1050,11 +1050,11 @@ class ManualRecordingController:
 
             if recording.hyperstack_rows is not None:
                 self._build_hyperstack(recording)
-        except HyperstackRefusedError as refused:
+        except HyperstackNotBuiltError as not_built:
             # The builder's reason is the whole answer, in its own words:
             # "check the log" is no answer to a REST caller or to a user who
             # cannot read one. The frames are on disk as recorded.
-            notifications.report_outcome(refused, solicited=False, category='Recording')
+            notifications.report_outcome(not_built, solicited=False, category='Recording')
         except Exception as failed:
             fault = RecordingFinalizeError(protocol_step=False)
             fault.__cause__ = failed
@@ -1164,26 +1164,26 @@ class ManualRecordingController:
         except InputFramesUnusableError as unusable:
             # Frames the stack cannot use are a hyperstack the recording did
             # not get, told under that heading in the builder's words.
-            raise HyperstackRefusedError(
+            raise HyperstackNotBuiltError(
                 str(unusable), _HYPERSTACK_REASON_OF[unusable.reason]
             ) from unusable
         # The builder reports refusal in its return value rather than by
-        # raising. Raise it as the typed refusal so the finish handler tells
+        # raising. Raise it as the typed fault so the finish handler tells
         # the user the builder's reason; announcing a hyperstack the builder
         # declined to write would name a file that does not exist.
         if not result['status']:
-            raise HyperstackRefusedError(result['error'])
+            raise HyperstackNotBuiltError(result['error'], 'builder_declined')
         logger.info(f'[ManualRecord] Hyperstack created at {output}')
 
 
-# Each reason a recording's frames cannot be used, as the hyperstack refusal's.
+# Each reason a recording's frames cannot be used, as the hyperstack fault's.
 _HYPERSTACK_REASON_OF = {
     'unreadable': 'unreadable_input_frame',
     'mixed_pixel_types': 'mixed_input_pixel_types',
-    'geometry': 'hyperstack_refused',
+    'geometry': 'input_frames_not_one_size',
 }
 if set(_HYPERSTACK_REASON_OF) != set(InputFramesUnusableError.titles):
-    raise ImportError('every InputFramesUnusableError reason needs a hyperstack refusal reason')
+    raise ImportError('every InputFramesUnusableError reason needs a hyperstack fault reason')
 
 
 def _say_what_the_frames_cannot_record(scope, to_plate) -> None:

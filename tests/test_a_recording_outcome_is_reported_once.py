@@ -21,7 +21,8 @@ import _lumascope.modules.protocol_recording as protocol_recording
 import _lumascope.modules.video_recording as video_recording
 from _lumascope.modules.exceptions import (
     FramesLostIn,
-    HyperstackRefusedError,
+    HyperstackNotBuiltError,
+    InputFramesUnusableError,
     RecordingFinalizeError,
     RecordingFramesUnstampedError,
     RecordingStoppedError,
@@ -172,7 +173,11 @@ def _record_reports(monkeypatch, module):
             'The camera sent 12 frame(s) without their timestamps, so the video step '
             'saved none. Reconnect the camera before recording again.',
         ),
-        (HyperstackRefusedError('one channel only'), 'Hyperstack Not Built', 'one channel only'),
+        (
+            HyperstackNotBuiltError('one channel only', 'builder_declined'),
+            'Hyperstack Not Built',
+            'one channel only',
+        ),
     ],
     ids=[
         'stalled',
@@ -276,8 +281,45 @@ def test_a_refused_hyperstack_is_reported_in_the_builders_words(
     finish(controller)
 
     ((fault, kw),) = reported
-    assert isinstance(fault, HyperstackRefusedError) and str(fault) == 'the builder says no'
+    assert isinstance(fault, HyperstackNotBuiltError) and str(fault) == 'the builder says no'
+    assert fault.reason == 'builder_declined'
     assert kw == {'solicited': False, 'category': 'Recording'}
+
+
+def test_frames_not_one_size_are_a_hyperstack_not_built_for_that_reason(
+    tmp_path, monkeypatch, post_processing
+):
+    """Frames the stack cannot share are the recording's own fault, named for
+    their size, not folded into the builder declining."""
+    controller, scope, clock = make_controller(
+        tmp_path, recording_format=RecordingFormat.HYPERSTACK, post_processing=post_processing
+    )
+    reported = _record_reports(monkeypatch, manual_recording_module)
+    unusable = InputFramesUnusableError('Frame 2 is 640x480, not 1900x1900.', 'geometry')
+
+    class _MixedSizesBuilder:
+        # a stand-in by design: the simulated camera writes every frame of a
+        # recording at one size, so frames of two sizes need the builder's
+        # own refusal
+        def __init__(self, **kwargs):
+            pass
+
+        def create_single_recording_stack(self, **kwargs):
+            raise unusable
+
+    monkeypatch.setattr(stack_builder_module, 'StackBuilder', _MixedSizesBuilder)
+    controller.start()
+    feed_frames(scope, clock, 3, fps=10.0)
+    controller.stop()
+    finish(controller)
+
+    ((fault, _),) = reported
+    assert isinstance(fault, HyperstackNotBuiltError)
+    assert (fault.reason, str(fault)) == (
+        'input_frames_not_one_size',
+        'Frame 2 is 640x480, not 1900x1900.',
+    )
+    assert fault.__cause__ is unusable
 
 
 def test_dropped_frames_are_reported_once_unsolicited(tmp_path, monkeypatch, post_processing):

@@ -27,7 +27,7 @@ import _lumascope.modules.stack_builder as stack_builder
 from _lumascope.modules.common_utils import PostFunction
 from _lumascope.modules.exceptions import (
     CaptureError,
-    HyperstackRefusedError,
+    HyperstackNotBuiltError,
     Notice,
     PostProcessingFailedError,
     PostProcessingOperation,
@@ -266,7 +266,7 @@ def test_the_post_run_build_announces_then_answers_under_one_key(
 def test_the_post_run_builds_failure_replaces_its_announcement_in_its_own_words(
     tmp_path, monkeypatch, centre_posts
 ):
-    fault = HyperstackRefusedError(
+    fault = HyperstackNotBuiltError(
         'Plane 3 of well A1 could not be read.', 'unreadable_input_frame'
     )
 

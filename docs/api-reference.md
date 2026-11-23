@@ -15469,12 +15469,12 @@ had moved.
 |---|---|---|
 | `stopped` | state | 409 |
 
-<a id="HyperstackRefusedError"></a>
-### `lumascope.HyperstackRefusedError`
+<a id="HyperstackNotBuiltError"></a>
+### `lumascope.HyperstackNotBuiltError`
 
 A fault; bases `Fault`, `CaptureError`.
 
-The hyperstack builder declined to build a recording's frames into one file.
+The hyperstack builder did not build a recording's frames into one file.
 
 Raised by the manual recording's finish when the builder answers
 status=False, or raises `InputFramesUnusableError` because a frame
@@ -15484,14 +15484,19 @@ The builder's own sentence rides in `message` so the notification the
 user sees says why, in the builder's words, rather than telling them to
 read a log.
 
+Its reasons are its own, not the input refusal's it may follow: that one
+refuses a build asked of frames it cannot use, this one is the recording
+failing to get its stack.
+
 **Attributes**
 
 - `message`: The builder's one-paragraph reason, user-facing.
-- `reason`: `'hyperstack_refused'` -- the builder answered status=False, or the frames are not all one size; `'unreadable_input_frame'` -- a frame could not be read; `'mixed_input_pixel_types'` -- frames of different pixel types cannot share one stack.
+- `reason`: `'builder_declined'` -- the builder answered status=False; `'unreadable_input_frame'` -- a frame could not be read; `'input_frames_not_one_size'` -- the frames are not all one size; `'mixed_input_pixel_types'` -- frames of different pixel types cannot share one stack.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `hyperstack_refused` | -- | 500 |
+| `builder_declined` | -- | 500 |
+| `input_frames_not_one_size` | -- | 500 |
 | `mixed_input_pixel_types` | -- | 500 |
 | `unreadable_input_frame` | -- | 500 |
 

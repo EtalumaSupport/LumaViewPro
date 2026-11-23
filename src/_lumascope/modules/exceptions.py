@@ -2730,8 +2730,8 @@ class RecordingRefusedError(Refusal, CaptureError):
         self.holder_trigger = holder_trigger
 
 
-class HyperstackRefusedError(Fault, CaptureError):
-    """The hyperstack builder declined to build a recording's frames into one file.
+class HyperstackNotBuiltError(Fault, CaptureError):
+    """The hyperstack builder did not build a recording's frames into one file.
 
     Raised by the manual recording's finish when the builder answers
     status=False, or raises ``InputFramesUnusableError`` because a frame
@@ -2741,21 +2741,30 @@ class HyperstackRefusedError(Fault, CaptureError):
     user sees says why, in the builder's words, rather than telling them to
     read a log.
 
+    Its reasons are its own, not the input refusal's it may follow: that one
+    refuses a build asked of frames it cannot use, this one is the recording
+    failing to get its stack.
+
     Attributes:
         message: The builder's one-paragraph reason, user-facing.
-        reason: ``'hyperstack_refused'`` -- the builder answered status=False,
-            or the frames are not all one size;
+        reason: ``'builder_declined'`` -- the builder answered status=False;
             ``'unreadable_input_frame'`` -- a frame could not be read;
-            ``'mixed_input_pixel_types'`` -- frames of different pixel types
-            cannot share one stack.
+            ``'input_frames_not_one_size'`` -- the frames are not all one
+            size; ``'mixed_input_pixel_types'`` -- frames of different pixel
+            types cannot share one stack.
     """
 
     title = 'Hyperstack Not Built'
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
-        ('hyperstack_refused', 'unreadable_input_frame', 'mixed_input_pixel_types')
+        (
+            'builder_declined',
+            'unreadable_input_frame',
+            'input_frames_not_one_size',
+            'mixed_input_pixel_types',
+        )
     )
 
-    def __init__(self, message: str, reason: str = 'hyperstack_refused'):
+    def __init__(self, message: str, reason: str):
         super().__init__(message, reason)
         self.message = message
 
