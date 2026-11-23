@@ -79,6 +79,29 @@ def test_a_write_with_one_value_refused_stores_none_of_them(session):
     assert session.settings_snapshot == before
 
 
+def test_a_refused_field_is_named_as_the_caller_passed_it(session):
+    # The sentence names the argument; the published path stays the
+    # setting's, which a REST problem carries as a path.
+    with pytest.raises(SettingRefusedError) as out_of_range:
+        session.set_channel_settings(STIM_CHANNEL, composite_brightness_threshold_pct=150)
+    with pytest.raises(SettingRefusedError) as not_carried:
+        session.set_channel_settings('BF', stim_frequency_hz=2.0)
+
+    assert (out_of_range.value.reason, out_of_range.value.path, out_of_range.value.limits) == (
+        'out_of_range',
+        f'{STIM_CHANNEL}.composite_brightness_threshold',
+        (0, 100),
+    )
+    assert str(out_of_range.value).startswith(
+        f"{STIM_CHANNEL}'s composite_brightness_threshold_pct was not changed: "
+    )
+    assert (not_carried.value.reason, not_carried.value.path) == (
+        'not_offered',
+        'BF.stim_config.frequency',
+    )
+    assert str(not_carried.value).startswith("BF's stim_frequency_hz was not changed: ")
+
+
 def _clamp_notices(centre_posts):
     return [post.message for post in centre_posts if post.reason == ValueClampedNotice.reason]
 
@@ -89,7 +112,9 @@ def test_a_sum_above_100_frames_is_stored_at_100_and_told(session, centre_posts)
     assert session.set_channel_settings('BF', frames_summed=150).frames_summed == 100
 
     assert session.settings['BF']['sum'] == 100
-    assert _clamp_notices(centre_posts) == [str(ValueClampedNotice([('BF', 'sum', 150, 100)]))]
+    # Told by the field the caller wrote, not the setting's key (``sum``).
+    (told,) = _clamp_notices(centre_posts)
+    assert 'BF frames_summed 150 was set to 100' in told
     session.set_channel_settings('BF', frames_summed=before)
 
 
@@ -112,13 +137,11 @@ def test_a_stimulation_current_above_the_led_board_is_stored_at_its_maximum(sess
     session.set_channel_settings(STIM_CHANNEL, stim_illumination_ma=board_max + 1)
 
     assert session.channel_settings(STIM_CHANNEL).stim_illumination_ma == board_max
-    assert _clamp_notices(centre_posts) == [
-        str(
-            ValueClampedNotice(
-                [(STIM_CHANNEL, 'stim_config.illumination_ma', board_max + 1.0, float(board_max))]
-            )
-        )
-    ]
+    (told,) = _clamp_notices(centre_posts)
+    assert (
+        f'{STIM_CHANNEL} stim_illumination_ma {board_max + 1.0!r} was set to {float(board_max)!r}'
+        in told
+    )
 
 
 def test_a_gain_and_exposure_past_the_camera_are_stored_and_run_at_its_limits_told_once(

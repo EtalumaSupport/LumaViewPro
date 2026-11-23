@@ -203,6 +203,9 @@ _HARDWARE_FIELDS = _CAMERA_FIELDS | {'illumination_ma'}
 
 # Each ChannelSettings field's key under a channel's settings block.
 _CHANNEL_FIELD_KEYS = dict(CHANNEL_SETTING_KEYS)
+# Each channel setting by the field a caller writes it by, for the words of
+# a value set at a limit.
+_CHANNEL_FIELD_OF_KEY = {key: field for field, key in CHANNEL_SETTING_KEYS}
 
 
 def _channel_value(block: dict, key: str) -> tuple[bool, object]:
@@ -2986,7 +2989,9 @@ class ScopeSession:
                 does not carry (stimulation on a channel that does not
                 stimulate); ``'wrong_kind'`` or ``'out_of_range'``, a value
                 its setting does not take, a focus that is not finite among
-                them.
+                them. The sentence names the field as it was passed
+                (``Ex405's composite_brightness_threshold_pct``); ``path``
+                is the setting's (``Ex405.composite_brightness_threshold``).
             ConfigurationDefectError: ``'channels_unresolved'``, this scope's
                 channels could not be resolved.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope
@@ -3025,9 +3030,17 @@ class ScopeSession:
             value = python_values(value)
             key = _CHANNEL_FIELD_KEYS[field]
             path = f'{channel}.{key}'
+            # The caller's argument, where the setting's path may name it
+            # otherwise (``frames_summed`` writes ``sum``).
+            subject = f"{channel}'s {field}"
             if key not in carried:
-                raise SettingRefusedError('not_offered', path, f'{channel} has no {field}')
-            settings_paths.check_value(template, path, value)
+                raise SettingRefusedError(
+                    'not_offered', path, 'the channel does not carry it', subject=subject
+                )
+            try:
+                settings_paths.check_value(template, path, value)
+            except SettingRefusedError as refused:
+                raise refused.naming(subject) from None
             fields[key] = value
         if (
             fields.get('acquire') is not None
@@ -5060,7 +5073,8 @@ class ScopeSession:
         light the LED refuses stores nothing, and the camera is put back on
         the stored values (``apply_channel_camera``). Then every value is
         stored (``_write_channel_fields``), and the values set at a limit
-        are told once (``ValueClampedNotice``). While a run or a diagnostic
+        are told once (``ValueClampedNotice``), each by its ``ChannelSettings``
+        field (``frames_summed``, not ``sum``). While a run or a diagnostic
         holds the scope the values are stored only, and its end puts the
         shown channel on (``_apply_shown_channel``).
 
@@ -5116,7 +5130,9 @@ class ScopeSession:
             self._write_channel_fields(writing)
         if clamped:
             notifications.report_outcome(
-                ValueClampedNotice(clamped), solicited=True, category='Settings'
+                ValueClampedNotice(clamped, named=_CHANNEL_FIELD_OF_KEY),
+                solicited=True,
+                category='Settings',
             )
 
     def _clamp_channel_fields(

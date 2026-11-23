@@ -9,7 +9,7 @@ import datetime
 import errno
 import math
 import pathlib
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar, NamedTuple
@@ -837,19 +837,29 @@ class ValueClampedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an e
             was written to (``'camera'``, a channel, or a run's step), the
             setting, the value asked for and the limit it was set at. Every
             value is here; the words name the first five and count the rest.
+
+    ``named`` maps a setting to the name a caller writes it by, where the
+    two differ (a channel's ``sum`` is its ``frames_summed``): the words use
+    that name, and ``clamped`` keeps the setting.
     """
 
     title = 'Set at the hardware limit'
     causes: ClassVar[dict[str, RefusalCause | None]] = {'value_clamped': None}
 
-    def __init__(self, clamped: list[tuple[str, str, float, float]]):
+    def __init__(
+        self,
+        clamped: list[tuple[str, str, float, float]],
+        *,
+        named: Mapping[str, str] | None = None,
+    ):
         # Deferred: common_utils imports this module. A run's list grows
         # with its protocol, so the words name the first few.
         from _lumascope.modules.common_utils import first_few
 
+        names = named or {}
         listed = first_few(
             [
-                f'{where} {setting} {asked!r} was set to {applied!r}'
+                f'{where} {names.get(setting, setting)} {asked!r} was set to {applied!r}'
                 for where, setting, asked, applied in clamped
             ],
             separator='; ',
@@ -1992,15 +2002,34 @@ class SettingRefusedError(Refusal, ConfigError):
         member: str | None = None,
         limits: tuple[float, float] | None = None,
         takes: str | None = None,
+        subject: str | None = None,
     ):
         # A detail may be another refusal's whole sentence, its period included.
-        super().__init__(f'{path} was not changed: {detail.removesuffix(".")}.')
+        super().__init__(f'{subject or path} was not changed: {detail.removesuffix(".")}.')
         self.reason = reason
         self.path = path
         self.detail = detail
         self.member = member
         self.limits = limits
         self.takes = takes
+
+    def naming(self, subject: str) -> 'SettingRefusedError':
+        """This refusal, its sentence naming the setting as ``subject``, as the caller passed it.
+
+        For a member whose argument names a setting otherwise than its path
+        (``set_channel_settings``' ``composite_brightness_threshold_pct``
+        writes ``<channel>.composite_brightness_threshold``): every field,
+        ``path`` among them, is this one's.
+        """
+        return SettingRefusedError(
+            self.reason,
+            self.path,
+            self.detail,
+            member=self.member,
+            limits=self.limits,
+            takes=self.takes,
+            subject=subject,
+        )
 
 
 class SettingsFileNotReplacedError(Fault, ConfigError):

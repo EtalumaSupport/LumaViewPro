@@ -2628,7 +2628,7 @@ The channel's settings as stored once the write is done, the lock's values and t
 **Raises**
 
 - `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'gain_range_inverted'`, `auto_gain` True while the stored auto-gain range has its minimum gain above its maximum.
-- `SettingRefusedError`: `'not_offered'`, a field this channel does not carry (stimulation on a channel that does not stimulate); `'wrong_kind'` or `'out_of_range'`, a value its setting does not take, a focus that is not finite among them.
+- `SettingRefusedError`: `'not_offered'`, a field this channel does not carry (stimulation on a channel that does not stimulate); `'wrong_kind'` or `'out_of_range'`, a value its setting does not take, a focus that is not finite among them. The sentence names the field as it was passed (`Ex405's composite_brightness_threshold_pct`); `path` is the setting's (`Ex405.composite_brightness_threshold`).
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope does not have `channel` and the write sets it to acquire, turns its auto-gain on or saves its focus; `'exclusive_activity_running'`, as described above, or the write is the shown channel's illumination, its LED is lit at 0 mA, the value is above 0 mA, and a manual recording runs (a recording keeps the light it started under). Nothing is stored.
 - `CameraSettingRejected`: the shown channel's camera did not take its gain, exposure or auto-gain; or a gain or exposure, on any channel, while the camera's gain and exposure range is unread, naming them, none sent. Nothing is stored.
@@ -17468,6 +17468,10 @@ value the writer was not handed: a stored value applied at bring-up is
 **Attributes**
 
 - `clamped`: `(where, setting, asked, applied)` for each value: what was written to (`'camera'`, a channel, or a run's step), the setting, the value asked for and the limit it was set at. Every value is here; the words name the first five and count the rest.
+
+`named` maps a setting to the name a caller writes it by, where the
+two differ (a channel's `sum` is its `frames_summed`): the words use
+that name, and `clamped` keeps the setting.
 
 | Reason | Cause | REST status |
 |---|---|---|
