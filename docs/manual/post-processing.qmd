@@ -101,6 +101,10 @@ Its settings:
 - [Overlay Timestamp]{.guilabel}: when on, each frame shows the date and
   time it was taken, to the millisecond, in its lower left corner. Default: on.
 
+Create Video won't start on a drive with less than 2 GB free ("Not Enough
+Disk Space"): it can't tell how large a video will be until it's made. Free
+some space and start it again.
+
 Videos are MP4 files (H.264), 8 bits per channel. A protocol run's videos are
 saved in its `Video` folder, or, for images another tool made, in a folder
 named for both, for example `Composite-Video`. A recording's video is saved
