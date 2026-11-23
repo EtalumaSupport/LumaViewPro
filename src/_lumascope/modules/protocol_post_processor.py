@@ -185,6 +185,54 @@ def _removed(group: pd.DataFrame) -> bool:
     return bool(_missing(group).all() and derived_rows(group).all())
 
 
+def _plans_of(
+    get_groups: Callable[[pd.DataFrame], object], df: pd.DataFrame, planned: pd.DataFrame
+) -> dict:
+    """Each of *df*'s rows' plan, by its index: the steps the planned rows
+    of its group hold.
+
+    The planned rows are grouped with the captured ones, by the build's own
+    groups, so a plan reaches exactly the group its steps' captures fill.
+    """
+    if df.empty or planned.empty:
+        return {}
+    both = pd.concat([df, planned], keys=['captured', 'planned'])
+    group_of = get_groups(both).ngroup()
+    steps: dict = {}
+    for row, group_id in group_of.loc['planned'].items():
+        steps.setdefault(group_id, set()).add(int(planned.at[row, 'Step Index']))
+    return {
+        row: frozenset(steps.get(group_id, ()))
+        for row, group_id in group_of.loc['captured'].items()
+    }
+
+
+def _cut_short(group: pd.DataFrame, plan: frozenset, last_scan: int | None) -> pd.DataFrame:
+    """The group's rows in the run's last scan when they hold less than
+    *plan*, else none.
+
+    A recorded capture holds its step whether its file is there or not: a
+    scan that ran whole is never cut short, only refused for what it lost.
+    A group with no row in that scan was not reached in it, and loses
+    nothing.
+    """
+    if not plan:
+        return group.iloc[0:0]
+    in_last = group[group['Scan Count'] == last_scan]
+    if in_last.empty:
+        return in_last
+    if {int(step) for step in in_last['Step Index']} >= plan:
+        return in_last.iloc[0:0]
+    return in_last
+
+
+def _subject(group: pd.DataFrame) -> str:
+    # A custom step has no well; its label names every step the group
+    # spans, where a step's own name is one channel's or one slice's.
+    row0 = group.iloc[0]
+    return f'well {row0["Well"]}' if row0['Well'] else f'step {row0["Label"]}'
+
+
 def _missing_frames_error(missing: pd.DataFrame) -> str:
     """Why a group was not built: each recorded image it lacks, and why."""
     if derived_rows(missing).all():
@@ -210,6 +258,11 @@ class ProtocolPostProcessor(abc.ABC):
     # What two acquisitions in one place should have been, for a build that
     # groups by Add; empty for one that does not.
     _ONE_PER_ADD = ''
+    # Whether a group's share of the run's last scan is left out when it
+    # holds less than the protocol planned there: the run ended partway
+    # through it, and a build that needs every scan whole builds from the
+    # scans before it.
+    _WHOLE_SCANS_ONLY = False
 
     def __init__(
         self,
@@ -643,6 +696,16 @@ class ProtocolPostProcessor(abc.ABC):
 
         group_count = len(groups)
 
+        # Each group's plan for the run's last scan, for a build that takes
+        # only whole scans; none for any other.
+        plans, last_scan = {}, None
+        if self._WHOLE_SCANS_ONLY:
+            plans = _plans_of(self._get_groups, df, results['planned_df'])
+            last_scan = results['last_scan']
+        # Each group whose share of the last scan was left out, as a person
+        # reads it.
+        left_out = []
+
         # When two DIFFERENT groups would render one output filename,
         # generating them would produce only the first group's artifact (the
         # second is skipped as already-recorded) -- a silent data loss.
@@ -714,6 +777,28 @@ class ProtocolPostProcessor(abc.ABC):
                 )
                 continue
 
+            # Before the single-image skip and the missing-frame refusal: a
+            # last scan the run ended partway through is neither a single
+            # image nor a lost frame, and a group left with none of its own
+            # scans is named, not skipped.
+            whole = group
+            cut = _cut_short(group, plans.get(group.index[0], frozenset()), last_scan)
+            if not cut.empty:
+                group = group.drop(index=cut.index)
+                subject = _subject(whole)
+                if group.empty:
+                    _, _, cut_loc = self._planned_output(root_path, whole, **kwargs)
+                    cut_loc_rel = cut_loc.relative_to(root_path)
+                    last_error = (
+                        f'{subject[0].upper()}{subject[1:]} has no complete scan: the run '
+                        f'ended partway through its only scan. Its {len(cut)} image(s) '
+                        'are saved.'
+                    )
+                    group_errors.append(f'{cut_loc_rel}: {last_error}')
+                    logger.error(f'Not generating {cut_loc_rel}: {last_error}')
+                    continue
+                left_out.append(f'{subject} ({len(cut)} image(s))')
+
             # A row for a missing recording stands for its frames, so the
             # group it is in counts as the group it would have been.
             missing = group[_missing(group)]
@@ -726,8 +811,9 @@ class ProtocolPostProcessor(abc.ABC):
                     )
                 continue
 
+            # Named as the collision check named it, from every row it held.
             output_filename, derivation, output_file_loc = self._planned_output(
-                root_path, group, **kwargs
+                root_path, whole, **kwargs
             )
             if output_filename in colliding_names:
                 refused_count += 1
@@ -909,7 +995,13 @@ class ProtocolPostProcessor(abc.ABC):
                 f' {len(removed_groups)} group(s) not built: their {makers} images were '
                 'removed from the folder.'
             )
-        accounting_note = f'{single_skip_note}{excluded_note}{removed_note}'
+        left_out_note = (
+            ' The run ended partway through its last scan, so that scan is not in the '
+            f'{self.operation_label.lower()} of {", ".join(left_out)}; its images are saved.'
+            if left_out
+            else ''
+        )
+        accounting_note = f'{single_skip_note}{excluded_note}{removed_note}{left_out_note}'
 
         # A removed group is a complete answer, as an output already made is.
         if (new_count == 0) and (existing_count == 0) and not removed_groups:

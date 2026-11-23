@@ -10,6 +10,7 @@ import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.image_utils as image_utils
 import _lumascope.modules.path_utils as path_utils
 import _lumascope.modules.recording_frames as recording_frames
+from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.protocol import Protocol, StoredNames
 from _lumascope.modules.protocol_execution_record import ProtocolExecutionRecord
 from _lumascope.modules import post_derivation
@@ -52,6 +53,14 @@ def _raw_row(
         'Missing': missing,
         'Frames': frames,
     }
+
+
+def _raw_table(rows: list[dict]) -> pd.DataFrame:
+    """Raw frames' rows as a build reads them: every cell filled, each row
+    marked raw and made by no build."""
+    table = pd.DataFrame(rows).fillna('')
+    table['Raw'] = True
+    return table.assign(**post_derivation.raw_columns())
 
 
 @dataclasses.dataclass(frozen=True)
@@ -356,6 +365,27 @@ class ProtocolPostProcessingHelper:
             )
         return rows
 
+    @staticmethod
+    def _get_planned_rows(
+        protocol: Protocol, last_scan: int, include_subpaths: list[str]
+    ) -> list[dict]:
+        """A row for each still the protocol plans in its scan *last_scan*.
+
+        Each is the row a capture of its step in that scan would have, with
+        no file; a recording plans no still. In a selected subfolder, only
+        the steps of the channel it is named for.
+        """
+        rows = []
+        for step_index in range(len(protocol.steps())):
+            step = protocol.step_row(step_index=step_index)
+            if step['Acquire'] == AcquireMode.VIDEO:
+                continue
+            if include_subpaths and step['channel'] not in include_subpaths:
+                continue
+            planned = {'Step Index': step_index, 'Scan Count': last_scan, 'Timestamp': ''}
+            rows.append(_raw_row(pathlib.Path(), planned, protocol, missing='', frames=1))
+        return rows
+
     def _get_post_images_df(
         self,
         image_names: list[pathlib.Path],
@@ -504,10 +534,22 @@ class ProtocolPostProcessingHelper:
                 root_path=root_path,
                 include_subpaths=include_subpaths,
             )
-        raw_images_df = pd.DataFrame(raw_images).fillna('')
+        raw_images_df = _raw_table(raw_images)
 
-        raw_images_df['Raw'] = True
-        raw_images_df = raw_images_df.assign(**post_derivation.raw_columns())
+        # What the run's last scan was to hold, row for row as its captures'
+        # rows are built, so a build that groups them groups both alike. A
+        # selected recording folder is its frames only, and plans nothing.
+        last_scan = max(
+            (entry['Scan Count'] for entry in protocol_execution_record.saved_entries()),
+            default=None,
+        )
+        planned_rows = []
+        if last_scan is not None and not recording_frames.is_video_recording_dir(path):
+            planned_rows = self._get_planned_rows(
+                protocol=protocol,
+                last_scan=last_scan,
+                include_subpaths=include_subpaths,
+            )
 
         post_images_df = self._get_post_images_df(
             image_names=image_names['post'],
@@ -532,4 +574,6 @@ class ProtocolPostProcessingHelper:
             'protocol_execution_record': protocol_execution_record,
             'protocol_post_record': protocol_post_record,
             'images_df': images_df,
+            'last_scan': last_scan,
+            'planned_df': _raw_table(planned_rows),
         }

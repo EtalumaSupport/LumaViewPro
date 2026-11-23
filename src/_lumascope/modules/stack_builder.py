@@ -94,6 +94,9 @@ def build_hyperstacks_for_run(
 class StackBuilder(ProtocolPostProcessor):
     _PLACE = 'plane'
     _ONE_PER_ADD = ' Steps Added together make one hyperstack.'
+    # A stack's T axis is its scans, so one the run ended partway through
+    # is left out rather than refusing the stack its complete ones.
+    _WHOLE_SCANS_ONLY = True
 
     def __init__(self, *args, **kwargs):
         super().__init__(
