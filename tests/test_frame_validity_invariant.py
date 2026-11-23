@@ -20,6 +20,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings
 from _lumascope.drivers.exceptions import CameraWriteFailedError
 from _lumascope.modules.exceptions import CameraSettingRejected
 from _lumascope.modules.lumascope_api.imaging import ImagingAPI
@@ -129,10 +130,7 @@ class TestAutoGainOnceInvalidates:
         assert fv.target('gain') is not None and fv.target('exposure') is not None
         before = fv.invalidation_counts
         camera.auto_gain_once(
-            state=True,
-            target_brightness=0.5,
-            min_gain_db=0.0,
-            max_gain_db=24.0,
+            AutoGainSettings(target_brightness=0.5, min_gain_db=0.0, max_gain_db=24.0)
         )
         after = fv.invalidation_counts
         assert (

@@ -90,7 +90,9 @@ def test_restore_re_arms_on_every_exit_of_the_bracket(sim_scope):
     from tests.af_drives import af_runner_on, sweep
 
     runner = af_runner_on(sim_scope, pattern='white')
-    sim_scope.camera.set_auto_gain(True, dict(AG_SETTINGS_TRANSMITTED), resume_after_capture=True)
+    sim_scope.camera.set_auto_gain(
+        CameraAutoMode.CONTINUOUS, AG_SETTINGS_TRANSMITTED, resume_after_capture=True
+    )
     with pytest.raises(AutofocusFailedError) as failed:
         sweep(runner, sim_scope)
     assert failed.value.reason == 'flat_focus_curve'

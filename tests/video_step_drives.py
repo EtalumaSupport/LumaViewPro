@@ -19,7 +19,7 @@ from _lumascope.modules.protocol_recording import ProtocolVideoStep
 from _lumascope.modules.run_events import RunEvents
 from tests.disk_fakes import PLENTY_MB, free_space_is
 from tests.frame_records import plate
-from tests.protocol_drives import a_frame_sizing, lent_run_claim
+from tests.protocol_drives import STOCK_AUTO_GAIN, a_frame_sizing, lent_run_claim
 from tests.stock_channels import LED0
 
 # A one-second step at 5 fps, manual gain, as the protocol editor writes it.
@@ -68,7 +68,7 @@ def video_step_on(
         'global_max_fps': 0,
         'video_sizing_fps': 30.0,
         'frame_sizing': a_frame_sizing(),
-        'autogain_settings': {},
+        'autogain_settings': STOCK_AUTO_GAIN,
         'events': RunEvents(),
         'aborted_event': threading.Event(),
         'is_run_in_progress': lambda: True,

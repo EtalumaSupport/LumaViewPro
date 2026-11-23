@@ -29,6 +29,7 @@ from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
 from _lumascope.modules.sequential_io_executor import ENQUEUED
 from tests.scope_fakes import construct_session, real_executor_bundle, spec_scope
 from tests.settings_fixtures import complete_settings
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings
 
 
 @pytest.fixture
@@ -64,7 +65,9 @@ def _refused_start(session, tmp_path) -> ProtocolRunRefusedError:
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             sequence_name='t',
             image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
-            autogain_settings={},
+            autogain_settings=AutoGainSettings(
+                target_brightness=0.3, min_gain_db=0.0, max_gain_db=20.0
+            ),
             parent_dir=tmp_path,
         )
     return refused.value

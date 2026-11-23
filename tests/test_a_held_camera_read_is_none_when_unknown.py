@@ -22,7 +22,7 @@ import time
 import pytest
 
 from _lumascope.modules.exceptions import ArgumentRefusedError, CameraSettingRejected
-from _lumascope.modules.lumascope_api.camera import CameraAPI, CameraAutoMode
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAPI, CameraAutoMode
 from _lumascope.modules.scope_capabilities import FrameSize
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -41,7 +41,11 @@ _HELD = (
     'line_noise_reduction',
 )
 
-_AUTO_GAIN = {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 24.0}
+_AUTO_GAIN = AutoGainSettings(
+    target_brightness=0.5,
+    min_gain_db=0.0,
+    max_gain_db=24.0,
+)
 
 
 @pytest.fixture
@@ -88,7 +92,7 @@ def test_a_write_the_camera_took_is_held(session):
 
 def test_an_auto_gain_arm_holds_auto_gain_and_auto_exposure_and_its_lock_holds_both_off(session):
     camera = session.scope.camera
-    camera.set_auto_gain(True, _AUTO_GAIN)
+    camera.set_auto_gain(CameraAutoMode.CONTINUOUS, _AUTO_GAIN)
     assert (camera.auto_gain, camera.auto_exposure) == (
         CameraAutoMode.CONTINUOUS,
         CameraAutoMode.CONTINUOUS,
@@ -99,7 +103,9 @@ def test_an_auto_gain_arm_holds_auto_gain_and_auto_exposure_and_its_lock_holds_b
 
 def test_a_one_shot_is_held_running_until_a_read_finds_it_ended(session):
     camera = session.scope.camera
-    camera.auto_gain_once(state=True, target_brightness=0.5, min_gain_db=0.0, max_gain_db=24.0)
+    camera.auto_gain_once(
+        AutoGainSettings(target_brightness=0.5, min_gain_db=0.0, max_gain_db=24.0)
+    )
     assert (camera.auto_gain, camera.auto_exposure) == (CameraAutoMode.ONCE, CameraAutoMode.ONCE)
     # The simulated one-shot converges at once, so the camera already reads Off.
     assert (camera.read_auto_gain(), camera.read_auto_exposure()) == (
@@ -125,9 +131,9 @@ def test_auto_exposure_is_set_by_its_mode_and_a_one_shot_is_refused(session):
 
 def test_a_failed_read_back_after_auto_gain_leaves_the_gain_unknown_and_the_camera_usable(session):
     camera = session.scope.camera
-    camera.set_auto_gain(True, _AUTO_GAIN)
+    camera.set_auto_gain(CameraAutoMode.CONTINUOUS, _AUTO_GAIN)
     session.scope.simulation.refuse_camera_read('gain', 'failed')
-    camera.set_auto_gain(False, _AUTO_GAIN)
+    camera.set_auto_gain(CameraAutoMode.OFF)
     assert camera.gain_db is None
 
     assert camera.set_gain_db(3.0) == 3.0
@@ -137,9 +143,9 @@ def test_a_failed_read_back_after_auto_gain_leaves_the_gain_unknown_and_the_came
 
 def test_a_failed_exposure_read_back_after_auto_gain_leaves_only_the_exposure_unknown(session):
     camera = session.scope.camera
-    camera.set_auto_gain(True, _AUTO_GAIN)
+    camera.set_auto_gain(CameraAutoMode.CONTINUOUS, _AUTO_GAIN)
     session.scope.simulation.refuse_camera_read('exposure', 'failed')
-    camera.set_auto_gain(False, _AUTO_GAIN)
+    camera.set_auto_gain(CameraAutoMode.OFF)
     assert camera.exposure_ms is None
     # The gain read answered, so the gain held is the one the cycle left.
     assert camera.gain_db == camera.read_gain_db()
@@ -170,7 +176,7 @@ _HELD_WRITES = (
     ),
     (
         'auto_gain',
-        lambda camera: camera.set_auto_gain(True, _AUTO_GAIN),
+        lambda camera: camera.set_auto_gain(CameraAutoMode.CONTINUOUS, _AUTO_GAIN),
         ('auto_gain', 'auto_exposure'),
     ),
 )

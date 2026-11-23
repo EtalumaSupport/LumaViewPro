@@ -41,7 +41,7 @@ from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.lumascope_api.illumination import LedState
 from _lumascope.modules.lumascope_api.simulation import SimulatedScope
 from _lumascope.modules.scope_session import ScopeSession, ShownChannel
-from _lumascope.modules.lumascope_api.camera import CameraAutoMode
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 from tests.test_a_command_for_absent_motion_hardware_is_refused import (
     _protocol,
     _refused,
@@ -58,13 +58,13 @@ _RECORDING_WAIT_S = 4.0
 MODELS = ('LS850', 'LS850T', 'LS820', 'Lumi', 'LS620', 'LS560')
 FX2_MODELS = ('LS620', 'LS560')
 
-_AUTO_GAIN = {
-    'target_brightness': 0.5,
-    'min_gain_db': 0.0,
-    'max_gain_db': 20.0,
-    'max_exposure_ms': 100.0,
-    'min_exposure_ms': 0.1,
-}
+_AUTO_GAIN = AutoGainSettings(
+    target_brightness=0.5,
+    min_gain_db=0.0,
+    max_gain_db=20.0,
+    max_exposure_ms=100.0,
+    min_exposure_ms=0.1,
+)
 
 # Every camera command an outside caller sends that needs a camera, by name,
 # each run on the scope.
@@ -72,9 +72,11 @@ REFUSED = {
     'set_gain_db': lambda s: s.camera.set_gain_db(5.0),
     'set_exposure_ms': lambda s: s.camera.set_exposure_ms(20.0),
     'set_black_level': lambda s: s.camera.set_black_level(10.0),
-    'set_auto_gain_on': lambda s: s.camera.set_auto_gain(True, _AUTO_GAIN),
+    'set_auto_gain_on': lambda s: s.camera.set_auto_gain(CameraAutoMode.CONTINUOUS, _AUTO_GAIN),
     'set_auto_exposure_on': lambda s: s.camera.set_auto_exposure(CameraAutoMode.CONTINUOUS),
-    'auto_gain_once': lambda s: s.camera.auto_gain_once(True, 0.5, 0.0, 20.0),
+    'auto_gain_once': lambda s: s.camera.auto_gain_once(
+        AutoGainSettings(target_brightness=0.5, min_gain_db=0.0, max_gain_db=20.0)
+    ),
     'enable_streaming': lambda s: s.imaging.enable_streaming(),
     'set_frame_size': lambda s: s.camera.set_frame_size(1024, 1024),
     'set_binning': lambda s: s.camera.set_binning(1),
@@ -92,7 +94,7 @@ IMAGE_MODE = {'set_image_mode': lambda s: s.camera.set_image_mode('8bit')}
 # The offs: satisfied with no camera, answering what each answers with one.
 SATISFIED = {
     'disable_streaming': lambda s: s.imaging.disable_streaming(),
-    'set_auto_gain_off': lambda s: s.camera.set_auto_gain(False, _AUTO_GAIN),
+    'set_auto_gain_off': lambda s: s.camera.set_auto_gain(CameraAutoMode.OFF),
     'set_auto_exposure_off': lambda s: s.camera.set_auto_exposure(CameraAutoMode.OFF),
     'lock_auto_gain': lambda s: s.camera.lock_auto_gain(),
 }
@@ -581,7 +583,7 @@ def test_turning_auto_gain_off_as_the_camera_leaves_stores_it_off(make_session):
     answers as with no camera, and the layer stores auto-gain off."""
     session = make_session('LS850')
     session.set_channel_settings('BF', auto_gain=True)
-    session.scope.camera.set_auto_gain(True, _AUTO_GAIN)
+    session.scope.camera.set_auto_gain(CameraAutoMode.CONTINUOUS, _AUTO_GAIN)
     session.scope.simulation.refuse_camera_write('auto_gain', 'removed')
 
     session.set_channel_settings('BF', auto_gain=False)
@@ -596,7 +598,7 @@ def test_a_camera_removed_as_the_run_takes_the_auto_gain_arm_ends_the_run_hardwa
     """The run's start turns a live-view arm off; the camera leaving then is
     the run's disconnect, not a crash of the run loop."""
     session = make_session('LS850')
-    session.scope.camera.set_auto_gain(True, _AUTO_GAIN)
+    session.scope.camera.set_auto_gain(CameraAutoMode.CONTINUOUS, _AUTO_GAIN)
     session.scope.simulation.refuse_camera_write('auto_gain', 'removed')
     step = {**_make_single_step_protocol().step_row(step_index=0), 'Z': 3000.0}
 
@@ -619,7 +621,7 @@ def test_a_camera_removed_as_live_view_re_arms_auto_gain_keeps_the_frame_and_tel
     session = make_session('LS850')
     im = session.scope.imaging
     driver = session.scope._camera_driver
-    session.scope.camera.set_auto_gain(True, _AUTO_GAIN)
+    session.scope.camera.set_auto_gain(CameraAutoMode.CONTINUOUS, _AUTO_GAIN)
     real_auto_gain = driver.auto_gain
 
     # A stand-in by design: the simulator refuses a node's next write, and the

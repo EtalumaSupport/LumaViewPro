@@ -23,6 +23,7 @@ from _lumascope.modules.exceptions import CaptureFailedError, HardwareCommandRef
 from _lumascope.modules.lumascope_api import imaging
 from _lumascope.modules.notification_center import Severity, notifications
 from tests.log_capture import records_of
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 
 # The facts a give-up line appends: the wait, the feed's two counts across
 # it, and the last stored frame's age at the give-up.
@@ -42,13 +43,13 @@ def _give_up_lines(caplog) -> list[str]:
     ]
 
 
-AUTO_GAIN = {
-    'target_brightness': 0.5,
-    'min_gain_db': 0.0,
-    'max_gain_db': 20.0,
-    'max_exposure_ms': 100.0,
-    'min_exposure_ms': 0.1,
-}
+AUTO_GAIN = AutoGainSettings(
+    target_brightness=0.5,
+    min_gain_db=0.0,
+    max_gain_db=20.0,
+    max_exposure_ms=100.0,
+    min_exposure_ms=0.1,
+)
 
 
 @pytest.fixture
@@ -159,7 +160,7 @@ class TestARemovedCamera:
     def test_under_a_live_view_auto_gain_arm_it_is_not_reported_again_by_the_re_arm(
         self, sim_scope, posted
     ):
-        sim_scope.camera.set_auto_gain(True, AUTO_GAIN)
+        sim_scope.camera.set_auto_gain(CameraAutoMode.CONTINUOUS, AUTO_GAIN)
         posted.clear()
 
         with pytest.raises(HardwareCommandRefusedError) as refused:
@@ -218,7 +219,7 @@ def test_a_camera_that_is_not_streaming_is_refused_as_that(sim_scope):
 def test_a_no_frame_capture_under_a_live_arm_leaves_the_arm_re_armed(sim_scope):
     # The camera is still there, so the live view keeps adjusting after a
     # capture that got nothing; only a removal skips the re-arm.
-    sim_scope.camera.set_auto_gain(True, AUTO_GAIN)
+    sim_scope.camera.set_auto_gain(CameraAutoMode.CONTINUOUS, AUTO_GAIN)
 
     def stall():
         sim_scope.simulation.stall_stream(0.0, 30.0)

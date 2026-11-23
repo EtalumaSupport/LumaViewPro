@@ -226,7 +226,7 @@ if TYPE_CHECKING:
     from _lumascope.modules.lumascope_api import Lumascope
     from _lumascope.modules.lumascope_api.bring_up import BringUpRecord, SettingsSetAside
     from _lumascope.modules.lumascope_api.diagnostics import UsbIdentityBindings
-    from _lumascope.modules.lumascope_api.camera import AutoGainLock
+    from _lumascope.modules.lumascope_api.camera import AutoGainLock, AutoGainSettings
     from _lumascope.modules.lumascope_api.simulation import SimulatedScope
     from _lumascope.modules.protocol import Protocol, ProtocolSizeAdvisory
     from _lumascope.modules.protocol_image_writer import RunWriteBatch
@@ -2556,7 +2556,7 @@ class ScopeSession:
             gain_limits=limits,
         )
 
-    def get_auto_gain_settings(self) -> dict:
+    def get_auto_gain_settings(self) -> 'AutoGainSettings':
         import _lumascope.modules.config_helpers as config_helpers
 
         return config_helpers.get_auto_gain_settings(self._settings)

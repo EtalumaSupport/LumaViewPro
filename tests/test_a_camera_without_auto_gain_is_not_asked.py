@@ -23,10 +23,14 @@ import _lumascope.drivers.camera_profiles as camera_profiles
 from _lumascope.drivers.simulated_camera import SimulatedCamera
 from _lumascope.lib.log_helpers import VERBOSE
 from _lumascope.modules.exceptions import CameraSettingUnsupportedError
-from _lumascope.modules.lumascope_api.camera import CameraAutoMode
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 
-AG_SETTINGS = {'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
+AG_SETTINGS = AutoGainSettings(
+    target_brightness=0.3,
+    min_gain_db=0.0,
+    max_gain_db=20.0,
+)
 _AUTO_MODE_MEMBERS = (
     'auto_gain',
     'auto_gain_once',
@@ -85,8 +89,7 @@ class TestTheLayerApply:
         applied = ag_less_camera.apply(
             gain_db=5.0,
             exposure_ms=10.0,
-            auto_gain=False,
-            auto_gain_settings=AG_SETTINGS,
+            auto_gain=CameraAutoMode.OFF,
             channel='BF',
         )
 
@@ -97,7 +100,7 @@ class TestTheLayerApply:
         applied = ag_less_camera.apply(
             gain_db=5.0,
             exposure_ms=10.0,
-            auto_gain=True,
+            auto_gain=CameraAutoMode.CONTINUOUS,
             auto_gain_settings=AG_SETTINGS,
             channel='BF',
         )
@@ -126,7 +129,7 @@ class TestThePublicSetters:
         writes = []
         monkeypatch.setattr(ag_less_camera, '_camera_write', lambda *a, **kw: writes.append(kw))
 
-        ag_less_camera.set_auto_gain(False, AG_SETTINGS)
+        ag_less_camera.set_auto_gain(CameraAutoMode.OFF)
 
         assert asked == []
         # Off is such a camera's state, not a write: no validity invalidation,
@@ -148,7 +151,11 @@ class TestThePublicSetters:
     @pytest.mark.parametrize(
         ('member', 'call', 'setting'),
         [
-            ('set_auto_gain', lambda camera: camera.set_auto_gain(True, AG_SETTINGS), 'auto_gain'),
+            (
+                'set_auto_gain',
+                lambda camera: camera.set_auto_gain(CameraAutoMode.CONTINUOUS, AG_SETTINGS),
+                'auto_gain',
+            ),
             (
                 'set_auto_exposure',
                 lambda camera: camera.set_auto_exposure(CameraAutoMode.CONTINUOUS),
@@ -157,7 +164,7 @@ class TestThePublicSetters:
             (
                 'auto_gain_once',
                 lambda camera: camera.auto_gain_once(
-                    state=True, target_brightness=0.3, min_gain_db=0.0, max_gain_db=20.0
+                    AutoGainSettings(target_brightness=0.3, min_gain_db=0.0, max_gain_db=20.0)
                 ),
                 'auto_gain',
             ),
@@ -210,7 +217,7 @@ def test_the_layer_apply_says_when_the_camera_held_auto_gain_down(ag_less_camera
         ag_less_camera.apply(
             gain_db=5.0,
             exposure_ms=10.0,
-            auto_gain=True,
+            auto_gain=CameraAutoMode.CONTINUOUS,
             auto_gain_settings=AG_SETTINGS,
             channel='BF',
         )
@@ -228,7 +235,7 @@ def test_a_video_step_marked_auto_gain_records_manual_on_such_a_camera(
 ):
     from tests.video_step_drives import video_step_on
 
-    recorder = video_step_on(sim_scope, tmp_path, autogain_settings=dict(AG_SETTINGS))
+    recorder = video_step_on(sim_scope, tmp_path, autogain_settings=AG_SETTINGS)
 
     assert recorder._prologue({'Exposure': 10.0, 'Auto_Gain': True}) is None
     assert asked == []

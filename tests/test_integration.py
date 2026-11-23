@@ -91,11 +91,7 @@ def _shutdown_executors(execs):
 
 
 def _make_autogain_settings():
-    return {
-        'target_brightness': 0.3,
-        'min_gain_db': 0.0,
-        'max_gain_db': 20.0,
-    }
+    return AutoGainSettings(target_brightness=0.3, min_gain_db=0.0, max_gain_db=20.0)
 
 
 def _make_image_capture_config():
@@ -689,6 +685,7 @@ from tests.settings_fixtures import complete_settings
 from tests.scope_fakes import configure_turret_like_bringup
 from _lumascope.modules.protocol_runner import ProtocolRunner
 from _lumascope.modules.channel_record import release_colors
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings
 
 
 class TestHeadlessSession:

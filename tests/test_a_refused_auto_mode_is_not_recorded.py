@@ -12,9 +12,13 @@ the lock's disarm reports a refusal it would otherwise drop.
 import pytest
 
 from _lumascope.modules.exceptions import CameraSettingRejected
-from _lumascope.modules.lumascope_api.camera import CameraAutoMode
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 
-AG_SETTINGS = {'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
+AG_SETTINGS = AutoGainSettings(
+    target_brightness=0.3,
+    min_gain_db=0.0,
+    max_gain_db=20.0,
+)
 
 
 @pytest.fixture
@@ -32,7 +36,7 @@ def test_a_refused_auto_gain_arm_raises_and_is_not_recorded(sim_scope):
     sim_scope.simulation.refuse_camera_write('auto_gain', 'raise')
 
     with pytest.raises(CameraSettingRejected) as excinfo:
-        camera.set_auto_gain(True, AG_SETTINGS)
+        camera.set_auto_gain(CameraAutoMode.CONTINUOUS, AG_SETTINGS)
 
     assert excinfo.value.setting == 'auto_gain'
     assert camera._auto_gain_arm is None, 'an arm the camera refused is not standing'
@@ -56,7 +60,7 @@ def test_the_layer_apply_names_a_refused_auto_gain(sim_scope):
         camera.apply(
             gain_db=5.0,
             exposure_ms=40.0,
-            auto_gain=True,
+            auto_gain=CameraAutoMode.CONTINUOUS,
             auto_gain_settings=AG_SETTINGS,
             channel='BF',
         )
@@ -67,7 +71,7 @@ def test_the_layer_apply_names_a_refused_auto_gain(sim_scope):
 
 def test_the_locks_refused_disarm_is_reported(sim_scope, reported):
     camera = sim_scope.camera
-    camera.set_auto_gain(True, AG_SETTINGS)
+    camera.set_auto_gain(CameraAutoMode.CONTINUOUS, AG_SETTINGS)
     sim_scope.simulation.refuse_camera_write('auto_gain', 'raise')
 
     camera.lock_auto_gain()
@@ -115,7 +119,7 @@ def test_the_video_steps_refused_disarm_leaves_the_step_unreported(sim_scope, tm
     a failed capture (tests/test_a_step_whose_setting_was_not_applied_is_not_captured.py)."""
     from tests.video_step_drives import video_step_on
 
-    recorder = video_step_on(sim_scope, tmp_path, autogain_settings=dict(AG_SETTINGS))
+    recorder = video_step_on(sim_scope, tmp_path, autogain_settings=AG_SETTINGS)
     sim_scope.simulation.refuse_camera_write('auto_gain', 'raise')
 
     with pytest.raises(CameraSettingRejected) as raised:

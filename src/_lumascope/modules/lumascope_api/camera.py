@@ -32,7 +32,7 @@ from _lumascope.modules.finite_number import (
     cap_stored_value,
     refuse_unless_finite_number,
 )
-from _lumascope.modules.request_fields import key_path, refuse_unless_kind, required
+from _lumascope.modules.request_fields import key_path, refuse_unless_kind
 from _lumascope.drivers import host_clock
 from _lumascope.drivers.camera import Frame
 from _lumascope.drivers.exceptions import CameraNoAnswerError, CameraReadFailedError, HardwareError
@@ -145,6 +145,65 @@ class CameraAutoMode(enum.StrEnum):
     CONTINUOUS = 'Continuous'
 
 
+@api_fields(
+    'max_exposure_ms',
+    'max_gain_db',
+    'min_exposure_ms',
+    'min_gain_db',
+    'target_brightness',
+)
+@dataclasses.dataclass(frozen=True)
+class AutoGainSettings:
+    """What the camera's auto-gain aims for, and the bounds it settles in.
+
+    The gain bounds and the target take the rules the stored
+    ``protocol.autogain`` setting of the same name holds; an exposure bound
+    is a time above 0, None for no bound.
+
+    Attributes:
+        target_brightness: The brightness the loop drives the frame to, a
+            fraction of full scale.
+        min_gain_db: The lowest gain the loop may set, in dB.
+        max_gain_db: The highest gain the loop may set, in dB, at least
+            ``min_gain_db``.
+        max_exposure_ms: The longest exposure the loop may set, in ms; None
+            for the camera's own longest.
+        min_exposure_ms: The exposure at or below which a lock is
+            ``AT_MINIMUM``, in ms; None for no floor.
+    """
+
+    target_brightness: float
+    min_gain_db: float
+    max_gain_db: float
+    max_exposure_ms: float | None = None
+    min_exposure_ms: float | None = None
+
+    @classmethod
+    def of_stored(cls, block: Mapping[str, object]) -> AutoGainSettings:
+        """The settings a stored ``protocol.autogain`` block holds, with no exposure bound."""
+        return cls(
+            target_brightness=block['target_brightness'],
+            min_gain_db=block['min_gain_db'],
+            max_gain_db=block['max_gain_db'],
+        )
+
+    def for_channel(self, channel: str, ceilings: Mapping[str, float]) -> AutoGainSettings:
+        """These settings with ``channel``'s exposure ceiling and floor.
+
+        The one composition of a channel's arm: the ceiling its channel class
+        takes from ``ceilings``, the stored ``ag_ae_max_exposure_ms`` map,
+        and its class's floor, so an arm's lock can say whether the exposure
+        bottomed out of the usable range.
+        """
+        import _lumascope.modules.config_helpers as config_helpers
+
+        return dataclasses.replace(
+            self,
+            max_exposure_ms=config_helpers.get_ag_ae_max_exposure_ms(channel, dict(ceilings)),
+            min_exposure_ms=config_helpers.get_ag_ae_min_exposure_ms(channel),
+        )
+
+
 @dataclasses.dataclass(frozen=True)
 class _AutoGainArm:
     """A commanded continuous auto-gain arm, held until a capture locks it.
@@ -159,7 +218,7 @@ class _AutoGainArm:
     reader of the arm's ceiling reads this, never the stored value.
     """
 
-    settings: dict
+    settings: AutoGainSettings
     resume_after_capture: bool
     ceiling_ms: float | None
 
@@ -177,15 +236,15 @@ class ChannelCameraRequest:
         gain_db: The channel's stored gain, in dB.
         exposure_ms: The channel's stored exposure, in ms.
         auto_gain: Whether the channel's gain is set by auto-gain.
-        auto_gain_settings: The auto-gain bounds the channel's class
-            and the installation's override give it, with its exposure
-            ceiling and floor.
+        auto_gain_settings: The stored auto-gain settings with the
+            channel's exposure ceiling and floor
+            (``AutoGainSettings.for_channel``).
     """
 
     gain_db: float
     exposure_ms: float
     auto_gain: bool
-    auto_gain_settings: dict
+    auto_gain_settings: AutoGainSettings
 
 
 @dataclasses.dataclass(frozen=True)
@@ -250,7 +309,7 @@ class AutoGainLock:
     floor_ms: float | None = None
     ceiling_ms: float | None = None
     resume_after_capture: bool = False
-    settings: dict | None = None
+    settings: AutoGainSettings | None = None
     stored_exposure_ms: float | None = None
 
     def __post_init__(self) -> None:
@@ -631,18 +690,6 @@ def _value_rejection(
     return _rejection(setting, requested, said(requested), held, then)
 
 
-# The keys an auto-gain settings dictionary takes. The arm stores the
-# dictionary and the lock answers it, so a key the write does not read would
-# be echoed to every reader of the arm, in whatever form its caller gave it.
-_AUTO_GAIN_SETTINGS_KEYS = (
-    'target_brightness',
-    'min_gain_db',
-    'max_gain_db',
-    'max_exposure_ms',
-    'min_exposure_ms',
-)
-
-
 # What a hold's request reads over the store when no write is about to land.
 _NOTHING_WRITTEN: Mapping[str, object] = types.MappingProxyType({})
 
@@ -667,36 +714,30 @@ def _read_as_written(scope: Any, path: str, writing: Mapping[str, object]) -> An
     return value
 
 
-def _refuse_unless_auto_gain_settings(settings: object, argument: str) -> None:
-    """Refuse an auto-gain settings dictionary the write cannot read.
+def _refuse_unless_auto_gain_settings(settings: AutoGainSettings, argument: str) -> None:
+    """Refuse auto-gain settings the arm cannot use.
 
     Read on the caller's thread, before the dispatch: the write reads the
-    keys on the camera lane, where a missing one failed as the camera's
-    rejection of a change it was never sent.
+    settings on the camera lane, where a bad one failed as the camera's
+    rejection of a change it was never sent. The door has held the type;
+    this holds each field to its rule.
 
-    The three gain keys are judged by the rule the stored
-    ``protocol.autogain`` setting of the same name holds, so the dictionary
-    and the stored block take the same values. An exposure bound is a time,
+    The three gain fields are judged by the rule the stored
+    ``protocol.autogain`` setting of the same name holds, so the record and
+    the stored block take the same values. An exposure bound is a time,
     above 0; None is no bound.
 
     Raises:
-        ArgumentRefusedError: ``'wrong_kind'``, ``'missing_key'`` or
-            ``'not_a_number'``, naming the key's path under ``argument``;
-            ``'wrong_kind'`` too for a number outside its key's range, its
-            words that range; ``'key_unknown'``, a key the write does not
-            take; ``'gain_range_inverted'``, a minimum gain above the maximum.
+        ArgumentRefusedError: ``'not_a_number'``, naming the field's path
+            under ``argument``; ``'wrong_kind'`` for a number outside its
+            field's range, its words that range; ``'gain_range_inverted'``,
+            a minimum gain above the maximum.
     """
     # By module, at the call: settings_paths imports what imports this module.
     from _lumascope.modules import settings_paths
 
-    refuse_unless_kind(settings, 'dict', argument)
-    for key in settings:
-        if key not in _AUTO_GAIN_SETTINGS_KEYS:
-            raise ArgumentRefusedError(
-                'key_unknown', argument=argument, value=key, offered=_AUTO_GAIN_SETTINGS_KEYS
-            )
     for key in ('target_brightness', 'min_gain_db', 'max_gain_db'):
-        value = required(settings, key, argument)
+        value = getattr(settings, key)
         refuse_unless_kind(value, 'number', key_path(argument, key))
         try:
             settings_paths.refuse_outside_range(f'protocol.autogain.{key}', value)
@@ -705,13 +746,13 @@ def _refuse_unless_auto_gain_settings(settings: object, argument: str) -> None:
                 'wrong_kind', argument=key_path(argument, key), value=value, takes=e.takes
             ) from e
     for key in ('max_exposure_ms', 'min_exposure_ms'):
-        value = settings.get(key)
+        value = getattr(settings, key)
         refuse_unless_kind(value, 'number', key_path(argument, key), nullable=True)
         if value is not None and not value > 0:
             raise ArgumentRefusedError(
                 'wrong_kind', argument=key_path(argument, key), value=value, takes='above 0'
             )
-    refuse_inverted_gain_range(settings, argument)
+    refuse_inverted_gain_range(dataclasses.asdict(settings), argument)
 
 
 # A combined refusal's reason: the first of these any part carries. A value
@@ -797,8 +838,12 @@ def _range_unread_rejection(asked: Mapping[str, object]) -> CameraSettingRejecte
 def _asked_of_apply(
     gain_db: float | None, exposure_ms: float | None, auto_gain: bool | None
 ) -> dict[str, object]:
-    """Each part an apply asks for, mapped to its requested value; None asks for none."""
-    asked = {'gain_db': gain_db, 'exposure_ms': exposure_ms, 'auto_gain': auto_gain}
+    """Each part an apply asks for, mapped to its requested value; None asks for none.
+
+    An auto-gain on or off is asked as the mode it puts the camera in.
+    """
+    mode = None if auto_gain is None else _mode_of(auto_gain)
+    asked = {'gain_db': gain_db, 'exposure_ms': exposure_ms, 'auto_gain': mode}
     return {setting: value for setting, value in asked.items() if value is not None}
 
 
@@ -865,6 +910,35 @@ def _refuse_unless_settable_auto_mode(mode: CameraAutoMode, argument: str) -> No
             offering the settable modes.
     """
     refuse_unless_offered(CameraAutoMode, mode, argument, within=_SETTABLE_AUTO_MODES)
+
+
+def _arm_of(
+    mode: CameraAutoMode, settings: AutoGainSettings | None, argument: str
+) -> AutoGainSettings | None:
+    """The arm a settable auto-gain ``mode`` and its ``settings`` ask for; None for Off.
+
+    The settings go with Continuous alone: an Off given them would leave a
+    caller believing they were kept.
+
+    Raises:
+        ArgumentRefusedError: ``'missing_key'``, Continuous without
+            ``settings``; ``'not_read'``, Off with them; or what
+            ``_refuse_unless_auto_gain_settings`` raises. Each names
+            ``argument``.
+    """
+    if mode == CameraAutoMode.OFF:
+        if settings is not None:
+            raise ArgumentRefusedError(
+                'not_read',
+                argument=argument,
+                value=settings,
+                takes=f'with {CameraAutoMode.CONTINUOUS.value!r}',
+            )
+        return None
+    if settings is None:
+        raise ArgumentRefusedError('missing_key', argument=argument, value=None)
+    _refuse_unless_auto_gain_settings(settings, argument)
+    return settings
 
 
 # The camera settings a restore puts back beyond gain and exposure, in the
@@ -2019,9 +2093,13 @@ class CameraAPI:
 
     @api(admitted_by=(Admission.LANE_CALL,))
     def set_auto_gain(
-        self, state: bool, settings: dict, *, resume_after_capture: bool = True
+        self,
+        mode: CameraAutoMode,
+        settings: AutoGainSettings | None = None,
+        *,
+        resume_after_capture: bool = True,
     ) -> None:
-        """Enable or disable automatic gain adjustment, and wait for it.
+        """Put the camera's auto-gain in ``mode``, and wait for it.
 
         One command on the camera's lane, waited for. A write the camera
         does not apply raises and records no arm. With no camera connected,
@@ -2032,13 +2110,12 @@ class CameraAPI:
         that channel uses, is ``ScopeSession.set_channel_settings``' ``auto_gain``.
 
         Args:
-            state: True to turn auto-gain on, False to turn it off.
-            settings: The arm's settings: ``target_brightness``,
-                ``min_gain_db``, ``max_gain_db``, and optionally
-                ``max_exposure_ms`` and ``min_exposure_ms``, the bounds the
-                exposure may settle in. Read only to arm; turning auto-gain
-                off reads none.
-            resume_after_capture: With ``state`` True, whether a capture
+            mode: ``CameraAutoMode.CONTINUOUS`` to arm auto-gain, or ``OFF``
+                (``'Continuous'`` or ``'Off'`` on the wire). Continuous
+                auto-gain runs the camera's exposure loop with it.
+            settings: What the arm aims for and settles in; given with
+                ``CONTINUOUS``, and only with it.
+            resume_after_capture: With ``CONTINUOUS``, whether a capture
                 that locks this arm re-arms it afterwards (live view) or
                 leaves the camera at the locked values (a protocol step).
 
@@ -2056,25 +2133,27 @@ class CameraAPI:
                 camera, for turning auto-gain on with no camera connected or
                 one removed during the write; turning it off is satisfied
                 either way.
-            ArgumentRefusedError: ``'missing_key'``, ``settings`` lacks a
-                key the write reads; ``'wrong_kind'`` or ``'not_a_number'``,
-                it or one of its values is not of the kind read;
-                ``'key_unknown'``, it holds a key the write does not take;
-                ``'gain_range_inverted'``, its minimum gain is above its
-                maximum.
+            ArgumentRefusedError: ``'not_offered'``, a ``mode`` other than
+                those two: a one-shot is not set here. ``'missing_key'``,
+                ``CONTINUOUS`` without ``settings``; ``'not_read'``, ``OFF``
+                with them. ``'not_a_number'`` or ``'wrong_kind'``, one of
+                the settings is not a number or is outside its range;
+                ``'gain_range_inverted'``, their minimum gain is above their
+                maximum. Nothing is sent.
         """
-        _refuse_unless_auto_gain_settings(settings, 'settings')
+        _refuse_unless_settable_auto_mode(mode, 'mode')
+        arm = _arm_of(mode, settings, 'settings')
         return self._dispatch_camera(
             self._no_channels_write(self._set_auto_gain_impl),
             'set_auto_gain',
-            args=(state, settings),
+            args=(arm,),
             kwargs={'resume_after_capture': resume_after_capture},
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
-            satisfied_when_absent=_REFUSED_WHEN_ABSENT if state else None,
+            satisfied_when_absent=_REFUSED_WHEN_ABSENT if arm is not None else None,
         )
 
     def _set_auto_gain_impl(
-        self, state: bool, settings: dict | None, *, resume_after_capture: bool = True
+        self, arm: AutoGainSettings | None, *, resume_after_capture: bool = True
     ) -> None:
         """Enable or disable automatic gain adjustment.
 
@@ -2086,13 +2165,9 @@ class CameraAPI:
         modes held as read and the arm kept while the loop runs.
 
         Args:
-            state: True to enable auto gain, False to disable.
-            settings: Dict with 'target_brightness', 'min_gain_db', 'max_gain_db',
-                and optionally 'max_exposure_ms' / 'min_exposure_ms' (the
-                per-channel-class bounds of the exposure AG/AE may settle
-                in; the caller supplies them since it knows the channel).
-                Read only to arm: turning auto-gain off reads none.
-            resume_after_capture: with ``state=True``, whether a capture
+            arm: The settings continuous auto-gain is armed with; None turns
+                it off.
+            resume_after_capture: with an ``arm``, whether a capture
                 that locks this arm re-arms it afterwards (live view) or
                 leaves the camera at the locked values (a protocol step).
                 Nothing is written for turning off a mode a camera without
@@ -2112,6 +2187,8 @@ class CameraAPI:
 
         if not self._driver or not self._driver.active:
             return
+        state = arm is not None
+        mode = _mode_of(state)
         if not self._camera_has_auto_gain():
             # Such a camera is already manual, so off is its state rather
             # than a write: no validity invalidation, no target clear, no
@@ -2120,17 +2197,15 @@ class CameraAPI:
             if state:
                 raise _absent_mode_refusal(
                     'auto_gain',
-                    state,
+                    mode,
                     'automatic gain',
-                    offered=(False,),
+                    offered=(CameraAutoMode.OFF,),
                     consequence=_AUTO_MODE_STAYS,
                 )
             self._commit_camera_writes({'auto_gain': CameraAutoMode.OFF})
             return
         ceiling_ms = (
-            self._applied_ae_ceiling_ms(
-                settings.get('max_exposure_ms'), member='set_auto_gain', state=state
-            )
+            self._applied_ae_ceiling_ms(arm.max_exposure_ms, member='set_auto_gain', mode=mode)
             if state
             else None
         )
@@ -2141,9 +2216,9 @@ class CameraAPI:
                 return
             self._driver.auto_gain(
                 state,
-                target_brightness=settings['target_brightness'],
-                min_gain_db=settings['min_gain_db'],
-                max_gain_db=settings['max_gain_db'],
+                target_brightness=arm.target_brightness,
+                min_gain_db=arm.min_gain_db,
+                max_gain_db=arm.max_gain_db,
                 ae_max_exposure_ms=ceiling_ms,
             )
 
@@ -2158,7 +2233,7 @@ class CameraAPI:
             self._clamp_exposure_to_ceiling_before_arm(ceiling_ms)
 
         def refused(held: Mapping[str, object]) -> CameraSettingRejected:
-            return _mode_rejection('auto_gain', state, 'auto-gain', held)
+            return _mode_rejection('auto_gain', mode, 'auto-gain', held)
 
         try:
             self._camera_write(
@@ -2170,7 +2245,7 @@ class CameraAPI:
                 else (FrameValiditySource.GAIN,),
                 force_clear=(FrameValiditySource.GAIN,),
                 # Continuous auto-gain runs the camera's exposure loop with it.
-                cache_update={'auto_gain': _mode_of(state), 'auto_exposure': _mode_of(state)},
+                cache_update={'auto_gain': mode, 'auto_exposure': mode},
             )
         except CameraSettingRejected as rejected:
             if state and rejected.reason == 'camera_rejected':
@@ -2180,9 +2255,7 @@ class CameraAPI:
             raise
         with self._state_lock:
             self._auto_gain_arm = (
-                _AutoGainArm(dict(settings), resume_after_capture, ceiling_ms)
-                if arm_settle
-                else None
+                _AutoGainArm(arm, resume_after_capture, ceiling_ms) if arm_settle else None
             )
         # Hardware-truth wins over cache after the auto cycle ends.
         if not state:
@@ -2209,7 +2282,9 @@ class CameraAPI:
             self._camera_write(
                 lambda: self._driver.auto_gain(False),
                 member=member,
-                refusal=lambda held: _mode_rejection('auto_gain', False, 'auto-gain', held),
+                refusal=lambda held: _mode_rejection(
+                    'auto_gain', CameraAutoMode.OFF, 'auto-gain', held
+                ),
                 force_invalidate=(FrameValiditySource.GAIN, FrameValiditySource.EXPOSURE),
                 force_clear=(FrameValiditySource.GAIN, FrameValiditySource.EXPOSURE),
                 cache_update={'auto_gain': CameraAutoMode.OFF, 'auto_exposure': CameraAutoMode.OFF},
@@ -2271,13 +2346,13 @@ class CameraAPI:
         if arm is None:
             return AutoGainLock(state=None)
         settings = arm.settings
-        floor = settings.get('min_exposure_ms') or None
+        floor = settings.min_exposure_ms or None
         ceiling = arm.ceiling_ms
         # Read under the arm, before the disarm: a frame from before the arm
         # carries the values the loop started from.
         frame = self._frame_under_the_arm()
         try:
-            self._set_auto_gain_impl(False, settings)
+            self._set_auto_gain_impl(None)
         except CameraSettingRejected as rejected:
             self._report_refused_write(rejected)
         chunks = (frame.chunks if frame is not None else None) or {}
@@ -2435,7 +2510,7 @@ class CameraAPI:
         # by the camera's status and by the next command that meets it.
         rearm = self._asking_for_the_camera(self._set_auto_gain_impl, 'set_auto_gain', None)
         try:
-            rearm(True, lock.settings, resume_after_capture=True)
+            rearm(lock.settings, resume_after_capture=True)
         except (
             CameraSettingRejected,
             HardwareCommandRefusedError,
@@ -4163,7 +4238,7 @@ class CameraAPI:
         )
 
     def _applied_ae_ceiling_ms(
-        self, stored_ceiling_ms: float | None, *, member: str, state: bool
+        self, stored_ceiling_ms: float | None, *, member: str, mode: CameraAutoMode
     ) -> float | None:
         """The exposure ceiling an auto loop runs under on the attached camera.
 
@@ -4174,7 +4249,7 @@ class CameraAPI:
         the stored one is kept, the rule a stored channel value follows
         (``applied_exposure_ms_for``), logged where it is resolved. None,
         no ceiling, stays None: the loop runs to the camera's own maximum.
-        ``member`` and ``state`` are the auto-gain write's, which a range
+        ``member`` and ``mode`` are the auto-gain write's, which a range
         whose last read failed refuses.
 
         Raises:
@@ -4186,7 +4261,7 @@ class CameraAPI:
         """
         if stored_ceiling_ms is None:
             return None
-        self._range_a_write_needs(member, {'auto_gain': state})
+        self._range_a_write_needs(member, {'auto_gain': mode})
         applied = self.applied_exposure_ms_for(stored_ceiling_ms)
         if applied.capped:
             logger.info(
@@ -4515,7 +4590,7 @@ class CameraAPI:
 
         writes = []
         if arm_action == 'disarmed':
-            writes.append(lambda: self._set_auto_gain_impl(False, dict(standing.settings)))
+            writes.append(lambda: self._set_auto_gain_impl(None))
         if gain_known:
             writes.append(lambda: _within_range('gain_db', gain_db))
         if exposure_known:
@@ -4523,7 +4598,7 @@ class CameraAPI:
         if arm_action == 're-armed':
             writes.append(
                 lambda: self._set_auto_gain_impl(
-                    True, dict(arm.settings), resume_after_capture=arm.resume_after_capture
+                    arm.settings, resume_after_capture=arm.resume_after_capture
                 )
             )
         # Each refusal is reported and the restore goes on to its next write,
@@ -4710,18 +4785,12 @@ class CameraAPI:
             ConfigurationDefectError: ``'channels_unresolved'``, this scope's
                 channels could not be resolved.
         """
-        import _lumascope.modules.config_helpers as config_helpers
-
         scope = self._scope
         scope.channel_identity.refuse_unless_on_scope(channel, member, then='be held')
         stored = _read_as_written(scope, channel, writing)
-        auto_gain_settings = _read_as_written(scope, 'protocol.autogain', writing)
-        auto_gain_settings['max_exposure_ms'] = config_helpers.get_ag_ae_max_exposure_ms(
-            channel, _read_as_written(scope, 'ag_ae_max_exposure_ms', writing)
-        )
-        # The floor rides beside the ceiling so an auto-gain lock can say
-        # whether exposure bottomed out of the usable range (AT_MINIMUM).
-        auto_gain_settings['min_exposure_ms'] = config_helpers.get_ag_ae_min_exposure_ms(channel)
+        auto_gain_settings = AutoGainSettings.of_stored(
+            _read_as_written(scope, 'protocol.autogain', writing)
+        ).for_channel(channel, _read_as_written(scope, 'ag_ae_max_exposure_ms', writing))
         request = ChannelCameraRequest(
             gain_db=stored['gain_db'],
             exposure_ms=stored['exposure_ms'],
@@ -4871,8 +4940,8 @@ class CameraAPI:
         self,
         gain_db: float,
         exposure_ms: float,
-        auto_gain: bool | None = None,
-        auto_gain_settings: dict | None = None,
+        auto_gain: CameraAutoMode | None = None,
+        auto_gain_settings: AutoGainSettings | None = None,
         resume_after_capture: bool = True,
         channel: str = '(unspecified)',
     ) -> dict | None:
@@ -4892,12 +4961,13 @@ class CameraAPI:
         Args:
             gain_db: The gain in dB, at least 0.
             exposure_ms: The exposure time in milliseconds, above 0.
-            auto_gain: The mode the camera is left in. True arms auto-gain
-                from ``auto_gain_settings``; False turns it off; None, the
+            auto_gain: The auto-gain mode the camera is left in:
+                ``CameraAutoMode.CONTINUOUS`` arms it from
+                ``auto_gain_settings``; ``OFF`` turns it off; None, the
                 default, leaves the mode as it is and writes none.
-            auto_gain_settings: The arm's settings, read only when
-                ``auto_gain`` is True, which needs them.
-            resume_after_capture: With ``auto_gain`` True, whether a
+            auto_gain_settings: The arm's settings; given with
+                ``CONTINUOUS``, and only with it.
+            resume_after_capture: With ``auto_gain`` ``CONTINUOUS``, whether a
                 capture that locks the arm re-arms it afterwards (live view)
                 or leaves the camera at the locked values (a protocol step).
             channel: The channel these settings belong to, named in the log
@@ -4910,14 +4980,15 @@ class CameraAPI:
                 known (``set_gain_db``). ``None`` when no camera is active.
 
         Raises:
-            ArgumentRefusedError: ``'missing_key'``, ``auto_gain`` is True
-                and ``auto_gain_settings`` is None or lacks a key the
-                auto-gain write reads; ``'not_a_number'``, one of its values,
-                the gain or the exposure is not a finite number;
-                ``'wrong_kind'``, the gain is below 0 or the exposure 0 or
-                below; ``'key_unknown'``, it holds a key the write does not
-                take; ``'gain_range_inverted'``, its minimum gain is above
-                its maximum. Nothing was written.
+            ArgumentRefusedError: ``'not_offered'``, an ``auto_gain`` other
+                than ``CONTINUOUS`` or ``OFF``; ``'missing_key'``,
+                ``CONTINUOUS`` without ``auto_gain_settings``; ``'not_read'``,
+                ``auto_gain_settings`` with any other ``auto_gain``;
+                ``'not_a_number'``, one of the settings, the gain or the
+                exposure is not a finite number; ``'wrong_kind'``, the gain
+                is below 0, the exposure 0 or below, or one of the settings
+                outside its range; ``'gain_range_inverted'``, the settings'
+                minimum gain is above their maximum. Nothing was written.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; nothing was written.
             CameraSettingRejected: The camera did not take the gain, the
@@ -4931,15 +5002,21 @@ class CameraAPI:
                 gain, the exposure and the auto-gain mode asked for, none
                 of which was written.
         """
-        if auto_gain:
-            if auto_gain_settings is None:
-                raise ArgumentRefusedError('missing_key', argument='auto_gain_settings', value=None)
-            _refuse_unless_auto_gain_settings(auto_gain_settings, 'auto_gain_settings')
+        arm = None
+        if auto_gain is not None:
+            _refuse_unless_settable_auto_mode(auto_gain, 'auto_gain')
+            arm = _arm_of(auto_gain, auto_gain_settings, 'auto_gain_settings')
+        elif auto_gain_settings is not None:
+            raise ArgumentRefusedError(
+                'not_read',
+                argument='auto_gain_settings',
+                value=auto_gain_settings,
+                takes=f'with auto_gain {CameraAutoMode.CONTINUOUS.value!r}',
+            )
+        armed = None if auto_gain is None else arm is not None
         # The range is the connected camera's, as for the single setters.
         self.refuse_camera_not_connected('apply')
-        limits = self._range_a_write_needs(
-            'apply', _asked_of_apply(gain_db, exposure_ms, auto_gain)
-        )
+        limits = self._range_a_write_needs('apply', _asked_of_apply(gain_db, exposure_ms, armed))
         gain_sent = _held_to_range(
             'gain_db',
             gain_db,
@@ -4958,8 +5035,8 @@ class CameraAPI:
             args=(gain_sent, exposure_sent),
             kwargs={
                 'channel': channel,
-                'auto_gain': auto_gain,
-                'auto_gain_settings': auto_gain_settings,
+                'auto_gain': armed,
+                'auto_gain_settings': arm,
                 'resume_after_capture': resume_after_capture,
             },
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
@@ -4979,7 +5056,7 @@ class CameraAPI:
         *,
         channel: str,
         auto_gain: bool | None = None,
-        auto_gain_settings: dict | None = None,
+        auto_gain_settings: AutoGainSettings | None = None,
         resume_after_capture: bool = True,
     ) -> dict | None:
         """Apply per-channel camera settings in a single batched call.
@@ -5010,8 +5087,8 @@ class CameraAPI:
                 it, False turns it off, None leaves the mode as it is and
                 writes none. A camera without hardware auto-gain applies
                 True as manual (``applied_auto_gain_for``); the store keeps it.
-            auto_gain_settings: Dict with target_brightness, min_gain_db, max_gain_db;
-                               read only when auto_gain is True, which needs it.
+            auto_gain_settings: The arm's settings; read only when
+                ``auto_gain`` is True, which needs them.
 
         Returns:
             dict | None: ``{'gain_db': ..., 'exposure_ms': ...}``, each the
@@ -5051,7 +5128,8 @@ class CameraAPI:
 
         def _write_mode():
             return self._set_auto_gain_impl(
-                auto.applied, settings=auto_gain_settings, resume_after_capture=resume_after_capture
+                auto_gain_settings if auto.applied else None,
+                resume_after_capture=resume_after_capture,
             )
 
         # The camera's loop owns gain and exposure while it runs: a value
@@ -5117,18 +5195,13 @@ class CameraAPI:
             ) from refused[0]
         return {'gain_db': gain_result, 'exposure_ms': exposure_result}
 
-    def auto_gain_once(
-        self,
-        state: bool,
-        target_brightness: float,
-        min_gain_db: float,
-        max_gain_db: float,
-        ae_max_exposure_ms: float | None = None,
-    ) -> None:
+    def auto_gain_once(self, settings: AutoGainSettings) -> None:
         """Run one-shot auto-gain, and wait for it.
 
         See ``_auto_gain_once_impl`` for the settle contract; this adds
         the dispatch described on ``_dispatch_camera`` and the raise below.
+        The one-shot aims for ``settings``' target within its gain bounds and
+        exposure ceiling; it records no floor.
 
         Raises:
             CameraSettingRejected: The camera refused the one-shot; nothing
@@ -5142,32 +5215,23 @@ class CameraAPI:
                 auto-gain.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected or one removed during the write.
+            ArgumentRefusedError: as ``set_auto_gain`` refuses its
+                ``settings``; nothing is sent.
         """
+        _refuse_unless_auto_gain_settings(settings, 'settings')
         self._dispatch_camera(
             self._no_channels_write(self._auto_gain_once_impl),
             'auto_gain_once',
-            args=(state, target_brightness, min_gain_db, max_gain_db),
-            kwargs={'ae_max_exposure_ms': ae_max_exposure_ms},
+            args=(settings,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
 
-    def _auto_gain_once_impl(
-        self,
-        state: bool,
-        target_brightness: float,
-        min_gain_db: float,
-        max_gain_db: float,
-        ae_max_exposure_ms: float | None = None,
-    ) -> None:
+    def _auto_gain_once_impl(self, settings: AutoGainSettings) -> None:
         """Run auto-gain for a single frame on the camera.
 
         Args:
-            state: True to enable one-shot auto-gain.
-            target_brightness: Target brightness (0.0 to 1.0).
-            min_gain_db: Minimum gain in dB.
-            max_gain_db: Maximum gain in dB.
-            ae_max_exposure_ms: Optional per-channel-class upper bound (ms)
-                on the exposure auto-exposure may drive to.
+            settings: The target, the gain bounds and the exposure ceiling
+                (``max_exposure_ms``) the one-shot settles within.
 
         Raises:
             CameraSettingRejected: The write did not apply
@@ -5183,15 +5247,13 @@ class CameraAPI:
         if not self._driver or not self._driver.active:
             return
         if not self._camera_has_auto_gain():
-            if state:
-                raise _absent_mode_refusal(
-                    'auto_gain',
-                    state,
-                    'automatic gain',
-                    offered=(False,),
-                    consequence=_AUTO_MODE_STAYS,
-                )
-            return
+            raise _absent_mode_refusal(
+                'auto_gain',
+                CameraAutoMode.ONCE,
+                'automatic gain',
+                offered=(CameraAutoMode.OFF,),
+                consequence=_AUTO_MODE_STAYS,
+            )
         # One-shot AG changes both gain and exposure on the camera from a single
         # driver call; the pipeline still needs frames to flush the converged
         # values, so both validity markers must go RED until they settle. The
@@ -5200,19 +5262,19 @@ class CameraAPI:
         # target-clears are forced -- one call, two sources, no value write the
         # authority could observe.
         ceiling_ms = self._applied_ae_ceiling_ms(
-            ae_max_exposure_ms, member='auto_gain_once', state=state
+            settings.max_exposure_ms, member='auto_gain_once', mode=CameraAutoMode.ONCE
         )
 
         def refused(held: Mapping[str, object]) -> CameraSettingRejected:
-            return _mode_rejection('auto_gain', state, 'one-shot auto-gain', held)
+            return _mode_rejection('auto_gain', CameraAutoMode.ONCE, 'one-shot auto-gain', held)
 
         try:
             self._camera_write(
                 lambda: self._driver.auto_gain_once(
-                    state=state,
-                    target_brightness=target_brightness,
-                    min_gain_db=min_gain_db,
-                    max_gain_db=max_gain_db,
+                    state=True,
+                    target_brightness=settings.target_brightness,
+                    min_gain_db=settings.min_gain_db,
+                    max_gain_db=settings.max_gain_db,
                     ae_max_exposure_ms=ceiling_ms,
                 ),
                 member='auto_gain_once',
@@ -5221,15 +5283,14 @@ class CameraAPI:
                 force_clear=(FrameValiditySource.GAIN, FrameValiditySource.EXPOSURE),
                 # The one-shot runs both loops once, and the camera turns them
                 # off when it is done: until a read finds Off, it is still
-                # running. A one-shot not run changes neither.
-                cache_update=(
-                    {'auto_gain': CameraAutoMode.ONCE, 'auto_exposure': CameraAutoMode.ONCE}
-                    if state
-                    else None
-                ),
+                # running.
+                cache_update={
+                    'auto_gain': CameraAutoMode.ONCE,
+                    'auto_exposure': CameraAutoMode.ONCE,
+                },
             )
         except CameraSettingRejected as rejected:
-            if state and rejected.reason == 'camera_rejected':
+            if rejected.reason == 'camera_rejected':
                 raise self._auto_off_after_refused_arm('auto_gain_once', refused) from (
                     rejected.__cause__
                 )

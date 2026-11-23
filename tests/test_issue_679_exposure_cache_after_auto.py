@@ -28,7 +28,9 @@ from __future__ import annotations
 
 import pytest
 
-from _lumascope.modules.lumascope_api.camera import CameraAutoMode
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
+
+_AUTO_GAIN = AutoGainSettings(target_brightness=0.5, min_gain_db=0.0, max_gain_db=24.0)
 
 
 class TestSetAutoExposureRefreshesCacheAtAutoOff:
@@ -78,25 +80,14 @@ class TestSetAutoGainRefreshesCacheAtAutoOff:
         camera.set_gain_db(5.0)
         assert camera.gain_db == pytest.approx(5.0)
         camera.set_auto_gain(
-            state=True,
-            settings={
-                'target_brightness': 0.5,
-                'min_gain_db': 0.0,
-                'max_gain_db': 24.0,
-            },
+            CameraAutoMode.CONTINUOUS,
+            settings=_AUTO_GAIN,
         )
         # AG drove hw gain to a different value mid-cycle.
         with cam._lock:
             cam._gain = 17.2
             cam._exposure_us = 14.0
-        camera.set_auto_gain(
-            state=False,
-            settings={
-                'target_brightness': 0.5,
-                'min_gain_db': 0.0,
-                'max_gain_db': 24.0,
-            },
-        )
+        camera.set_auto_gain(CameraAutoMode.OFF)
         assert camera.gain_db == pytest.approx(17.2), (
             f'cache must reflect hardware gain after AG-off; got {camera.gain_db}'
         )
@@ -116,12 +107,8 @@ class TestSetAutoGainRefreshesCacheAtAutoOff:
             cam._gain = 17.2
             cam._exposure_us = 14.0
         camera.set_auto_gain(
-            state=True,
-            settings={
-                'target_brightness': 0.5,
-                'min_gain_db': 0.0,
-                'max_gain_db': 24.0,
-            },
+            CameraAutoMode.CONTINUOUS,
+            settings=_AUTO_GAIN,
         )
         assert camera.gain_db == pytest.approx(5.0), (
             'cache must NOT refresh on AG-on (auto cycle still active)'
@@ -131,7 +118,7 @@ class TestSetAutoGainRefreshesCacheAtAutoOff:
 
 class TestAutoGainOnceRefreshesCache:
     """One-shot AG always ends with the auto cycle complete; the
-    refresh must fire regardless of the ``state`` argument."""
+    refresh must fire."""
 
     def test_auto_gain_once_refreshes_cache(self, sim_camera):
         # The simulator's auto_gain_once converges gain to the
@@ -147,10 +134,7 @@ class TestAutoGainOnceRefreshesCache:
         with cam._lock:
             cam._exposure_us = 14.0
         camera.auto_gain_once(
-            state=True,
-            target_brightness=0.5,
-            min_gain_db=0.0,
-            max_gain_db=24.0,
+            AutoGainSettings(target_brightness=0.5, min_gain_db=0.0, max_gain_db=24.0)
         )
         # Cache should match whatever hardware ended up at, not the
         # pre-call cached value (which would still read 5.0 / 0.1).

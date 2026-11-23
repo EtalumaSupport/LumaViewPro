@@ -47,15 +47,16 @@ import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
 from _lumascope.modules.scope_parts import Board
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 
 WINDOW_S = 300.0
-AUTO_GAIN = {
-    'target_brightness': 0.5,
-    'min_gain_db': 0.0,
-    'max_gain_db': 20.0,
-    'max_exposure_ms': 100.0,
-    'min_exposure_ms': 0.1,
-}
+AUTO_GAIN = AutoGainSettings(
+    target_brightness=0.5,
+    min_gain_db=0.0,
+    max_gain_db=20.0,
+    max_exposure_ms=100.0,
+    min_exposure_ms=0.1,
+)
 BF_MA = 50.0
 # Past the IDS driver's 30 s ceiling for a stall with the camera still listed.
 LATCH_WATCH_S = 40.0
@@ -116,7 +117,7 @@ def _arm(session):
     armed = scope.capabilities.camera_supports_auto_gain
     figure('live-view auto-gain armed', armed)
     if armed:
-        scope.camera.set_auto_gain(True, AUTO_GAIN)
+        scope.camera.set_auto_gain(CameraAutoMode.CONTINUOUS, AUTO_GAIN)
     scope.imaging.capture_still()
 
 

@@ -38,7 +38,7 @@ if typing.TYPE_CHECKING:
     from _lumascope.modules.executor_registry import ExecutorBundle
     from _lumascope.modules.lumascope_api._lumascope import Lumascope
     from _lumascope.modules.protocol import Protocol
-    from _lumascope.modules.lumascope_api.camera import CameraSettingLimits
+    from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraSettingLimits
     from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
 # ---------------------------------------------------------------------------
@@ -128,9 +128,11 @@ def get_channel_configs(settings: dict, specific_channels: list | None = None) -
     return channel_configs
 
 
-def get_auto_gain_settings(settings: dict) -> dict:
-    """A copy of the stored auto-gain settings, the dictionary the camera's auto-gain takes."""
-    return settings['protocol']['autogain'].copy()
+def get_auto_gain_settings(settings: dict) -> 'AutoGainSettings':
+    """The stored auto-gain settings, as the camera's auto-gain takes them, with no exposure bound."""
+    from _lumascope.modules.lumascope_api.camera import AutoGainSettings
+
+    return AutoGainSettings.of_stored(settings['protocol']['autogain'])
 
 
 def get_sequenced_run_settings(settings: dict, *, run_mode: SequencedCaptureRunMode) -> dict:

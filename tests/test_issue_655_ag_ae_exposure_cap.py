@@ -33,6 +33,7 @@ Bench verification gates the actual stability claim (diag/issue-655).
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import pathlib
 import threading
@@ -43,6 +44,7 @@ import _lumascope.modules.config_helpers as config_helpers
 from tests.disk_fakes import PLENTY_MB, free_space_is
 from tests.camera_fakes import bare_pylon_camera
 from tests.stock_channels import LED0, LED1, LED2
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -170,23 +172,20 @@ def test_api_set_auto_gain_forwards_cap_from_settings_dict(sim_camera, monkeypat
 
     monkeypatch.setattr(cam, 'auto_gain', recording_auto_gain)
     camera.set_auto_gain(
-        True,
-        {
-            'target_brightness': 0.5,
-            'min_gain_db': 0.0,
-            'max_gain_db': 24.0,
-            'max_exposure_ms': 800.0,
-        },
+        CameraAutoMode.CONTINUOUS,
+        AutoGainSettings(
+            target_brightness=0.5, min_gain_db=0.0, max_gain_db=24.0, max_exposure_ms=800.0
+        ),
     )
     assert recorded.get('ae_max_exposure_ms') == 800.0, (
-        'camera.set_auto_gain must forward settings["max_exposure_ms"] '
+        "camera.set_auto_gain must forward the settings' max_exposure_ms "
         f'to the driver as the AE cap (#655); driver saw {recorded}'
     )
 
 
 def test_protocol_caller_injects_per_class_cap(monkeypatch):
     """The AG arm tick must write the per-class cap (resolved via
-    config_helpers) into the settings dict the apply carries. (#655)"""
+    config_helpers) into the settings the apply carries. (#655)"""
     from tests.protocol_drives import protocol_step, scan_ready_runner
 
     monkeypatch.setattr(
@@ -197,7 +196,7 @@ def test_protocol_caller_injects_per_class_cap(monkeypatch):
     runner._step_executor.scan_iterate()
     applies = runner._scope.camera.apply.call_args_list
     assert applies, 'the AG step must make the apply'
-    assert applies[0].kwargs['auto_gain_settings']['max_exposure_ms'] == 456.0, (
+    assert applies[0].kwargs['auto_gain_settings'].max_exposure_ms == 456.0, (
         "the step's channel-class cap must reach the AG apply. (#655)"
     )
 
@@ -274,7 +273,7 @@ def test_protocol_arm_resolves_the_cap_from_the_run():
     runner._step_executor.scan_iterate()
     applies = runner._scope.camera.apply.call_args_list
     assert applies, 'the AG step must make the apply'
-    assert applies[0].kwargs['auto_gain_settings']['max_exposure_ms'] == 123.0, (
+    assert applies[0].kwargs['auto_gain_settings'].max_exposure_ms == 123.0, (
         "the run's per-install fluorescence ceiling must reach the AG apply. (#655)"
     )
 
@@ -320,12 +319,9 @@ def test_video_capture_rearm_forwards_cap(sim_scope, tmp_path, monkeypatch):
         sim_scope,
         tmp_path,
         monkeypatch,
-        {
-            'target_brightness': 0.5,
-            'min_gain_db': 0.0,
-            'max_gain_db': 24.0,
-            'max_exposure_ms': 777.0,
-        },
+        AutoGainSettings(
+            target_brightness=0.5, min_gain_db=0.0, max_gain_db=24.0, max_exposure_ms=777.0
+        ),
     )
     assert kwargs.get('ae_max_exposure_ms') == 777.0, (
         f'video first-frame AG re-arm must forward the cap (#655); got {kwargs}'
@@ -337,7 +333,7 @@ def test_video_capture_rearm_tolerates_missing_cap(sim_scope, tmp_path, monkeypa
         sim_scope,
         tmp_path,
         monkeypatch,
-        {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 24.0},
+        AutoGainSettings(target_brightness=0.5, min_gain_db=0.0, max_gain_db=24.0),
     )
     assert kwargs.get('ae_max_exposure_ms') is None, (
         'an install without a per-class cap must re-arm uncapped, not raise'
@@ -348,12 +344,12 @@ def test_video_capture_rearm_tolerates_missing_cap(sim_scope, tmp_path, monkeypa
 # The ceiling the camera runs under is resolved against its range at the API
 # --------------------------------------------------------------------------
 
-_AG_UNDER_A_CEILING = {
-    'target_brightness': 0.5,
-    'min_gain_db': 0.0,
-    'max_gain_db': 24.0,
-    'max_exposure_ms': 800.0,
-}
+_AG_UNDER_A_CEILING = AutoGainSettings(
+    target_brightness=0.5,
+    min_gain_db=0.0,
+    max_gain_db=24.0,
+    max_exposure_ms=800.0,
+)
 
 
 def _recording(monkeypatch, cam, member):
@@ -383,13 +379,17 @@ def test_a_stored_ceiling_above_the_camera_runs_at_its_maximum(sim_scope, monkey
     armed = _recording(monkeypatch, cam, 'auto_gain')
     once = _recording(monkeypatch, cam, 'auto_gain_once')
 
-    camera.set_auto_gain(True, dict(_AG_UNDER_A_CEILING))
+    camera.set_auto_gain(CameraAutoMode.CONTINUOUS, _AG_UNDER_A_CEILING)
     assert armed.get('ae_max_exposure_ms') == 300.0, armed
     assert camera.longest_exposure_ms == 300.0
     grab_a_frame_made_after_now(cam)
     assert camera.lock_auto_gain().ceiling_ms == 300.0
 
-    camera.auto_gain_once(True, 0.5, 0.0, 24.0, ae_max_exposure_ms=800.0)
+    camera.auto_gain_once(
+        AutoGainSettings(
+            target_brightness=0.5, min_gain_db=0.0, max_gain_db=24.0, max_exposure_ms=800.0
+        )
+    )
     assert once.get('ae_max_exposure_ms') == 300.0, once
 
 
@@ -401,5 +401,7 @@ def test_a_stored_ceiling_below_the_camera_floor_arms_at_the_floor(sim_scope):
     floor_ms = sim_scope.camera.setting_limits.exposure_min_ms
     assert floor_ms is not None and floor_ms > 0.005, 'the test needs a camera with a floor'
     camera.set_exposure_ms(10.0)
-    camera.set_auto_gain(True, {**_AG_UNDER_A_CEILING, 'max_exposure_ms': 0.005})
+    camera.set_auto_gain(
+        CameraAutoMode.CONTINUOUS, dataclasses.replace(_AG_UNDER_A_CEILING, max_exposure_ms=0.005)
+    )
     assert camera.exposure_ms == floor_ms

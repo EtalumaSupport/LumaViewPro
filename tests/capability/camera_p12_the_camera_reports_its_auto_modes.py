@@ -30,14 +30,15 @@ import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
 from _lumascope.modules.scope_parts import Board
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 
-AUTO_GAIN = {
-    'target_brightness': 0.5,
-    'min_gain_db': 0.0,
-    'max_gain_db': 20.0,
-    'max_exposure_ms': 100.0,
-    'min_exposure_ms': 0.1,
-}
+AUTO_GAIN = AutoGainSettings(
+    target_brightness=0.5,
+    min_gain_db=0.0,
+    max_gain_db=20.0,
+    max_exposure_ms=100.0,
+    min_exposure_ms=0.1,
+)
 ONCE_WATCH_S = 15.0
 CONTINUOUS_HOLD_S = 60.0
 SETTLE_RECORD_S = 10.0
@@ -54,14 +55,8 @@ def _modes(camera):
 
 
 def _one_shot(camera):
-    camera.set_auto_gain(False, AUTO_GAIN)
-    camera.auto_gain_once(
-        state=True,
-        target_brightness=AUTO_GAIN['target_brightness'],
-        min_gain_db=AUTO_GAIN['min_gain_db'],
-        max_gain_db=AUTO_GAIN['max_gain_db'],
-        ae_max_exposure_ms=AUTO_GAIN['max_exposure_ms'],
-    )
+    camera.set_auto_gain(CameraAutoMode.OFF)
+    camera.auto_gain_once(AUTO_GAIN)
     t0 = time.monotonic()
     seen = []
     off_at = {}
@@ -85,7 +80,7 @@ def _one_shot(camera):
 
 
 def _continuous_hold(camera):
-    camera.set_auto_gain(True, AUTO_GAIN)
+    camera.set_auto_gain(CameraAutoMode.CONTINUOUS, AUTO_GAIN)
     t0 = time.monotonic()
     readings = []
     while time.monotonic() - t0 < CONTINUOUS_HOLD_S:
@@ -98,7 +93,7 @@ def _continuous_hold(camera):
 
 def _gain_write_under_the_loop(camera):
     before = camera.read_gain_db()
-    asked = before + 3.0 if before + 3.0 <= AUTO_GAIN['max_gain_db'] else before - 3.0
+    asked = before + 3.0 if before + 3.0 <= AUTO_GAIN.max_gain_db else before - 3.0
     try:
         answered = camera.set_gain_db(asked)
         outcome = f'answered {answered}'
@@ -137,7 +132,7 @@ def _steady_after(series, window):
 
 def _settle(scope, label, gain_db, exposure_ms):
     camera = scope.camera
-    camera.set_auto_gain(False, AUTO_GAIN)
+    camera.set_auto_gain(CameraAutoMode.OFF)
     camera.set_gain_db(gain_db)
     camera.set_exposure_ms(exposure_ms)
     time.sleep(0.5)
@@ -155,7 +150,7 @@ def _settle(scope, label, gain_db, exposure_ms):
         time.sleep(0.5)
         with lock:
             armed_after_seq = frames[-1][0] if frames else -1
-        camera.set_auto_gain(True, AUTO_GAIN)
+        camera.set_auto_gain(CameraAutoMode.CONTINUOUS, AUTO_GAIN)
         time.sleep(SETTLE_RECORD_S)
     finally:
         scope.imaging.remove_frame_listener(on_frame)
@@ -204,7 +199,7 @@ def _probe(session):
         for label, gain_db, exposure_ms in STARTS:
             _settle(scope, label, gain_db, exposure_ms)
     finally:
-        camera.set_auto_gain(False, AUTO_GAIN)
+        camera.set_auto_gain(CameraAutoMode.OFF)
         scope.illumination.leds_off()
     check('both loops read Off at the end', _modes(camera) == ('Off', 'Off'))
 

@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING
 from _lumascope.lvp_logger import logger
 
 import _lumascope.modules.common_utils as common_utils
-import _lumascope.modules.config_helpers as config_helpers
 import _lumascope.modules.image_mode as image_mode
 from _lumascope.modules.exceptions import (
     AutofocusAborted,
@@ -29,6 +28,7 @@ from _lumascope.modules.exceptions import (
     CameraSettingRejected,
     MoveStoppedError,
 )
+from _lumascope.modules.lumascope_api.camera import CameraAutoMode
 from _lumascope.modules.lumascope_api.illumination import (
     FIRE_AND_FORGET_TRANSITIONS,
     LedEndPolicy,
@@ -314,21 +314,18 @@ class ProtocolStepRunner:
         if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:
             self._apply_step_light(step)
             # Cap AG/AE exposure to this step's channel-class ceiling before
-            # arming. Set on the shared settings dict so capture() inherits it.
+            # arming. Kept as the run's settings so capture() inherits it.
             # step['channel'] is the channel; the per-install override map rides
             # the run plan, so a headless run honours it too.
-            p._autogain_settings['max_exposure_ms'] = config_helpers.get_ag_ae_max_exposure_ms(
+            p._autogain_settings = p._autogain_settings.for_channel(
                 step['channel'], p._ag_ae_max_exposure_ms
-            )
-            p._autogain_settings['min_exposure_ms'] = config_helpers.get_ag_ae_min_exposure_ms(
-                step['channel']
             )
             try:
                 p._scope.camera.apply(
                     channel=step['channel'],
                     gain_db=step['Gain'],
                     exposure_ms=step['Exposure'],
-                    auto_gain=True,
+                    auto_gain=CameraAutoMode.CONTINUOUS,
                     auto_gain_settings=p._autogain_settings,
                     # A step's arm is unattended: the capture that locks it
                     # records the state and moves on -- no notice, no re-arm
@@ -460,7 +457,7 @@ class ProtocolStepRunner:
         # reported and the run goes on: the next step writes its own values.
         if step['Auto_Gain']:
             try:
-                p._scope.camera.set_auto_gain(False, p._autogain_settings)
+                p._scope.camera.set_auto_gain(CameraAutoMode.OFF)
             except CameraSettingRejected as rejected:
                 notifications.report_outcome(rejected, solicited=False, category='Camera')
 

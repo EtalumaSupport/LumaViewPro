@@ -36,6 +36,7 @@ from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.lumascope_api.simulation import SimulatedScope
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from _lumascope.modules.lumascope_api.camera import CameraAutoMode
 
 
 @pytest.fixture
@@ -358,7 +359,7 @@ def test_a_refresh_after_an_auto_write_whose_gain_read_fails_holds_it_unknown(se
     reported.clear()
     session.scope.simulation.refuse_camera_read('gain', 'failed')
 
-    camera.set_auto_gain(False, {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 20.0})
+    camera.set_auto_gain(CameraAutoMode.OFF)
 
     assert camera.gain_db is None
     unread = [(exc, kw) for exc, kw in reported if isinstance(exc, CameraReadFailedError)]

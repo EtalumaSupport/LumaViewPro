@@ -16,14 +16,15 @@ import pytest
 from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.modules.exceptions import CaptureFailedError
 from _lumascope.modules.frame_validity import FrameValidity
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 
-AUTO_GAIN = {
-    'target_brightness': 0.5,
-    'min_gain_db': 0.0,
-    'max_gain_db': 20.0,
-    'max_exposure_ms': 100.0,
-    'min_exposure_ms': 0.1,
-}
+AUTO_GAIN = AutoGainSettings(
+    target_brightness=0.5,
+    min_gain_db=0.0,
+    max_gain_db=20.0,
+    max_exposure_ms=100.0,
+    min_exposure_ms=0.1,
+)
 
 
 def _judgment(record, source: str):
@@ -46,7 +47,7 @@ def test_a_latch_failing_on_a_later_cycle_leaves_the_arm_re_armed(sim_scope, mon
     """A standing auto-gain arm is locked on the first cycle, which then runs
     again; a latch failing at the top of that cycle fails the capture with
     its own error and puts the arm back, so the live view keeps adjusting."""
-    sim_scope.camera.set_auto_gain(True, AUTO_GAIN)
+    sim_scope.camera.set_auto_gain(CameraAutoMode.CONTINUOUS, AUTO_GAIN)
     driver = sim_scope._camera_driver
     latches = []
     real_latch = driver.latch_clock

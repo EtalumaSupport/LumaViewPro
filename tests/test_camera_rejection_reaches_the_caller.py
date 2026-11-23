@@ -21,6 +21,7 @@ our own defect and leaves as itself, never named the camera's refusal. A camera 
 is refused naming it (``tests/test_a_camera_command_with_no_camera_is_refused.py``).
 """
 
+import dataclasses
 import pytest
 
 from _lumascope.drivers.exceptions import CameraWriteFailedError
@@ -31,10 +32,14 @@ from _lumascope.modules.exceptions import (
 )
 from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.notification_center import Severity
-from _lumascope.modules.lumascope_api.camera import CameraAutoMode
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 
 
-_AUTO_GAIN = {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
+_AUTO_GAIN = AutoGainSettings(
+    target_brightness=0.5,
+    min_gain_db=0.0,
+    max_gain_db=20.0,
+)
 
 
 def _errors(centre_posts):
@@ -90,7 +95,9 @@ class TestAConfirmedRejectionReachesTheCaller:
         sim_scope.simulation.refuse_camera_write('auto_gain_once', 'raise')
 
         with pytest.raises(CameraSettingRejected) as excinfo:
-            sim_scope.camera.auto_gain_once(True, 0.5, 0.0, 20.0)
+            sim_scope.camera.auto_gain_once(
+                AutoGainSettings(target_brightness=0.5, min_gain_db=0.0, max_gain_db=20.0)
+            )
 
         assert excinfo.value.setting == 'auto_gain'
 
@@ -212,8 +219,10 @@ class TestARaisingWriteIsARejection:
             'binning': lambda: camera.set_binning(2),
             'pixel_format': lambda: camera.set_image_mode('12bit_scientific'),
             'black_level': lambda: camera.set_black_level(10.0),
-            'auto_gain': lambda: camera.set_auto_gain(True, _AUTO_GAIN),
-            'auto_gain_once': lambda: camera.auto_gain_once(True, 0.5, 0.0, 20.0),
+            'auto_gain': lambda: camera.set_auto_gain(CameraAutoMode.CONTINUOUS, _AUTO_GAIN),
+            'auto_gain_once': lambda: camera.auto_gain_once(
+                AutoGainSettings(target_brightness=0.5, min_gain_db=0.0, max_gain_db=20.0)
+            ),
         }
         escaped = {}
         for node, setter in setters.items():
@@ -305,7 +314,7 @@ class TestTheCallersThatGoOn:
         """The lock pins the values auto-gain reached, which the camera
         already holds: a write-back that fails is reported, and the capture
         it belongs to goes on."""
-        sim_scope.camera.set_auto_gain(True, _AUTO_GAIN)
+        sim_scope.camera.set_auto_gain(CameraAutoMode.CONTINUOUS, _AUTO_GAIN)
         sim_scope.simulation.refuse_camera_write('exposure', 'raise')
 
         frame = sim_scope.imaging.capture_still(timeout_s=5.0).image
@@ -350,7 +359,7 @@ def test_every_setter_raises_a_refusal_as_rejected(sim_scope):
         'binning': lambda: camera.set_binning(2),
         'pixel_format': lambda: camera.set_image_mode('12bit_scientific'),
         'black_level': lambda: camera.set_black_level(10.0),
-        'auto_gain': lambda: camera.set_auto_gain(True, _AUTO_GAIN),
+        'auto_gain': lambda: camera.set_auto_gain(CameraAutoMode.CONTINUOUS, _AUTO_GAIN),
     }
     answered = {}
     for node, setter in setters.items():
@@ -370,7 +379,7 @@ class TestTheRestTheApiCarriesOnFrom:
     def test_a_capture_whose_disarm_and_re_arm_are_refused_returns_its_frame(
         self, sim_scope, centre_posts
     ):
-        sim_scope.camera.set_auto_gain(True, _AUTO_GAIN)
+        sim_scope.camera.set_auto_gain(CameraAutoMode.CONTINUOUS, _AUTO_GAIN)
         # The lock's disarm and the re-arm after the frame are both auto-gain
         # writes: each is refused once.
         sim_scope.simulation.refuse_camera_write('auto_gain', 'raise', count=2)
@@ -385,7 +394,9 @@ class TestTheRestTheApiCarriesOnFrom:
         camera.set_exposure_ms(100.0)
         sim_scope.simulation.refuse_camera_write('exposure', 'raise')
 
-        camera.set_auto_gain(True, {**_AUTO_GAIN, 'max_exposure_ms': 50.0})
+        camera.set_auto_gain(
+            CameraAutoMode.CONTINUOUS, dataclasses.replace(_AUTO_GAIN, max_exposure_ms=50.0)
+        )
 
         assert camera.lock_auto_gain().state is not None, 'the arm did not go ahead'
         assert [n.title for n in _errors(centre_posts)] == ['Camera Setting Not Applied']

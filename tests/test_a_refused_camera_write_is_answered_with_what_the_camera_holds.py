@@ -30,14 +30,18 @@ from _lumascope.drivers.exceptions import CameraWriteFailedError
 from _lumascope.modules.exceptions import CameraSettingRejected
 from _lumascope.modules.frame_validity import FrameValiditySource
 from _lumascope.modules.lumascope_api import Lumascope
-from _lumascope.modules.lumascope_api.camera import CameraAutoMode
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest.app import build_app
 from tests.camera_fakes import bare_pylon_camera
 from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
 from tests.settings_fixtures import complete_settings, installation_of_its_own
 
-_AUTO_GAIN = {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
+_AUTO_GAIN = AutoGainSettings(
+    target_brightness=0.5,
+    min_gain_db=0.0,
+    max_gain_db=20.0,
+)
 
 
 def test_a_refused_binning_is_answered_with_the_binning_the_camera_holds(sim_scope):
@@ -80,11 +84,11 @@ def test_a_level_that_landed_unread_is_answered_as_not_known(sim_scope):
 
 def test_a_refused_auto_gain_arm_turns_both_auto_modes_off_and_clears_a_standing_arm(sim_scope):
     camera = sim_scope.camera
-    camera.set_auto_gain(True, _AUTO_GAIN)
+    camera.set_auto_gain(CameraAutoMode.CONTINUOUS, _AUTO_GAIN)
     sim_scope.simulation.refuse_camera_write('auto_gain', 'raise')
 
     with pytest.raises(CameraSettingRejected) as refused:
-        camera.set_auto_gain(True, _AUTO_GAIN)
+        camera.set_auto_gain(CameraAutoMode.CONTINUOUS, _AUTO_GAIN)
 
     assert camera._auto_gain_arm is None, 'no arm stands behind a loop the camera may run'
     assert (camera.auto_gain, camera.auto_exposure) == (CameraAutoMode.OFF, CameraAutoMode.OFF)
@@ -98,11 +102,11 @@ def test_a_refused_auto_gain_off_is_not_sent_again_and_keeps_its_arm(sim_scope):
     """The loop may still run, so its arm stays: the lock and the restore
     still know a loop chose the gain and exposure."""
     camera = sim_scope.camera
-    camera.set_auto_gain(True, _AUTO_GAIN)
+    camera.set_auto_gain(CameraAutoMode.CONTINUOUS, _AUTO_GAIN)
     sim_scope.simulation.refuse_camera_write('auto_gain', 'raise')
 
     with pytest.raises(CameraSettingRejected):
-        camera.set_auto_gain(False, _AUTO_GAIN)
+        camera.set_auto_gain(CameraAutoMode.OFF)
 
     assert camera._auto_gain_arm is not None
     assert camera.auto_gain == CameraAutoMode.CONTINUOUS, 'what the camera reads, not resent'
@@ -147,7 +151,7 @@ def test_a_gain_loop_the_camera_took_is_turned_off_when_its_exposure_loop_is_ref
     camera, cam = pylon_camera
 
     with pytest.raises(CameraSettingRejected) as refused:
-        camera.set_auto_gain(True, _AUTO_GAIN)
+        camera.set_auto_gain(CameraAutoMode.CONTINUOUS, _AUTO_GAIN)
 
     assert isinstance(refused.value.__cause__, CameraWriteFailedError)
     assert (cam.active.GainAuto.GetValue(), cam.active.ExposureAuto.GetValue()) == ('Off', 'Off')

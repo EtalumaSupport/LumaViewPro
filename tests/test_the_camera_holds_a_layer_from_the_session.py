@@ -256,8 +256,8 @@ class TestTheMember:
         layer, sent = applied.call_args.args
         assert layer == LED0
         assert (sent.exposure_ms, sent.gain_db, sent.auto_gain) == (100.0, 10.0, False)
-        assert sent.auto_gain_settings['max_exposure_ms'] == 123.0
-        assert sent.auto_gain_settings['min_exposure_ms'] == 1.0
+        assert sent.auto_gain_settings.max_exposure_ms == 123.0
+        assert sent.auto_gain_settings.min_exposure_ms == 1.0
 
 
 class TestTheHeldLayer:

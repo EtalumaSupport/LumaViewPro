@@ -49,6 +49,7 @@ from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from tests.scope_fakes import configure_turret_like_bringup
 from _lumascope.modules.channel_record import release_colors
 from tests.protocol_fixtures import protocol_of
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings
 
 COMPLETION_TIMEOUT = 60  # seconds -- a real AF sweep runs in sim time
 
@@ -201,11 +202,9 @@ class _AfRig:
             run_mode=run_mode,
             sequence_name='autofocus',
             image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
-            autogain_settings={
-                'target_brightness': 0.3,
-                'min_gain_db': 0.0,
-                'max_gain_db': 20.0,
-            },
+            autogain_settings=AutoGainSettings(
+                target_brightness=0.3, min_gain_db=0.0, max_gain_db=20.0
+            ),
             parent_dir=parent_dir,
             enable_image_saving=False,
             disable_saving_artifacts=True,

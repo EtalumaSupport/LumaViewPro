@@ -760,6 +760,10 @@ UNITLESS: dict[str, str] = {
         "the simulated scene's light per second of exposure at unity gain, in its own scale"
     ),
     'FrameRecord.saturated_fraction field': "a fraction of the frame's pixels",
+    'AutoGainSettings.target_brightness field': (
+        'a fraction of full-scale brightness; named as the stored protocol.autogain '
+        'setting it is read from'
+    ),
     'SimulationAPI.hold_axis parameter at_fraction': "a fraction of the move's travel",
     'MotionAPI.start_jog parameter steps': "a count of the active objective's jog steps",
     'MotionAPI.start_center_on parameter x_fraction': "a fraction of the frame's width",

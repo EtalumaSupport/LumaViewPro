@@ -68,6 +68,7 @@ from _lumascope.modules.run_outcome import EndingLatch
 from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 from tests.protocol_drives import a_frame_sizing
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings
 
 
 def _make_step(color='BF'):
@@ -210,7 +211,9 @@ def _run_one_still(executor, tmp_path, config):
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name='encoding_ssot',
         image_capture_config=config,
-        autogain_settings={'target_brightness': 0.3},
+        autogain_settings=AutoGainSettings(
+            target_brightness=0.3, min_gain_db=0.0, max_gain_db=20.0
+        ),
         parent_dir=tmp_path / 'output',
         max_scans=1,
         events=RunEvents(run_ended=on_ended),

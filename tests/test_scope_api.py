@@ -221,14 +221,21 @@ class TestGetLayerConfigs:
 
 
 class TestGetAutoGainSettings:
-    def test_answers_a_copy_of_the_stored_settings(self):
+    def test_answers_the_stored_settings_as_a_record_no_caller_can_change(self):
+        import dataclasses
+
+        from _lumascope.modules.lumascope_api.camera import AutoGainSettings
+
         settings = _make_settings()
+        stored = settings['protocol']['autogain']
         result = config_helpers.get_auto_gain_settings(settings)
-        assert result == settings['protocol']['autogain']
-        result['min_gain_db'] = 5.0
-        assert settings['protocol']['autogain']['min_gain_db'] == 0.0, (
-            'a change to the answer reached the store'
+        assert result == AutoGainSettings(
+            target_brightness=stored['target_brightness'],
+            min_gain_db=stored['min_gain_db'],
+            max_gain_db=stored['max_gain_db'],
         )
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            result.min_gain_db = 5.0
 
 
 class TestFindNearestStep:

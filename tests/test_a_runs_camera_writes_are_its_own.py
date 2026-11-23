@@ -59,7 +59,7 @@ def test_an_auto_gain_step_arms_captures_and_disarms_inside_its_run(tmp_path):
 
 def _arm_call_kwargs(func: ast.FunctionDef) -> dict:
     """The keywords of the call that arms auto-gain for a step: the
-    layer-settings apply with ``auto_gain`` True."""
+    layer-settings apply with ``auto_gain`` ``CameraAutoMode.CONTINUOUS``."""
     for node in ast.walk(func):
         if not (
             isinstance(node, ast.Call)
@@ -69,7 +69,11 @@ def _arm_call_kwargs(func: ast.FunctionDef) -> dict:
             continue
         kws = {kw.arg: kw.value for kw in node.keywords}
         auto_gain = kws.get('auto_gain')
-        if isinstance(auto_gain, ast.Constant) and auto_gain.value is True:
+        if (
+            isinstance(auto_gain, ast.Attribute)
+            and isinstance(auto_gain.value, ast.Name)
+            and (auto_gain.value.id, auto_gain.attr) == ('CameraAutoMode', 'CONTINUOUS')
+        ):
             return kws
     raise AssertionError(
         'scan_iterate has no call arming auto-gain through the layer-settings apply'

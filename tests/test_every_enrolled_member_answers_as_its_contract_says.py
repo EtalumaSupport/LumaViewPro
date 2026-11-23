@@ -76,6 +76,7 @@ from tests.guards.test_every_member_states_its_contract import (
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings, installation_of_its_own
 from tests.stock_channels import LED0
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 
 # The members whose valid call waits on a fixture this walk does not yet have.
 _VALID_PENDING = {
@@ -394,7 +395,11 @@ def _made(result, count: int) -> str | None:
     return f'{result}'
 
 
-_AUTO_GAIN = {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
+_AUTO_GAIN = AutoGainSettings(
+    target_brightness=0.5,
+    min_gain_db=0.0,
+    max_gain_db=20.0,
+)
 
 
 def _create(settings: dict, **kwargs) -> None:
@@ -649,9 +654,9 @@ def _bad_rows() -> list[Bad]:
             ('/api/v1/scope/camera/frame_at_binning', lambda s: {'size': 0}),
         ),
         Bad(
-            'apply, empty auto-gain settings',
+            'apply, Continuous with no auto-gain settings',
             'CameraAPI.apply',
-            lambda s: s.session.scope.camera.apply(1.0, 5.0, auto_gain=True, auto_gain_settings={}),
+            lambda s: s.session.scope.camera.apply(1.0, 5.0, auto_gain=CameraAutoMode.CONTINUOUS),
             ArgumentRefusedError,
             'missing_key',
             (
@@ -659,8 +664,7 @@ def _bad_rows() -> list[Bad]:
                 lambda s: {
                     'gain_db': 1.0,
                     'exposure_ms': 5.0,
-                    'auto_gain': True,
-                    'auto_gain_settings': {},
+                    'auto_gain': 'Continuous',
                 },
             ),
         ),

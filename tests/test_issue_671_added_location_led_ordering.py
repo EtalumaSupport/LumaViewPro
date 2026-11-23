@@ -65,6 +65,7 @@ from tests.scope_fakes import configure_turret_like_bringup
 from _lumascope.modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED0, LED1, LED2
 from tests.protocol_fixtures import protocol_of
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings
 
 
 # A1 / A2 / added-location PLATE coordinates in mm (from RedStaysOn.tsv).
@@ -278,11 +279,9 @@ def _run_protocol(executor, protocol, tmp_path):
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name='issue_671_repro',
         image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
-        autogain_settings={
-            'target_brightness': 0.3,
-            'min_gain_db': 0.0,
-            'max_gain_db': 20.0,
-        },
+        autogain_settings=AutoGainSettings(
+            target_brightness=0.3, min_gain_db=0.0, max_gain_db=20.0
+        ),
         parent_dir=tmp_path / 'output',
         max_scans=1,
         events=RunEvents(run_ended=on_ended),

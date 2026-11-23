@@ -2,7 +2,6 @@
 
 import concurrent.futures
 import contextlib
-import copy
 import dataclasses
 import datetime
 import functools
@@ -30,6 +29,7 @@ from _lumascope.modules.protocol_run_loop import ProtocolRunLoop
 
 from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.modules.lumascope_api import Lumascope
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 from _lumascope.modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from _lumascope.modules.axes import Axis, AxisState
 from _lumascope.modules.scope_parts import Board
@@ -338,7 +338,7 @@ class RunPlan:
     started_by: Caller
     sequence_name: str
     image_capture_config: image_mode.ImageCaptureConfig
-    autogain_settings: dict
+    autogain_settings: AutoGainSettings
     events: RunEvents
     n_scans: int | None
     parent_dir: pathlib.Path | None
@@ -1338,7 +1338,7 @@ class SequencedCaptureRunner:
         run_mode: SequencedCaptureRunMode,
         sequence_name: str,
         image_capture_config: image_mode.ImageCaptureConfig,
-        autogain_settings: dict,
+        autogain_settings: AutoGainSettings,
         *,
         parent_dir: pathlib.Path | None = None,
         enable_image_saving: bool = True,
@@ -1726,12 +1726,9 @@ class SequencedCaptureRunner:
             # Frozen value object -- immutable by construction, so the plan
             # holds a true snapshot without copying.
             image_capture_config=image_capture_config,
-            # Snapshot so mid-run UI mutations of the autogain settings
-            # dict (target_brightness, min/max_gain_db) do
-            # not leak into the in-flight scan.
-            autogain_settings=(
-                copy.deepcopy(autogain_settings) if autogain_settings is not None else {}
-            ),
+            # Frozen value object, as the capture config is: a settings
+            # change mid-run does not reach the in-flight scan.
+            autogain_settings=autogain_settings,
             events=events if events is not None else RunEvents(),
             n_scans=n_scans,
             parent_dir=parent_dir,
@@ -1779,7 +1776,7 @@ class SequencedCaptureRunner:
         if arm is None or self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS:
             return
         try:
-            self._scope.camera.set_auto_gain(False, dict(arm.settings))
+            self._scope.camera.set_auto_gain(CameraAutoMode.OFF)
         except CameraSettingRejected as rejected:
             # The run goes on with the camera as it is; the refusal ends its
             # flight here.

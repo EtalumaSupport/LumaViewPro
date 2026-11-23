@@ -45,9 +45,11 @@ from unittest.mock import patch
 import pytest
 
 from _lumascope.modules.exceptions import HardwareCommandRefusedError
-from _lumascope.modules.lumascope_api.camera import CameraAutoMode
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 from _lumascope.modules.scope_capabilities import FrameSize
 from tests.scope_fakes import homed_sim_scope
+
+_AUTO_GAIN = AutoGainSettings(target_brightness=0.3, min_gain_db=0.0, max_gain_db=20.0)
 
 # Sentinel returned by the probe. The dispatcher must hand it back on both
 # non-refusing branches: a direct call returns what _impl returned, and a
@@ -78,10 +80,7 @@ FAMILIES = [
     (
         'camera',
         'set_auto_gain',
-        {
-            'state': True,
-            'settings': {'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0},
-        },
+        {'mode': CameraAutoMode.CONTINUOUS, 'settings': _AUTO_GAIN},
         'camera',
     ),
     ('camera', 'set_auto_exposure', {'mode': CameraAutoMode.CONTINUOUS}, 'camera'),
@@ -94,12 +93,7 @@ FAMILIES = [
     (
         'camera',
         'auto_gain_once',
-        {
-            'state': True,
-            'target_brightness': 0.3,
-            'min_gain_db': 0.0,
-            'max_gain_db': 20.0,
-        },
+        {'settings': _AUTO_GAIN},
         'camera',
     ),
     (

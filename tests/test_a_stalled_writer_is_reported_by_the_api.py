@@ -24,6 +24,7 @@ from _lumascope.modules.protocol_image_writer import RunWriteBatch
 from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
 from _lumascope.modules.sequential_io_executor import ENQUEUED
 from tests.scope_fakes import construct_session, real_executor_bundle, spec_scope
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings
 
 
 class _Scheduler:
@@ -162,7 +163,9 @@ def test_the_refusal_and_the_report_offer_one_remedy_in_one_set_of_words(
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             sequence_name='t',
             image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
-            autogain_settings={},
+            autogain_settings=AutoGainSettings(
+                target_brightness=0.3, min_gain_db=0.0, max_gain_db=20.0
+            ),
             parent_dir=tmp_path,
         )
 

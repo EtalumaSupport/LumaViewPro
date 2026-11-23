@@ -35,7 +35,7 @@ from _lumascope.modules.exceptions import (
 )
 from _lumascope.modules.lumascope_api import Lumascope
 from _lumascope.modules.lumascope_api import _lumascope
-from _lumascope.modules.lumascope_api.camera import CameraAutoMode
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 from tests.ast_seams import parse_module
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
@@ -61,12 +61,12 @@ CAMERA_WRITE_METHODS = frozenset(
 
 _CAMERA_REL = 'src/_lumascope/modules/lumascope_api/camera.py'
 
-_AUTO_GAIN_SETTINGS = {
-    'target_brightness': 0.5,
-    'min_gain_db': 0.0,
-    'max_gain_db': 24.0,
-    'max_exposure_ms': 100.0,
-}
+_AUTO_GAIN_SETTINGS = AutoGainSettings(
+    target_brightness=0.5,
+    min_gain_db=0.0,
+    max_gain_db=24.0,
+    max_exposure_ms=100.0,
+)
 
 
 class _CamWriteCapableSim(SimulatedCamera):
@@ -161,7 +161,7 @@ class TestAutoSetterSequences:
         camera_plain.set_gain_db(5.0)
         assert fv.target('gain') == 5.0, 'precondition: a manual gain target'
         before = fv.invalidation_counts
-        camera_plain.set_auto_gain(True, _AUTO_GAIN_SETTINGS)
+        camera_plain.set_auto_gain(CameraAutoMode.CONTINUOUS, _AUTO_GAIN_SETTINGS)
         assert fv.invalidation_counts == _grown_by_one(before, 'gain', 'auto_gain')
         assert fv.target('gain') is None
 
@@ -171,7 +171,7 @@ class TestAutoSetterSequences:
         fv = camera_plain._frame_validity
         camera_plain.set_gain_db(5.0)
         before = fv.invalidation_counts
-        camera_plain.set_auto_gain(False, _AUTO_GAIN_SETTINGS)
+        camera_plain.set_auto_gain(CameraAutoMode.OFF)
         assert fv.invalidation_counts == _grown_by_one(before, 'gain')
         assert fv.target('gain') is None
 

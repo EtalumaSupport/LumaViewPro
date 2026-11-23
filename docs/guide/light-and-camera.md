@@ -128,12 +128,24 @@ settings, which a capture of that channel uses:
 `session.set_channel_settings('BF', gain_db=..., exposure_ms=..., auto_gain=...)`. A script that images a channel
 sets the channel's settings; a raw write is for work on the camera itself.
 
-**Auto gain and exposure.** `set_auto_gain(state, settings)` turns the
-camera's auto-gain on or off with its target settings, and `lock_auto_gain()`
-fixes the gain and exposure it reached. `set_auto_exposure(mode)` takes a
-`CameraAutoMode` (`OFF`, `CONTINUOUS`). On a camera without the feature the
-reads answer `OFF`, and turning it on is refused
-`CameraSettingUnsupportedError`.
+**Auto gain and exposure.** `set_auto_gain(mode, settings)` and
+`set_auto_exposure(mode)` take a `CameraAutoMode` (`OFF`, `CONTINUOUS`), the
+closed set their reads answer. Auto-gain is armed with an `AutoGainSettings`,
+its target and the bounds it settles in, given with `CONTINUOUS` and only
+with it, and `lock_auto_gain()` fixes the gain and exposure it reached. On a
+camera without the feature the reads answer `OFF`, and turning it on is
+refused `CameraSettingUnsupportedError`.
+
+```python
+from lumascope import AutoGainSettings, CameraAutoMode
+
+scope.camera.set_auto_gain(
+    CameraAutoMode.CONTINUOUS,
+    AutoGainSettings(target_brightness=0.3, min_gain_db=0.0, max_gain_db=20.0),
+)
+lock = scope.camera.lock_auto_gain()
+scope.camera.set_auto_gain(CameraAutoMode.OFF)
+```
 
 **Black level.** `set_black_level(level)` writes the camera's black level,
 `read_black_level()` reads it fresh, and `read_black_level_range()` answers its

@@ -37,7 +37,6 @@ _NOT_THE_STORE = {
     # The raw file's migration of two retired keys, run before the merge.
     ('src/_lumascope/modules/image_mode.py', 'migrate_settings_dict'): 2,
     # The auto-gain arm's own settings dict, whose bounds are optional.
-    ('src/_lumascope/modules/lumascope_api/camera.py', 'CameraAPI._lock_auto_gain_impl'): 1,
 }
 
 

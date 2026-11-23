@@ -4670,8 +4670,11 @@ class ArgumentRefusedError(Refusal, ValueError):
             - ``'illumination_out_of_range'`` -- an LED current below 0 mA.
               A current above the attached LED board's maximum is lit at
               it (``ValueClampedNotice``), not refused.
-            - ``'missing_key'`` -- a dictionary argument lacks a key its
-              member reads; ``argument`` names the key's path.
+            - ``'missing_key'`` -- an argument its member reads with the
+              others given was not given, or a dictionary argument lacks a
+              key its member reads; ``argument`` names it, or the key's path.
+            - ``'not_read'`` -- an argument given where its member does not
+              read it (``takes``: when it is read, in words).
             - ``'wrong_kind'`` -- an argument, or a value in a dictionary
               argument, is not of the kind its member reads (``takes``, in
               words).
@@ -4725,11 +4728,9 @@ class ArgumentRefusedError(Refusal, ValueError):
             - ``'slot_required'`` -- an objective confirmed on
               a turret scope with no slot named; the confirmation records
               the glass in a slot.
-            - ``'gain_range_inverted'`` -- an auto-gain settings dictionary
-              whose ``min_gain_db`` is above its ``max_gain_db``; ``value``
+            - ``'gain_range_inverted'`` -- auto-gain settings whose
+              ``min_gain_db`` is above their ``max_gain_db``; ``value``
               holds the two.
-            - ``'key_unknown'`` -- a key a dictionary argument does not
-              take (``offered``: the keys it takes).
         argument: The name of the argument refused.
         value: What was given, as given.
         offered: The values the argument takes, where it takes a list;
@@ -4738,7 +4739,8 @@ class ArgumentRefusedError(Refusal, ValueError):
             takes a range that depends on the scope; None otherwise.
         takes: The value the argument takes, in words, for
             ``'wrong_kind'``, ``'fault_bound'`` and
-            ``'argument_not_on_board'``; None otherwise.
+            ``'argument_not_on_board'``, and when it is read, for
+            ``'not_read'``; None otherwise.
         board: The simulated board, in words, for
             ``'not_injectable_on_board'``, ``'argument_not_on_board'`` and
             ``'needs_simulated_firmware'``; None otherwise.
@@ -4881,9 +4883,9 @@ class ArgumentRefusedError(Refusal, ValueError):
             'Auto-Gain Range Inverted',
             '{argument} sets a minimum gain above its maximum: {value!r}.',
         ),
-        'key_unknown': (
-            'Not a Key Taken Here',
-            '{argument} takes only the keys {offered}; {value!r} is not one.',
+        'not_read': (
+            'Value Not Used',
+            '{argument} is read only {takes}; leave it out.',
         ),
         'slot_required': (
             'Turret Slot Not Named',

@@ -64,7 +64,7 @@ class TestTheRunReadsOneSnapshotOfTheSettings:
         prepared = _prepared(runner)
         assert prepared['parent_dir'] == tmp_path.resolve() / 'ProtocolData'
         assert prepared['keep_led_between_steps'] is True
-        assert prepared['autogain_settings']['target_brightness'] == 0.123
+        assert prepared['autogain_settings'].target_brightness == 0.123
 
 
 class TestTheScanLogNamesTheFormatInForce:

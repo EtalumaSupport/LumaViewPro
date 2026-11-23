@@ -57,6 +57,7 @@ from _lumascope.modules.exceptions import (
 from _lumascope.modules.run_events import RunEvents, VideoPhase, VideoProgress, deliver
 from _lumascope.modules.run_outcome import RunEnding, RunStatus
 from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 from _lumascope.modules.lumascope_api.frame_record import (
     ClockMapping,
     TimestampSource,
@@ -126,7 +127,8 @@ class ProtocolVideoStep:
             sizes it at too, so the run's and the step's checks agree.
         frame_sizing: What one saved frame of the run takes on disk
             (``RunPlan.frame_sizing``), the run's sizing for the same reason.
-        autogain_settings: The runner's autogain settings dict.
+        autogain_settings: The run's auto-gain settings, with the step's
+            exposure bounds when the step arms auto-gain.
         events: The run's events; this step sends its ``video_progress``.
         aborted_event: The run's abort event; checked every wait tick.
         is_run_in_progress: Callable; False ends the step early.
@@ -175,7 +177,7 @@ class ProtocolVideoStep:
         video_sizing_fps: float | None,
         frame_sizing: FrameSizing,
         channel_colors: channel_record.ChannelColors,
-        autogain_settings: dict,
+        autogain_settings: AutoGainSettings,
         events: RunEvents,
         aborted_event: threading.Event,
         is_run_in_progress: Callable[[], bool],
@@ -547,14 +549,8 @@ class ProtocolVideoStep:
         # raises out of the step, which then records nothing: the writer
         # counts it a failed capture.
         if scope.camera.applied_auto_gain_for(step['Auto_Gain']).applied:
-            scope.camera.set_auto_gain(False, self._autogain_settings)
-            scope.camera.auto_gain_once(
-                state=True,
-                target_brightness=self._autogain_settings['target_brightness'],
-                min_gain_db=self._autogain_settings['min_gain_db'],
-                max_gain_db=self._autogain_settings['max_gain_db'],
-                ae_max_exposure_ms=self._autogain_settings.get('max_exposure_ms'),
-            )
+            scope.camera.set_auto_gain(CameraAutoMode.OFF)
+            scope.camera.auto_gain_once(self._autogain_settings)
 
         stall_s = prologue_stall_threshold_s(float(step['Exposure']) / 1000.0)
         ended, self._mapping = wait_for_changes_in_force(

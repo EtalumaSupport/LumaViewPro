@@ -54,6 +54,7 @@ from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED0, LED1, LED2
 from tests.protocol_fixtures import protocol_from_file, protocol_of
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings
 
 
 # ---------------------------------------------------------------------------
@@ -66,11 +67,7 @@ FILES_WAIT_S = 60
 
 
 def _make_autogain_settings():
-    return {
-        'target_brightness': 0.3,
-        'min_gain_db': 0.0,
-        'max_gain_db': 20.0,
-    }
+    return AutoGainSettings(target_brightness=0.3, min_gain_db=0.0, max_gain_db=20.0)
 
 
 def _make_image_capture_config():

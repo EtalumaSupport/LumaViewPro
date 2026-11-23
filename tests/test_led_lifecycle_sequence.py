@@ -68,6 +68,7 @@ from _lumascope.modules.run_outcome import EndingLatch
 from tests.objective_records import objective
 from tests.stock_channels import LED0, LED1, LED2
 from tests.protocol_fixtures import protocol_of
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings
 
 
 # Plate coordinates in mm for distinct well positions.
@@ -364,11 +365,9 @@ def _run_protocol(
         run_mode=run_mode,
         sequence_name='led_lifecycle',
         image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
-        autogain_settings={
-            'target_brightness': 0.3,
-            'min_gain_db': 0.0,
-            'max_gain_db': 20.0,
-        },
+        autogain_settings=AutoGainSettings(
+            target_brightness=0.3, min_gain_db=0.0, max_gain_db=20.0
+        ),
         parent_dir=tmp_path / 'output',
         max_scans=max_scans,
         enable_image_saving=saves,

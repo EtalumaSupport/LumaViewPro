@@ -66,7 +66,7 @@ from tests.ast_seams import MemberNames
 # channel settings are records; 13 since the whole-settings snapshot, a
 # dict, left the wire for setting; 12 since the settings template, a
 # dict, left the surface.
-UNTYPED_PIN = 12
+UNTYPED_PIN = 11
 
 _SERVER_MODELS = MemberNames(
     ('src/_lumascope/rest/routes.py', 'src/_lumascope/rest/app.py'),

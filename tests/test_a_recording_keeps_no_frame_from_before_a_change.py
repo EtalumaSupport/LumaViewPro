@@ -24,8 +24,13 @@ from _lumascope.modules.exceptions import RecordingRefusedError
 from _lumascope.modules.frame_validity import FrameValiditySource
 from _lumascope.modules.image_utils import read_file_record
 from tests.video_step_drives import video_step_on
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings
 
-AG_SETTINGS = {'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
+AG_SETTINGS = AutoGainSettings(
+    target_brightness=0.3,
+    min_gain_db=0.0,
+    max_gain_db=20.0,
+)
 EVERY_FRAME = {'Video Config': {'duration': 1}}
 
 

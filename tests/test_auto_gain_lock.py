@@ -33,7 +33,11 @@ from _lumascope.modules.exceptions import CaptureFailedError, ExposureAtMinimumN
 from _lumascope.drivers.camera import ImageHandlerBase
 from _lumascope.drivers.simulated_camera import SimulatedCamera
 from _lumascope.modules.lumascope_api import Lumascope
-from _lumascope.modules.lumascope_api.camera import AutoGainConvergence, CameraAPI
+from _lumascope.modules.lumascope_api.camera import (
+    AutoGainConvergence,
+    AutoGainSettings,
+    CameraAPI,
+)
 from _lumascope.modules.lumascope_api.frame_record import SettingSource
 from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 from _lumascope.modules.notification_center import OutcomeKind
@@ -47,20 +51,20 @@ from tests.scope_fakes import (
 )
 from tests.stock_channels import LED0, LED2
 
-AG_SETTINGS_FLUORESCENCE = {
-    'target_brightness': 0.5,
-    'min_gain_db': 0.0,
-    'max_gain_db': 20.0,
-    'max_exposure_ms': 200.0,
-    'min_exposure_ms': 1.0,
-}
-AG_SETTINGS_TRANSMITTED = {
-    'target_brightness': 0.5,
-    'min_gain_db': 0.0,
-    'max_gain_db': 20.0,
-    'max_exposure_ms': 50.0,
-    'min_exposure_ms': 0.1,
-}
+AG_SETTINGS_FLUORESCENCE = AutoGainSettings(
+    target_brightness=0.5,
+    min_gain_db=0.0,
+    max_gain_db=20.0,
+    max_exposure_ms=200.0,
+    min_exposure_ms=1.0,
+)
+AG_SETTINGS_TRANSMITTED = AutoGainSettings(
+    target_brightness=0.5,
+    min_gain_db=0.0,
+    max_gain_db=20.0,
+    max_exposure_ms=50.0,
+    min_exposure_ms=0.1,
+)
 
 
 class _ChunkHandler(ImageHandlerBase):

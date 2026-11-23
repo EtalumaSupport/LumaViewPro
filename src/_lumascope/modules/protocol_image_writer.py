@@ -71,6 +71,7 @@ if TYPE_CHECKING:
     from _lumascope.modules.image_mode import ImageCaptureConfig, OutputFormat
     from _lumascope.modules.labware import Labware
     from _lumascope.modules.lumascope_api import Lumascope
+    from _lumascope.modules.lumascope_api.camera import AutoGainSettings
     from _lumascope.modules.lumascope_api.frame_record import FrameRecord
     from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 
@@ -1393,7 +1394,7 @@ class ProtocolImageWriter:
         curr_step: int,
         sum_count: int = 1,
         enable_image_saving: bool = True,
-        autogain_settings: dict | None = None,
+        autogain_settings: AutoGainSettings | None = None,
         recording_format: RecordingFormat = RecordingFormat.MP4,
         separate_folder_per_channel: bool = False,
         arm_refused: CameraSettingRejected | None = None,

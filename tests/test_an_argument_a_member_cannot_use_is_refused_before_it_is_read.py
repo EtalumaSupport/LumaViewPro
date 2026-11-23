@@ -13,6 +13,8 @@ class; this pins each member at the cheap end, on every push.
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from _lumascope.modules.coord_transformations import StageOffset
@@ -22,12 +24,16 @@ from _lumascope.modules.exceptions import (
     CameraSettingUnsupportedError,
     SettingRefusedError,
 )
-from _lumascope.modules.lumascope_api.camera import CameraAutoMode
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 
-_AUTO_GAIN = {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
+_AUTO_GAIN = AutoGainSettings(
+    target_brightness=0.5,
+    min_gain_db=0.0,
+    max_gain_db=20.0,
+)
 
 
 @pytest.fixture
@@ -68,48 +74,71 @@ def _rows(session):
             lambda: scope.runtime_state.plate_transform(stage_offset=_NAN_OFFSET),
         ),
         (
-            'set_auto_gain, no target',
+            'set_auto_gain, Continuous with no settings',
             ArgumentRefusedError,
             'missing_key',
-            lambda: scope.camera.set_auto_gain(True, {'min_gain_db': 0, 'max_gain_db': 20}),
+            lambda: scope.camera.set_auto_gain(CameraAutoMode.CONTINUOUS),
+        ),
+        (
+            'set_auto_gain, Off with settings',
+            ArgumentRefusedError,
+            'not_read',
+            lambda: scope.camera.set_auto_gain(CameraAutoMode.OFF, _AUTO_GAIN),
+        ),
+        (
+            'set_auto_gain, a one-shot',
+            ArgumentRefusedError,
+            'not_offered',
+            lambda: scope.camera.set_auto_gain(CameraAutoMode.ONCE, _AUTO_GAIN),
         ),
         (
             'set_auto_gain, text exposure bound',
             ArgumentRefusedError,
             'not_a_number',
-            lambda: scope.camera.set_auto_gain(True, {**_AUTO_GAIN, 'max_exposure_ms': 'x'}),
+            lambda: scope.camera.set_auto_gain(
+                CameraAutoMode.CONTINUOUS, dataclasses.replace(_AUTO_GAIN, max_exposure_ms='x')
+            ),
         ),
         (
             'set_auto_gain, minimum gain above maximum',
             ArgumentRefusedError,
             'gain_range_inverted',
             lambda: scope.camera.set_auto_gain(
-                True, {**_AUTO_GAIN, 'min_gain_db': 25.0, 'max_gain_db': 20.0}
+                CameraAutoMode.CONTINUOUS,
+                dataclasses.replace(_AUTO_GAIN, min_gain_db=25.0, max_gain_db=20.0),
             ),
         ),
         (
             'set_auto_gain, a target above full scale',
             ArgumentRefusedError,
             'wrong_kind',
-            lambda: scope.camera.set_auto_gain(True, {**_AUTO_GAIN, 'target_brightness': 5.0}),
+            lambda: scope.camera.set_auto_gain(
+                CameraAutoMode.CONTINUOUS, dataclasses.replace(_AUTO_GAIN, target_brightness=5.0)
+            ),
         ),
         (
             'set_auto_gain, a target of 0',
             ArgumentRefusedError,
             'wrong_kind',
-            lambda: scope.camera.set_auto_gain(True, {**_AUTO_GAIN, 'target_brightness': 0}),
+            lambda: scope.camera.set_auto_gain(
+                CameraAutoMode.CONTINUOUS, dataclasses.replace(_AUTO_GAIN, target_brightness=0)
+            ),
         ),
         (
             'set_auto_gain, a negative minimum gain',
             ArgumentRefusedError,
             'wrong_kind',
-            lambda: scope.camera.set_auto_gain(True, {**_AUTO_GAIN, 'min_gain_db': -10.0}),
+            lambda: scope.camera.set_auto_gain(
+                CameraAutoMode.CONTINUOUS, dataclasses.replace(_AUTO_GAIN, min_gain_db=-10.0)
+            ),
         ),
         (
             'set_auto_gain, an exposure ceiling of 0',
             ArgumentRefusedError,
             'wrong_kind',
-            lambda: scope.camera.set_auto_gain(True, {**_AUTO_GAIN, 'max_exposure_ms': 0}),
+            lambda: scope.camera.set_auto_gain(
+                CameraAutoMode.CONTINUOUS, dataclasses.replace(_AUTO_GAIN, max_exposure_ms=0)
+            ),
         ),
         (
             'apply, a target above full scale',
@@ -118,21 +147,21 @@ def _rows(session):
             lambda: scope.camera.apply(
                 1.0,
                 5.0,
-                auto_gain=True,
-                auto_gain_settings={**_AUTO_GAIN, 'target_brightness': 5.0},
+                auto_gain=CameraAutoMode.CONTINUOUS,
+                auto_gain_settings=dataclasses.replace(_AUTO_GAIN, target_brightness=5.0),
             ),
         ),
         (
-            'set_auto_gain, a key it does not take',
-            ArgumentRefusedError,
-            'key_unknown',
-            lambda: scope.camera.set_auto_gain(True, {**_AUTO_GAIN, 'max_duration': 1.0}),
-        ),
-        (
-            'apply, empty auto-gain settings',
+            'apply, Continuous with no auto-gain settings',
             ArgumentRefusedError,
             'missing_key',
-            lambda: scope.camera.apply(1.0, 5.0, auto_gain=True, auto_gain_settings={}),
+            lambda: scope.camera.apply(1.0, 5.0, auto_gain=CameraAutoMode.CONTINUOUS),
+        ),
+        (
+            'apply, auto-gain settings with no mode',
+            ArgumentRefusedError,
+            'not_read',
+            lambda: scope.camera.apply(1.0, 5.0, auto_gain_settings=_AUTO_GAIN),
         ),
         (
             'frame_at_binning, 0',
@@ -204,14 +233,25 @@ def test_every_argument_a_member_cannot_use_is_refused_with_its_reason(session):
 
 
 def test_the_stored_auto_gain_settings_arm_the_camera(session):
-    # The dictionary the session hands every arm holds only keys the camera's
-    # auto-gain takes, so a stored settings file arms it unrefused.
-    assert session.scope.camera.set_auto_gain(True, session.get_auto_gain_settings()) is not False
+    # The settings the session reads from the stored block are the record
+    # the camera's auto-gain takes, so a stored settings file arms it unrefused.
+    session.scope.camera.set_auto_gain(CameraAutoMode.CONTINUOUS, session.get_auto_gain_settings())
     assert session.scope.camera.auto_gain is CameraAutoMode.CONTINUOUS
 
 
+def test_auto_gain_is_turned_off_with_no_settings(session):
+    # Off reads no settings, so it is asked for with none: it was refused
+    # 'missing_key' for want of a target it never reads.
+    camera = session.scope.camera
+    camera.set_auto_gain(CameraAutoMode.CONTINUOUS, _AUTO_GAIN)
+
+    camera.set_auto_gain(CameraAutoMode.OFF)
+
+    assert camera.auto_gain is CameraAutoMode.OFF
+
+
 def test_an_auto_gain_argument_takes_what_the_stored_setting_takes(session):
-    # One rule for the stored ``protocol.autogain`` block and the dictionary a
+    # One rule for the stored ``protocol.autogain`` block and the settings a
     # caller hands the arm: each value the setting's own range refuses is
     # refused as an argument, in that range's words, and each it takes arms.
     # A gain past the camera's own limit is in the setting's range; the
@@ -236,7 +276,9 @@ def test_an_auto_gain_argument_takes_what_the_stored_setting_takes(session):
             # The setting's clause, 'it must be <range>, not <value>', less its ends.
             stored = refused.detail.removeprefix('it must be ').rsplit(', not ', 1)[0]
         try:
-            camera.set_auto_gain(True, {**_AUTO_GAIN, key: value})
+            camera.set_auto_gain(
+                CameraAutoMode.CONTINUOUS, dataclasses.replace(_AUTO_GAIN, **{key: value})
+            )
             argued = None
         except ArgumentRefusedError as refused:
             argued = (refused.reason, str(refused))

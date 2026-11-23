@@ -18,6 +18,7 @@ from _lumascope.modules.exceptions import CameraSettingRejected, ProtocolRunRefu
 from _lumascope.modules.image_mode import ImageMode
 from tests.test_a_protocol_needs_its_objectives_on_the_turret import _prepare
 from tests.test_a_run_holds_its_steps_to_the_hardware import _steps
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     executor,
     executors,
@@ -27,13 +28,13 @@ from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
 _RANGE_WORDS = "The camera's gain and exposure range could not be read"
 _READ_AGAIN = 'read again at the next change of binning, frame size or pixel format'
 
-_AUTO_GAIN = {
-    'target_brightness': 0.5,
-    'min_gain_db': 0.0,
-    'max_gain_db': 20.0,
-    'max_exposure_ms': 100.0,
-    'min_exposure_ms': 0.1,
-}
+_AUTO_GAIN = AutoGainSettings(
+    target_brightness=0.5,
+    min_gain_db=0.0,
+    max_gain_db=20.0,
+    max_exposure_ms=100.0,
+    min_exposure_ms=0.1,
+)
 
 
 def _leave_the_range_unread(camera):
@@ -133,10 +134,15 @@ def test_every_write_checked_against_an_unread_range_is_refused_unsent_naming_wh
         'set_exposure_ms': (lambda: camera.set_exposure_ms(5.0), 'exposure_ms'),
         'apply': (lambda: camera.apply(5.0, 5.0), 'gain_db,exposure_ms'),
         'apply armed': (
-            lambda: camera.apply(5.0, 5.0, auto_gain=True, auto_gain_settings=_AUTO_GAIN),
+            lambda: camera.apply(
+                5.0, 5.0, auto_gain=CameraAutoMode.CONTINUOUS, auto_gain_settings=_AUTO_GAIN
+            ),
             'gain_db,exposure_ms,auto_gain',
         ),
-        'set_auto_gain': (lambda: camera.set_auto_gain(True, _AUTO_GAIN), 'auto_gain'),
+        'set_auto_gain': (
+            lambda: camera.set_auto_gain(CameraAutoMode.CONTINUOUS, _AUTO_GAIN),
+            'auto_gain',
+        ),
         'apply_channel_camera': (
             lambda: sim_session.apply_channel_camera('BF'),
             # A channel's hold asks for its auto-gain mode too, the shipped

@@ -15,10 +15,12 @@ writer, the autofocus sweep and the step's auto-gain arm -- report through the
 one reporter and carry on at the value the camera holds.
 """
 
+import dataclasses
 import pytest
 
 from _lumascope.modules.exceptions import CameraSettingRejected
 from _lumascope.modules.notification_center import Severity
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 
 
 def _rejected(setting='gain_db', requested=7.0):
@@ -136,7 +138,11 @@ class TestTheRunReportsAndCarriesOn:
         assert runner._auto_gain_armed_step == 0, 'the arm is recorded, so the step goes on'
 
 
-AG_SETTINGS = {'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
+AG_SETTINGS = AutoGainSettings(
+    target_brightness=0.3,
+    min_gain_db=0.0,
+    max_gain_db=20.0,
+)
 
 
 class TestTheApiReportsTheWritesNoCallerHears:
@@ -146,7 +152,7 @@ class TestTheApiReportsTheWritesNoCallerHears:
 
     def test_the_locks_refused_write_back_is_reported(self, sim_scope, reported):
         camera = sim_scope.camera
-        camera.set_auto_gain(True, AG_SETTINGS)
+        camera.set_auto_gain(CameraAutoMode.CONTINUOUS, AG_SETTINGS)
         sim_scope.simulation.refuse_camera_write('gain', 'raise')
 
         lock = camera.lock_auto_gain()
@@ -160,20 +166,24 @@ class TestTheApiReportsTheWritesNoCallerHears:
         camera.set_exposure_ms(100.0)
         sim_scope.simulation.refuse_camera_write('exposure', 'raise')
 
-        camera.set_auto_gain(True, {**AG_SETTINGS, 'max_exposure_ms': 10.0})
+        camera.set_auto_gain(
+            CameraAutoMode.CONTINUOUS, dataclasses.replace(AG_SETTINGS, max_exposure_ms=10.0)
+        )
 
         assert [(exc.setting, exc.requested) for exc, _kw in reported] == [('exposure_ms', 10.0)]
         assert camera._auto_gain_arm is not None
 
     def test_a_refused_live_view_re_arm_is_reported(self, sim_scope, reported):
         camera = sim_scope.camera
-        camera.set_auto_gain(True, AG_SETTINGS, resume_after_capture=True)
+        camera.set_auto_gain(CameraAutoMode.CONTINUOUS, AG_SETTINGS, resume_after_capture=True)
         lock = camera.lock_auto_gain()
         sim_scope.simulation.refuse_camera_write('auto_gain', 'raise')
 
         camera._resume_auto_gain_impl(lock)
 
-        assert [(exc.setting, exc.requested) for exc, _kw in reported] == [('auto_gain', True)]
+        assert [(exc.setting, exc.requested) for exc, _kw in reported] == [
+            ('auto_gain', CameraAutoMode.CONTINUOUS)
+        ]
 
     def test_a_refused_restore_reports_each_write(self, sim_scope, reported):
         camera = sim_scope.camera
@@ -187,11 +197,13 @@ class TestTheApiReportsTheWritesNoCallerHears:
 
     def test_a_refused_restore_re_arm_is_reported(self, sim_scope, reported):
         camera = sim_scope.camera
-        camera.set_auto_gain(True, AG_SETTINGS)
+        camera.set_auto_gain(CameraAutoMode.CONTINUOUS, AG_SETTINGS)
         snapshot = camera.save_camera_state('test')
-        camera.set_auto_gain(False, AG_SETTINGS)
+        camera.set_auto_gain(CameraAutoMode.OFF)
         sim_scope.simulation.refuse_camera_write('auto_gain', 'raise')
 
         camera.restore_camera_state(snapshot)
 
-        assert [(exc.setting, exc.requested) for exc, _kw in reported] == [('auto_gain', True)]
+        assert [(exc.setting, exc.requested) for exc, _kw in reported] == [
+            ('auto_gain', CameraAutoMode.CONTINUOUS)
+        ]

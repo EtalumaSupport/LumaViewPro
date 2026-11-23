@@ -39,6 +39,7 @@ from _lumascope.modules.sequential_io_executor import (
 from tests.test_audit_fixes import _bare_protocol_writer, _protocol_step
 from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 from tests.frame_records import frame_record
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings
 
 
 @pytest.fixture
@@ -428,7 +429,9 @@ def test_prepare_refusal_names_stalled_writer(tmp_path):
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             sequence_name='t',
             image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
-            autogain_settings={},
+            autogain_settings=AutoGainSettings(
+                target_brightness=0.3, min_gain_db=0.0, max_gain_db=20.0
+            ),
             parent_dir=tmp_path,
         )
 

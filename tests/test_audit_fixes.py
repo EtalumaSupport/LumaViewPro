@@ -6354,11 +6354,6 @@ class TestImagingParamNamesUseUnitSuffix:
         ('set_gain_db', frozenset({'gain_db'}), frozenset({'gain'})),
         ('set_exposure_ms', frozenset({'exposure_ms'}), frozenset({'t', 'exposure'})),
         ('apply', frozenset({'gain_db', 'exposure_ms'}), frozenset({'gain'})),
-        (
-            'auto_gain_once',
-            frozenset({'min_gain_db', 'max_gain_db'}),
-            frozenset({'min_gain', 'max_gain'}),
-        ),
     )
 
     def test_camera_method_param_names(self):
@@ -6375,6 +6370,16 @@ class TestImagingParamNamesUseUnitSuffix:
                 f'CameraAPI.{method_name} still has bare-name params '
                 f'{present_banned}; should use unit-suffixed names per audit U3'
             )
+
+    def test_the_auto_gain_settings_name_their_units(self):
+        """The gain bounds an arm or a one-shot takes are the record's fields,
+        so the record carries the unit-suffixed names the members did."""
+        import dataclasses
+        from _lumascope.modules.lumascope_api.camera import AutoGainSettings
+
+        fields = {f.name for f in dataclasses.fields(AutoGainSettings)}
+        assert {'min_gain_db', 'max_gain_db', 'max_exposure_ms', 'min_exposure_ms'} <= fields
+        assert not {'min_gain', 'max_gain'} & fields
 
     def test_driver_auto_gain_param_names(self):
         """Driver-side auto_gain / auto_gain_once
@@ -6978,7 +6983,7 @@ class TestAutoGainArmedInScanIterate:
         """An Auto_Gain step's arm tick must make the AG apply through the
         public member (which serializes it on the lane under the run's
         taking) with the step's gain/exposure and the per-class exposure cap
-        set on the shared settings dict."""
+        on the run's settings."""
         from tests.protocol_drives import protocol_step, scan_ready_runner
 
         monkeypatch.setattr(
@@ -6989,12 +6994,16 @@ class TestAutoGainArmedInScanIterate:
         runner._step_executor.scan_iterate()
         applies = self._queued_ag_applies(runner)
         assert len(applies) == 1, 'the arm tick must make exactly one AG apply'
+        from _lumascope.modules.lumascope_api.camera import CameraAutoMode
+
         task = applies[0]
-        assert task.kwargs['auto_gain'] is True, 'the apply must arm continuous AG'
+        assert task.kwargs['auto_gain'] is CameraAutoMode.CONTINUOUS, (
+            'the apply must arm continuous AG'
+        )
         assert task.kwargs['gain_db'] == 2.0 and task.kwargs['exposure_ms'] == 10.0, (
             "the apply must carry the step's gain/exposure"
         )
-        assert task.kwargs['auto_gain_settings']['max_exposure_ms'] == 123.0, (
+        assert task.kwargs['auto_gain_settings'].max_exposure_ms == 123.0, (
             'the per-class AG/AE exposure cap must be set before arming'
         )
 
@@ -7354,16 +7363,10 @@ class TestHeadlessSettingsResolutionMatchesGui:
 
 
 class TestAutogainSettingsSnapshottedAtRunStart:
-    """Per protocol-workflow audit F15: autogain_settings dict was
-    referenced not snapshotted, so mid-run UI mutations of fields like
-    target_brightness or the gain bounds leaked into the in-flight scan.
-    The comment claimed "Immutable after assignment" but no deepcopy
-    enforced the immutability.
-
-    The fix deepcopies autogain_settings at prepare() entry, matching
-    the false_color_16bit + stage_offset snapshot pattern already used
-    in the runner.
-    """
+    """A run's auto-gain settings are the frozen record it was prepared
+    with, so a change to the settings mid-run cannot reach the in-flight
+    scan (protocol-workflow audit F15: the dictionary it once held was
+    referenced, not copied, and leaked mid-run edits)."""
 
     def _run_halted_at_artifact_init(self, monkeypatch, autogain_settings):
         """Drive prepare()+start() through the autogain snapshot, halting
@@ -7377,27 +7380,16 @@ class TestAutogainSettingsSnapshottedAtRunStart:
         runner.start(runner.prepare(**_scr_run_kwargs(autogain_settings=autogain_settings)))
         return runner
 
-    def test_autogain_settings_deepcopied_in_run(self, monkeypatch):
-        """Mutating the caller's dict after prepare() snapshots it must
-        not leak into the in-flight scan (audit F15)."""
-        src = {'target_brightness': 0.3, 'limits': {'max_gain_db': 10}}
-        runner = self._run_halted_at_artifact_init(monkeypatch, src)
-        src['target_brightness'] = 0.9
-        src['limits']['max_gain_db'] = 99
-        assert runner._autogain_settings['target_brightness'] == 0.3, (
-            'top-level mid-run mutation must not reach the runner snapshot'
-        )
-        assert runner._autogain_settings['limits']['max_gain_db'] == 10, (
-            'nested mid-run mutation must not reach the runner snapshot (deepcopy)'
-        )
+    def test_the_runs_auto_gain_settings_cannot_change_under_it(self, monkeypatch):
+        import dataclasses
 
-    def test_autogain_settings_none_safe(self, monkeypatch):
-        """autogain_settings=None (the signature allows it) must snapshot
-        to an empty dict, not raise."""
-        runner = self._run_halted_at_artifact_init(monkeypatch, None)
-        assert runner._autogain_settings == {}, (
-            'None must fall through to {} so the AG path sees an empty dict'
-        )
+        from _lumascope.modules.lumascope_api.camera import AutoGainSettings
+
+        given = AutoGainSettings(target_brightness=0.3, min_gain_db=0.0, max_gain_db=10.0)
+        runner = self._run_halted_at_artifact_init(monkeypatch, given)
+        assert runner._autogain_settings == given
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            runner._autogain_settings.target_brightness = 0.9
 
 
 class TestRunPreValidationFiresNotificationOnException:

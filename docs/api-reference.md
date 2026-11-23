@@ -37,6 +37,7 @@ NaN stays a NaN, and a key keeps its type.
 - [`AppliedExposure`](#AppliedExposure)
 - [`AppliedGain`](#AppliedGain)
 - [`AutoGainLock`](#AutoGainLock)
+- [`AutoGainSettings`](#AutoGainSettings)
 - [`AxisLimits`](#AxisLimits)
 - [`AxisPosition`](#AxisPosition)
 - [`BringUpRecord`](#BringUpRecord)
@@ -4782,8 +4783,8 @@ def apply(
     self,
     gain_db: float,
     exposure_ms: float,
-    auto_gain: bool | None = None,
-    auto_gain_settings: dict | None = None,
+    auto_gain: CameraAutoMode | None = None,
+    auto_gain_settings: AutoGainSettings | None = None,
     resume_after_capture: bool = True,
     channel: str = '(unspecified)',
 ) -> dict | None
@@ -4809,9 +4810,9 @@ range is set at its end and told, in one notice for both, as
 
 - `gain_db`: The gain in dB, at least 0.
 - `exposure_ms`: The exposure time in milliseconds, above 0.
-- `auto_gain`: The mode the camera is left in. True arms auto-gain from `auto_gain_settings`; False turns it off; None, the default, leaves the mode as it is and writes none.
-- `auto_gain_settings`: The arm's settings, read only when `auto_gain` is True, which needs them.
-- `resume_after_capture`: With `auto_gain` True, whether a capture that locks the arm re-arms it afterwards (live view) or leaves the camera at the locked values (a protocol step).
+- `auto_gain`: The auto-gain mode the camera is left in: `CameraAutoMode.CONTINUOUS` arms it from `auto_gain_settings`; `OFF` turns it off; None, the default, leaves the mode as it is and writes none.
+- `auto_gain_settings`: The arm's settings; given with `CONTINUOUS`, and only with it.
+- `resume_after_capture`: With `auto_gain` `CONTINUOUS`, whether a capture that locks the arm re-arms it afterwards (live view) or leaves the camera at the locked values (a protocol step).
 - `channel`: The channel these settings belong to, named in the log line; left out, the line says `(unspecified)`.
 
 **Returns**
@@ -4820,14 +4821,14 @@ dict | None: `{'gain_db': ..., 'exposure_ms': ...}`, each the value now in effec
 
 **Raises**
 
-- `ArgumentRefusedError`: `'missing_key'`, `auto_gain` is True and `auto_gain_settings` is None or lacks a key the auto-gain write reads; `'not_a_number'`, one of its values, the gain or the exposure is not a finite number; `'wrong_kind'`, the gain is below 0 or the exposure 0 or below; `'key_unknown'`, it holds a key the write does not take; `'gain_range_inverted'`, its minimum gain is above its maximum. Nothing was written.
+- `ArgumentRefusedError`: `'not_offered'`, an `auto_gain` other than `CONTINUOUS` or `OFF`; `'missing_key'`, `CONTINUOUS` without `auto_gain_settings`; `'not_read'`, `auto_gain_settings` with any other `auto_gain`; `'not_a_number'`, one of the settings, the gain or the exposure is not a finite number; `'wrong_kind'`, the gain is below 0, the exposure 0 or below, or one of the settings outside its range; `'gain_range_inverted'`, the settings' minimum gain is above their maximum. Nothing was written.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; nothing was written.
 - `CameraSettingRejected`: The camera did not take the gain, the exposure or the auto-gain change. When more than one, `setting` names each, comma-separated, `requested` holds their values in that order, the message carries each sentence, and the reason is the first any of them carries of `'camera_no_answer'`, `'camera_read_failed'` and `'camera_rejected'`. With the camera's range unread (`setting_limits`), `'camera_read_failed'` naming the gain, the exposure and the auto-gain mode asked for, none of which was written.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `missing_key`, `not_a_number`, `wrong_kind`, `key_unknown`, `gain_range_inverted`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`, `missing_key`, `not_read`, `not_a_number`, `wrong_kind`, `gain_range_inverted`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_no_answer`, `camera_read_failed`, `camera_rejected`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -5432,8 +5433,8 @@ never had, with nothing written.
 ```python
 def set_auto_gain(
     self,
-    state: bool,
-    settings: dict,
+    mode: CameraAutoMode,
+    settings: AutoGainSettings | None = None,
     *,
     resume_after_capture: bool = True,
 ) -> None
@@ -5442,7 +5443,7 @@ def set_auto_gain(
 Marks: enters: `lane_call`.  
 Route: `POST /api/v1/scope/camera/set_auto_gain`.
 
-Enable or disable automatic gain adjustment, and wait for it.
+Put the camera's auto-gain in `mode`, and wait for it.
 
 One command on the camera's lane, waited for. A write the camera
 does not apply raises and records no arm. With no camera connected,
@@ -5454,21 +5455,21 @@ that channel uses, is `ScopeSession.set_channel_settings`' `auto_gain`.
 
 **Args**
 
-- `state`: True to turn auto-gain on, False to turn it off.
-- `settings`: The arm's settings: `target_brightness`, `min_gain_db`, `max_gain_db`, and optionally `max_exposure_ms` and `min_exposure_ms`, the bounds the exposure may settle in. Read only to arm; turning auto-gain off reads none.
-- `resume_after_capture`: With `state` True, whether a capture that locks this arm re-arms it afterwards (live view) or leaves the camera at the locked values (a protocol step).
+- `mode`: `CameraAutoMode.CONTINUOUS` to arm auto-gain, or `OFF` (`'Continuous'` or `'Off'` on the wire). Continuous auto-gain runs the camera's exposure loop with it.
+- `settings`: What the arm aims for and settles in; given with `CONTINUOUS`, and only with it.
+- `resume_after_capture`: With `CONTINUOUS`, whether a capture that locks this arm re-arms it afterwards (live view) or leaves the camera at the locked values (a protocol step).
 
 **Raises**
 
 - `CameraSettingRejected`: The camera refused the change. Nothing was recorded, and nothing is shown here. Its reason is `'camera_rejected'` for a refusal, `'camera_no_answer'` for a write the camera answered neither time, and `'camera_read_failed'` for one not sent because a read it needs failed, the camera keeping its previous value.
 - `CameraSettingUnsupportedError`: `'auto_gain_unsupported'`, turning auto-gain on for a camera without it.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, for turning auto-gain on with no camera connected or one removed during the write; turning it off is satisfied either way.
-- `ArgumentRefusedError`: `'missing_key'`, `settings` lacks a key the write reads; `'wrong_kind'` or `'not_a_number'`, it or one of its values is not of the kind read; `'key_unknown'`, it holds a key the write does not take; `'gain_range_inverted'`, its minimum gain is above its maximum.
+- `ArgumentRefusedError`: `'not_offered'`, a `mode` other than those two: a one-shot is not set here. `'missing_key'`, `CONTINUOUS` without `settings`; `'not_read'`, `OFF` with them. `'not_a_number'` or `'wrong_kind'`, one of the settings is not a number or is outside its range; `'gain_range_inverted'`, their minimum gain is above their maximum. Nothing is sent.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `missing_key`, `wrong_kind`, `not_a_number`, `key_unknown`, `gain_range_inverted`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`, `missing_key`, `not_read`, `not_a_number`, `wrong_kind`, `gain_range_inverted`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -9006,9 +9007,30 @@ The result of locking an auto-gain arm.
 - <a id="AutoGainLock.exposure_ms"></a>`exposure_ms`: `float | None` -- The exposure the auto loop reached, in ms, written back as the manual exposure; None when `state` is None or `FAILED`.
 - <a id="AutoGainLock.floor_ms"></a>`floor_ms`: `float | None` -- The arm's `min_exposure_ms`, the exposure at or below which the lock is `AT_MINIMUM`; None when the arm had none.
 - <a id="AutoGainLock.gain_db"></a>`gain_db`: `float | None` -- The gain the auto loop reached, in dB, written back as the manual gain; None exactly when `exposure_ms` is.
-- <a id="AutoGainLock.settings"></a>`settings`: `dict | None` -- The auto-gain settings the arm was armed with, used to re-arm it; None when no arm was recorded.
+- <a id="AutoGainLock.settings"></a>`settings`: `AutoGainSettings | None` -- The auto-gain settings the arm was armed with, used to re-arm it; None when no arm was recorded.
 - <a id="AutoGainLock.state"></a>`state`: `AutoGainConvergence | None` -- Where the arm landed; None when no arm was recorded, so nothing was locked and nothing was written to the camera.
 - <a id="AutoGainLock.stored_exposure_ms"></a>`stored_exposure_ms`: `float | None` -- The exposure a caller stores as the channel's manual setting after the lock: `exposure_ms` raised to `floor_ms`. The loop can drive the camera below that floor on a bright scene, and a setting stored that low makes near-black captures of ordinary scenes, so the store keeps the floor while `exposure_ms` keeps what the camera reached. None when `exposure_ms` is.
+
+<a id="AutoGainSettings"></a>
+## `lumascope.AutoGainSettings`
+
+A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+Held in: [`AutoGainLock.settings`](#AutoGainLock.settings).  
+Taken by: [`CameraAPI.apply`](#CameraAPI.apply), [`CameraAPI.set_auto_gain`](#CameraAPI.set_auto_gain).
+
+What the camera's auto-gain aims for, and the bounds it settles in.
+
+The gain bounds and the target take the rules the stored
+`protocol.autogain` setting of the same name holds; an exposure bound
+is a time above 0, None for no bound.
+
+**Fields**
+
+- <a id="AutoGainSettings.max_exposure_ms"></a>`max_exposure_ms`: `float | None` -- The longest exposure the loop may set, in ms; None for the camera's own longest.
+- <a id="AutoGainSettings.max_gain_db"></a>`max_gain_db`: `float` -- The highest gain the loop may set, in dB, at least `min_gain_db`.
+- <a id="AutoGainSettings.min_exposure_ms"></a>`min_exposure_ms`: `float | None` -- The exposure at or below which a lock is `AT_MINIMUM`, in ms; None for no floor.
+- <a id="AutoGainSettings.min_gain_db"></a>`min_gain_db`: `float` -- The lowest gain the loop may set, in dB.
+- <a id="AutoGainSettings.target_brightness"></a>`target_brightness`: `float` -- The brightness the loop drives the frame to, a fraction of full scale.
 
 <a id="AxisLimits"></a>
 ## `lumascope.AxisLimits`
@@ -13078,7 +13100,7 @@ Which host a call came through.
 ### `lumascope.CameraAutoMode`
 
 Returned by: [`CameraAPI.auto_exposure`](#CameraAPI.auto_exposure), [`CameraAPI.auto_gain`](#CameraAPI.auto_gain).  
-Taken by: [`CameraAPI.set_auto_exposure`](#CameraAPI.set_auto_exposure).
+Taken by: [`CameraAPI.apply`](#CameraAPI.apply), [`CameraAPI.set_auto_exposure`](#CameraAPI.set_auto_exposure), [`CameraAPI.set_auto_gain`](#CameraAPI.set_auto_gain).
 
 What one of the camera's auto loops is doing, as the camera reports it.
 
@@ -13850,12 +13872,12 @@ replaces were, so a caller catching a bad argument keeps working.
 
 **Attributes**
 
-- `reason`: One of: - `'not_offered'` -- a value of a closed set (a `StrEnum`) that is not one of `offered`: not a member, nor a member's plain string, or a member the taker does not take. Values are exact: `'off'` is not `'Off'`. - `'not_a_number'` -- a number was needed and the value is not a finite one: NaN, an infinity, a `bool` or not a number at all. Every comparison with NaN is False, so a range check alone passes it. - `'plate_frame_axis'` -- a plate coordinate for an axis the plate frame does not define (`offered`: X and Y). - `'well_unknown'` -- a well label the selected plate (`plate`) does not have. - `'out_of_range'` -- a number outside the `limits` its member takes. - `'fan_duty_out_of_range'` -- a fan duty outside 0 to 100 percent. - `'channel_unknown'` -- the name is not one of this release's channels (`offered`, the catalog). Names are exact: `'bf'` is not `'BF'`. A channel this model lacks is a name, and is refused as absent hardware, not here. - `'no_channel_selected'` -- the member needs a channel and was given None (`offered`, the catalog). - `'led_address_unknown'` -- an LED address that is not one of the attached LED board's addresses (`offered`). A `bool` is not an address. - `'illumination_out_of_range'` -- an LED current below 0 mA. A current above the attached LED board's maximum is lit at it (`ValueClampedNotice`), not refused. - `'missing_key'` -- a dictionary argument lacks a key its member reads; `argument` names the key's path. - `'wrong_kind'` -- an argument, or a value in a dictionary argument, is not of the kind its member reads (`takes`, in words). - `'protocol_source_ambiguous'` -- not exactly one of the protocol sources `offered` was given. - `'not_a_setting'` -- a dotted path that names no setting. The same fact a write is refused for as `SettingRefusedError('not_a_setting')`; this type says a read asked it. - `'has_member'` -- a dotted path to a setting that has a read of its own, named in `member` by its path from the session, so one setting has one read. - `'needs_simulated_scope'` -- an argument that exists only on a simulated scope, given for a real one. - `'needs_simulated_camera'` -- an argument that exists only on the simulated camera, given for a model simulated with an FX2. - `'needs_simulated_firmware'` -- an argument that exists only on the simulated motor firmware (the `firmware` and `realistic` simulator tiers, on a model with an EL-0940 motor board), given for a simulated scope whose motor board, named in `board`, does not run it. - `'exposure_not_recorded'` -- a frame the simulated camera holds no exposure record for: one it did not deliver, or one older than the records it keeps. - `'not_an_installation'` -- a folder the caller named that holds no settings template, so it is not an LVP installation root. - `'binning_size_invalid'` -- a binning label that is not a positive square `NxN`. - `'fault_unknown'` -- a simulated fault's board, or a device's hardware ID, that is not one of `offered`: sets this scope's boards and this machine's devices decide. - `'fault_bound'` -- a simulated fault's count, fraction or time outside what it takes (`takes`, in words). - `'not_injectable_on_board'` -- a simulated fault the board that would present it cannot produce; `argument` names the `scope.simulation` member, `board` the board. - `'argument_not_on_board'` -- an argument of a simulated fault the board cannot take; `board` names the board, `takes` what it takes for that argument. - `'slot_not_holding_objective'` -- a turret slot given for steps naming an objective the slot does not hold now (`offered`: the slots that hold it). - `'objective_in_several_slots'` -- an objective to turn the turret to that two or more slots hold (`offered`: the slots), so no one slot is meant. - `'objective_not_on_turret'` -- an objective to turn the turret to that no slot holds (`offered`: the objectives the slots hold, in slot order). - `'slot_required'` -- an objective confirmed on a turret scope with no slot named; the confirmation records the glass in a slot. - `'gain_range_inverted'` -- an auto-gain settings dictionary whose `min_gain_db` is above its `max_gain_db`; `value` holds the two. - `'key_unknown'` -- a key a dictionary argument does not take (`offered`: the keys it takes).
+- `reason`: One of: - `'not_offered'` -- a value of a closed set (a `StrEnum`) that is not one of `offered`: not a member, nor a member's plain string, or a member the taker does not take. Values are exact: `'off'` is not `'Off'`. - `'not_a_number'` -- a number was needed and the value is not a finite one: NaN, an infinity, a `bool` or not a number at all. Every comparison with NaN is False, so a range check alone passes it. - `'plate_frame_axis'` -- a plate coordinate for an axis the plate frame does not define (`offered`: X and Y). - `'well_unknown'` -- a well label the selected plate (`plate`) does not have. - `'out_of_range'` -- a number outside the `limits` its member takes. - `'fan_duty_out_of_range'` -- a fan duty outside 0 to 100 percent. - `'channel_unknown'` -- the name is not one of this release's channels (`offered`, the catalog). Names are exact: `'bf'` is not `'BF'`. A channel this model lacks is a name, and is refused as absent hardware, not here. - `'no_channel_selected'` -- the member needs a channel and was given None (`offered`, the catalog). - `'led_address_unknown'` -- an LED address that is not one of the attached LED board's addresses (`offered`). A `bool` is not an address. - `'illumination_out_of_range'` -- an LED current below 0 mA. A current above the attached LED board's maximum is lit at it (`ValueClampedNotice`), not refused. - `'missing_key'` -- an argument its member reads with the others given was not given, or a dictionary argument lacks a key its member reads; `argument` names it, or the key's path. - `'not_read'` -- an argument given where its member does not read it (`takes`: when it is read, in words). - `'wrong_kind'` -- an argument, or a value in a dictionary argument, is not of the kind its member reads (`takes`, in words). - `'protocol_source_ambiguous'` -- not exactly one of the protocol sources `offered` was given. - `'not_a_setting'` -- a dotted path that names no setting. The same fact a write is refused for as `SettingRefusedError('not_a_setting')`; this type says a read asked it. - `'has_member'` -- a dotted path to a setting that has a read of its own, named in `member` by its path from the session, so one setting has one read. - `'needs_simulated_scope'` -- an argument that exists only on a simulated scope, given for a real one. - `'needs_simulated_camera'` -- an argument that exists only on the simulated camera, given for a model simulated with an FX2. - `'needs_simulated_firmware'` -- an argument that exists only on the simulated motor firmware (the `firmware` and `realistic` simulator tiers, on a model with an EL-0940 motor board), given for a simulated scope whose motor board, named in `board`, does not run it. - `'exposure_not_recorded'` -- a frame the simulated camera holds no exposure record for: one it did not deliver, or one older than the records it keeps. - `'not_an_installation'` -- a folder the caller named that holds no settings template, so it is not an LVP installation root. - `'binning_size_invalid'` -- a binning label that is not a positive square `NxN`. - `'fault_unknown'` -- a simulated fault's board, or a device's hardware ID, that is not one of `offered`: sets this scope's boards and this machine's devices decide. - `'fault_bound'` -- a simulated fault's count, fraction or time outside what it takes (`takes`, in words). - `'not_injectable_on_board'` -- a simulated fault the board that would present it cannot produce; `argument` names the `scope.simulation` member, `board` the board. - `'argument_not_on_board'` -- an argument of a simulated fault the board cannot take; `board` names the board, `takes` what it takes for that argument. - `'slot_not_holding_objective'` -- a turret slot given for steps naming an objective the slot does not hold now (`offered`: the slots that hold it). - `'objective_in_several_slots'` -- an objective to turn the turret to that two or more slots hold (`offered`: the slots), so no one slot is meant. - `'objective_not_on_turret'` -- an objective to turn the turret to that no slot holds (`offered`: the objectives the slots hold, in slot order). - `'slot_required'` -- an objective confirmed on a turret scope with no slot named; the confirmation records the glass in a slot. - `'gain_range_inverted'` -- auto-gain settings whose `min_gain_db` is above their `max_gain_db`; `value` holds the two.
 - `argument`: The name of the argument refused.
 - `value`: What was given, as given.
 - `offered`: The values the argument takes, where it takes a list; None otherwise.
 - `limits`: The lowest and highest value the argument takes, where it takes a range that depends on the scope; None otherwise.
-- `takes`: The value the argument takes, in words, for `'wrong_kind'`, `'fault_bound'` and `'argument_not_on_board'`; None otherwise.
+- `takes`: The value the argument takes, in words, for `'wrong_kind'`, `'fault_bound'` and `'argument_not_on_board'`, and when it is read, for `'not_read'`; None otherwise.
 - `board`: The simulated board, in words, for `'not_injectable_on_board'`, `'argument_not_on_board'` and `'needs_simulated_firmware'`; None otherwise.
 - `plate`: The name of the plate looked on, for `'well_unknown'`; None otherwise.
 - `member`: The member to read instead, for `'has_member'`; None otherwise.
@@ -13872,7 +13894,7 @@ words; the client already holds the value it sent.
 - <a id="ArgumentRefusedError.member"></a>`member`: `str | None` -- The member to read instead, for `'has_member'`; None otherwise.
 - <a id="ArgumentRefusedError.offered"></a>`offered`: `tuple[str | int, ...] | None` -- The values the argument takes, where it takes a list; None otherwise.
 - <a id="ArgumentRefusedError.plate"></a>`plate`: `str | None` -- The name of the plate looked on, for `'well_unknown'`; None otherwise.
-- <a id="ArgumentRefusedError.takes"></a>`takes`: `str | None` -- The value the argument takes, in words, for `'wrong_kind'`, `'fault_bound'` and `'argument_not_on_board'`; None otherwise.
+- <a id="ArgumentRefusedError.takes"></a>`takes`: `str | None` -- The value the argument takes, in words, for `'wrong_kind'`, `'fault_bound'` and `'argument_not_on_board'`, and when it is read, for `'not_read'`; None otherwise.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -13886,7 +13908,6 @@ words; the client already holds the value it sent.
 | `gain_range_inverted` | request | 422 |
 | `has_member` | request | 422 |
 | `illumination_out_of_range` | request | 422 |
-| `key_unknown` | request | 422 |
 | `led_address_unknown` | request | 422 |
 | `missing_key` | request | 422 |
 | `needs_simulated_camera` | request | 422 |
@@ -13898,6 +13919,7 @@ words; the client already holds the value it sent.
 | `not_an_installation` | request | 422 |
 | `not_injectable_on_board` | request | 422 |
 | `not_offered` | request | 422 |
+| `not_read` | request | 422 |
 | `objective_in_several_slots` | request | 422 |
 | `objective_not_on_turret` | request | 422 |
 | `out_of_range` | request | 422 |

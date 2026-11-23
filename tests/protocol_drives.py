@@ -25,8 +25,12 @@ from unittest.mock import MagicMock
 from _lumascope.modules.activity_claim import ActivityClaim, RunIdentity, acting
 from _lumascope.modules.caller import Caller
 from _lumascope.modules.image_mode import ImageCaptureConfig
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings
 from _lumascope.modules.run_outcome import CaptureTally, RunEnding, RunStatus
 from tests.scope_fakes import swap_lanes
+
+# The stored auto-gain block a shipped settings file holds, as a run carries it.
+STOCK_AUTO_GAIN = AutoGainSettings(target_brightness=0.3, min_gain_db=0.0, max_gain_db=20.0)
 from tests.settings_fixtures import complete_settings
 from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.image_mode import RecordingFormat
@@ -279,7 +283,7 @@ def scr_run_kwargs(**overrides):
         'run_mode': SequencedCaptureRunMode.FULL_PROTOCOL,
         'sequence_name': 'seq',
         'image_capture_config': ImageCaptureConfig.from_image_mode('8bit'),
-        'autogain_settings': {'target_brightness': 0.3},
+        'autogain_settings': STOCK_AUTO_GAIN,
         'parent_dir': None,
         'disable_saving_artifacts': True,
     }
@@ -336,7 +340,7 @@ def scan_ready_runner(step, **state):
     runner._scan_in_progress.set()
     runner._state = ProtocolState.RUNNING
     # prepare() always carries the target the takeover writes to the camera.
-    runner._autogain_settings = {'target_brightness': 0.5}
+    runner._autogain_settings = STOCK_AUTO_GAIN
     runner._image_writer = MagicMock()
     # This drive saves nothing, so its run is asked for no captures.
     runner._image_writer.capture_tally = CaptureTally(

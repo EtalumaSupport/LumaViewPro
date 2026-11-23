@@ -3,6 +3,7 @@
 import traceback
 import harness
 from tests.stock_channels import LED0
+from _lumascope.modules.lumascope_api.camera import CameraAutoMode
 
 s, live = harness.make_session('p3')
 im = s.scope.imaging
@@ -34,7 +35,10 @@ try:
     print('camera_supports_auto_gain:', s.scope.capabilities.camera_supports_auto_gain, flush=True)
     ag = s.get_auto_gain_settings()
     print('session.get_auto_gain_settings():', ag, flush=True)
-    step('set_auto_gain(True, ag)', lambda: im_camera.set_auto_gain(True, ag))
+    step(
+        'set_auto_gain(CameraAutoMode.CONTINUOUS, ag)',
+        lambda: im_camera.set_auto_gain(CameraAutoMode.CONTINUOUS, ag),
+    )
     step('lock_auto_gain()', lambda: im_camera.lock_auto_gain())
     step(
         f'camera.apply({LED0})',

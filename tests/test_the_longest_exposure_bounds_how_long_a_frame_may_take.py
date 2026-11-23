@@ -21,6 +21,7 @@ Run on the simulated LS850, whose sensor maximum is 1000 ms.
 
 from __future__ import annotations
 
+import dataclasses
 import time
 
 import pytest
@@ -28,8 +29,13 @@ import pytest
 from _lumascope.modules.exceptions import CameraSettingRejected
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 
-_AUTO_GAIN = {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 10.0}
+_AUTO_GAIN = AutoGainSettings(
+    target_brightness=0.5,
+    min_gain_db=0.0,
+    max_gain_db=10.0,
+)
 
 
 @pytest.fixture
@@ -64,16 +70,18 @@ def test_it_is_the_replaced_exposure_until_a_frame_begun_under_it_has_ended(sess
 def test_it_is_the_arms_ceiling_while_auto_gain_is_armed(session):
     camera = session.scope.camera
     camera.set_exposure_ms(40.0)
-    camera.set_auto_gain(True, {**_AUTO_GAIN, 'max_exposure_ms': 150.0})
+    camera.set_auto_gain(
+        CameraAutoMode.CONTINUOUS, dataclasses.replace(_AUTO_GAIN, max_exposure_ms=150.0)
+    )
     assert camera.longest_exposure_ms == 150.0
-    camera.set_auto_gain(False, dict(_AUTO_GAIN))
+    camera.set_auto_gain(CameraAutoMode.OFF)
     assert camera.longest_exposure_ms == camera.exposure_ms
 
 
 def test_it_is_the_sensor_maximum_while_auto_gain_is_armed_with_no_ceiling(session):
     camera = session.scope.camera
     camera.set_exposure_ms(40.0)
-    camera.set_auto_gain(True, dict(_AUTO_GAIN))
+    camera.set_auto_gain(CameraAutoMode.CONTINUOUS, _AUTO_GAIN)
     assert camera.longest_exposure_ms == _sensor_maximum(session) == 1000.0
 
 

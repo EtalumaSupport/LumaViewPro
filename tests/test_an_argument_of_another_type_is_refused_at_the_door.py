@@ -27,6 +27,7 @@ from _lumascope.modules.exceptions import (
 from _lumascope.modules.scope_session import ScopeSession
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 from tests.test_run_refusal_contract import _make_single_step_protocol
+from _lumascope.modules.lumascope_api.camera import CameraAutoMode
 
 
 @pytest.fixture(scope='module')
@@ -148,7 +149,7 @@ def test_a_class_is_taken_only_as_itself(session):
 
 def test_a_dictionary_a_callable_and_a_duration_are_held_to_their_kinds(session):
     _refused(
-        lambda: session.scope.camera.set_auto_gain(True, ['not', 'a', 'dict']),
+        lambda: session.scope.camera.set_auto_gain(CameraAutoMode.CONTINUOUS, ['not', 'a', 'dict']),
         'CameraAPI.set_auto_gain',
         'settings',
     )

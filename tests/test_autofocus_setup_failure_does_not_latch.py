@@ -127,7 +127,9 @@ def _fail_setup(scope, runner, breaker, raised_type, reason):
 
 def _live_view_arm(scope):
     """A standing live-view auto-gain arm: the one thing only the camera restore puts back."""
-    scope.camera.set_auto_gain(True, dict(AG_SETTINGS_TRANSMITTED), resume_after_capture=True)
+    scope.camera.set_auto_gain(
+        CameraAutoMode.CONTINUOUS, AG_SETTINGS_TRANSMITTED, resume_after_capture=True
+    )
     assert scope.camera.auto_gain is CameraAutoMode.CONTINUOUS
 
 

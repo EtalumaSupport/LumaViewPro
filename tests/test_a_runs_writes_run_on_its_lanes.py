@@ -357,14 +357,15 @@ def test_the_run_door_refuses_the_lender_of_a_borrowed_run():
 
 
 def test_the_run_takes_a_standing_arm_through_the_public_member():
+    from _lumascope.modules.lumascope_api.camera import CameraAutoMode
     from _lumascope.modules.protocol_state_machine import SequencedCaptureRunMode
-    from tests.protocol_drives import bare_capture_runner
+    from tests.protocol_drives import STOCK_AUTO_GAIN, bare_capture_runner
 
     runner = bare_capture_runner()
-    arm = MagicMock(settings={'target_brightness': 0.5})
+    arm = MagicMock(settings=STOCK_AUTO_GAIN)
     runner._saved_camera_state = {'auto_gain_arm': arm}
     runner._run_mode = SequencedCaptureRunMode.FULL_PROTOCOL
 
     runner._take_auto_gain_arm_for_run()
 
-    runner._scope.camera.set_auto_gain.assert_called_once_with(False, {'target_brightness': 0.5})
+    runner._scope.camera.set_auto_gain.assert_called_once_with(CameraAutoMode.OFF)
