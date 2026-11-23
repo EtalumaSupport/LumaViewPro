@@ -5352,8 +5352,8 @@ class MoveStoppedError(Notice, MoveNotCompletedError):
         reason: ``'stopped'`` -- a stop sent while it moved ended it:
             ``stop_motion``, or the close's, even one the board did not take
             (that failure is reported once, as itself); a turret is then in
-            no known slot. ``'lid_open_mid_move'`` -- the lid was opened while it
-            moved, and the stage stopped every axis: no one's Stop, and a
+            no known slot. ``'lid_open_mid_move'`` -- the lid was opened while
+            it moved, and the stage stopped every axis: no one's Stop, and a
             run that meets it ends naming the lid. ``'superseded'`` --
             another move or a home took the axis before this one arrived;
             that command's own outcome says where the axis went.

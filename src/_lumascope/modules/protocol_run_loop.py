@@ -396,7 +396,7 @@ class ProtocolRunLoop:
                 if (
                     isinstance(ex, HardwareCommandRefusedError) and ex.reason in INTERLOCK_REASONS
                 ) or (isinstance(ex, MoveStoppedError) and ex.reason in STOPPED_MID_MOVE.values()):
-                    logger.error(f'[Protocol] Stage interlock refused a move during scan: {ex}')
+                    logger.error(f'[Protocol] Stage interlock ended a move during scan: {ex}')
                     ending = RunEnding(
                         RunStatus.FAILED,
                         'interlock',

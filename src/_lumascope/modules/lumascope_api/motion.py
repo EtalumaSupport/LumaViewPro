@@ -643,10 +643,9 @@ class MotionAPI:
         its position known. A stop the driver made in refusing moves the
         stop generation (``_note_interlock_stop``) first, so the refused move
         settles with the interlock's reason and a move waiting on another
-        axis the stage halted raises it (``'lid_open_mid_move'``) instead of reading
-        the halt as arrival. A
-        refusal after something moved is not a refusal, and fails the
-        drive as any driver error does.
+        axis the stage halted raises it (``'lid_open_mid_move'``) instead of
+        reading the halt as arrival. A refusal after something moved is not
+        a refusal, and fails the drive as any driver error does.
 
         Raises:
             HardwareCommandRefusedError: the interlock's refusal before
@@ -685,8 +684,8 @@ class MotionAPI:
         """A stop the stage made in refusing moves the generation as
         ``_send_stop`` moves it, recording the interlock as its reason, so
         every move waiting on an axis the stage halted raises its reason
-        (``'lid_open_mid_move'``) instead of reading the halt as arrival, and is not
-        read as anyone's Stop.
+        (``'lid_open_mid_move'``) instead of reading the halt as arrival, and
+        is not read as anyone's Stop.
 
         The bump lands once the driver has released its lock, not under
         ``_stop_lock`` across the exchange as ``_send_stop``'s does, so a
@@ -703,8 +702,8 @@ class MotionAPI:
         """How a move begun under ``stop_generation`` and stopped short ends:
         the reason of the stop that halted it, the first after its own.
 
-        ``'lid_open_mid_move'`` when that stop was the stage's for its lid, else
-        ``'stopped'``. A move asked before a press (``_ASKED_BEFORE_A_STOP``)
+        ``'lid_open_mid_move'`` when that stop was the stage's for its lid,
+        else ``'stopped'``. A move asked before a press (``_ASKED_BEFORE_A_STOP``)
         is that press's, so ``'stopped'``.
         """
         return self._interlock_stops.get(stop_generation + 1, 'stopped')

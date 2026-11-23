@@ -386,8 +386,8 @@ class AutofocusRunner:
                 error ('unexpected_error', its cause chained).
             AutofocusStopped: abort_event was set during the run.
             MoveStoppedError: a STOP or the lid cut a move of the sweep
-                before its run's ending was recorded; not reported here, since the run
-                ends on it and tells it.
+                before its run's ending was recorded; not reported here,
+                since the run ends on it and tells it.
             AutofocusRunEnded: the run it belongs to had ended before it
                 took its LEDs.
             AutofocusLedsHeldError: another lease on top of the run's holds
