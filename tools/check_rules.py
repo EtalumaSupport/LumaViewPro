@@ -1372,22 +1372,46 @@ def check_doc(
     return violations
 
 
-def _staged_files(suffix: str) -> list[str]:
-    out = subprocess.check_output(
-        ['git', 'diff', '--cached', '--name-only', '--diff-filter=AM'],
-        text=True,
-    )
-    return [p for p in out.splitlines() if p.endswith(suffix)]
+@dataclass(frozen=True)
+class _StagedEntry:
+    """A path the commit adds, changes or renames into, with the path HEAD
+    holds it at: itself when changed, the source when renamed, None when
+    added. A renamed file's added lines and committed copy are read from
+    that pair, so the lines it carried from the old path are not new."""
+
+    path: str
+    head_path: str | None
+    pure_rename: bool
 
 
-def _staged_paths_entering() -> list[str]:
-    """Every path a commit would add, change or rename INTO; deletions and
-    rename sources are not entries."""
+def _staged_entries() -> list[_StagedEntry]:
+    """Every path entering the commit; deletions and rename sources are not
+    entries. `-M` makes rename detection independent of the user's
+    `diff.renames`, and `-z` keeps a non-ASCII path unquoted, so it still
+    matches its suffix."""
     out = subprocess.check_output(
-        ['git', 'diff', '--cached', '--name-only', '--diff-filter=AMR'],
+        ['git', 'diff', '--cached', '--name-status', '-M', '-z', '--diff-filter=AMR'],
         text=True,
     )
-    return out.splitlines()
+    fields = out.split('\0')[:-1]
+    entries: list[_StagedEntry] = []
+    i = 0
+    while i < len(fields):
+        status = fields[i]
+        if status.startswith('R'):
+            entries.append(_StagedEntry(fields[i + 2], fields[i + 1], status == 'R100'))
+            i += 3
+        else:
+            path = fields[i + 1]
+            entries.append(_StagedEntry(path, path if status == 'M' else None, False))
+            i += 2
+    return entries
+
+
+def _staged_files(entries: list[_StagedEntry], suffix: str) -> list[_StagedEntry]:
+    """The entries whose content the checks read: a pure rename changes no
+    line, so it is checked as an in-place commit that changes nothing."""
+    return [e for e in entries if e.path.endswith(suffix) and not e.pure_rename]
 
 
 def _check_build_untracked(paths: list[str]) -> list[Violation]:
@@ -1474,18 +1498,22 @@ def _check_sibling_copy(staged: str, sibling: Path) -> list[Violation]:
     ]
 
 
-def _staged_doc_files() -> list[str]:
-    docs = _staged_files('.md')
-    return [p for p in docs if _is_rule_45_doc(p) or _is_daily_log(p) or _is_handover(p)]
+def _staged_doc_files(entries: list[_StagedEntry]) -> list[_StagedEntry]:
+    docs = _staged_files(entries, '.md')
+    return [
+        e for e in docs if _is_rule_45_doc(e.path) or _is_daily_log(e.path) or _is_handover(e.path)
+    ]
 
 
 def _read_staged_content(path: str) -> str:
     return subprocess.check_output(['git', 'show', f':{path}'], text=True)
 
 
-def _read_head_content(path: str) -> str | None:
+def _read_head_content(path: str | None) -> str | None:
     """The committed copy the staged one replaces; None when HEAD has no
     such file (a new file, or an unborn branch)."""
+    if path is None:
+        return None
     try:
         return subprocess.check_output(
             ['git', 'show', f'HEAD:{path}'], text=True, stderr=subprocess.DEVNULL
@@ -1497,14 +1525,16 @@ def _read_head_content(path: str) -> str | None:
 _HUNK_HEADER = re.compile(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@')
 
 
-def _added_lines(path: str) -> set[int]:
-    """Return the set of line numbers added (or modified) in path's staged diff.
+def _added_lines(entry: _StagedEntry) -> set[int]:
+    """Return the set of line numbers added (or modified) in the entry's staged diff.
 
     Uses --unified=0 so the diff has no context lines; every '+' in the diff
-    body corresponds to a line in the new file.
+    body corresponds to a line in the new file. Both paths of a rename are
+    named: given the destination alone, git shows the whole file as added.
     """
+    paths = [entry.path] if entry.head_path in (None, entry.path) else [entry.head_path, entry.path]
     out = subprocess.check_output(
-        ['git', 'diff', '--cached', '--unified=0', '--', path],
+        ['git', 'diff', '--cached', '--unified=0', '-M', '--', *paths],
         text=True,
     )
     added: set[int] = set()
@@ -1548,7 +1578,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.staged:
         merging = _merge_in_progress()
-        entering = _staged_paths_entering()
+        entries = _staged_entries()
+        entering = [e.path for e in entries]
         violations.extend(_check_build_untracked(entering))
         if _CHECKER_PATH in entering:
             violations.extend(
@@ -1556,33 +1587,36 @@ def main(argv: list[str] | None = None) -> int:
                     _read_staged_content(_CHECKER_PATH), _sibling_checker(config['sibling'])
                 )
             )
-        for p in _staged_files('.py'):
+        for e in _staged_files(entries, '.py'):
+            p = e.path
             try:
                 content = _read_staged_content(p)
             except subprocess.CalledProcessError:
                 continue
             file_violations = check_source(content, p, cv2_channel=config['cv2_channel'])
             if not args.all:
-                added = _added_lines(p)
+                added = _added_lines(e)
                 file_violations = _filter_to_added(file_violations, added)
             violations.extend(file_violations)
             if config.get('rule_37') and not merging:
                 # Diff-aware by design (backlog never demanded), so it does
                 # its own line-range logic like the doc checks.
-                violations.extend(_check_rule_37(content, p, _added_lines(p)))
+                violations.extend(_check_rule_37(content, p, _added_lines(e)))
         if config['kv_ascii']:
-            for p in _staged_files('.kv'):
+            for e in _staged_files(entries, '.kv'):
+                p = e.path
                 try:
                     content = _read_staged_content(p)
                 except subprocess.CalledProcessError:
                     continue
                 file_violations = _check_rule_24_kv(content, p)
                 if not args.all:
-                    added = _added_lines(p)
+                    added = _added_lines(e)
                     file_violations = _filter_to_added(file_violations, added)
                 violations.extend(file_violations)
         if config['doc_status']:
-            for p in _staged_doc_files():
+            for e in _staged_doc_files(entries):
+                p = e.path
                 try:
                     content = _read_staged_content(p)
                 except subprocess.CalledProcessError:
@@ -1590,7 +1624,9 @@ def main(argv: list[str] | None = None) -> int:
                 # The doc checks are diff-aware (freshness) and content-aware
                 # (structure); they do their own line-range filtering, so they
                 # are not subject to the --all / added-line filter above.
-                violations.extend(check_doc(content, p, _added_lines(p), _read_head_content(p)))
+                violations.extend(
+                    check_doc(content, p, _added_lines(e), _read_head_content(e.head_path))
+                )
     else:
         for p in args.paths or []:
             try:
