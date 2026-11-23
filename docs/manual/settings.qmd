@@ -69,6 +69,8 @@ and composites.
 - TIFF and OME-TIFF: as for [Live Image Format]{.guilabel}.
 - Hyperstack: at the end of the run, the images of each well are combined
   into one OME-TIFF stack, which ImageJ and Fiji open through Bio-Formats.
+  A protocol's video steps follow
+  [Video Recording Format]{.guilabel} instead (@sec-video-format).
 - JPG: as for [Live Image Format]{.guilabel}. A run saved as JPG can't be
   Z-projected, stitched, combined into a composite or made into a video.
 
@@ -84,9 +86,14 @@ larger files. It applies to both formats.
 [Video Recording Format]{.guilabel} sets the output of video recording, for both the toolbar's Record button and
 protocol video steps.
 
-- mp4: a video file that plays back in real time. Default.
+- MP4: a video file that plays back in real time. Default.
 - Frames: each frame saved as a separate image, for frame-by-frame
   analysis.
+- Hyperstack: the frames saved as for [Frames]{.guilabel}, then combined
+  into one OME-TIFF stack, which ImageJ and Fiji open through Bio-Formats.
+  The frames are kept. After a long recording the stack can take minutes
+  to build; the line at the bottom of the window shows it while it does
+  (@sec-status-line).
 
 ### 8-bit or full-depth images {#sec-image-mode}
 

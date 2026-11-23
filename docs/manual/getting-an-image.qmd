@@ -128,8 +128,8 @@ The video is saved in the `Manual` folder, named with the date and time it
 started, such as `Video_2026-11-04_21.28.29.mp4`. The name doesn't include
 the channel; a file next to it ending in `_manifest.json` records the
 channel and the frames written. With [Video Recording Format]{.guilabel}
-set to [Frames]{.guilabel}, the frames are saved as separate images in a
-folder with that name instead (@sec-video-format).
+set to [Frames]{.guilabel} or [Hyperstack]{.guilabel}, the frames are saved
+as separate images in a folder with that name instead (@sec-video-format).
 
 ## A Z-stack {#sec-image-zstack}
 
