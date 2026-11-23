@@ -404,7 +404,7 @@ class CameraSettingLimits:
         gain_max_db: The most gain the camera applies, digital stage
             included, in dB.
         analog_gain_max_db: The most gain before a digital stage, in dB,
-            past which the camera multiplies digitised values and the noise
+            past which the camera multiplies digitized values and the noise
             with the signal: the analog maximum the camera's profile
             documents, or, for a camera whose profile states no digital
             stage, its gain maximum (all its gain is analog); None for a

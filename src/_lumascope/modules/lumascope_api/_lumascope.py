@@ -553,7 +553,7 @@ class Lumascope:
         """Read the installation's files once, from ``source_path``; return the motor defaults.
 
         The scope is the one owner of the labware, objective, model and
-        tiling catalogues. Its runtime state, protocol construction, the session,
+        tiling catalogs. Its runtime state, protocol construction, the session,
         the run and the GUI all read these objects, so no two parts of one
         session can disagree about which plates, objectives or models
         exist. All are read-only after construction, so every thread may
@@ -711,7 +711,7 @@ class Lumascope:
         firmware tiers' EL-0940) is booted in place of the model's own
         board, so the board's name and axes are the unit's.
 
-        ``axes`` and ``motor_board`` are the ones the catalogue gives the
+        ``axes`` and ``motor_board`` are the ones the catalog gives the
         model: a model that names no motor board has none, so it gets the
         null driver on either tier. A TMCM-6110 is the production driver
         over the simulated board at the serial seam on either tier: it has
@@ -782,10 +782,10 @@ class Lumascope:
     def _simulated_boards(
         self, model: str, axes: frozenset[str]
     ) -> tuple[LedBoardFamily, MotorBoardFamily | None]:
-        """The LED and motor boards a simulated ``model`` has, as its catalogue row names them.
+        """The LED and motor boards a simulated ``model`` has, as its catalog row names them.
 
         The row names an ``LEDBoard`` always and a ``MotorBoard`` exactly
-        when it has motor axes; the catalogue's reader has refused a board
+        when it has motor axes; the catalog's reader has refused a board
         outside each family, and the simulator stands in for every member.
         Production never reads either -- the bring-up finds the boards it
         has -- so this is the one place the pairing is checked: a row that
@@ -794,7 +794,7 @@ class Lumascope:
 
         Raises:
             InstallationFileError: the row names a motor board without motor
-                axes or motor axes without one, naming the catalogue.
+                axes or motor axes without one, naming the catalog.
         """
         entry = self._scope_models[model]
         led_board = entry.led_board
@@ -863,7 +863,7 @@ class Lumascope:
                 ``ScopeSession.create`` holds; a scope is made nowhere else.
             source_path: The data folder this scope is started on -- the
                 folder holding ``data/``. The scope reads the labware and
-                objective catalogues from it once, here, and everything
+                objective catalogs from it once, here, and everything
                 that asks about plates or objectives reads those copies.
                 None (default) is the installation's own folder.
             simulate: If True, use simulated hardware (no USB devices
@@ -1174,9 +1174,9 @@ class Lumascope:
         def _sim_light_of(address: int) -> float:
             """The light per mA-second the channel ``address`` lights renders in
             the simulators through the slide and the current objective: the
-            catalogue's, times the slide's transmittance, falling with the
+            catalog's, times the slide's transmittance, falling with the
             objective's magnification by the channel's power;
-            the catalogue's own when no objective is known, as
+            the catalog's own when no objective is known, as
             ``_sim_pixel_size`` draws at no scale then. 0 for an address no
             channel names or a channel with no LED. Read while a frame is made,
             after the illumination API, the identity and runtime_state exist."""
@@ -1645,7 +1645,7 @@ class Lumascope:
                 if objective_id is not None and objective_id not in self.objectives:
                     logger.warning(
                         f'[SCOPE API ] turret slot {slot} is assigned {objective_id!r}, '
-                        'which is not in the objective catalogue; its objective reads '
+                        'which is not in the objective catalog; its objective reads '
                         'as unknown until it is reassigned'
                     )
         else:
@@ -2259,34 +2259,34 @@ class Lumascope:
 
     @api(reads=True)
     def objective(self, objective_id: str) -> 'Objective':
-        """The installation's objective ``objective_id`` names, by its catalogue key.
+        """The installation's objective ``objective_id`` names, by its catalog key.
 
         The key alone names an objective: a short name or a magnification
         that fits two objectives is refused, never matched to one.
 
         Args:
-            objective_id: The objective's catalogue key.
+            objective_id: The objective's catalog key.
 
         Raises:
             CatalogNameRefusedError: ``'objective_not_in_catalog'``, the
-                catalogue holds no objective keyed ``objective_id``;
+                catalog holds no objective keyed ``objective_id``;
                 ``offered`` carries the keys it holds.
         """
         return self.objective_helper.get_objective_info(objective_id)
 
     @api(reads=True)
     def plate(self, labware_id: str) -> 'Labware':
-        """The installation's plate ``labware_id`` names, by its catalogue name or a retired one.
+        """The installation's plate ``labware_id`` names, by its catalog name or a retired one.
 
         A protocol or settings file written before a plate was renamed
         carries the old name; the plate it now lives under is answered.
 
         Args:
-            labware_id: The plate's name in the labware catalogue, or a
+            labware_id: The plate's name in the labware catalog, or a
                 name it has retired.
 
         Raises:
-            CatalogNameRefusedError: ``'labware_unknown'``, the catalogue
+            CatalogNameRefusedError: ``'labware_unknown'``, the catalog
                 holds no plate under ``labware_id`` or a retired name of
                 it; ``offered`` carries the plates it holds.
         """
@@ -2298,7 +2298,7 @@ class Lumascope:
         """Every objective of the installation, read once at bring-up, in the order they are offered.
 
         Each maker's objectives are listed together, the makers in the order
-        each first appears in the catalogue; within a maker they rise by
+        each first appears in the catalog; within a maker they rise by
         magnification. Each record is read-only and carries its ``id``, the
         key ``objective`` takes.
 
@@ -2310,7 +2310,7 @@ class Lumascope:
     @api
     @property
     def all_labware(self) -> 'tuple[Labware, ...]':
-        """Every plate of the installation, read once at bring-up, in the catalogue's order.
+        """Every plate of the installation, read once at bring-up, in the catalog's order.
 
         Each record is read-only and carries its ``name``, the key
         ``plate`` takes. Slides and Petri dishes are not offered yet.
@@ -2322,7 +2322,7 @@ class Lumascope:
 
     @property
     def scope_models(self) -> 'Mapping[str, ScopeModel]':
-        """The model catalogue (scopes.json's ``Models``): a read-only mapping of model name to its ``ScopeModel``.
+        """The model catalog (scopes.json's ``Models``): a read-only mapping of model name to its ``ScopeModel``.
 
         Read-only, as each record is: no caller can change what another
         reads. Not published: a caller lists the models with
@@ -2334,13 +2334,13 @@ class Lumascope:
         return self._scope_models
 
     def scope_model(self, model: str) -> 'ScopeModel':
-        """The installation's scope model ``model`` names, by its catalogue name.
+        """The installation's scope model ``model`` names, by its catalog name.
 
         Args:
-            model: The model's name in the scope catalogue.
+            model: The model's name in the scope catalog.
 
         Raises:
-            CatalogNameRefusedError: ``'model_unknown'``, the catalogue
+            CatalogNameRefusedError: ``'model_unknown'``, the catalog
                 does not list ``model``; ``offered`` carries the models it
                 lists, in its order.
         """
@@ -2357,10 +2357,10 @@ class Lumascope:
     @api
     @property
     def all_scope_models(self) -> 'tuple[ScopeModel, ...]':
-        """Every scope model of the installation, read once at bring-up, in the catalogue's order.
+        """Every scope model of the installation, read once at bring-up, in the catalog's order.
 
         Each record is read-only and carries its ``id``, its name in the
-        catalogue, the name ``ScopeSession.select_model`` takes.
+        catalog, the name ``ScopeSession.select_model`` takes.
 
         Raises:
             Nothing.
@@ -2401,7 +2401,7 @@ class Lumascope:
 
         False for a manual scope (an LS620, LS560 or LS460): it is complete
         without one, so its absence is not a disconnection. Set from the
-        model's catalogue entry when the scope is brought up; True before that.
+        model's catalog entry when the scope is brought up; True before that.
 
         Raises:
             Nothing.

@@ -1670,7 +1670,7 @@ class MotionAPI:
                 unknown; no step is guessed, so nothing should move. On a
                 turret scope ``'slot_unknown'``, ``'slot_unassigned'`` or
                 ``'not_in_catalog'``: the slot in the light path is not
-                known, has no objective, or has one the catalogue lacks.
+                known, has no objective, or has one the catalog lacks.
                 Without a turret ``'none_selected'``: no objective has been
                 confirmed.
         """
@@ -2340,7 +2340,7 @@ class MotionAPI:
     def positions_to_keep(self, axes: Iterable[StageAxis], *, then: str) -> dict[StageAxis, float]:
         """The positions of ``axes``, each one an axis at rest whose reference is known.
 
-        The read for a caller that keeps a position: a sweep's centre, a
+        The read for a caller that keeps a position: a sweep's center, a
         reference written into a result, the Z a measurement returns to.
         An axis's number is one to keep only while it is IDLE: while it
         moves, the number is the motion monitor's last poll, a place the
@@ -3263,7 +3263,7 @@ class MotionAPI:
 
     @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
     def start_move_to_well(self, well: str) -> Operation[None]:
-        """Start X and Y moving to the centre of ``well`` on the selected plate; return the started moves.
+        """Start X and Y moving to the center of ``well`` on the selected plate; return the started moves.
 
         ``well`` is the label the plate gives it (``'A1'``, ``'H12'``),
         read from the plate selected when the move is on the lane, so the
@@ -3298,7 +3298,7 @@ class MotionAPI:
 
     @api(in_process=True, admitted_by=(Admission.LANE_CALL,))
     def move_to_well(self, well: str) -> None:
-        """Move X and Y to the centre of ``well`` on the selected plate, and return once they have arrived.
+        """Move X and Y to the center of ``well`` on the selected plate, and return once they have arrived.
 
         ``start_move_to_well`` followed by its operation's ``result()``.
 
@@ -3373,7 +3373,7 @@ class MotionAPI:
 
         One request: every axis given is refused before either drives, so
         a refusal of one moves neither. An axis that is None is left as it
-        is, still, travelling or unknown, and is not read. With neither
+        is, still, traveling or unknown, and is not read. With neither
         given nothing moves and the move is done at once.
 
         Args:
@@ -3807,7 +3807,7 @@ class MotionAPI:
 
     @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
     def start_center_on(self, x_fraction: float, y_fraction: float) -> Operation[None]:
-        """Start X and Y moving so a point of the camera's frame comes to its centre; return the started moves.
+        """Start X and Y moving so a point of the camera's frame comes to its center; return the started moves.
 
         The point is ``x_fraction`` of the frame's width from its column 0
         and ``y_fraction`` of its height from its row 0, in the frame as the

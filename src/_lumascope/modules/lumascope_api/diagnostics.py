@@ -1774,7 +1774,7 @@ class DiagnosticsAPI:
 
     @staticmethod
     def _human_os_version() -> str:
-        """Render OS version in a form humans can recognise.
+        """Render OS version in a form humans can recognize.
 
         ``platform.release()`` on macOS returns the Darwin kernel
         version (e.g. ``24.6.0``) which nobody can map to "macOS 14.x"

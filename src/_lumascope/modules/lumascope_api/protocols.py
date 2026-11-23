@@ -7,7 +7,7 @@ the running INSTALLATION, not of any protocol, so the constructors hand
 every protocol the scope's one copy and callers never pass it by hand.
 
 The data folder is the scope's own, given at its construction; the
-tiling grids and the labware catalogue a loaded protocol is judged
+tiling grids and the labware catalog a loaded protocol is judged
 against both come from it, so a protocol is never built against another
 installation's files.
 
@@ -71,7 +71,7 @@ class StepTargets:
     """Where a protocol step puts the scope, in the frames the motors take.
 
     ``turret_slot`` is None on a scope with no turret. ``x_um`` and ``y_um``
-    are stage micrometres on the protocol's own plate; ``z_um`` is the step's. An
+    are stage micrometers on the protocol's own plate; ``z_um`` is the step's. An
     axis the scope has no motor for is None (``stage_targets``).
     """
 
@@ -160,7 +160,7 @@ class ProtocolsAPI:
         labels ``create_protocol`` and ``Protocol.apply_tiling`` accept,
         and ``default`` is the one to preselect; ``Protocol.tiling``
         names the grid a protocol's steps already carry. Read once with the
-        installation's other catalogues, so a tiling.json edited while the
+        installation's other catalogs, so a tiling.json edited while the
         program runs is seen at the next start; a file no reader can use
         refuses the bring-up (``InstallationFileError``, naming it). The
         record is frozen: a caller cannot change the grids a session offers.
@@ -190,7 +190,7 @@ class ProtocolsAPI:
             ProtocolNotLoadedError: The file is there and cannot be read.
             ProtocolFormatError: On format issues (same surface as
                 Protocol.from_file), or when the file names a plate this
-                installation's labware catalogue does not have. Refused
+                installation's labware catalog does not have. Refused
                 here, by name, before any object exists: a protocol whose
                 plate the scope cannot be on must never be adopted.
             ProtocolRunRefusedError: The file names glass this scope
@@ -293,7 +293,7 @@ class ProtocolsAPI:
                 mode) or ``'channel_unknown'``, a key of the configuration,
                 named by its path in ``argument``.
             CatalogNameRefusedError: the configuration names a plate or an
-                objective the installation's catalogues do not hold.
+                objective the installation's catalogs do not hold.
             ProtocolRunRefusedError: the configuration cannot be built --
                 ``objective_not_given``, ``focus_not_given`` -- or the grid
                 it asks for cannot be, as ``apply_tiling`` refuses it
@@ -641,7 +641,7 @@ class ProtocolsAPI:
         the caller's.
 
         Args:
-            z_um: The Z, in micrometres.
+            z_um: The Z, in micrometers.
             then: What the user does once the scope has a Z, ending the
                 refusal (e.g. ``'save the focus'``).
 
@@ -744,7 +744,7 @@ class ProtocolsAPI:
 
         Raises:
             CatalogNameRefusedError: ``'labware_unknown'``, ``labware_id``
-                is not a plate the catalogue has. The protocol keeps its
+                is not a plate the catalog has. The protocol keeps its
                 plate.
         """
         from _lumascope.modules.labware_loader import CENTER_PLATE
@@ -777,12 +777,12 @@ class ProtocolsAPI:
         Raises:
             ProtocolRunRefusedError: ``tiling`` is not a grid this
                 installation offers, the protocol is already tiled, a step's
-                objective is not in the catalogue, the scope has no X/Y
+                objective is not in the catalog, the scope has no X/Y
                 motor, a step has no position on an axis this scope moves
                 (``'step_position_missing'``), or a tile falls outside the
                 stage's travel. Nothing changes.
             CatalogNameRefusedError: the protocol's plate is not in the
-                catalogue (``'labware_unknown'``). Nothing changes.
+                catalog (``'labware_unknown'``). Nothing changes.
             ConfigError: no session has bound the scope, so it has no stage
                 offset. Nothing changes.
         """
@@ -858,12 +858,12 @@ class ProtocolsAPI:
         keeps the offset it started with).
 
         Returns:
-            ``(x, y, z)`` in stage micrometres, each None where nothing is
+            ``(x, y, z)`` in stage micrometers, each None where nothing is
             driven.
 
         Raises:
             CatalogNameRefusedError: the protocol's plate is not in the
-                catalogue (``'labware_unknown'``).
+                catalog (``'labware_unknown'``).
         """
         axes = self._scope.capabilities.axes
         x = y = None
@@ -1263,7 +1263,7 @@ class ProtocolsAPI:
     def _outside_travel(
         self, positions: list[tuple[str, Mapping[str, float | None]]], labware_key: str
     ) -> list[tuple[str, str]]:
-        """Each labelled position outside this scope's stage travel, with its axes in words, in order.
+        """Each labeled position outside this scope's stage travel, with its axes in words, in order.
 
         The one loop the run gate, a scan's return position and an add judge
         positions with: on the axes the scope has, at the scope's stage

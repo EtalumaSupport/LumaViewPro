@@ -2155,7 +2155,7 @@ class ImagingAPI:
 
         Returns:
             The image: (H, W) for a mono camera, (H, W, 3) for a color one,
-            with no channel's false colour applied.
+            with no channel's false color applied.
 
         Raises:
             ArgumentRefusedError: ``'wrong_kind'``, ``sum_count`` is not a

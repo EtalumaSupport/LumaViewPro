@@ -9,7 +9,7 @@ The scope answers for itself on TWO surfaces:
   on, which changes while the scope is up: labware, objective, turret
   config, stage offset, and the coordinate transformer that operates on
   those values. It holds none of them: the session's settings are their
-  one store, read through the scope's ``read_setting`` on every answer. The objective catalogue is
+  one store, read through the scope's ``read_setting`` on every answer. The objective catalog is
   the scope's own (`scope.objective_helper`), read at each use.
 
 The answers for labware / objective / turret / stage live here because
@@ -116,7 +116,7 @@ class RuntimeState:
     def get_labware(self) -> Labware:
         """The selected labware (well plate).
 
-        Built from the catalogue for the plate the settings name, on every
+        Built from the catalog for the plate the settings name, on every
         call, so it is always the plate selected now
         (``ScopeSession.select_labware`` changes it).
 
@@ -140,13 +140,13 @@ class RuntimeState:
         person has confirmed it (``objective_confirmed``).
 
         Returns:
-            tuple[str, Objective]: The objective id and its catalogue record.
+            tuple[str, Objective]: The objective id and its catalog record.
 
         Raises:
             ObjectiveUnknownError: On a turreted scope, the slot is unknown
                 (``'slot_unknown'``), it has no assignment
                 (``'slot_unassigned'``), or its assignment is not in the
-                catalogue (``'not_in_catalog'``); with no turret, no person
+                catalog (``'not_in_catalog'``); with no turret, no person
                 has confirmed the selected objective (``'none_selected'``).
         """
         objective_id, objective, unknown = self._derive_current_objective()
@@ -219,7 +219,7 @@ class RuntimeState:
         With a turret, a confirmation given on a turret scope: each slot's
         assignment names its own glass. With none, a confirmation naming
         the stored ``objective_id``, so a stored id nobody picked (the
-        template's, or one put in place of a stored id the catalogue does
+        template's, or one put in place of a stored id the catalog does
         not hold) is not confirmed. The two settings are read one after the
         other, so a read racing ``ScopeSession.select_objective`` can answer
         False for that instant, never True for an id nobody confirmed.
@@ -254,7 +254,7 @@ class RuntimeState:
     @api
     @property
     def pixel_size_um(self) -> float:
-        """The effective pixel size: micrometres per pixel at the current
+        """The effective pixel size: micrometers per pixel at the current
         objective and the camera's binning, the scale a saved image carries.
 
         A display reads it as a state through ``optics_status``.
@@ -286,7 +286,7 @@ class RuntimeState:
         A display reads it as a state through ``optics_status``.
 
         Returns:
-            FieldOfView: Width and height in micrometres.
+            FieldOfView: Width and height in micrometers.
 
         Raises:
             ObjectiveUnknownError: ``'slot_unknown'``, ``'slot_unassigned'``,
@@ -408,7 +408,7 @@ class RuntimeState:
 
     @api(reads=True)
     def frame_point_distance(self, x_fraction: float, y_fraction: float) -> StageDistance:
-        """The stage distance from the centre of the camera's frame to a point of it.
+        """The stage distance from the center of the camera's frame to a point of it.
 
         The point is ``x_fraction`` of the frame's width from its column 0
         and ``y_fraction`` of its height from its row 0, in the frame as the
@@ -416,7 +416,7 @@ class RuntimeState:
         picture, as in the live view and a saved file. A fraction is the same
         place on the sample at every binning and frame size. The distance is
         at the current objective and binning; moving the stage by it brings
-        the point to the centre (``MotionAPI.start_center_on``).
+        the point to the center (``MotionAPI.start_center_on``).
 
         Args:
             x_fraction: How far across the frame's width, from 0 to 1.
@@ -424,8 +424,8 @@ class RuntimeState:
                 to 1.
 
         Returns:
-            StageDistance: Positive ``dx_um`` for a point right of centre,
-                positive ``dy_um`` for one above it; (0.5, 0.5) is the centre.
+            StageDistance: Positive ``dx_um`` for a point right of center,
+                positive ``dy_um`` for one above it; (0.5, 0.5) is the center.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
@@ -478,7 +478,7 @@ class RuntimeState:
         """The plate position of a point of the camera's frame, or why it is unknown.
 
         Where the point is on the selected plate now: the stage's X and Y
-        plus the point's distance from the frame's centre
+        plus the point's distance from the frame's center
         (``frame_point_distance``), as ``stage_to_plate`` states it. The read
         for a display, such as the plate position under a cursor: an
         unknown is answered as the refusal that says why, never raised.
@@ -502,7 +502,7 @@ class RuntimeState:
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
                 a fraction that is not a number from 0 to 1.
             CatalogNameRefusedError: ``'labware_unknown'``, the selected
-                labware is not in the catalogue.
+                labware is not in the catalog.
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
                 this scope.
         """
@@ -609,7 +609,7 @@ class RuntimeState:
             ArgumentRefusedError: ``'not_a_number'``, a coordinate or an
                 offset axis is not a finite number.
             CatalogNameRefusedError: ``'labware_unknown'``, ``labware_id``
-                is not a plate the catalogue has.
+                is not a plate the catalog has.
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
                 this scope, and ``labware_id`` or ``stage_offset`` was left to the
                 settings.
@@ -647,7 +647,7 @@ class RuntimeState:
             ArgumentRefusedError: ``'not_a_number'``, a coordinate or an
                 offset axis is not a finite number.
             CatalogNameRefusedError: ``'labware_unknown'``, ``labware_id``
-                is not a plate the catalogue has.
+                is not a plate the catalog has.
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
                 this scope, and ``labware_id`` or ``stage_offset`` was left to the
                 settings.
@@ -687,7 +687,7 @@ class RuntimeState:
             ArgumentRefusedError: ``'not_a_number'``, an offset axis is not a
                 finite number; asked here, so the function does not.
             CatalogNameRefusedError: ``'labware_unknown'``, ``labware_id``
-                is not a plate the catalogue has.
+                is not a plate the catalog has.
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
                 this scope, and ``labware_id`` or ``stage_offset`` was left to the
                 settings.
@@ -713,7 +713,7 @@ class RuntimeState:
         Returns:
             str | None: Well label (e.g. ``"A1"``); ``''`` when the selected
             labware has no wells (the Blank plate) or the position is more
-            than half a pitch beyond its outer well centres; None when X or Y does not
+            than half a pitch beyond its outer well centers; None when X or Y does not
             know its position, or the scope has no X or Y at all. Consumers
             omit the well from filenames and metadata for both rather than
             stamping a fabricated one -- the last number an axis had before it
@@ -724,7 +724,7 @@ class RuntimeState:
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
                 this scope.
             CatalogNameRefusedError: ``'labware_unknown'``, the selected
-                labware is not in the catalogue.
+                labware is not in the catalog.
         """
         # One read: it leaves out an axis the scope lacks and answers None for
         # one whose position is not known, from the same snapshot as the

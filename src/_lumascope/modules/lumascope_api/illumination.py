@@ -538,7 +538,7 @@ class IlluminationAPI:
         board's table is ``led_address_unknown``; an address no channel of
         this model drives (an LS560's 2) is ``not_on_this_scope``. A scope
         whose identity is unresolved (no model at all, or an override
-        naming a model the catalogue lacks) has no channels to judge an
+        naming a model the catalog lacks) has no channels to judge an
         address by, so its addresses are the board's.
 
         Raises:

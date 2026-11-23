@@ -4507,7 +4507,7 @@ all_labware: tuple[Labware, ...]  # property
 Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/all_labware`.
 
-Every plate of the installation, read once at bring-up, in the catalogue's order.
+Every plate of the installation, read once at bring-up, in the catalog's order.
 
 Each record is read-only and carries its `name`, the key
 `plate` takes. Slides and Petri dishes are not offered yet.
@@ -4529,7 +4529,7 @@ Route: `GET /api/v1/scope/all_objectives`.
 Every objective of the installation, read once at bring-up, in the order they are offered.
 
 Each maker's objectives are listed together, the makers in the order
-each first appears in the catalogue; within a maker they rise by
+each first appears in the catalog; within a maker they rise by
 magnification. Each record is read-only and carries its `id`, the
 key `objective` takes.
 
@@ -4547,10 +4547,10 @@ all_scope_models: tuple[ScopeModel, ...]  # property
 Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/all_scope_models`.
 
-Every scope model of the installation, read once at bring-up, in the catalogue's order.
+Every scope model of the installation, read once at bring-up, in the catalog's order.
 
 Each record is read-only and carries its `id`, its name in the
-catalogue, the name `ScopeSession.select_model` takes.
+catalog, the name `ScopeSession.select_model` takes.
 
 **Raises**
 
@@ -4570,7 +4570,7 @@ Whether this scope's model has a motor board at all.
 
 False for a manual scope (an LS620, LS560 or LS460): it is complete
 without one, so its absence is not a disconnection. Set from the
-model's catalogue entry when the scope is brought up; True before that.
+model's catalog entry when the scope is brought up; True before that.
 
 **Raises**
 
@@ -4586,18 +4586,18 @@ def objective(self, objective_id: str) -> Objective
 Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/objective`.
 
-The installation's objective `objective_id` names, by its catalogue key.
+The installation's objective `objective_id` names, by its catalog key.
 
 The key alone names an objective: a short name or a magnification
 that fits two objectives is refused, never matched to one.
 
 **Args**
 
-- `objective_id`: The objective's catalogue key.
+- `objective_id`: The objective's catalog key.
 
 **Raises**
 
-- `CatalogNameRefusedError`: `'objective_not_in_catalog'`, the catalogue holds no objective keyed `objective_id`; `offered` carries the keys it holds.
+- `CatalogNameRefusedError`: `'objective_not_in_catalog'`, the catalog holds no objective keyed `objective_id`; `offered` carries the keys it holds.
 
 **Refusals by REST status**
 
@@ -4613,18 +4613,18 @@ def plate(self, labware_id: str) -> Labware
 Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/plate`.
 
-The installation's plate `labware_id` names, by its catalogue name or a retired one.
+The installation's plate `labware_id` names, by its catalog name or a retired one.
 
 A protocol or settings file written before a plate was renamed
 carries the old name; the plate it now lives under is answered.
 
 **Args**
 
-- `labware_id`: The plate's name in the labware catalogue, or a name it has retired.
+- `labware_id`: The plate's name in the labware catalog, or a name it has retired.
 
 **Raises**
 
-- `CatalogNameRefusedError`: `'labware_unknown'`, the catalogue holds no plate under `labware_id` or a retired name of it; `offered` carries the plates it holds.
+- `CatalogNameRefusedError`: `'labware_unknown'`, the catalog holds no plate under `labware_id` or a retired name of it; `offered` carries the plates it holds.
 
 **Refusals by REST status**
 
@@ -6814,7 +6814,7 @@ record answers: `jog_z_coarse_um` / `jog_z_fine_um` for Z,
 **Raises**
 
 - `ArgumentRefusedError`: `'not_offered'`, `axis` is not 'X', 'Y' or 'Z': the turret has no jog.
-- `ObjectiveUnknownError`: The objective in the light path is unknown; no step is guessed, so nothing should move. On a turret scope `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalog'`: the slot in the light path is not known, has no objective, or has one the catalogue lacks. Without a turret `'none_selected'`: no objective has been confirmed.
+- `ObjectiveUnknownError`: The objective in the light path is unknown; no step is guessed, so nothing should move. On a turret scope `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalog'`: the slot in the light path is not known, has no objective, or has one the catalog lacks. Without a turret `'none_selected'`: no objective has been confirmed.
 
 **Refusals by REST status**
 
@@ -6912,7 +6912,7 @@ def move_to_well(self, well: str) -> None
 
 Marks: in-process; enters: `lane_call`.
 
-Move X and Y to the centre of `well` on the selected plate, and return once they have arrived.
+Move X and Y to the center of `well` on the selected plate, and return once they have arrived.
 
 `start_move_to_well` followed by its operation's `result()`.
 
@@ -7175,7 +7175,7 @@ Route: `GET /api/v1/scope/motion/positions_to_keep`.
 
 The positions of `axes`, each one an axis at rest whose reference is known.
 
-The read for a caller that keeps a position: a sweep's centre, a
+The read for a caller that keeps a position: a sweep's center, a
 reference written into a result, the Z a measurement returns to.
 An axis's number is one to keep only while it is IDLE: while it
 moves, the number is the motion monitor's last poll, a place the
@@ -7327,7 +7327,7 @@ def start_center_on(self, x_fraction: float, y_fraction: float) -> Operation[Non
 Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
 Route: `POST /api/v1/scope/motion/start_center_on`.
 
-Start X and Y moving so a point of the camera's frame comes to its centre; return the started moves.
+Start X and Y moving so a point of the camera's frame comes to its center; return the started moves.
 
 The point is `x_fraction` of the frame's width from its column 0
 and `y_fraction` of its height from its row 0, in the frame as the
@@ -7554,7 +7554,7 @@ def start_move_to_well(self, well: str) -> Operation[None]
 Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
 Route: `POST /api/v1/scope/motion/start_move_to_well`.
 
-Start X and Y moving to the centre of `well` on the selected plate; return the started moves.
+Start X and Y moving to the center of `well` on the selected plate; return the started moves.
 
 `well` is the label the plate gives it (`'A1'`, `'H12'`),
 read from the plate selected when the move is on the lane, so the
@@ -7634,7 +7634,7 @@ Start X and Y moving to a place, in um, each that is given; return the started m
 
 One request: every axis given is refused before either drives, so
 a refusal of one moves neither. An axis that is None is left as it
-is, still, travelling or unknown, and is not read. With neither
+is, still, traveling or unknown, and is not read. With neither
 given nothing moves and the move is done at once.
 
 **Args**
@@ -7958,7 +7958,7 @@ def frame_point_distance(self, x_fraction: float, y_fraction: float) -> StageDis
 Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/runtime_state/frame_point_distance`.
 
-The stage distance from the centre of the camera's frame to a point of it.
+The stage distance from the center of the camera's frame to a point of it.
 
 The point is `x_fraction` of the frame's width from its column 0
 and `y_fraction` of its height from its row 0, in the frame as the
@@ -7966,7 +7966,7 @@ API returns it (`capture_still().image`): row 0 is the top of the
 picture, as in the live view and a saved file. A fraction is the same
 place on the sample at every binning and frame size. The distance is
 at the current objective and binning; moving the stage by it brings
-the point to the centre (`MotionAPI.start_center_on`).
+the point to the center (`MotionAPI.start_center_on`).
 
 **Args**
 
@@ -7975,7 +7975,7 @@ the point to the centre (`MotionAPI.start_center_on`).
 
 **Returns**
 
-StageDistance: Positive `dx_um` for a point right of centre, positive `dy_um` for one above it; (0.5, 0.5) is the centre.
+StageDistance: Positive `dx_um` for a point right of center, positive `dy_um` for one above it; (0.5, 0.5) is the center.
 
 **Raises**
 
@@ -8009,7 +8009,7 @@ Route: `GET /api/v1/scope/runtime_state/frame_point_plate`.
 The plate position of a point of the camera's frame, or why it is unknown.
 
 Where the point is on the selected plate now: the stage's X and Y
-plus the point's distance from the frame's centre
+plus the point's distance from the frame's center
 (`frame_point_distance`), as `stage_to_plate` states it. The read
 for a display, such as the plate position under a cursor: an
 unknown is answered as the refusal that says why, never raised.
@@ -8027,7 +8027,7 @@ The `PlateLocation`, in mm, `z_um` None; or the first reason it is unknown, in t
 **Raises**
 
 - `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, a fraction that is not a number from 0 to 1.
-- `CatalogNameRefusedError`: `'labware_unknown'`, the selected labware is not in the catalogue.
+- `CatalogNameRefusedError`: `'labware_unknown'`, the selected labware is not in the catalog.
 - `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
 
 **Refusals by REST status**
@@ -8075,7 +8075,7 @@ pixel_size_um: float  # property
 Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/runtime_state/pixel_size_um`.
 
-The effective pixel size: micrometres per pixel at the current
+The effective pixel size: micrometers per pixel at the current
 objective and the camera's binning, the scale a saved image carries.
 
 A display reads it as a state through `optics_status`.
@@ -8126,7 +8126,7 @@ move to it is refused.
 **Raises**
 
 - `ArgumentRefusedError`: `'not_a_number'`, a coordinate or an offset axis is not a finite number.
-- `CatalogNameRefusedError`: `'labware_unknown'`, `labware_id` is not a plate the catalogue has.
+- `CatalogNameRefusedError`: `'labware_unknown'`, `labware_id` is not a plate the catalog has.
 - `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope, and `labware_id` or `stage_offset` was left to the settings.
 
 **Refusals by REST status**
@@ -8191,7 +8191,7 @@ as it is, moving X and Y and leaving Z where it is.
 **Raises**
 
 - `ArgumentRefusedError`: `'not_a_number'`, a coordinate or an offset axis is not a finite number.
-- `CatalogNameRefusedError`: `'labware_unknown'`, `labware_id` is not a plate the catalogue has.
+- `CatalogNameRefusedError`: `'labware_unknown'`, `labware_id` is not a plate the catalog has.
 - `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope, and `labware_id` or `stage_offset` was left to the settings.
 
 **Refusals by REST status**
@@ -9144,7 +9144,7 @@ camera does not declare is None, and that end is not checked.
 
 **Fields**
 
-- <a id="CameraSettingLimits.analog_gain_max_db"></a>`analog_gain_max_db`: `float | None` -- The most gain before a digital stage, in dB, past which the camera multiplies digitised values and the noise with the signal: the analog maximum the camera's profile documents, or, for a camera whose profile states no digital stage, its gain maximum (all its gain is analog); None for a camera with a digital stage and no documented split.
+- <a id="CameraSettingLimits.analog_gain_max_db"></a>`analog_gain_max_db`: `float | None` -- The most gain before a digital stage, in dB, past which the camera multiplies digitized values and the noise with the signal: the analog maximum the camera's profile documents, or, for a camera whose profile states no digital stage, its gain maximum (all its gain is analog); None for a camera with a digital stage and no documented split.
 - <a id="CameraSettingLimits.exposure_max_ms"></a>`exposure_max_ms`: `float | None` -- The longest exposure the camera takes, in ms.
 - <a id="CameraSettingLimits.exposure_min_ms"></a>`exposure_min_ms`: `float | None` -- The shortest exposure the camera takes, in ms.
 - <a id="CameraSettingLimits.gain_max_db"></a>`gain_max_db`: `float | None` -- The most gain the camera applies, digital stage included, in dB.
