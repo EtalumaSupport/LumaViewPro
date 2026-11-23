@@ -175,7 +175,9 @@ def show_merged_composite(run: 'Operation[RunOutcome]') -> None:
     display = ctx.scope_display
     display.post_held_frame(
         lambda: run_unasked(
-            lambda: display.hold_derived_image(image, significant_bits, held_s=held_s),
+            lambda: display.hold_derived_image(
+                image, significant_bits, held_s=held_s, label='the composite'
+            ),
             'COMPOSITE_SHOWN',
         )
     )

@@ -60,16 +60,19 @@ logger = logging.getLogger('LVP.ui.scope_display')
 
 @dataclasses.dataclass(frozen=True)
 class HeldFrame:
-    """A saved frame held on screen: for how long, and the channel it was taken for.
+    """A saved frame held on screen: for how long, the channel it was taken for, and what it is.
 
     Attributes:
         seconds: Its time on screen, counted again from its draw.
         channel: The key name of the channel the frame was taken for; it is
             drawn in that channel's shown color.
+        label: What the status line says is shown while it is held ("the
+            captured still"); None for a frame the line does not name.
     """
 
     seconds: float
     channel: str
+    label: str | None
 
 
 # --- Display constants ---
@@ -1172,12 +1175,12 @@ class ScopeDisplay(Image):
         thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
         return thread.generation if thread is not None else 0
 
-    def _hold_from_now(self, held_s):
-        """Keep live frames off the screen for ``held_s`` seconds, from now."""
+    def _hold_from_now(self, held_s, label):
+        """Keep live frames off the screen for ``held_s`` seconds, from now, holding ``label``."""
         ctx = _app_ctx.ctx
         thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
         if thread is not None:
-            thread.bump_protocol_hold(held_s)
+            thread.bump_protocol_hold(held_s, label=label)
 
     def _protocol_hold_in_force(self):
         """Whether a held frame is still due its time on screen, from the
@@ -1200,7 +1203,7 @@ class ScopeDisplay(Image):
         if not live:
             # Its time on screen is counted from here: the wait for a slow
             # UI thread does not come out of it.
-            self._hold_from_now(held.seconds)
+            self._hold_from_now(held.seconds, held.label)
         size = (shape[1], shape[0])
         if (
             not hasattr(self, '_mono_texture')
@@ -1253,7 +1256,7 @@ class ScopeDisplay(Image):
         # Held from the post as well as the draw: a live frame already
         # rendering when the hold began is posted after this one, and the
         # live blit draws nothing while the hold is in force.
-        self._hold_from_now(held.seconds)
+        self._hold_from_now(held.seconds, held.label)
         _app_ctx.ctx.scope_display_thread.render_held(
             lambda: self._show_saved_frame(image, frames_summed, frame_significant_bits, held=held),
             category='frame_captured',
@@ -1284,8 +1287,11 @@ class ScopeDisplay(Image):
         """
         schedule_ui_latest((self, 'held_frame'), lambda dt: show())
 
-    def hold_derived_image(self, image, significant_bits, *, held_s):
+    def hold_derived_image(self, image, significant_bits, *, held_s, label):
         """Show a derived post-processing image for ``held_s`` seconds in the central viewer.
+
+        ``label`` is what the status line says is shown while it is held,
+        None for an image the line does not name.
 
         Derived color TIFFs are RGB-native, while the Kivy helper accepts BGR
         display bytes. This path is intentionally separate from the live-camera
@@ -1301,7 +1307,7 @@ class ScopeDisplay(Image):
             display = image_utils.convert_to_8bit(display, significant_bits)
         if display.ndim == 3:
             display = display[..., :3][..., ::-1].copy()
-        self._hold_from_now(held_s)
+        self._hold_from_now(held_s, label)
         self.texture = image_to_texture(display)
         _app_ctx.ctx.viewer.show_drawn('bgr')
         self.canvas.ask_update()

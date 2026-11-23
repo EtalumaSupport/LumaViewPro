@@ -161,7 +161,7 @@ def test_bump_protocol_hold_pauses_rendering():
     t.start(widget, fps=60)
     time.sleep(0.05)
     calls_before_hold = len(widget.calls)
-    t.bump_protocol_hold(0.3)
+    t.bump_protocol_hold(0.3, label=None)
     time.sleep(0.2)
     # Hold still active; few/no new calls.
     delta_during_hold = len(widget.calls) - calls_before_hold
@@ -181,7 +181,7 @@ def test_hold_wait_is_handed_to_next_render_as_intentional():
     t.start(widget, fps=60)
     time.sleep(0.05)
     calls_before_hold = len(widget.calls)
-    t.bump_protocol_hold(0.3)
+    t.bump_protocol_hold(0.3, label=None)
     # Wait past the hold plus a few post-hold ticks.
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
@@ -202,7 +202,7 @@ def test_hold_wait_is_handed_to_next_render_as_intentional():
 def test_stop_during_long_hold_returns_within_timeout():
     t, widget = _make_thread()
     t.start(widget, fps=60)
-    t.bump_protocol_hold(5.0)
+    t.bump_protocol_hold(5.0, label=None)
     time.sleep(0.05)
     t0 = time.monotonic()
     t.stop(timeout=0.5)
@@ -424,7 +424,7 @@ def test_a_held_render_ends_a_hold_wait_and_runs_while_paused():
     t, widget = _make_thread(status_sequence=[STATUS_EMPTY])
     t.start(widget, fps=30)
     try:
-        t.bump_protocol_hold(600.0)
+        t.bump_protocol_hold(600.0, label=None)
         held_ran, held_done = [], threading.Event()
         t.render_held(_recording_render(held_ran, held_done), category='frame_captured')
         assert held_done.wait(_HELD_WAIT_S), 'a held render waited out the hold'
@@ -508,3 +508,21 @@ def test_a_frozen_loop_sleeps_until_resume_wakes_it():
         assert rendered.wait(_HELD_WAIT_S), 'resume() did not wake the frozen loop'
     finally:
         t.stop()
+
+
+def test_a_named_hold_reads_its_label_and_seconds_until_its_deadline():
+    """The status line says what the screen holds: the newest bump's label,
+    with its seconds left; an unnamed bump after it names nothing, since its
+    frame is the one on screen; a hold past its deadline names nothing."""
+    t = ScopeDisplayThread()
+
+    t.bump_protocol_hold(60.0, label='the captured still')
+    label, left_s = t.named_hold
+    assert label == 'the captured still'
+    assert 59.0 < left_s <= 60.0
+
+    t.bump_protocol_hold(60.0, label=None)
+    assert t.named_hold is None
+
+    t.bump_protocol_hold(0.0, label='the composite')
+    assert t.named_hold is None

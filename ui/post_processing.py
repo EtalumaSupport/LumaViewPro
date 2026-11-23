@@ -124,7 +124,7 @@ class QuickEnhanceControls(BoxLayout, SettingControls):
         scope_display.post_held_frame(
             lambda: run_unasked(
                 lambda: scope_display.hold_derived_image(
-                    display_image, significant_bits, held_s=BRIEF_HOLD_S
+                    display_image, significant_bits, held_s=BRIEF_HOLD_S, label=None
                 ),
                 'ENHANCE_PREVIEW',
             )

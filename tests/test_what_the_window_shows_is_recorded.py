@@ -368,3 +368,21 @@ def test_where_the_live_image_is_drawn_is_recorded_once_per_place_it_settles_at(
         'VIEW zoom=1.00 image=686,0 1458x1458px',
         'VIEW zoom=2.50 image=686,0 1458x1458px',
     ]
+
+
+def test_a_held_still_is_recorded_once_as_it_is_shown_and_once_as_it_goes(record):
+    # The status line's own words for each tick: the hold counting down,
+    # then nothing. The hold is not session work, so only the stage the line
+    # names records it.
+    from ui.shader import work_stage, work_title
+
+    for hold in (('the captured still', 2.0), ('the captured still', 1.9), None):
+        doing = work_title((), hold=hold)
+        gui_logger.display(
+            'STATUS_WORK', doing.removeprefix(' | ') or None, stage=work_stage((), hold=hold)
+        )
+
+    assert record() == [
+        'DISPLAY STATUS_WORK Showing the captured still (\N{FIGURE SPACE}2.0s)',
+        'DISPLAY STATUS_WORK None',
+    ]

@@ -32,7 +32,7 @@ from _lumascope.modules.scope_session import ScopeSession
 from ui.scope_display import HeldFrame, ScopeDisplay
 
 _FRAMES = 30
-_HELD = HeldFrame(60, 'BF')
+_HELD = HeldFrame(60, 'BF', label=None)
 
 
 class _Held:
@@ -252,7 +252,7 @@ def test_a_saved_frame_is_not_drawn_over_by_a_live_one_during_its_hold(
     assert _drawn(display) == _frame(49).tobytes()
 
     # The hold ends; the live view draws again.
-    gui_ctx.scope_display_thread.bump_protocol_hold(0)
+    gui_ctx.scope_display_thread.bump_protocol_hold(0, label=None)
     display.create_and_set_texture(_frame(201).tobytes(), (4, 4), generation=gen, held=None)
     assert _drawn(display) == _frame(201).tobytes()
 
@@ -267,7 +267,7 @@ def test_a_saved_frame_and_derived_images_wait_as_one_held_frame(
     gui_ctx.scope_display = display
     shown = []
     # a stand-in by design: the draw is Kivy's texture upload; the subject is the post.
-    display.hold_derived_image = lambda image, bits, held_s: shown.append(int(image[0, 0]))
+    display.hold_derived_image = lambda image, bits, held_s, label: shown.append(int(image[0, 0]))
     display.hold_protocol_saved_image(_frame(1), 1, 8, held=_HELD)
     _render_held(gui_ctx, display, monkeypatch)
     for value in range(50):
@@ -283,7 +283,7 @@ def test_a_saved_frame_is_held_its_whole_time_from_its_draw(gui_ctx, display, he
     # of it. Counted from the draw, the frame is held its whole time.
     display.hold_protocol_saved_image(_frame(7), 1, 8, held=_HELD)
     _render_held(gui_ctx, display, monkeypatch)
-    gui_ctx.scope_display_thread.bump_protocol_hold(0)  # the wait used it all
+    gui_ctx.scope_display_thread.bump_protocol_hold(0, label=None)  # the wait used it all
     held.run()
     assert _drawn(display) == _frame(7).tobytes()
     assert gui_ctx.scope_display_thread.protocol_hold_in_force
@@ -330,6 +330,7 @@ def test_a_runs_saved_frame_is_held_a_second_from_its_draw(gui_ctx, display, hel
     held.run()
     assert _drawn(display) == _frame(9).tobytes()
     assert gui_ctx.viewer.show_drawn.call_args.args == ('luminance', 'BF')
+    assert gui_ctx.scope_display_thread.named_hold is None, "a run's frame is under the run's name"
     assert _held_for(gui_ctx, clock) == (True, False)
 
 
@@ -343,6 +344,8 @@ def test_a_still_is_held_the_users_time_from_its_draw(gui_ctx, display, held, mo
     clock = _hold_clock(monkeypatch)
     held.run()
     assert _drawn(display) == _frame(11).tobytes()
+    # Read after the draw's own bump: the label rides the frame, not the post.
+    assert gui_ctx.scope_display_thread.named_hold == ('the captured still', 5.0)
     assert _held_for(gui_ctx, clock, seconds=5) == (True, False)
 
 
@@ -401,6 +404,7 @@ def test_a_merged_composite_is_held_the_users_time_in_its_own_colours(
     assert image.shape == (8, 8, 3)
     assert (image == rgb[..., ::-1]).all(), 'the composite drawn is not its file'
     assert gui_ctx.viewer.show_drawn.call_args.args == ('bgr',)
+    assert gui_ctx.scope_display_thread.named_hold == ('the composite', 4.0)
     assert _held_for(gui_ctx, clock, seconds=4) == (True, False)
 
 
@@ -434,4 +438,7 @@ def test_enhances_preview_is_held_a_second_from_its_draw(gui_ctx, display, held,
     assert not gui_ctx.scope_display_thread.protocol_hold_in_force
     held.run()
     assert gui_ctx.viewer.show_drawn.call_args.args == ('bgr',)
+    assert gui_ctx.scope_display_thread.named_hold is None, (
+        "Enhance's preview follows its own press"
+    )
     assert _held_for(gui_ctx, clock) == (True, False)

@@ -24,7 +24,7 @@ def test_a_failed_hold_is_reported_unasked(monkeypatch):
     monkeypatch.setattr(notifications, 'report_outcome', lambda e, **k: reported.append((e, k)))
     failure = ValueError('a shape the display cannot draw')
 
-    def _hold(image, bits, *, held_s):
+    def _hold(image, bits, *, held_s, label):
         raise failure
 
     # a stand-in by design: the display is a Kivy widget, which never runs

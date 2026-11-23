@@ -19,15 +19,18 @@ Public API:
   update_channel_config(open_channel)
                         -- UI-thread publishes Kivy widget state for
                            the next frame
-  bump_protocol_hold(hold_seconds)
+  bump_protocol_hold(hold_seconds, label=)
                         -- protocol-side bumps the hold deadline so
-                           the saved frame stays on screen
+                           the saved frame stays on screen, and names
+                           what it holds (None: nothing named)
   render_held(render, category)
                         -- render a held frame on this thread, the
                            newest only, its failure reported once
   protocol_hold_in_force
                         -- whether that deadline is still ahead; a live
                            blit run during it draws nothing
+  named_hold            -- the hold's label and seconds left, while a
+                           named hold is in force
 """
 
 import logging
@@ -96,6 +99,9 @@ class ScopeDisplayThread:
         self._fps: int = 30
         self._min_frame_interval: float = 1.0 / 30
         self._protocol_hold_until: float = 0.0
+        # What the hold holds, in the words the status line shows, set by the
+        # same bump as the deadline; None for a hold nobody names.
+        self._hold_label: str | None = None
         # The newest held frame's render not yet run, and the category its
         # failure is reported under; a newer one replaces it.
         self._held_render: tuple[Callable[[], None], str] | None = None
@@ -173,11 +179,16 @@ class ScopeDisplayThread:
         with self._config_lock:
             self._open_channel = open_channel
 
-    def bump_protocol_hold(self, hold_seconds: float) -> None:
-        """Set the protocol-hold deadline to monotonic() + hold_seconds.
-        Loop honors the deadline and resumes after it expires."""
+    def bump_protocol_hold(self, hold_seconds: float, *, label: str | None) -> None:
+        """Set the protocol-hold deadline to monotonic() + hold_seconds, holding ``label``.
+
+        Loop honors the deadline and resumes after it expires. The newest
+        bump is the frame on screen, so a bump with no label clears the one
+        an earlier bump set.
+        """
         with self._config_lock:
             self._protocol_hold_until = time.monotonic() + hold_seconds
+            self._hold_label = label
 
     def render_held(self, render: Callable[[], None], category: str) -> None:
         """Run ``render`` on this thread at its next turn, in place of any not yet run; from any thread.
@@ -213,6 +224,16 @@ class ScopeDisplayThread:
         """Whether a held frame (a saved or derived image) is still due its time on screen."""
         with self._config_lock:
             return self._protocol_hold_until > time.monotonic()
+
+    @property
+    def named_hold(self) -> tuple[str, float] | None:
+        """What a named hold holds and its seconds left, while it is in force; else None."""
+        with self._config_lock:
+            left_s = self._protocol_hold_until - time.monotonic()
+            label = self._hold_label
+        if label is None or left_s <= 0:
+            return None
+        return label, left_s
 
     @property
     def generation(self) -> int:

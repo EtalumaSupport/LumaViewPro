@@ -114,7 +114,7 @@ class TestTheRateIsTheLastSecondsDraws:
     def test_a_saved_image_put_on_the_screen_is_not_a_live_frame(self, display, clock):
         image = np.zeros((4, 4), dtype=np.uint8)
         display.create_and_set_texture(
-            image.tobytes(), image.shape, generation=0, held=HeldFrame(1.0, 'BF')
+            image.tobytes(), image.shape, generation=0, held=HeldFrame(1.0, 'BF', label=None)
         )
         assert display.frames_shown == 1, 'the held image was not put on the screen'
         assert display.display_fps() == 0

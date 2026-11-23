@@ -560,7 +560,10 @@ def show_captured_frame(
     the frame arrives, not when the run starts.
     """
     _app_ctx.ctx.scope_display.hold_protocol_saved_image(
-        image, frames_summed, frame_significant_bits, held=HeldFrame(BRIEF_HOLD_S, channel)
+        image,
+        frames_summed,
+        frame_significant_bits,
+        held=HeldFrame(BRIEF_HOLD_S, channel, label=None),
     )
 
 
@@ -580,7 +583,7 @@ def show_captured_still(
         image,
         frames_summed,
         frame_significant_bits,
-        held=HeldFrame(ctx.session.setting('capture_shown_s'), channel),
+        held=HeldFrame(ctx.session.setting('capture_shown_s'), channel, label='the captured still'),
     )
 
 

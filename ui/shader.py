@@ -77,10 +77,29 @@ def frame_rate_title(capture_fps: float, display_fps: float, *, engineering: boo
     return f'Capture: {capture} | Display: {display} FPS'
 
 
-def work_title(work: tuple[live_work.WorkItem, ...]) -> str:
-    """The status line's part saying what the session is doing: empty when nothing."""
-    doing = ' | '.join(work_item_text(item) for item in work)
+def work_title(work: tuple[live_work.WorkItem, ...], *, hold: tuple[str, float] | None) -> str:
+    """The status line's part saying what the session is doing: empty when nothing.
+
+    ``hold`` is the display's named hold (``ScopeDisplayThread.named_hold``),
+    said after the work with its seconds counting down; None for none.
+    """
+    pieces = [work_item_text(item) for item in work]
+    if hold is not None:
+        label, left_s = hold
+        # Padded, so the line holds still as the seconds count.
+        pieces.append(f'Showing {label} ({fixed_number(left_s, whole_digits=2, decimals=1)}s)')
+    doing = ' | '.join(pieces)
     return f' | {doing}' if doing else ''
+
+
+def work_stage(
+    work: tuple[live_work.WorkItem, ...], *, hold: tuple[str, float] | None
+) -> str | None:
+    """What ``work_title`` says without its figures, so its record names each change once."""
+    names = [item.name for item in work]
+    if hold is not None:
+        names.append(f'Showing {hold[0]}')
+    return ' | '.join(names) or None
 
 
 def cursor_title(pixel: tuple[int, int] | None, plate: PlateLocation | Refusal | None) -> str:
@@ -308,8 +327,9 @@ void main (void) {
         It composes 'Capture: X | Display: Y FPS [ | Camera: Z MB/s ]
         [ | Pixel: (px, py) [ | Plate: (sx, sy) mm ] ]', then what the session
         is doing (``ScopeSession.live_work``), each piece as ``work_item_text``
-        words it. The window's title is the product name and version, set
-        once at startup, and nothing here writes it.
+        words it, then the held image the display names. The window's title
+        is the product name and version, set once at startup, and nothing
+        here writes it.
         """
         ctx = _app_ctx.ctx
         if ctx is None:
@@ -337,14 +357,15 @@ void main (void) {
                 # is a fault, and is not hidden here.
                 plate = ctx.lumaview.scope.runtime_state.frame_point_plate(*self._mouse_fraction)
             work = ctx.session.live_work.work
-            doing = work_title(work)
+            hold = ctx.scope_display_thread.named_hold
+            doing = work_title(work, hold=hold)
             self.status_text = status + cursor_title(pixel, plate) + doing
             # Named once per change of what is being done, not per tick of
             # its figures.
             gui_logger.display(
                 'STATUS_WORK',
                 doing.removeprefix(' | ') or None,
-                stage=' | '.join(item.name for item in work) or None,
+                stage=work_stage(work, hold=hold),
             )
 
     # The colour a live mono frame is shown in, the colour of what is drawn

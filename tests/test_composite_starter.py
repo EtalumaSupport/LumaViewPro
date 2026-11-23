@@ -283,7 +283,9 @@ def test_the_composite_the_button_started_is_shown_once_merged(homed, gui_ctx):
     gui_ctx.scope_display = SimpleNamespace(
         hold_protocol_saved_image=lambda *frame, held: None,
         post_held_frame=lambda show: show(),
-        hold_derived_image=lambda image, bits, held_s: shown.append((image, bits, held_s)),
+        hold_derived_image=lambda image, bits, held_s, label: shown.append(
+            (image, bits, held_s, label)
+        ),
     )
     gui_ctx.session.update_settings('capture_shown_s', 3)
     starter = _Starter()
@@ -301,7 +303,7 @@ def test_the_composite_the_button_started_is_shown_once_merged(homed, gui_ctx):
     merged, _bits, _white = image_utils.load_pixels(
         outcome.artifact_path, collapse_legacy_false_color=False
     )
-    ((image, bits, held_s),) = shown
+    ((image, bits, held_s, label),) = shown
     assert image.shape == merged.shape and image.ndim == 3
     assert (image == merged).all(), 'the image held is not the merged file'
-    assert (bits, held_s) == (8, 3)
+    assert (bits, held_s, label) == (8, 3, 'the composite')
