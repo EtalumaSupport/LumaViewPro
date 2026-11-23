@@ -192,6 +192,7 @@ class TestAStopControlCanSayTheRunIsStopping:
         runner._run_handle = None
         for read in ('_step_index', '_num_steps', '_remaining_scans', '_protocol_period_s'):
             setattr(runner, read, lambda: None)
+        runner._scan_schedule = lambda: (False, None)
         return runner._progress_of(types.SimpleNamespace(_run_dir=None)).is_stopping
 
     def test_a_live_run_nobody_stopped_is_not_stopping(self):

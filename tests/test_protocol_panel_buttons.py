@@ -11,6 +11,7 @@ writing the finished run's files, idle.
 """
 
 import concurrent.futures
+import datetime
 import pathlib
 import sys
 import types
@@ -87,6 +88,7 @@ class _Panel(ps.ProtocolSettings):
         self._protocol.file_path = pathlib.Path('/data/plate')
         self._runs_started_here = {}
         self._drain_tick_trigger = MagicMock()
+        self._countdown_tick = None
         self.scan_pending = False
         self.protocol_pending = False
         self.autofocus_scan_pending = False
@@ -189,6 +191,8 @@ def _live(
     last=None,
     scans_remaining=None,
     period_s=None,
+    is_scanning=False,
+    next_scan_at=None,
 ):
     """The engine's progress record of each run: live for *runs*, ended for every other.
 
@@ -207,6 +211,8 @@ def _live(
             num_steps=1 if live else None,
             scans_remaining=scans_remaining if live else None,
             period_s=period_s if live else None,
+            is_scanning=is_scanning and live,
+            next_scan_at=next_scan_at if live else None,
         )
 
     engine._progress_of.side_effect = _progress_of
@@ -316,15 +322,75 @@ def test_a_started_run_draws_running(app_ctx, engine):
     assert (button.state, button.text) == ('down', 'Abort One Scan')
 
 
-def test_the_full_protocol_button_counts_the_live_runs_own_scans(app_ctx, engine):
+_NOW = datetime.datetime(2026, 11, 23, 14, 0, 0, 250_000, tzinfo=datetime.UTC)
+
+
+@pytest.mark.parametrize(
+    ('is_scanning', 'next_scan_at', 'scans_remaining', 'what_it_says'),
+    [
+        (True, _NOW + datetime.timedelta(minutes=20), 3, 'Scanning'),
+        (True, None, 1, 'Scanning'),
+        (False, _NOW + datetime.timedelta(minutes=4, seconds=5), 3, 'Next scan in 4m 05s'),
+        (False, _NOW + datetime.timedelta(hours=1, minutes=4), 3, 'Next scan in 1h 04m'),
+        (False, _NOW - datetime.timedelta(seconds=30), 2, 'Next scan starting now'),
+    ],
+    ids=['a scan running', 'the last scan running', 'waiting', 'waiting an hour', 'overran'],
+)
+def test_the_full_protocol_button_states_the_runs_own_scans_and_next_start(
+    app_ctx, engine, monkeypatch, is_scanning, next_scan_at, scans_remaining, what_it_says
+):
+    """The count and the schedule are the run's record; the button counts down to its instant.
+
+    No period is multiplied: a 20-minute period with three scans left states
+    no hour remaining.
+    """
+    monkeypatch.setattr(ps.wall_time, 'now', lambda: _NOW)
     panel = _Panel()
     run = _run(engine)
     engine.start.return_value = run.operation
-    _live(engine, run, scans_remaining=3, period_s=20 * 60.0)
+    _live(
+        engine,
+        run,
+        scans_remaining=scans_remaining,
+        period_s=20 * 60.0,
+        is_scanning=is_scanning,
+        next_scan_at=next_scan_at,
+    )
 
     panel.run_protocol_from_ui()
 
-    assert panel.ids['run_protocol_btn'].text == '3 scans (1h 0m) remaining.\nPress to ABORT'
+    scans = f'{scans_remaining} scan{"" if scans_remaining == 1 else "s"} remaining'
+    assert panel.ids['run_protocol_btn'].text == f'{scans}\n{what_it_says}\nPress to ABORT'
+
+
+def test_the_countdown_ticks_while_the_full_protocol_run_is_live(app_ctx, engine, monkeypatch):
+    """Nothing else redraws the button while a run waits: the tick does, and stops with the run."""
+    ticks = []
+    unscheduled = []
+    monkeypatch.setattr(
+        ps, 'schedule_ui_interval', lambda cb, interval_s, label: ticks.append(cb) or cb
+    )
+    # A stand-in by design: Kivy's Clock, whose unschedule the test observes.
+    monkeypatch.setattr(ps, 'Clock', SimpleNamespace(unschedule=unscheduled.append))
+    monkeypatch.setattr(ps.wall_time, 'now', lambda: _NOW)
+    panel = _Panel()
+    run = _run(engine)
+    engine.start.return_value = run.operation
+    next_at = _NOW + datetime.timedelta(seconds=10)
+    _live(engine, run, scans_remaining=2, period_s=60.0, next_scan_at=next_at)
+
+    panel.run_protocol_from_ui()
+    panel.draw_protocol_buttons()
+    assert len(ticks) == 1, 'one tick, however many redraws'
+
+    monkeypatch.setattr(ps.wall_time, 'now', lambda: _NOW + datetime.timedelta(seconds=3))
+    ticks[0](1.0)
+    assert 'Next scan in 0m 07s' in panel.ids['run_protocol_btn'].text
+
+    _live(engine)
+    ticks[0](1.0)
+    assert unscheduled == [ticks[0]]
+    assert panel.ids['run_protocol_btn'].text == 'Run Full Protocol'
 
 
 def test_a_second_press_stops_its_own_run_ahead_of_queued_work(app_ctx, engine):

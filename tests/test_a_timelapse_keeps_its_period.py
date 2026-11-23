@@ -115,31 +115,37 @@ def _make_parent(
     p._protocol.period_s = period_s
     p._parent_dir = None
     p._start_t = clock.t  # run() entry semantics (the fallback anchor)
+    p._is_scanning = False
     p._curr_step = 0
     p._af_future = None
     p._scan_first_capture_t = None
     p.capture_times = []
     long_scans = long_scans or {}
+    p._protocol_state_lock = threading.Lock()
+    # The schedule is the runner's own members over the stub's state, so the
+    # pacing pinned here is the runner's, not a copy of it.
+    for member in (
+        'advance_scan_count',
+        '_begin_scan',
+        '_note_first_capture',
+        '_end_failed_scan',
+        '_scan_schedule',
+    ):
+        setattr(p, member, MethodType(getattr(SequencedCaptureRunner, member), p))
 
     def _reset_scan_state():
         p._curr_step = 0
         p._af_future = None
         p._scan_first_capture_t = None
 
-    def _advance_scan_count():
-        p._scan_count += 1
-        return p._scan_count
-
     def _scan_loop():
         lead = first_scan_lead_s if not p.capture_times else later_scan_lead_s
         clock.t += lead
         p.capture_times.append(clock.t)
-        if p._scan_first_capture_t is None:
-            p._scan_first_capture_t = clock.t
+        p._note_first_capture(clock.t)
         clock.t += long_scans.get(len(p.capture_times) - 1, scan_tail_s)
 
     p._reset_scan_state = _reset_scan_state
-    p.advance_scan_count = _advance_scan_count
     p._step_executor = mock.MagicMock()
     p._step_executor.scan_loop.side_effect = _scan_loop
     p._scan_in_progress = mock.MagicMock()
@@ -147,7 +153,6 @@ def _make_parent(
     p.end_scan = mock.MagicMock()
     p.end_run_fatally = mock.MagicMock()
     p._cleanup = mock.MagicMock()
-    p._protocol_state_lock = threading.Lock()
     p._auto_gain_armed_step = -1
     p.LOGGER_NAME = 'TEST'
     p._events = RunEvents()

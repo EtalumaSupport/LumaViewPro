@@ -134,10 +134,14 @@ def test_an_ended_runs_progress_is_none(tmp_path):
         progress.num_steps,
         progress.scans_remaining,
         progress.period_s,
+        progress.is_scanning,
+        progress.next_scan_at,
     ) == (
         None,
         None,
         None,
+        None,
+        False,
         None,
     )
 
@@ -149,6 +153,7 @@ _ENGINE_RUN_MEMBERS = {
     '_num_steps',
     '_remaining_scans',
     '_protocol_period_s',
+    '_scan_schedule',
 }
 
 

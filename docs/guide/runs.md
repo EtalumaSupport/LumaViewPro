@@ -191,6 +191,12 @@ capture taken with saving off is named `unsaved`.
 `progress`, as a poll of the job reads it. Its `period_s` is the protocol's
 schedule, which a single scan reports and does not keep: an empty protocol
 takes the settings' (`protocol.period`, shipped 20 minutes, `period_s` 1200).
+`is_scanning` is whether a scan is running, and `next_scan_at` when the run's
+schedule starts its next scan: local time with its offset, to the whole second
+(ISO 8601 over REST), None while the last scan runs or once the run has ended
+or is ending. Scans are a period apart start to start, the first anchored at
+its first capture; a `next_scan_at` in the past means at once, after a scan
+that ran past its period.
 
 **Post-processing** builds derived files from a run's folder:
 `session.post_processing.build(folder, zproject=..., stitch=..., composite=...,

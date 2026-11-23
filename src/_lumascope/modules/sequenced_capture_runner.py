@@ -4,6 +4,7 @@ import concurrent.futures
 import contextlib
 import copy
 import dataclasses
+import datetime
 import functools
 import pathlib
 import time
@@ -191,7 +192,9 @@ class RunFiles:
 @api_fields(
     'is_last_run',
     'is_live',
+    'is_scanning',
     'is_stopping',
+    'next_scan_at',
     'num_steps',
     'period_s',
     'run_dir',
@@ -217,6 +220,17 @@ class RunProgress:
         num_steps: The run's step count; None once it is not live.
         scans_remaining: The scans still to run; None once it is not live.
         period_s: The run's scan period in seconds; None once it is not live.
+        is_scanning: A scan is running: from the start of its first step's
+            move until it ends or fails. False between scans, and once the
+            run is not live or has an ending (a Stop accepted, a failure).
+        next_scan_at: When the run's schedule starts its next scan, local
+            time with its offset, to the whole second; None when no scan is
+            left to start after the one running, and once the run is not
+            live or has an ending. Scans are a period apart start to start,
+            the first anchored at its first capture. A past instant means
+            at once: the scan before it ran past its period, or the run is
+            about to start, or retry, its first scan. It names when the
+            schedule fires however the wall clock is set meanwhile.
     """
 
     is_live: bool
@@ -227,6 +241,8 @@ class RunProgress:
     num_steps: int | None
     scans_remaining: int | None
     period_s: float | None
+    is_scanning: bool
+    next_scan_at: datetime.datetime | None
 
 
 class EngineRun:
@@ -548,10 +564,13 @@ class SequencedCaptureRunner:
         """
         self._curr_step = 0
         # Monotonic time of this scan's first completed capture; None until
-        # it lands. The run loop re-anchors scan 1's timelapse period here
-        # (the first ACQUISITION) so run setup + initial motion/AF cannot
-        # shorten the first interval. Per-scan coupled data, not a latch.
-        self._scan_first_capture_t = None
+        # it lands. Scan 1's timelapse period is re-anchored on it (the first
+        # ACQUISITION) so run setup + initial motion/AF cannot shorten the
+        # first interval. Per-scan coupled data, not a latch. Under the
+        # state lock with the anchor it moves: the progress record reads
+        # both from another thread.
+        with self._protocol_state_lock:
+            self._scan_first_capture_t = None
         # Per-step AF state pointer; None means AF has not been kicked off for
         # the current step. Set by scan_iterate when AF starts; cleared at step
         # transition and at scan start.
@@ -598,6 +617,11 @@ class SequencedCaptureRunner:
         with self._protocol_state_lock:
             self._n_scans = 0
             self._scan_count = 0
+            # The scan schedule, with the pair it is read against: the
+            # pacing anchor (see _start_pacing) and whether a scan is
+            # running, the phase the scan count cannot tell.
+            self._start_t = None
+            self._is_scanning = False
         self._scan_in_progress.clear()
         self._autofocus_count = 0
         # The steps that took a focus the run found, written into the run's
@@ -687,16 +711,95 @@ class SequencedCaptureRunner:
         return n_scans - scan_count
 
     def advance_scan_count(self) -> int:
-        """Increment the completed-scan counter and return the new value.
+        """End the running scan: count it, and return the new count.
 
         The only site that ADVANCES scan_count (the run-init reset to zero in
         _reset_vars is the other writer; both hold _protocol_state_lock). The
         counter's lock is owned here rather than reached into from the run loop.
         Called only on the protocol worker at scan completion.
+
+        In the same hold the scan stops running, and scan 1 moves the pacing
+        anchor to its first capture. The anchor is ESTABLISHED at the run's
+        first acquisition, then set to each later scan's due time when that
+        scan starts (_begin_scan). Before scan 1 ends it holds the run's
+        start, which includes run setup + initial motion + step-0 AF;
+        anchoring the period there shortens the first interval by that
+        lead-in (toward zero at short periods). Deliberately NOT
+        re-established from acquisition on later scans: their due-time
+        anchor keeps start-to-start cadence fixed instead of drifting by the
+        per-scan lead-in. The run's start remains the anchor only when the
+        opening scan completed no capture at all. A scan 1 that fails
+        never reaches here, so its re-run keeps the run's start.
         """
         with self._protocol_state_lock:
+            if self._scan_count == 0 and self._scan_first_capture_t is not None:
+                self._start_t = self._scan_first_capture_t
             self._scan_count += 1
+            self._is_scanning = False
             return self._scan_count
+
+    def _start_pacing(self) -> None:
+        """Anchor the run's schedule at its start: the first scan is due now.
+
+        Scan-interval pacing uses a monotonic clock, not wall time: a DST
+        change, an NTP step, or a backward clock adjustment must not
+        stretch, shrink, or stall a multi-day timelapse's inter-scan wait.
+        Wall-clock timestamps for filenames and records are taken
+        separately where needed.
+        """
+        with self._protocol_state_lock:
+            self._start_t = time.monotonic()
+            self._is_scanning = False
+
+    def _begin_scan(self, due: float | None) -> None:
+        """A scan starts: it is running from here, and a scan after the first is anchored at *due*.
+
+        *due* is the time the gate decided the scan was due (None for the
+        first scan, which the run's start and then its first capture
+        anchor). The phase and the anchor are written in one hold, so the
+        progress record never pairs a new scan's phase with the last
+        scan's anchor.
+        """
+        with self._protocol_state_lock:
+            if due is not None:
+                self._start_t = due
+            self._is_scanning = True
+
+    def _note_first_capture(self, t: float) -> None:
+        """Record the running scan's first completed capture at monotonic *t*; later ones change nothing."""
+        with self._protocol_state_lock:
+            if self._scan_first_capture_t is None:
+                self._scan_first_capture_t = t
+
+    def _end_failed_scan(self) -> None:
+        """A scan failed and will be re-run: it is not running, and the count stays."""
+        with self._protocol_state_lock:
+            self._is_scanning = False
+
+    def _scan_schedule(self) -> tuple[bool, float | None]:
+        """(is a scan running, the monotonic time the next scan is due), read in one hold.
+
+        The due time is None when no scan is left to start after the one
+        running. It is the schedule's own: past after a scan that overran
+        its period, and the run's start (past) before the first scan or a
+        re-run of a failed first one, both of which the gate starts at
+        once. While scan 1 runs it is a period after scan 1's first capture
+        once that has landed, as the anchor will be when scan 1 ends. The
+        gate decides its wait from this one answer.
+        """
+        with self._protocol_state_lock:
+            scanning = self._is_scanning
+            left_to_start = self._n_scans - self._scan_count - (1 if scanning else 0)
+            if left_to_start <= 0:
+                return scanning, None
+            if self._scan_count == 0:
+                if not scanning:
+                    return False, self._start_t
+                first_capture = self._scan_first_capture_t
+                anchor = self._start_t if first_capture is None else first_capture
+            else:
+                anchor = self._start_t
+            return scanning, anchor + self._protocol.period_s
 
     def run_dir(self):
         return self._run_dir
@@ -1882,12 +1985,7 @@ class SequencedCaptureRunner:
 
             with self._protocol_state_lock:
                 self._n_scans = plan.n_scans
-            # Scan-interval pacing uses a monotonic clock, not wall time: a
-            # DST change, an NTP step, or a backward clock adjustment must
-            # not stretch, shrink, or stall a multi-day timelapse's
-            # inter-scan wait. Wall-clock timestamps for filenames and
-            # records are taken separately where needed.
-            self._start_t = time.monotonic()
+            self._start_pacing()
 
             # Created here, inside the gate-and-commit lock and after both
             # refusals: a refused start leaves no outcome object at all, so a
@@ -2621,11 +2719,14 @@ class SequencedCaptureRunner:
         lock is held. A stopped run stays live until its teardown finishes
         -- the LEDs, the camera and the lanes are put back first -- so
         ``is_stopping`` is the run's own recorded ending: someone asked for
-        it to end, and it has not finished ending yet.
+        it to end, and it has not finished ending yet. A run with an ending
+        of any kind starts no further scan, so from its ending it states no
+        scan running and none next.
         """
         with self._run_lock:
             live = self._is_live_run_locked(run)
             ending = self._ending.get() if live else None
+            scanning, due = self._scan_schedule() if live and ending is None else (False, None)
             return RunProgress(
                 is_live=live,
                 is_stopping=ending is not None and ending.status == RunStatus.ABORTED,
@@ -2635,6 +2736,10 @@ class SequencedCaptureRunner:
                 num_steps=self._num_steps() if live else None,
                 scans_remaining=self._remaining_scans() if live else None,
                 period_s=self._protocol_period_s() if live else None,
+                is_scanning=scanning,
+                next_scan_at=(
+                    None if due is None else wall_time.whole_second_after(due - time.monotonic())
+                ),
             )
 
     def held_by_other(self, run: Operation | None) -> bool:

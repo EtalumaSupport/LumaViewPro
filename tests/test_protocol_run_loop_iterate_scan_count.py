@@ -51,19 +51,19 @@ def _make_two_scan_parent():
     p._scan_first_capture_t = None
 
     # The run loop drives per-scan state + the scan-count increment through the
-    # runner's own methods now (single-owner counters); the stub implements them
-    # to match. advance_scan_count increments and returns the new count.
+    # runner's own methods now (single-owner counters); the stub resets the
+    # per-scan state to match.
     def _reset_scan_state():
         p._curr_step = 0
         p._af_future = None
         p._scan_first_capture_t = None
 
-    def _advance_scan_count():
-        p._scan_count += 1
-        return p._scan_count
-
     p._reset_scan_state = _reset_scan_state
-    p.advance_scan_count = _advance_scan_count
+    p._is_scanning = False
+    # The scan count and the schedule are the runner's own members over the
+    # stub's state.
+    for member in ('advance_scan_count', '_begin_scan', '_end_failed_scan', '_scan_schedule'):
+        setattr(p, member, MethodType(getattr(SequencedCaptureRunner, member), p))
     p._step_executor = mock.MagicMock()
     p._scan_in_progress = mock.MagicMock()
     p._set_state = mock.MagicMock()

@@ -236,8 +236,11 @@ Under [Execute Protocol]{.guilabel}:
   button reads "Abort One Scan"; click it to stop.
 - [Run Full Protocol]{.guilabel} runs the whole time-lapse: a scan every
   [Interval]{.guilabel} for [Duration]{.guilabel}. While it's running, the
-  button shows the scans and the time remaining; click it to stop the
-  run.
+  button shows the scans remaining and, between scans, the time to the
+  next one ("Scanning" while a scan runs); click it to stop the run.
+  Scans start an interval apart. A scan that takes longer than the
+  interval is followed by the next one at once, and the button reads
+  "Next scan starting now".
 
 When you start a run, LumaViewPro works out how much it will save, from
 the steps, the scans and the frame size, and won't start a run that doesn't

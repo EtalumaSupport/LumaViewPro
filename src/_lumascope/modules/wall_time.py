@@ -38,3 +38,16 @@ def local_time(wall_ns: int) -> datetime.datetime:
 def now() -> datetime.datetime:
     """The host's wall time now, local with its offset."""
     return local_time(host_clock.wall_ns())
+
+
+def whole_second_after(seconds: float) -> datetime.datetime:
+    """The instant *seconds* from now (a negative count: the past), local with its offset, to the whole second.
+
+    For an instant a steady clock decides, published to readers that poll
+    it: the wall clock and the steady clock are read a moment apart, and
+    both step 15.6 ms on Windows under Python 3.12, so an instant kept to
+    the microsecond would move from one read to the next. Rounded, it moves
+    only when that jitter straddles a half-second, by one second.
+    """
+    ns = host_clock.wall_ns() + round(seconds * 1_000_000_000)
+    return local_time((ns + 500_000_000) // 1_000_000_000 * 1_000_000_000)

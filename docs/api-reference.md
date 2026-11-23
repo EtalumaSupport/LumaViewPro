@@ -11965,7 +11965,9 @@ Where one run has got, read in one hold of the run lock: every field is that run
 
 - <a id="RunProgress.is_last_run"></a>`is_last_run`: `bool` -- The run is the engine's most recent, live or finished.
 - <a id="RunProgress.is_live"></a>`is_live`: `bool` -- The run holds the scope: started and not yet torn down. False once its teardown has finished, while its `run_ended` may still be on its way, so a run can be not live and its operation not yet done.
+- <a id="RunProgress.is_scanning"></a>`is_scanning`: `bool` -- A scan is running: from the start of its first step's move until it ends or fails. False between scans, and once the run is not live or has an ending (a Stop accepted, a failure).
 - <a id="RunProgress.is_stopping"></a>`is_stopping`: `bool` -- Live, and a Stop of it accepted: True until its teardown finishes.
+- <a id="RunProgress.next_scan_at"></a>`next_scan_at`: `datetime | None` -- When the run's schedule starts its next scan, local time with its offset, to the whole second; None when no scan is left to start after the one running, and once the run is not live or has an ending. Scans are a period apart start to start, the first anchored at its first capture. A past instant means at once: the scan before it ran past its period, or the run is about to start, or retry, its first scan. It names when the schedule fires however the wall clock is set meanwhile.
 - <a id="RunProgress.num_steps"></a>`num_steps`: `int | None` -- The run's step count; None once it is not live.
 - <a id="RunProgress.period_s"></a>`period_s`: `float | None` -- The run's scan period in seconds; None once it is not live.
 - <a id="RunProgress.run_dir"></a>`run_dir`: `Path | None` -- The run's folder; None for a run that saves nothing or never started.

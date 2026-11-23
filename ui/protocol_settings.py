@@ -1,5 +1,6 @@
 # Copyright Etaluma, Inc.
 import logging
+import math
 import os
 import typing
 
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
     from _lumascope.modules.sequenced_capture_runner import RunProgress
 from ui.step_navigation import go_to_step
 from _lumascope.modules.timedelta_formatter import strfdelta
-from _lumascope.modules import gui_logger, live_work
+from _lumascope.modules import gui_logger, live_work, wall_time
 from _lumascope.modules.run_events import RunEvents
 from ui.ui_helpers import (
     refused_in_this_input,
@@ -28,6 +29,7 @@ from ui.ui_helpers import (
     restore_display_after_run,
     run_reported,
     run_unasked,
+    schedule_ui_interval,
     show_captured_frame,
     submit_reported,
     sync_channel_widgets_from_settings,
@@ -96,17 +98,30 @@ def _running_label(run: 'Operation | None', trigger: str, look: _PanelRunButton)
 
 
 def _protocol_remaining_text(progress: 'RunProgress') -> str | None:
-    """The Full Protocol button's running label, from the run's own count; None without one."""
-    scans_remaining, period_s = progress.scans_remaining, progress.period_s
-    if scans_remaining is None or period_s is None:
+    """The Full Protocol button's running label, from the run's own record; None without a count.
+
+    The scans remaining, then what the run is doing: a scan running, the
+    time to the next one the run's schedule names, or that one starting at
+    once. The time is counted down to the record's instant; nothing here
+    decides when a scan starts.
+    """
+    scans_remaining = progress.scans_remaining
+    if scans_remaining is None:
         return None
-    remaining_duration_str = strfdelta(
-        tdelta=scans_remaining * period_s,
-        fmt='{H}h {M}m',
-        inputtype='seconds',
-    )
     scan_word = 'scan' if scans_remaining == 1 else 'scans'
-    return f'{scans_remaining} {scan_word} ({remaining_duration_str}) remaining.\nPress to ABORT'
+    lines = [f'{scans_remaining} {scan_word} remaining']
+    if progress.is_scanning:
+        lines.append('Scanning')
+    elif progress.next_scan_at is not None:
+        # Whole seconds up: the label reaches 0 only when the instant has come.
+        left_s = math.ceil((progress.next_scan_at - wall_time.now()).total_seconds())
+        if left_s > 0:
+            fmt = '{H}h {M:02}m' if left_s >= 3600 else '{M}m {S:02}s'
+            lines.append(f'Next scan in {strfdelta(tdelta=left_s, fmt=fmt, inputtype="seconds")}')
+        else:
+            lines.append('Next scan starting now')
+    lines.append('Press to ABORT')
+    return '\n'.join(lines)
 
 
 class ProtocolSettings(FloatLayout):
@@ -142,6 +157,10 @@ class ProtocolSettings(FloatLayout):
         # The drain display's tick: one pending at a time, however many
         # redraws ask for it.
         self._drain_tick_trigger = Clock.create_trigger(self._drain_tick, 0.5)
+        # The countdown's tick while the Full Protocol run is live: nothing
+        # else redraws the button while a run waits between scans. None
+        # while it is not live.
+        self._countdown_tick = None
 
         self.curr_step = -1
 
@@ -1128,10 +1147,11 @@ class ProtocolSettings(FloatLayout):
         The only code that styles the Scan, Protocol and Autofocus Scan
         buttons: after each of their own requests, on every run-state edge
         -- including a run's return to idle and the end of its file drain --
-        and, while a finished run's files drain, on a half-second tick for
-        the pending count. Four states, each read from the API: running;
-        stopping (a Stop accepted, the teardown still going); writing the
-        finished run's files; idle.
+        while a finished run's files drain, on a half-second tick for the
+        pending count, and while the Full Protocol run is live, on a
+        one-second tick for the time to its next scan. Four states, each
+        read from the API: running; stopping (a Stop accepted, the teardown
+        still going); writing the finished run's files; idle.
         """
         ctx = _app_ctx.ctx
         session = ctx.session
@@ -1144,12 +1164,15 @@ class ProtocolSettings(FloatLayout):
             None,
         )
 
+        protocol_live = False
         for trigger, look in _PANEL_RUN_BUTTONS.items():
             button = self.ids[look.button_id]
             run = self._runs_started_here.get(trigger)
             held = session.held_by_other(run)
             setattr(self, look.held_flag, held)
             label = _running_label(run, trigger, look)
+            if trigger == 'protocol':
+                protocol_live = label is not None
             if label is not None:
                 button.state = 'down'
                 button.text = label
@@ -1178,6 +1201,18 @@ class ProtocolSettings(FloatLayout):
 
         if files is not None:
             self._drain_tick_trigger()
+
+        if protocol_live and self._countdown_tick is None:
+            self._countdown_tick = schedule_ui_interval(
+                self._countdown_redraw, 1.0, 'PROTOCOL_COUNTDOWN'
+            )
+        elif not protocol_live and self._countdown_tick is not None:
+            Clock.unschedule(self._countdown_tick)
+            self._countdown_tick = None
+
+    def _countdown_redraw(self, dt) -> None:
+        """While the Full Protocol run is live, keep the time to its next scan current."""
+        self.draw_protocol_buttons()
 
     def _drain_tick(self, dt) -> None:
         """While a finished run's files drain, keep the count on the button current.

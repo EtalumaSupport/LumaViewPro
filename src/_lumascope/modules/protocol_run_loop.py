@@ -219,17 +219,20 @@ class ProtocolRunLoop:
 
                 # Wait for the next scan to be due; the first scan
                 # (scan_count == 0) starts at once.
+                started_due = None
                 if p._scan_count > 0:
-                    # Monotonic pacing (see _start_t init): the anchor and the
+                    # Monotonic pacing (see _start_pacing): the anchor and the
                     # period are both in seconds, immune to wall-clock jumps.
                     # A scan that fit its period makes the next one due a
                     # period after it started; one that overran makes the
                     # next due at once, its period's spacing resuming from
                     # there. Decided when the loop first reaches here after a
                     # scan, before any wait, so a wait that wakes late never
-                    # moves the schedule.
+                    # moves the schedule. The schedule's due time is the
+                    # engine's one answer, the one the run's progress states.
                     if due is None:
-                        due = max(p._start_t + p._protocol.period_s, time.monotonic())
+                        _scanning, scheduled = p._scan_schedule()
+                        due = max(scheduled, time.monotonic())
                     wait_s = due - time.monotonic()
                     if wait_s > 0:
                         # On the Stop event, so a Stop is seen at once; cut at
@@ -238,7 +241,7 @@ class ProtocolRunLoop:
                         p._aborted.wait(max(0.0, min(wait_s, until_check)))
                         continue
 
-                    p._start_t = due
+                    started_due = due
                     due = None
 
                 # Time for next scan
@@ -252,6 +255,10 @@ class ProtocolRunLoop:
 
                 # Initialize per-scan state (curr_step, AF pointer).
                 p._reset_scan_state()
+                # Running from here, the first step's move included; a later
+                # scan anchored at its due time. After the reset, so a re-run
+                # of scan 1 states no capture of the attempt that failed.
+                p._begin_scan(started_due)
 
                 # Check disk space once per scan, against one scan's estimate,
                 # summed on the first check and reused thereafter: prepare()
@@ -307,21 +314,8 @@ class ProtocolRunLoop:
                     f'Protocol scan {p._scan_count + 1} {scan_outcome} {scan_duration_s:.2f} seconds'
                 )
 
-                # The pacing anchor has two lifecycle events: it is
-                # ESTABLISHED at the run's first acquisition (here, once the
-                # opening scan has captured), then set to each later scan's
-                # due time when that scan starts (above). Before this point
-                # _start_t holds the run()-entry fallback, which includes run
-                # setup + initial motion + step-0 AF -- anchoring the period there shortens
-                # the first interval by that lead-in (toward zero at short
-                # periods). Deliberately NOT re-established from acquisition
-                # on later scans: their due-time anchor keeps start-to-start
-                # cadence fixed instead of drifting by the per-scan lead-in.
-                # The fallback remains the anchor only when the opening scan
-                # completed no capture at all.
-                if p._scan_count == 0 and p._scan_first_capture_t is not None:
-                    p._start_t = p._scan_first_capture_t
-
+                # Counted, no longer running, and scan 1's period re-anchored at
+                # its first acquisition, in one hold (advance_scan_count).
                 new_count = p.advance_scan_count()
                 # A scan that ran clears the strike count here, before the
                 # between-scan move below: that move can now fail into the
@@ -449,6 +443,7 @@ class ProtocolRunLoop:
                     exc_info=True,
                 )
                 p._scan_in_progress.clear()
+                p._end_failed_scan()
                 p.end_scan()
 
                 consecutive_scan_failures += 1
