@@ -66,7 +66,8 @@ def body(s):
         f'asked {saved} got x={back.x_mm:.2f} y={back.y_mm:.2f} z={m.get_current_position("Z")}',
     )
 
-    # 5. "Set ALL bookmarks" also stamps every layer's focus
+    # 5. "Set ALL bookmarks" also stamps every layer's focus, and keeps the rest
+    before = s.settings_snapshot
     z = s.save_all_bookmarks().z_um
     on_scope = [record.key_name for record in s.scope.channel_identity.channels]
     after = s.settings_snapshot
@@ -75,6 +76,13 @@ def body(s):
         all(abs(after[layer]['focus'] - z) < 1e-6 for layer in on_scope),
         f'focus={z}',
     )
+    changed = sorted(
+        f'{layer}.{key}'
+        for layer in on_scope
+        for key in before[layer].keys() | after[layer].keys()
+        if key != 'focus' and before[layer].get(key) != after[layer].get(key)
+    )
+    check('Set ALL bookmarks keeps every other layer setting', not changed, f'changed: {changed}')
 
     # 6. the bookmark is not a plain setting: the writer names its members
     try:

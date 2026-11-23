@@ -27,6 +27,7 @@ import pathlib
 import stat
 import threading
 import time
+import types
 import typing
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from typing import TYPE_CHECKING
@@ -368,6 +369,26 @@ class _AskedChannelWrite:
 
     fields: dict[str, dict[str, object]]
     clamped: tuple[tuple[str, str, float, float], ...]
+
+
+@dataclasses.dataclass(frozen=True)
+class _ChannelWriting:
+    """What one channel write stores: built only by ``ScopeSession._channel_writing``.
+
+    The one store of a channel's fields (``ScopeSession._write_channel_fields``)
+    takes only this. A mapping of each channel's values by key is not one:
+    stored path by path, each channel's name would replace its whole block.
+
+    Attributes:
+        paths: Each value stored, by dotted settings path (``'BF.gain_db'``),
+            read-only; the mapping the shown channel's camera is asked for
+            first.
+        locks: The auto-gain lock taken for each channel the write turned
+            auto-gain off on, read-only.
+    """
+
+    paths: Mapping[str, object]
+    locks: Mapping[str, 'AutoGainLock']
 
 
 @api_fields('choices', 'proposed', 'turret_slot')
@@ -3749,10 +3770,12 @@ class ScopeSession:
         channels = sorted(self._channels_on_scope())
         # Every focus judged before the bookmark is, so a refusal stores
         # neither; then both in one hold.
-        foci = self._judge_channel_fields({channel: {'focus': z} for channel in channels})
+        foci = self._channel_writing(
+            self._judge_channel_fields({channel: {'focus': z} for channel in channels}), {}
+        )
         with self.settings_lock:
             self._store_setting('bookmark.z', z)
-            self._write_channel_fields(foci, locks={})
+            self._write_channel_fields(foci)
         logger.info(f'[Session  ] Bookmarks saved: Z={z}, and as the focus of {channels}')
         return PlateLocation(x_mm=None, y_mm=None, z_um=z)
 
@@ -5080,7 +5103,7 @@ class ScopeSession:
         writing = self._channel_writing(fields, locks)
         asked = then_camera and not held and camera_owed and self.scope.camera_connected
         if asked:
-            self.scope.camera.hold_channel_writing(shown, writing)
+            self.scope.camera.hold_channel_writing(shown, writing.paths)
         illumination = fields.get(shown, {}).get('illumination_ma')
         if illumination is not None and not held and self._channel_lit(shown):
             try:
@@ -5090,7 +5113,7 @@ class ScopeSession:
                     self.apply_channel_camera(shown)
                 raise
         with self.settings_lock:
-            self._write_channel_fields(writing, locks=locks)
+            self._write_channel_fields(writing)
         if clamped:
             notifications.report_outcome(
                 ValueClampedNotice(clamped), solicited=True, category='Settings'
@@ -5178,14 +5201,16 @@ class ScopeSession:
         judged = self._judge_channel_fields(fields)
         writing = self._channel_writing(judged, {})
         with self.settings_lock:
-            self._write_channel_fields(writing, locks={})
+            self._write_channel_fields(writing)
 
     def _channel_writing(
         self, fields: Mapping[str, Mapping[str, object]], locks: Mapping[str, 'AutoGainLock']
-    ) -> dict[str, object]:
-        """What a channel write of judged ``fields`` and the auto-gain ``locks`` taken for them stores, by dotted path.
+    ) -> _ChannelWriting:
+        """What a channel write of judged ``fields`` and the auto-gain ``locks`` taken for them stores.
 
-        Built once, so the camera is asked for what the store then holds
+        The one builder of a ``_ChannelWriting``. Takes ``settings_lock``
+        itself, so it is called outside a hold. Built once, so the camera is
+        asked for what the store then holds
         (``CameraAPI.hold_channel_writing``). A lock that reached a gain
         stores it and its exposure as the channel's, rounded to the 0.1 dB
         and 0.01 ms the settings carry; a channel set to acquire stops
@@ -5206,20 +5231,20 @@ class ScopeSession:
                     and self._settings[channel].get('stim_config') is not None
                 ):
                     writing[f'{channel}.stim_config.enabled'] = False
-        return writing
+        return _ChannelWriting(
+            paths=types.MappingProxyType(writing), locks=types.MappingProxyType(dict(locks))
+        )
 
-    def _write_channel_fields(
-        self, writing: Mapping[str, object], *, locks: Mapping[str, 'AutoGainLock']
-    ) -> None:
-        """Under ``settings_lock``: store a channel write (``_channel_writing``) and the auto-gain ``locks`` taken for it.
+    def _write_channel_fields(self, writing: _ChannelWriting) -> None:
+        """Under ``settings_lock``: store a channel write (``_channel_writing``) and the auto-gain locks taken for it.
 
         The one store of a channel's fields; ``_store_setting`` refuses one
         stored anywhere else.
         """
         with self._channel_store_opened():
-            for path, value in writing.items():
+            for path, value in writing.paths.items():
                 self._store_setting(path, value)
-            for channel, lock in locks.items():
+            for channel, lock in writing.locks.items():
                 self._auto_gain_locks[channel] = lock
 
     @contextlib.contextmanager

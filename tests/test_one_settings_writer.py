@@ -510,12 +510,18 @@ def test_a_bookmark_is_the_live_position_in_the_go_to_frame(session):
     assert session.bookmark == saved
 
 
-def test_set_all_bookmarks_stamps_the_focus_of_the_scopes_own_layers(session):
+def test_set_all_bookmarks_sets_the_focus_of_the_scopes_own_channels_and_nothing_else(session):
+    # Every other field of every channel is kept: stored as each channel's
+    # whole block, the write left the focus alone, and every later write to
+    # the channel was refused for a key the channel no longer had.
     session.scope.motion.home('ALL')
+    before = session.settings_snapshot
     saved = session.save_all_bookmarks()
     z = session.plate_position.z_um
     assert saved == PlateLocation(x_mm=None, y_mm=None, z_um=z)
     on_scope = {record.key_name for record in session.scope.channel_identity.channels}
-    assert session.settings['bookmark']['z'] == z
-    for layer in on_scope:
-        assert session.settings[layer]['focus'] == z
+    expected = copy.deepcopy(before)
+    expected['bookmark']['z'] = z
+    for channel in on_scope:
+        expected[channel]['focus'] = z
+    assert session.settings_snapshot == expected
