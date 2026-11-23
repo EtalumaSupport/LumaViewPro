@@ -192,7 +192,7 @@ def install_mock_deps():
         import _lumascope.lvp_logger
 
         _lumascope.lvp_logger.log_dir = tempfile.gettempdir()
-        _lumascope.lvp_logger.start_logging(log_files=False)
+        _lumascope.lvp_logger.configure_logging(log_files=False)
 
 
 class StubWidget:

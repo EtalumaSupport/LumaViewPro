@@ -58,7 +58,7 @@ from _lumascope.lib.lumascope_error import (
     RefusalCause,
 )
 from _lumascope.lvp_logger import (
-    start_logging,
+    configure_logging,
 )
 from _lumascope.modules.acquire_mode import (
     AcquireMode,
@@ -172,7 +172,7 @@ from _lumascope.modules.exceptions import (
     LeftOutReason,
     LiveFolderFileNotWrittenError,
     LiveFolderPathRefusedError,
-    LoggingStartRefusedError,
+    LoggingConfigurationRefusedError,
     LowSystemResourcesNotice,
     MissingPart,
     MotorBoardUnavailableError,
@@ -701,7 +701,7 @@ __all__ = [
     'LiveFolderPathRefusedError',
     'LiveProcessingRegistry',
     'LiveWork',
-    'LoggingStartRefusedError',
+    'LoggingConfigurationRefusedError',
     'LowSystemResourcesNotice',
     'Lumascope',
     'LumascopeError',
@@ -886,5 +886,5 @@ __all__ = [
     'ZProjectMethod',
     'build_app',
     'build_server',
-    'start_logging',
+    'configure_logging',
 ]

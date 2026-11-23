@@ -253,7 +253,7 @@ def test_every_member_has_a_section():
     sections = list(_sections())
     functions = {
         '_lumascope.rest.app.build_app',
-        '_lumascope.lvp_logger.start_logging',
+        '_lumascope.lvp_logger.configure_logging',
     }
     assert functions <= {name for name, _ in sections}, 'the walk lost the functions'
     without = _without_a_section(sections)

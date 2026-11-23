@@ -92,11 +92,11 @@ replaced: to quiet it, set `logging.default.level` (a level's name, such as
 their own files and do not reach your handlers: `LVP.serial`, `LVP.camera`,
 `LVP.api`, `LVP.protocol`, `LVP.autofocus`, `LVP.metrics` and
 `LVP.gui_interactions`. Call
-`lumascope.start_logging(log_files=False)` before the first session call to
-open no file at all, or `lumascope.start_logging()` to start the folder before
-it. Logging starts once per process: a start asking for another logging than
-the process already has is refused (`LoggingStartRefusedError`,
-`'logging_started_otherwise'`), and changes nothing.
+`lumascope.configure_logging(log_files=False)` before the first session call to
+open no file at all, or `lumascope.configure_logging()` to start the folder before
+it. Logging is configured once per process: a call asking for another logging
+than the process already has is refused (`LoggingConfigurationRefusedError`,
+`'logging_configured_otherwise'`), and changes nothing.
 
 **Hearing bring-up.** Bring-up has happened by the time `create` returns. What
 it found -- a camera not found, a stored value replaced, a part missing -- is

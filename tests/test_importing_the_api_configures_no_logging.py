@@ -7,7 +7,7 @@ own records were written to ``lumaviewpro.log``. Importing any part of the
 API now opens no log file, attaches no handler, sets no level and writes no
 record. A session's first call (``load_user_settings`` or ``create``)
 starts the log folder on LumaViewPro's own loggers, so a script leaves the
-support bundle and keeps its root logger; ``start_logging(log_files=False)``
+support bundle and keeps its root logger; ``configure_logging(log_files=False)``
 first turns the files off. A LumaViewPro program owns its process and
 starts its logging on root itself. A start asking for anything other than
 what the process has is refused, and changes nothing.
@@ -150,14 +150,14 @@ def test_a_scripts_first_session_call_starts_the_bundle_on_lumascopes_own_logger
 def test_a_script_that_declines_the_files_opens_none_and_still_hears_lumascope(tmp_path):
     folder = _installation(tmp_path)
 
-    state = _run(_SCRIPT.format(before='lumascope.start_logging(log_files=False)'), folder)
+    state = _run(_SCRIPT.format(before='lumascope.configure_logging(log_files=False)'), folder)
 
     assert not pathlib.Path(state['log_dir']).exists(), 'a declined process made the log folder'
     assert 'a support report line' in state['heard']
     debug_line = [m for m in state['heard'] if m.startswith('[LVP Main  ] Debug:')]
     assert debug_line == [
         '[LVP Main  ] Debug:     not read -- this process started no log files '
-        '(start_logging(log_files=False)); each session states its own level'
+        '(configure_logging(log_files=False)); each session states its own level'
     ]
 
 
@@ -165,13 +165,13 @@ _STARTS = """
 import json, logging, os, sys
 sys.path.insert(0, 'src')
 from _lumascope import lvp_logger
-from _lumascope.modules.exceptions import LoggingStartRefusedError
+from _lumascope.modules.exceptions import LoggingConfigurationRefusedError
 from _lumascope.modules.path_utils import get_log_dir
 refused = []
 for start in {starts!r}:
     try:
         getattr(lvp_logger, start[0])(**start[1])
-    except LoggingStartRefusedError as e:
+    except LoggingConfigurationRefusedError as e:
         refused.append([e.reason, e.has, e.asked])
 print(json.dumps({{
     'refused': refused,
@@ -188,8 +188,8 @@ def _starts(tmp_path, *starts):
 
 _PROGRAM = ('start_program_logging', {})
 _SESSION = ('start_session_logging', {})
-_FILES = ('start_logging', {})
-_DECLINE = ('start_logging', {'log_files': False})
+_FILES = ('configure_logging', {})
+_DECLINE = ('configure_logging', {'log_files': False})
 
 
 def test_a_program_takes_root_with_the_files_the_gui_opens_and_a_second_start_adds_none(tmp_path):
@@ -215,16 +215,16 @@ def test_a_start_asking_for_another_logging_than_the_process_has_is_refused_and_
 ):
     files_after_decline = _starts(tmp_path / 'a', _DECLINE, _FILES, _PROGRAM, _SESSION)
     assert files_after_decline['refused'] == [
-        ['logging_started_otherwise', 'declined', 'lumascope'],
-        ['logging_started_otherwise', 'declined', 'root'],
+        ['logging_configured_otherwise', 'declined', 'lumascope'],
+        ['logging_configured_otherwise', 'declined', 'root'],
     ]
     assert files_after_decline['started'] == 'declined'
     assert files_after_decline['files'] is None, 'a refused start opened files'
 
     after_a_session = _starts(tmp_path / 'b', _SESSION, _DECLINE, _PROGRAM, _FILES)
     assert after_a_session['refused'] == [
-        ['logging_started_otherwise', 'lumascope', 'declined'],
-        ['logging_started_otherwise', 'lumascope', 'root'],
+        ['logging_configured_otherwise', 'lumascope', 'declined'],
+        ['logging_configured_otherwise', 'lumascope', 'root'],
     ]
     assert after_a_session['started'] == 'lumascope'
     assert after_a_session['root_handlers'] == [], 'a refused program start took root'

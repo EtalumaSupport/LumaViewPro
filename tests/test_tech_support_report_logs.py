@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A support report says when the logs it carries are not its process's.
 
-A process that declined LumaViewPro's log files (``start_logging(log_files=False)``)
+A process that declined LumaViewPro's log files (``configure_logging(log_files=False)``)
 wrote none, so the log folder a report collects, if there is one, is another
 LumaViewPro process's. The report states it beside the logs instead of
 passing them off as the reporting process's own; a process that started its
@@ -34,7 +34,7 @@ def test_a_report_from_a_declined_process_says_its_logs_are_another_processs(
 
     assert (logs / 'LVP_Log' / 'lumaviewpro.log').read_text() == 'another process\n'
     assert (logs / 'NOT_THIS_PROCESS.txt').read_text() == (
-        'This process started no log files (start_logging(log_files=False)). '
+        'This process started no log files (configure_logging(log_files=False)). '
         "Any logs here are another LumaViewPro process's.\n"
     )
 

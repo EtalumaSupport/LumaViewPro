@@ -7,7 +7,7 @@ src/_lumascope/lvp_logger.py configures a standard python logger for LumaViewPro
 Importing it configures nothing: no file, handler or level. A process's
 logging starts at one call -- ``start_program_logging`` by a LumaViewPro
 program, ``start_session_logging`` from a session's first call, or an
-integrator's own ``start_logging`` -- and at most once.
+integrator's own ``configure_logging`` -- and at most once.
 """
 
 import os
@@ -258,7 +258,7 @@ _BRING_UP_BUDGET_BYTES = 1 * _MB
 _RUN_START_BUDGET_BYTES = 1 * _MB
 
 # The lanes: each writes its own file and the errors log, and none reaches the
-# main log (start_logging sets each one's propagate False). The loggers are
+# main log (the start sets each one's propagate False). The loggers are
 # named here, where the modules that write to them take them; the start gives
 # them their files.
 serial_logger = logging.getLogger('LVP.serial')
@@ -295,8 +295,8 @@ _start_lock = threading.Lock()
 
 
 @api(in_process=True)
-def start_logging(*, log_files: bool = True) -> None:
-    """Start LumaViewPro's log files in this process, or say there will be none.
+def configure_logging(*, log_files: bool = True) -> None:
+    """Configure LumaViewPro's logging in this process: its log files, or none.
 
     A script logs by default: its first ``ScopeSession.load_user_settings``
     or ``ScopeSession.create`` starts the log folder, so it leaves the support
@@ -312,8 +312,8 @@ def start_logging(*, log_files: bool = True) -> None:
             then starts none either.
 
     Raises:
-        LoggingStartRefusedError: ``'logging_started_otherwise'``, the
-            process already started logging another way: a decline after
+        LoggingConfigurationRefusedError: ``'logging_configured_otherwise'``, the
+            process's logging is already configured another way: a decline after
             the files opened, the files after a decline, or either in a
             LumaViewPro program, which owns its process's logging. Nothing
             was changed. Asking for what the process has is a no-op.
@@ -331,7 +331,7 @@ def start_program_logging() -> None:
     on Windows the console window is minimized.
 
     Raises:
-        LoggingStartRefusedError: ``'logging_started_otherwise'``, a session
+        LoggingConfigurationRefusedError: ``'logging_configured_otherwise'``, a session
             or a script already started logging in this process.
     """
     _start('root', refuse_otherwise=True)
@@ -365,9 +365,9 @@ def _start(asked: str, *, refuse_otherwise: bool) -> None:
             if asked == 'root':
                 minimize_logger_window()
         elif _started != asked and refuse_otherwise:
-            from _lumascope.modules.exceptions import LoggingStartRefusedError
+            from _lumascope.modules.exceptions import LoggingConfigurationRefusedError
 
-            raise LoggingStartRefusedError(has=_started, asked=asked)
+            raise LoggingConfigurationRefusedError(has=_started, asked=asked)
 
 
 def _open_the_files(*, take_root: bool) -> None:
@@ -844,7 +844,7 @@ def log_environment_banner(
     if _started == 'declined':
         logger.info(
             '[LVP Main  ] Debug:     not read -- this process started no log files '
-            '(start_logging(log_files=False)); each session states its own level'
+            '(configure_logging(log_files=False)); each session states its own level'
         )
     else:
         logger.info(

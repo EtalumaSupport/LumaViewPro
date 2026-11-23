@@ -174,7 +174,7 @@ NaN stays a NaN, and a key keeps its type.
 - [`ZProject`](#ZProject)
 - [`build_app`](#build_app)
 - [`build_server`](#build_server)
-- [`start_logging`](#start_logging)
+- [`configure_logging`](#configure_logging)
 - [Closed sets](#closed-sets)
 - [Outcomes](#outcomes)
 - [Routes](#routes)
@@ -985,7 +985,7 @@ as its own, started, plus protocol_thread (started) and
 scope_display_thread (constructed, not started).
 
 A process that has not started its logging starts the log folder
-here, as `load_user_settings` does; `lumascope.start_logging`
+here, as `load_user_settings` does; `lumascope.configure_logging`
 called first starts it earlier, or opens no file. The settings' log
 level and autofocus score log are applied to the process's logging
 first, so every host logs as its settings say, bring-up included.
@@ -1642,7 +1642,7 @@ simulate=...)``. Reading is its own call rather than a default of
 `create` so a caller that meant to pass settings and forgot is
 refused for the missing argument instead of quietly configured
 from whatever is on disk. A process that has not started its logging
-starts the log folder here; `lumascope.start_logging(log_files=False)`
+starts the log folder here; `lumascope.configure_logging(log_files=False)`
 called first opens no file.
 
 **Args**
@@ -12879,16 +12879,16 @@ the close: SIGINT, SIGTERM or the host's `close()`.
 
 - [`RestServerNotStartedError`](#RestServerNotStartedError): `rest_server_not_started`
 
-<a id="start_logging"></a>
-## `lumascope.start_logging`
+<a id="configure_logging"></a>
+## `lumascope.configure_logging`
 
 ```python
-def start_logging(*, log_files: bool = True) -> None
+def configure_logging(*, log_files: bool = True) -> None
 ```
 
 Marks: in-process.
 
-Start LumaViewPro's log files in this process, or say there will be none.
+Configure LumaViewPro's logging in this process: its log files, or none.
 
 A script logs by default: its first `ScopeSession.load_user_settings`
 or `ScopeSession.create` starts the log folder, so it leaves the support
@@ -12905,11 +12905,11 @@ any library's do.
 
 **Raises**
 
-- `LoggingStartRefusedError`: `'logging_started_otherwise'`, the process already started logging another way: a decline after the files opened, the files after a decline, or either in a LumaViewPro program, which owns its process's logging. Nothing was changed. Asking for what the process has is a no-op.
+- `LoggingConfigurationRefusedError`: `'logging_configured_otherwise'`, the process's logging is already configured another way: a decline after the files opened, the files after a decline, or either in a LumaViewPro program, which owns its process's logging. Nothing was changed. Asking for what the process has is a no-op.
 
 **Refusals**
 
-- [`LoggingStartRefusedError`](#LoggingStartRefusedError): `logging_started_otherwise`
+- [`LoggingConfigurationRefusedError`](#LoggingConfigurationRefusedError): `logging_configured_otherwise`
 
 ## Closed sets
 
@@ -15663,30 +15663,30 @@ wrong kind, before the member reads or writes it.
 | `path_not_found` | request | 422 |
 | `wrong_extension` | request | 422 |
 
-<a id="LoggingStartRefusedError"></a>
-### `lumascope.LoggingStartRefusedError`
+<a id="LoggingConfigurationRefusedError"></a>
+### `lumascope.LoggingConfigurationRefusedError`
 
 A refusal; bases `Refusal`, `Exception`.
 
-LumaViewPro's logging was not started as asked: this process already started it another way.
+LumaViewPro's logging was not configured as asked: it is already configured another way.
 
-Raised by `start_logging` when the process's logging already started
-otherwise: a decline after the log files opened, the files after a
-decline, or either in a process a LumaViewPro program owns. A process's
-logging starts once and is never changed, so nothing was changed: files
-already open stay open and keep being written, and a process that
-declined them opens none. Asking for what the process already has is no
-refusal.
+Raised by `configure_logging` when the process's logging is already
+configured otherwise: a decline after the log files opened, the files
+after a decline, or either in a process a LumaViewPro program owns. A
+process's logging is configured once and never changed, so nothing was
+changed: files already open stay open and keep being written, and a
+process that declined them opens none. Asking for what the process
+already has is no refusal.
 
 **Attributes**
 
-- `reason`: `'logging_started_otherwise'`.
-- `has`: How this process's logging started: `'declined'`, `'lumascope'` or `'root'`.
+- `reason`: `'logging_configured_otherwise'`.
+- `has`: How this process's logging is configured: `'declined'`, `'lumascope'` or `'root'`.
 - `asked`: What the refused call asked for, in the same words.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `logging_started_otherwise` | restart | 503 |
+| `logging_configured_otherwise` | restart | 503 |
 
 <a id="LowSystemResourcesNotice"></a>
 ### `lumascope.LowSystemResourcesNotice`

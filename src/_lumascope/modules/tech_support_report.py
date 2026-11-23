@@ -2618,7 +2618,7 @@ class TechSupportReport:
         if logging_started() == 'declined':
             (tmp / 'logs').mkdir(exist_ok=True)
             (tmp / 'logs' / 'NOT_THIS_PROCESS.txt').write_text(
-                'This process started no log files (start_logging(log_files=False)). '
+                'This process started no log files (configure_logging(log_files=False)). '
                 "Any logs here are another LumaViewPro process's.\n"
             )
         # This process's log files are under its own installation; the
