@@ -180,7 +180,7 @@ def test_a_summed_still_states_its_first_frames_start_and_its_facts(sim_scope, s
     # plus its own epoch), and what it was exposed under.
     exposed = sim.exposed_under(record.frame_id)
     assert record.camera_timestamp_ticks == exposed.started_ticks
-    assert record.exposure_ms == exposed.exposure_us / 1000.0
+    assert record.exposure_ms == exposed.exposure_ms
     assert record.gain_db == exposed.gain_db
     started = _wall_time_of_steady(exposed.started_ticks - sim._clock_offset_ns)
     # Within the latch's uncertainty, and 2 ms for the two wall clock reads'

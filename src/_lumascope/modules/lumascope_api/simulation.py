@@ -100,7 +100,7 @@ api_fields('after_s', 'for_s')(SimulatedStall)
 api_fields(
     'frame_id',
     'started_ticks',
-    'exposure_us',
+    'exposure_ms',
     'gain_db',
     'black_level',
     'illumination_ma',

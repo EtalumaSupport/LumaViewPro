@@ -90,7 +90,7 @@ CASES = (
         'exposure',
         lambda s: s.camera.set_exposure_ms(10.0),
         lambda s: (s.camera.set_exposure_ms(20.0), s.camera.read_exposure_ms())[1],
-        lambda e, ms: _same(e.exposure_us, ms * 1000.0),
+        lambda e, ms: _same(e.exposure_ms, ms),
     ),
     Case(
         'gain',

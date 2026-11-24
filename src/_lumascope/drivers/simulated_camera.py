@@ -96,7 +96,7 @@ class SensorExposure:
             chunk carries it.
         started_ticks: The camera's clock when the exposure started, as the
             frame's ``Timestamp`` chunk carries it.
-        exposure_us: The exposure applied.
+        exposure_ms: The exposure applied.
         gain_db: The gain applied.
         black_level: The black level applied.
         illumination_ma: The LED current lighting the sample, summed over
@@ -124,7 +124,7 @@ class SensorExposure:
 
     frame_id: int
     started_ticks: int
-    exposure_us: float
+    exposure_ms: float
     gain_db: float
     black_level: float
     illumination_ma: float
@@ -1122,7 +1122,7 @@ class SimulatedCamera(Camera):
                         )
                     # The frame's own exposure is the inter-frame interval,
                     # bounded below by the delivery ceiling.
-                    interval_ns = round(self._frame_interval_s(started.exposure_us) * 1e9)
+                    interval_ns = round(self._frame_interval_s(started.exposure_ms * 1000.0) * 1e9)
                     in_flight.append((started, next_due + interval_ns + readout_ns))
                 next_due = max(next_due + interval_ns, now)
                 continue
@@ -1687,7 +1687,7 @@ class SimulatedCamera(Camera):
         return SensorExposure(
             frame_id=self._frames_started,
             started_ticks=started_ns + self._clock_offset_ns,
-            exposure_us=self._input_at('exposure_us', started_ns),
+            exposure_ms=self._input_at('exposure_us', started_ns) / 1000.0,
             gain_db=self._input_at('gain_db', started_ns),
             black_level=self._input_at('black_level', started_ns),
             illumination_ma=illumination_ma,
@@ -1783,7 +1783,7 @@ class SimulatedCamera(Camera):
 
         The gain is held in dB, so it multiplies the signal by 10^(dB/20).
         """
-        exposure_s = exposure.exposure_us / 1_000_000.0
+        exposure_s = exposure.exposure_ms / 1000.0
         return exposure_s * 10.0 ** (exposure.gain_db / 20.0) * exposure.light
 
     def _drawing_registers(self) -> _DrawingRegisters:

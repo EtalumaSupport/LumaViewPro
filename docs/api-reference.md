@@ -12143,7 +12143,7 @@ gain its pixels were made at.
 
 - <a id="SensorExposure.black_level"></a>`black_level`: `float` -- The black level applied.
 - <a id="SensorExposure.depth_of_field_um"></a>`depth_of_field_um`: `float | None` -- The objective's depth of field the frame was focused through; None when no objective is known.
-- <a id="SensorExposure.exposure_us"></a>`exposure_us`: `float` -- The exposure applied.
+- <a id="SensorExposure.exposure_ms"></a>`exposure_ms`: `float` -- The exposure applied.
 - <a id="SensorExposure.frame_id"></a>`frame_id`: `int` -- The camera's frame counter, as the frame's `FrameID` chunk carries it.
 - <a id="SensorExposure.gain_db"></a>`gain_db`: `float` -- The gain applied.
 - <a id="SensorExposure.illumination_ma"></a>`illumination_ma`: `float` -- The LED current lighting the sample, summed over the lit addresses; 0 for an unlit field.

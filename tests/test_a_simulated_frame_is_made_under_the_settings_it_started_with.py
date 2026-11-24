@@ -79,7 +79,7 @@ def _mean(frame) -> float:
 @pytest.mark.parametrize(
     ('change', 'setting', 'new'),
     [
-        (lambda cam: cam.exposure_t(20.0), 'exposure_us', 20_000.0),
+        (lambda cam: cam.exposure_t(20.0), 'exposure_ms', 20.0),
         (lambda cam: cam.gain(20.0), 'gain_db', 20.0),
         (lambda cam: cam.set_black_level(60.0), 'black_level', 60.0),
     ],
@@ -202,11 +202,11 @@ def test_a_frame_leaves_the_pipeline_its_own_period_after_it_starts():
         grab_a_frame_made_after_now(cam)
         frames = _next_frames(cam, 3)
         clock_offset_ns = cam.camera_clock_ticks() - host_clock.steady_ns()
-        made_under = [cam.exposed_under(f.chunks['FrameID']).exposure_us for f in frames]
+        made_under = [cam.exposed_under(f.chunks['FrameID']).exposure_ms for f in frames]
     finally:
         cam.stop_grabbing()
 
-    assert made_under == [exposure_ms * 1000.0] * 3, f'precondition: {made_under}'
+    assert made_under == [exposure_ms] * 3, f'precondition: {made_under}'
     lags_s = [(f.arrived_ns - (f.chunks['Timestamp'] - clock_offset_ns)) / 1e9 for f in frames]
     # Late by the loop's wake-up at most, and never a second exposure late.
     assert all(expected_s - 0.001 <= lag < expected_s + period_s / 2 for lag in lags_s), (
