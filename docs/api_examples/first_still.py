@@ -17,7 +17,9 @@ from lumascope import ScopeSession
 
 
 def main():
-    session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
+    session = ScopeSession.create(
+        ScopeSession.load_user_settings('.'), source_path='.', simulate=True
+    )
     try:
         # The startup motion: every axis homed, then the turret. A move
         # before it is refused, because the position is unknown.

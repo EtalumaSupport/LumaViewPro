@@ -42,7 +42,9 @@ def report(still):
 def main():
     # No settings_file is passed, so these writes are not saved to the
     # user's configuration.
-    session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
+    session = ScopeSession.create(
+        ScopeSession.load_user_settings('.'), source_path='.', simulate=True
+    )
     try:
         session.run_application_session()
         # A new install has not been told which objective is mounted, and a

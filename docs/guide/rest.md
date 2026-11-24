@@ -75,7 +75,10 @@ whoever serves it. The header deadline and the address check below are
 To test a client with no server, no port and no instance lock, send its
 requests through FastAPI's `TestClient`:
 `with fastapi.testclient.TestClient(build_app(session)) as client:`. The
-`with` runs the application's startup, which the event stream needs.
+`with` runs the application's startup, which the event stream and every job
+need: a job started through a client outside it reads `running` forever,
+though its work ended. Make every
+client, a second one included, with its own `with`.
 `TestClient` needs the HTTP client package that `requirements-dev.txt` pins.
 
 **Addressed to it.** The server answers only a request addressed to its own

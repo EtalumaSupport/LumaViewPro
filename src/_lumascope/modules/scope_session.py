@@ -13,7 +13,9 @@ Usage
 
     session = ScopeSession.create(settings=settings, source_path=source_path)
     # or, with no GUI, from the user's configuration on disk:
-    session = ScopeSession.create(ScopeSession.load_user_settings(source_path), simulate=True)
+    session = ScopeSession.create(
+        ScopeSession.load_user_settings(source_path), source_path=source_path, simulate=True
+    )
 """
 
 import concurrent.futures
@@ -2209,7 +2211,8 @@ class ScopeSession:
 
         For a host with no GUI -- a script, a server -- to pass to
         ``create``: ``create(ScopeSession.load_user_settings(root),
-        simulate=...)``. Reading is its own call rather than a default of
+        source_path=root, simulate=...)``, the settings and the scope from
+        one installation. Reading is its own call rather than a default of
         ``create`` so a caller that meant to pass settings and forgot is
         refused for the missing argument instead of quietly configured
         from whatever is on disk. A process that has not started its logging

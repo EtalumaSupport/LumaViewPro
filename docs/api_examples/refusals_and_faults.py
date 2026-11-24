@@ -30,7 +30,9 @@ def refused(attempt):
 
 
 def main():
-    session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
+    session = ScopeSession.create(
+        ScopeSession.load_user_settings('.'), source_path='.', simulate=True
+    )
     try:
         scope = session.scope
 

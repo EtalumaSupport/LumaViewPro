@@ -22,7 +22,9 @@ WELLS = ('B2', 'B3', 'B4')
 
 
 def main():
-    session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
+    session = ScopeSession.create(
+        ScopeSession.load_user_settings('.'), source_path='.', simulate=True
+    )
     try:
         session.run_application_session()
         # A new install has not been told which objective is mounted, and a
