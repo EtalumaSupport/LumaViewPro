@@ -19,7 +19,7 @@ import tifffile
 # ---------------------------------------------------------------------------
 
 from _lumascope.modules import post_derivation
-from _lumascope.modules.stitch_mode import StitchMode
+from _lumascope.modules.stitch_mode import StitchAlgorithm, StitchMode
 from _lumascope.modules.stitch_algorithms import (
     align_tile_positions,
     estimate_overlap_offset,
@@ -47,6 +47,16 @@ from _lumascope.modules.channel_record import release_color
 from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED1, LED2
 from tests.installation_fixtures import shipped_grids
+
+
+def _tiles_read_as(monkeypatch, pixels: np.ndarray) -> None:
+    """Every tile reads as *pixels*, its header and its pixels alike."""
+    # a stand-in by design: the subject is the algorithm chain's routing, and
+    # its tiles are interchangeable
+    monkeypatch.setattr(
+        '_lumascope.modules.stitching_core._read_tile_with_depth', lambda *_: (pixels, 8, None)
+    )
+    monkeypatch.setattr(image_utils, 'read_image_geometry', lambda *_: (pixels.shape, pixels.dtype))
 
 
 class TestStitchLoudDegradeOnMissingPixelSize:
@@ -449,10 +459,7 @@ class TestSimplePositionStitcher:
                 },
             }
 
-        monkeypatch.setattr(
-            '_lumascope.modules.stitching_core._read_tile_with_depth',
-            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
-        )
+        _tiles_read_as(monkeypatch, np.ones((100, 100), dtype=np.uint8))
         monkeypatch.setattr(
             '_lumascope.modules.stitching_core.overlap_stitcher', fail('overlap_stitcher')
         )
@@ -529,10 +536,7 @@ class TestSimplePositionStitcher:
         monkeypatch.setattr(
             '_lumascope.modules.stitching_core.stage_position_stitcher', stage_success
         )
-        monkeypatch.setattr(
-            '_lumascope.modules.stitching_core._read_tile_with_depth',
-            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
-        )
+        _tiles_read_as(monkeypatch, np.ones((100, 100), dtype=np.uint8))
 
         with caplog.at_level(logging.WARNING, logger='LVP.modules.stitching_core'):
             result = channel_aware_stitcher(
@@ -602,10 +606,7 @@ class TestSimplePositionStitcher:
         monkeypatch.setattr(
             '_lumascope.modules.stitching_core.simple_position_stitcher', simple_success
         )
-        monkeypatch.setattr(
-            '_lumascope.modules.stitching_core._read_tile_with_depth',
-            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
-        )
+        _tiles_read_as(monkeypatch, np.ones((100, 100), dtype=np.uint8))
 
         result = channel_aware_stitcher(
             tmp_path, df, pixel_size_um=1.0, channel_colors=release_colors()
@@ -682,10 +683,7 @@ class TestSimplePositionStitcher:
         monkeypatch.setattr(
             '_lumascope.modules.stitching_core.simple_position_stitcher', simple_success
         )
-        monkeypatch.setattr(
-            '_lumascope.modules.stitching_core._read_tile_with_depth',
-            lambda *_args, **_kwargs: (np.zeros((100, 100), dtype=np.uint8), 8, None),
-        )
+        _tiles_read_as(monkeypatch, np.zeros((100, 100), dtype=np.uint8))
 
         result = channel_aware_stitcher(
             tmp_path,
@@ -1287,10 +1285,7 @@ class TestStageConstrainedStitchModes:
                 'metadata': {'center': {'x': 0.05, 'y': 0.0}},
             }
 
-        monkeypatch.setattr(
-            '_lumascope.modules.stitching_core._read_tile_with_depth',
-            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
-        )
+        _tiles_read_as(monkeypatch, np.ones((100, 100), dtype=np.uint8))
         monkeypatch.setattr('_lumascope.modules.stitching_core.overlap_stitcher', should_not_run)
         monkeypatch.setattr(
             '_lumascope.modules.stitching_core.stage_position_stitcher', stage_success
@@ -1363,10 +1358,7 @@ class TestStageConstrainedStitchModes:
                 'metadata': {'center': {'x': 0.025, 'y': 0.0}},
             }
 
-        monkeypatch.setattr(
-            '_lumascope.modules.stitching_core._read_tile_with_depth',
-            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
-        )
+        _tiles_read_as(monkeypatch, np.ones((100, 100), dtype=np.uint8))
         monkeypatch.setattr('_lumascope.modules.stitching_core.fft_phase_stitcher', fft_success)
         monkeypatch.setattr(
             '_lumascope.modules.stitching_core.overlap_stitcher',
@@ -1412,3 +1404,66 @@ class TestStageConstrainedStitchModes:
         filtered = stitcher._filter_ignored_types(frame)
 
         assert filtered['Filepath'].tolist() == ['raw_bf.tiff']
+
+
+class TestAStitchFallsBackOnlyFromItsAlgorithmsOwnFailures:
+    """A stitch algorithm that cannot run its match (an OpenCV error) or
+    cannot hold its canvas (out of memory) gives way to the next one, and the
+    stitch is degraded; a tile the stitch cannot use is refused once, before
+    any algorithm; anything else raised is a defect, and ends the build."""
+
+    @staticmethod
+    def _tiles(tmp_path, second_shape=(100, 100)):
+        rng = np.random.default_rng(0)
+        tifffile.imwrite(str(tmp_path / 'a.tiff'), rng.integers(0, 256, (100, 100), np.uint8))
+        tifffile.imwrite(str(tmp_path / 'b.tiff'), rng.integers(0, 256, second_shape, np.uint8))
+        # 50 um apart at 1 um a pixel: tiles of 100 pixels overlap by half.
+        return pd.DataFrame(
+            [
+                {'Filepath': name, 'X': x, 'Y': 0.0, 'Objective': '10x Oly', 'channel': 'BF'}
+                for name, x in (('a.tiff', 0.0), ('b.tiff', 0.05))
+            ]
+        )
+
+    def test_registration_out_of_memory_falls_back_to_placement(self, tmp_path, monkeypatch):
+        df = self._tiles(tmp_path)
+
+        def stitch_registered_tiles(*_args, **_kwargs):
+            # a stand-in by design: a canvas too large for the host, which no
+            # test folder produces
+            raise MemoryError
+
+        monkeypatch.setattr(
+            '_lumascope.modules.stitching_core.stitch_registered_tiles', stitch_registered_tiles
+        )
+
+        result = channel_aware_stitcher(
+            tmp_path, df, pixel_size_um=1.0, channel_colors=release_colors()
+        )
+
+        assert result['status'] is True
+        assert result['metadata']['algorithm'] == StitchAlgorithm.STAGE_POSITION
+        assert result['metadata']['fallback_from'] == 'quality_local_ncc'
+
+    def test_a_blend_mode_the_stitch_does_not_know_is_a_defect(self, tmp_path):
+        df = self._tiles(tmp_path)
+
+        with pytest.raises(ValueError, match='Unknown stitch blend mode'):
+            overlap_stitcher(
+                tmp_path,
+                df,
+                pixel_size_um=1.0,
+                blend_mode='no such mode',
+                channel_colors=release_colors(),
+            )
+
+    def test_mono_and_colour_tiles_are_refused_once_before_any_algorithm(self, tmp_path):
+        from _lumascope.modules.exceptions import InputFramesUnusableError
+
+        df = self._tiles(tmp_path, second_shape=(100, 100, 3))
+
+        with pytest.raises(InputFramesUnusableError) as refused:
+            channel_aware_stitcher(tmp_path, df, pixel_size_um=1.0, channel_colors=release_colors())
+
+        assert refused.value.reason == 'geometry'
+        assert 'a.tiff 100x100' in str(refused.value) and 'b.tiff 100x100x3' in str(refused.value)

@@ -327,6 +327,21 @@ def test_a_frame_the_system_will_not_open_fails_its_group_and_the_others_are_bui
     assert not any(name.startswith('A1') for name in made), made
 
 
+def test_a_stitch_tile_cut_short_fails_its_group_once_in_the_readers_words(tmp_path):
+    # Its header still reads, so its pixels fail inside each algorithm, where
+    # the last fallback once told it under its own name.
+    folder = _tiles(tmp_path)
+    _truncate(folder / 'A1_BF_T1_0000.tiff')
+
+    with pytest.raises(PostProcessingFailedError) as incomplete:
+        Stitcher(has_turret=False).load_folder(
+            path=folder, tiling_grids=shipped_grids(), channel_colors=release_colors()
+        )
+
+    (error,) = incomplete.value.errors
+    assert 'A1_BF_T1_0000.tiff' in error and 'stitching failed' not in error, error
+
+
 def test_a_hyperstack_plane_the_disk_fails_to_read_during_the_write_fails_its_group(
     tmp_path, monkeypatch
 ):

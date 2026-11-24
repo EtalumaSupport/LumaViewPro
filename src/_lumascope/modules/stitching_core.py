@@ -12,6 +12,7 @@ import pathlib
 import time
 from collections.abc import Callable
 
+import cv2
 import numpy as np
 import pandas as pd
 
@@ -19,6 +20,7 @@ import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.image_mode as image_mode
 import _lumascope.modules.image_utils as image_utils
 import _lumascope.modules.channel_record as channel_record
+from _lumascope.modules.exceptions import InputFramesUnusableError
 from _lumascope.modules.stitch_mode import StitchAlgorithm, StitchMode
 from _lumascope.modules.stitch_algorithms import (
     estimate_overlap_offset,
@@ -317,7 +319,10 @@ def overlap_stitcher(
             stitched_img.shape,
             stitched_img.dtype,
         )
-    except Exception as exc:
+    except (cv2.error, MemoryError) as exc:
+        # A match that cannot run, or a canvas too large: the next algorithm
+        # may still place the tiles. A tile it cannot read is refused as
+        # itself, and anything else is a defect.
         return _failure(
             'overlap_stitcher',
             f'overlap stitching failed: {type(exc).__name__}: {exc}',
@@ -444,7 +449,8 @@ def stage_position_stitcher(
             stitched_img.shape,
             stitched_img.dtype,
         )
-    except Exception as exc:
+    except MemoryError as exc:
+        # A canvas too large: the simple grid's may still fit.
         return _failure(
             'stage_position_stitcher',
             f'stage-position stitching failed: {type(exc).__name__}: {exc}',
@@ -558,7 +564,7 @@ def simple_position_stitcher(
             stitched_img.shape,
             stitched_img.dtype,
         )
-    except Exception as exc:
+    except MemoryError as exc:
         return _failure(
             'simple_position_stitcher',
             f'simple-position stitching failed: {type(exc).__name__}: {exc}',
@@ -592,8 +598,20 @@ def channel_aware_stitcher(
     NCC. Both use recorded stage geometry and retain source pixels.
     """
     mode = StitchMode(stitching_mode)
-    sample, _, _ = _read_tile_with_depth(path, df.iloc[0]['Filepath'])
-    overlap = infer_stage_overlap(df, pixel_size_um=pixel_size_um, tile_shape=sample.shape[:2])
+    # Tiles of other sizes, or mono beside colour, have no canvas any
+    # algorithm can place them on: refused once, from their headers, before
+    # any is tried.
+    shapes = {name: image_utils.read_image_geometry(path / name)[0] for name in df['Filepath']}
+    if len(set(shapes.values())) > 1:
+        detail = ', '.join(
+            f'{name} {"x".join(str(n) for n in shape)}' for name, shape in shapes.items()
+        )
+        raise InputFramesUnusableError(
+            f'Cannot stitch these tiles: they are not all one size and kind ({detail}).',
+            'geometry',
+        )
+    tile_shape = next(iter(shapes.values()))[:2]
+    overlap = infer_stage_overlap(df, pixel_size_um=pixel_size_um, tile_shape=tile_shape)
     logger.info(
         '[Stitch] mode=%s inferred_overlap x=%s%% y=%s%% has_overlap=%s source=%s',
         mode,
