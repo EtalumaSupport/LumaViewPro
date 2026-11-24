@@ -32,7 +32,8 @@ from _lumascope.modules.exceptions import (
     LiveFolderPathRefusedError,
     Remedy,
 )
-from _lumascope.modules.notification_center import _UNTYPED_FAULT_BODY, UNTYPED_FAULT_TITLE
+from _lumascope.modules.exceptions import INTERNAL_FAULT_SENTENCE
+from _lumascope.modules.notification_center import UNTYPED_FAULT_TITLE
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest.app import build_app
 from tests.scope_fakes import home_sim_scope
@@ -126,7 +127,7 @@ def test_a_defect_is_500_in_the_generic_words_and_its_own_are_logged_under_the_r
     assert (body['type'], body['title'], body['detail']) == (
         'about:blank',
         UNTYPED_FAULT_TITLE,
-        _UNTYPED_FAULT_BODY,
+        INTERNAL_FAULT_SENTENCE,
     )
     assert (body['kind'], body['reason']) == ('fault', None)
     # The developer's words reach the log the client's answer leads to.
@@ -449,7 +450,7 @@ def test_a_call_the_server_cannot_start_is_a_fault_and_holds_no_count(client, mo
         failed = fresh.get('/api/v1/app_version')
 
     body = _problem(failed, 500)
-    assert (body['kind'], body['detail']) == ('fault', _UNTYPED_FAULT_BODY)
+    assert (body['kind'], body['detail']) == ('fault', INTERNAL_FAULT_SENTENCE)
     # The failed start left no call counted: one call still fits under a limit of one.
     monkeypatch.setattr(_lumascope.rest.jobs, 'LIVE_LIMIT', 1)
     assert client.get('/api/v1/app_version').status_code == 200

@@ -306,13 +306,22 @@ def _carriers(reason: str, cls: type) -> list[type]:
     ]
 
 
+# A failure that is LumaViewPro's own, never the scope's or the person's: the
+# log holds its cause for us, and a support report carries the log to us. It
+# names no menu, since a REST or headless caller reads the same words.
+INTERNAL_FAULT_SENTENCE = (
+    'LumaViewPro hit an internal fault. Please send a support report so it can be fixed.'
+)
+
+
 class Fault(LumascopeError):  # noqa: N818 -- a kind of outcome, not an error
     """Something was attempted and failed.
 
     A fault's words are a developer's unless its type says they are written
-    for the person: the reporter then shows them, and otherwise shows a
-    generic sentence and keeps the words in the log. Its reasons map to no
-    cause: a fault answers 500 whatever was asked.
+    for the person: the reporter then shows them, and otherwise shows its
+    type's one sentence of what failed and what to do, and keeps the words
+    in the log. Its reasons map to no cause: a fault answers 500 whatever
+    was asked.
     """
 
     # True when the class writes its message for the person who will read
@@ -320,6 +329,11 @@ class Fault(LumascopeError):  # noqa: N818 -- a kind of outcome, not an error
     # ahead of a value a fault inherits from its subject's class, and hide
     # it. Unset reads as False.
     words_for_person: ClassVar[bool]
+    # What a person reads for a fault whose message is a developer's: what
+    # failed and what they can do, the same for every raise of the type.
+    # Declared, never defaulted, for the same reason; a production fault
+    # declares one or the other (tests/guards/test_every_fault_has_words_for_a_person.py).
+    person_words: ClassVar[str]
     _needs_cause = False
 
 

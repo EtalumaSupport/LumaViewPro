@@ -60,6 +60,10 @@ class _IDSAbsentError(Fault, RuntimeError):
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'ids_absent': None}
     title = 'Camera Not Found'
+    person_words = (
+        "No camera was found on USB. Check its USB cable and the microscope's power, "
+        'then restart LumaViewPro.'
+    )
 
 
 # IDS Library.Close() shuts down the entire SDK (not per-device).

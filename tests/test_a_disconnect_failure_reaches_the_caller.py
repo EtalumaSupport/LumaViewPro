@@ -24,7 +24,7 @@ from _lumascope.modules.exceptions import (
     ScopeDisconnectError,
 )
 from _lumascope.modules.lumascope_api import Lumascope
-from _lumascope.modules.notification_center import _UNTYPED_FAULT_BODY, outcome_of
+from _lumascope.modules.notification_center import outcome_of
 from _lumascope.modules.scope_parts import Board
 from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import build_scope
@@ -52,8 +52,7 @@ def test_the_fault_names_the_board_and_step_in_its_own_words_and_is_chained(sim_
     # The driver's error carries no reason; a client reads the failure, never the error.
     assert fault.failures == (DisconnectFailure(Board.LED, DisconnectStep.DISCONNECT, None),)
     assert 'LED controller did not shut down cleanly' in str(fault)
-    assert outcome_of(fault).for_person, 'the person reads its words, not the generic body'
-    assert str(fault) != _UNTYPED_FAULT_BODY
+    assert outcome_of(fault).shown_words == str(fault), 'the person reads its own words'
 
 
 def test_two_boards_failing_are_one_fault_naming_both_in_teardown_order(sim_scope):

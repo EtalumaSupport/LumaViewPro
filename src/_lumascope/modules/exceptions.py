@@ -15,7 +15,13 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
 from _lumascope.lib.real_numbers import is_integer_number, is_real_number
-from _lumascope.lib.lumascope_error import Fault, LumascopeError, RefusalCause, _Umbrella
+from _lumascope.lib.lumascope_error import (
+    INTERNAL_FAULT_SENTENCE,
+    Fault,
+    LumascopeError,
+    RefusalCause,
+    _Umbrella,
+)
 from _lumascope.lib.stage_interlock import (
     INTERLOCK_TITLES,
     REFUSED_BEFORE_MOTION,
@@ -45,13 +51,6 @@ if TYPE_CHECKING:
     from _lumascope.modules.lumascope_api.imaging import SlowCameraStop
     from _lumascope.modules.plugins import PluginNotLoaded
     from _lumascope.modules.tech_support_report import SupportReportKind
-
-# A failure that is LumaViewPro's own, never the scope's or the person's: the
-# log holds its cause for us, and a support report carries the log to us. It
-# names no menu, since a REST or headless caller reads the same words.
-INTERNAL_FAULT_SENTENCE = (
-    'LumaViewPro hit an internal fault. Please send a support report so it can be fixed.'
-)
 
 # A camera that is connected and not delivering frames: a run refused at its
 # start and a capture refused at its call carry the one heading.
@@ -5987,6 +5986,7 @@ class FrameDepthError(Fault, Exception):
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'frame_depth_exceeded': None}
     title = 'Frame Depth Exceeded'
+    person_words = INTERNAL_FAULT_SENTENCE
 
     def __init__(self, value: int, significant_bits: int):
         super().__init__(

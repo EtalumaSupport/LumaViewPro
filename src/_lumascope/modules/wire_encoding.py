@@ -71,7 +71,7 @@ import typing
 import warnings
 from collections.abc import Callable, Iterable, Mapping
 
-from _lumascope.lib.lumascope_error import Fault, RefusalCause
+from _lumascope.lib.lumascope_error import INTERNAL_FAULT_SENTENCE, Fault, RefusalCause
 from _lumascope.modules.api_surface import (
     API,
     Admission,
@@ -137,6 +137,7 @@ class NoWireFormError(Fault, TypeError):
 
     causes: typing.ClassVar[dict[str, RefusalCause | None]] = {'no_wire_form': None}
     title = 'No Wire Form'
+    person_words = INTERNAL_FAULT_SENTENCE
     # Where in the walked value it was found, each container prefixing its
     # step as the fault passes back up; the walk's top names it whole.
     _at = ''

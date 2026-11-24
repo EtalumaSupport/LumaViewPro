@@ -17,6 +17,7 @@ import pytest
 
 from _lumascope.drivers.exceptions import CameraReadFailedError, LedFirmwareWedgedError
 from _lumascope.modules.exceptions import (
+    INTERNAL_FAULT_SENTENCE,
     CaptureFailedError,
     RunWaitExpiredError,
     HardwareCommandRefusedError,
@@ -110,18 +111,19 @@ class TestAFault:
         # display post writes none of its own beside it.
         assert _records(caplog) == [(OUTCOMES, logging.ERROR, True)]
 
-    def test_typed_in_a_developer_s_words_is_shown_under_its_title_in_the_generic_sentence(
+    def test_typed_in_a_developer_s_words_is_shown_under_its_title_in_its_types_sentence(
         self, centre
     ):
         # A driver fault carries the SDK's text; the person reads which fault
-        # it was, and the log keeps the words.
+        # it was and what to do, and the log keeps the words.
         fault = _raised(CameraReadFailedError('BlackLevel read failed: RuntimeException: x'))
         centre.report_outcome(fault, solicited=False, category='Camera', untyped_title='Failed')
 
         assert [(n.title, n.message) for n in centre.shown] == [
             (
                 'Camera Read Failed',
-                'The operation did not complete. Check the main log for details.',
+                'The camera did not answer when LumaViewPro read its settings. Check the '
+                "camera's USB cable; if it happens again, restart LumaViewPro.",
             )
         ]
 
@@ -146,12 +148,10 @@ class TestAFault:
             (Severity.ERROR, 'Capture Failed', str(fault))
         ]
 
-    def test_untyped_is_shown_in_the_generic_sentence(self, centre):
+    def test_an_exception_of_no_kind_is_told_as_lumaviewpros_own_fault(self, centre):
         centre.report_outcome(_raised(KeyError('slot')), solicited=False, category='Task:x')
 
-        assert [n.message for n in centre.shown] == [
-            'The operation did not complete. Check the main log for details.'
-        ]
+        assert [n.message for n in centre.shown] == [INTERNAL_FAULT_SENTENCE]
         assert [n.title for n in centre.shown] == ['Operation failed']
 
 

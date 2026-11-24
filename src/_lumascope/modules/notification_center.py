@@ -31,6 +31,7 @@ from enum import StrEnum
 
 from _lumascope.lib import profile_trace
 from _lumascope.modules.exceptions import (
+    INTERNAL_FAULT_SENTENCE,
     Notice,
     Quiet,
     Refusal,
@@ -46,7 +47,6 @@ logger = logging.getLogger('LVP.notifications')
 # on the notifications logger, so an outcome is never read as two events.
 _outcome_logger = logging.getLogger('LVP.outcomes')
 
-_UNTYPED_FAULT_BODY = 'The operation did not complete. Check the main log for details.'
 # The heading of a fault whose type declares none, where no catch names one.
 UNTYPED_FAULT_TITLE = 'Operation failed'
 
@@ -151,6 +151,10 @@ class Outcome:
         for_person: Whether ``words`` are written for the person: a
             refusal's, a notice's, a quiet outcome's, and a fault's whose type
             writes them so. Any other fault's are a developer's.
+        shown_words: What a person reads: ``words`` when written for one;
+            else its type's ``person_words``; else, for an exception that
+            declares neither, LumaViewPro's own fault, the internal-fault
+            sentence, which asks for a support report.
         reason: Its machine-readable code; empty when its type declares none.
         remedy: The one action that answers it, when it has one.
         fatal: A fault that ends what was running.
@@ -164,15 +168,11 @@ class Outcome:
     title: str | None
     words: str
     for_person: bool
+    shown_words: str
     reason: str
     remedy: Remedy | None
     fatal: bool
     cause: RefusalCause | None = None
-
-    @property
-    def shown_words(self) -> str:
-        """What a person reads: ``words`` when written for one, else the generic sentence."""
-        return self.words if self.for_person else _UNTYPED_FAULT_BODY
 
 
 def outcome_of(exception: BaseException) -> Outcome:
@@ -196,14 +196,20 @@ def outcome_of(exception: BaseException) -> Outcome:
         kind = OutcomeKind.FAULT
     words = _outcome_words(exception)
     fault = kind == OutcomeKind.FAULT
+    # A fault's words are a developer's -- a Python class name, a repr --
+    # unless its type says it writes them for the person; otherwise the
+    # person reads its type's sentence and the log carries the rest.
+    for_person = not fault or (getattr(exception, 'words_for_person', False) and bool(words))
     return Outcome(
         kind=kind,
         title=getattr(exception, 'title', None) or None,
         words=words,
-        # A fault's words are a developer's -- a Python class name, a repr --
-        # unless its type says it writes them for the person; otherwise the
-        # person reads a generic sentence and the log carries the rest.
-        for_person=not fault or (getattr(exception, 'words_for_person', False) and bool(words)),
+        for_person=for_person,
+        shown_words=(
+            words
+            if for_person
+            else getattr(type(exception), 'person_words', INTERNAL_FAULT_SENTENCE)
+        ),
         reason=getattr(exception, 'reason', None) or '',
         remedy=getattr(exception, 'remedy', None),
         fatal=fault and bool(getattr(exception, 'fatal', False)),

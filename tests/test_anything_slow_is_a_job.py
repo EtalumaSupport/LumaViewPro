@@ -32,7 +32,8 @@ from fastapi.testclient import TestClient
 
 import _lumascope.rest.jobs
 from _lumascope.modules import wall_time
-from _lumascope.modules.notification_center import _UNTYPED_FAULT_BODY, UNTYPED_FAULT_TITLE
+from _lumascope.modules.exceptions import INTERNAL_FAULT_SENTENCE
+from _lumascope.modules.notification_center import UNTYPED_FAULT_TITLE
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest import problems
 from _lumascope.rest.app import build_app
@@ -195,7 +196,7 @@ def test_a_job_that_fails_reads_200_with_its_problem(client, session, monkeypatc
     assert (job['error']['status'], job['error']['title'], job['error']['detail']) == (
         500,
         UNTYPED_FAULT_TITLE,
-        _UNTYPED_FAULT_BODY,
+        INTERNAL_FAULT_SENTENCE,
     )
 
 

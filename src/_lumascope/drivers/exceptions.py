@@ -5,7 +5,7 @@
 from collections.abc import Mapping
 from typing import ClassVar
 
-from _lumascope.lib.lumascope_error import Fault, RefusalCause, _Umbrella
+from _lumascope.lib.lumascope_error import INTERNAL_FAULT_SENTENCE, Fault, RefusalCause, _Umbrella
 from _lumascope.lib.stage_interlock import INTERLOCK_TITLES
 
 
@@ -61,6 +61,10 @@ class MotionInterlockError(Fault, HardwareError):
     # Its words are the driver's record of the refusal; the person reads the
     # API's refusal, which says which interlock is open.
     words_for_person = False
+    person_words = (
+        'The microscope would not move because its lid is open or its stage has no '
+        "power. Close the lid and check the stage's power, then try again."
+    )
 
     def __init__(self, reason: str, *, moved: bool, stopped: bool):
         super().__init__(f'motion interlock open: {reason} (moved={moved}, stopped={stopped})')
@@ -81,6 +85,10 @@ class BoardNoReplyError(Fault, HardwareError):
     title = 'Board Did Not Answer'
 
     words_for_person = False
+    person_words = (
+        "A controller board in the microscope did not answer. Check the microscope's "
+        'USB cable and power, then try again.'
+    )
 
 
 class BoardReplyUnreadableError(Fault, HardwareError):
@@ -94,6 +102,10 @@ class BoardReplyUnreadableError(Fault, HardwareError):
     title = 'Board Reply Unreadable'
 
     words_for_person = False
+    person_words = (
+        'A controller board in the microscope answered, and LumaViewPro could not read '
+        'the answer. Try again; if it happens again, restart LumaViewPro.'
+    )
 
 
 class BoardReportedError(Fault, HardwareError):
@@ -107,6 +119,10 @@ class BoardReportedError(Fault, HardwareError):
     title = 'Board Reported an Error'
 
     words_for_person = False
+    person_words = (
+        'A controller board in the microscope could not do what it was asked. Try '
+        'again; if it happens again, restart LumaViewPro.'
+    )
 
 
 class MotionNotCompletedError(Fault, HardwareError):
@@ -121,6 +137,10 @@ class MotionNotCompletedError(Fault, HardwareError):
     title = 'Motion Did Not Complete'
 
     words_for_person = False
+    person_words = (
+        'The microscope did not finish a move in the time it was given. Check that '
+        'nothing blocks the stage, then try again.'
+    )
 
 
 class BoardPortFailedError(Fault, HardwareError):
@@ -133,6 +153,10 @@ class BoardPortFailedError(Fault, HardwareError):
     title = 'Board Connection Failed'
 
     words_for_person = False
+    person_words = (
+        'LumaViewPro lost its connection to a controller board in the microscope. Check '
+        "the microscope's USB cable and power, then restart LumaViewPro."
+    )
 
 
 class LedFirmwareWedgedError(Fault, HardwareError):
@@ -150,25 +174,35 @@ class LedFirmwareWedgedError(Fault, HardwareError):
 class CameraReadFailedError(Fault, HardwareError):
     """The camera did not answer a read of one of its values, or a probe of one.
 
-    The words carry the SDK's own text, so the person reads the title.
+    The words carry the SDK's own text, for the log; the person reads its
+    type's sentence of what failed and what to do.
     """
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_read_failed': None}
     title = 'Camera Read Failed'
 
     words_for_person = False
+    person_words = (
+        'The camera did not answer when LumaViewPro read its settings. Check the '
+        "camera's USB cable; if it happens again, restart LumaViewPro."
+    )
 
 
 class CameraWriteFailedError(Fault, HardwareError):
     """The camera refused or did not take a write of one of its settings.
 
-    The words carry the SDK's own text, so the person reads the title.
+    The words carry the SDK's own text, for the log; the person reads its
+    type's sentence of what failed and what to do.
     """
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_write_failed': None}
     title = 'Camera Write Failed'
 
     words_for_person = False
+    person_words = (
+        'The camera did not take a change to its settings. Try again; if it happens '
+        "again, check the camera's USB cable and restart LumaViewPro."
+    )
 
 
 class CameraNoAnswerError(Fault, HardwareError):
@@ -183,6 +217,11 @@ class CameraNoAnswerError(Fault, HardwareError):
     title = 'Camera Did Not Answer'
 
     words_for_person = False
+    person_words = (
+        'The camera did not answer in time, so a change to its settings may not have '
+        "been made. Try again; if it happens again, check the camera's USB cable and "
+        'restart LumaViewPro.'
+    )
 
 
 class CameraUsbNotFoundError(Fault, HardwareError):
@@ -196,6 +235,7 @@ class CameraUsbNotFoundError(Fault, HardwareError):
     title = 'Camera Not Found on USB'
 
     words_for_person = False
+    person_words = 'The camera was not found on USB. Check its USB cable, then restart LumaViewPro.'
 
 
 class CameraUsbLookupFailedError(Fault, HardwareError):
@@ -209,6 +249,10 @@ class CameraUsbLookupFailedError(Fault, HardwareError):
     title = 'Camera USB Lookup Failed'
 
     words_for_person = False
+    person_words = (
+        'The computer could not look up the camera on USB. Restart LumaViewPro; if it '
+        'happens again, restart the computer.'
+    )
 
 
 class CameraUsbDriverUnusableError(Fault, HardwareError):
@@ -226,6 +270,10 @@ class CameraUsbDriverUnusableError(Fault, HardwareError):
     title = 'Camera Driver Not Usable'
 
     words_for_person = False
+    person_words = (
+        'Windows has the camera on a driver LumaViewPro cannot use. Restart '
+        'LumaViewPro, which says how to install its own.'
+    )
 
 
 class CameraUsbOpenFailedError(Fault, HardwareError):
@@ -237,6 +285,10 @@ class CameraUsbOpenFailedError(Fault, HardwareError):
     title = 'Camera USB Open Failed'
 
     words_for_person = False
+    person_words = (
+        'The camera was found on USB and could not be opened. Close any other program '
+        'using it, then restart LumaViewPro.'
+    )
 
 
 class CameraSetupFailedError(Fault, HardwareError):
@@ -248,6 +300,10 @@ class CameraSetupFailedError(Fault, HardwareError):
     title = 'Camera Set-up Failed'
 
     words_for_person = False
+    person_words = (
+        'The camera was found and opened, and setting it up failed. Restart '
+        'LumaViewPro, and send a support report if it happens again.'
+    )
 
 
 class CameraStreamStartFailedError(Fault, HardwareError):
@@ -259,6 +315,10 @@ class CameraStreamStartFailedError(Fault, HardwareError):
     title = 'Camera Stream Did Not Start'
 
     words_for_person = False
+    person_words = (
+        "The camera's stream did not start. Unplug the camera, plug it back in, then "
+        'restart LumaViewPro.'
+    )
 
 
 class CameraFirmwareMissingError(Fault, Exception):
@@ -272,6 +332,9 @@ class CameraFirmwareMissingError(Fault, Exception):
     title = 'Camera Firmware File Missing'
 
     words_for_person = False
+    person_words = (
+        "The camera's firmware file is missing from this installation. Reinstall LumaViewPro."
+    )
 
     def __init__(self, searched):
         super().__init__(f'camera firmware file not found; searched: {", ".join(searched)}')
@@ -291,3 +354,4 @@ class PartAbsentError(Fault, HardwareError):
     title = 'Part Not Present'
 
     words_for_person = False
+    person_words = INTERNAL_FAULT_SENTENCE

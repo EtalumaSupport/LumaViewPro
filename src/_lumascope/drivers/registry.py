@@ -76,6 +76,10 @@ class DriverNotLiveError(Fault, RuntimeError):
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'driver_not_live': None}
     title = 'Hardware Not Live'
+    person_words = (
+        'A part of the microscope was found and is not answering. Check the '
+        "microscope's USB cable and power, then restart LumaViewPro."
+    )
 
 
 class NoLiveDriverError(Fault, RuntimeError):
@@ -90,6 +94,10 @@ class NoLiveDriverError(Fault, RuntimeError):
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'no_live_driver': None}
     title = 'Hardware Not Found'
+    person_words = (
+        "A part of the microscope was not found. Check the microscope's USB cable and "
+        'power, then restart LumaViewPro.'
+    )
 
     def __init__(self, kind: str, fallback: DriverFallback):
         declined = (

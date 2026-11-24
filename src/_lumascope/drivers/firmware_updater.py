@@ -93,6 +93,10 @@ class UpdateError(Fault, Exception):
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'update_failed': None}
     title = 'Firmware Update Failed'
+    person_words = (
+        'The firmware update did not complete. Keep the microscope connected and '
+        'powered, and send a support report.'
+    )
 
     def __init__(self, message: str, stage: UpdateStage, recoverable: bool = True):
         super().__init__(message)

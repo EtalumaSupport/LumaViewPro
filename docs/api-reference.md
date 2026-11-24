@@ -14454,7 +14454,8 @@ A fault; bases `Fault`, `HardwareError`.
 
 The camera did not answer a read of one of its values, or a probe of one.
 
-The words carry the SDK's own text, so the person reads the title.
+The words carry the SDK's own text, for the log; the person reads its
+type's sentence of what failed and what to do.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -14670,7 +14671,8 @@ A fault; bases `Fault`, `HardwareError`.
 
 The camera refused or did not take a write of one of its settings.
 
-The words carry the SDK's own text, so the person reads the title.
+The words carry the SDK's own text, for the log; the person reads its
+type's sentence of what failed and what to do.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -15149,9 +15151,10 @@ The fault kind; bases `LumascopeError`.
 Something was attempted and failed.
 
 A fault's words are a developer's unless its type says they are written
-for the person: the reporter then shows them, and otherwise shows a
-generic sentence and keeps the words in the log. Its reasons map to no
-cause: a fault answers 500 whatever was asked.
+for the person: the reporter then shows them, and otherwise shows its
+type's one sentence of what failed and what to do, and keeps the words
+in the log. Its reasons map to no cause: a fault answers 500 whatever
+was asked.
 
 <a id="FileWriterNotStuckError"></a>
 ### `lumascope.FileWriterNotStuckError`

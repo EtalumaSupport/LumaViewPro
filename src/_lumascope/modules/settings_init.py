@@ -58,6 +58,10 @@ class SettingsFileError(Fault, ValueError):
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'settings_file_unreadable': None}
     title = 'Settings File Unreadable'
+    person_words = (
+        'A settings file is damaged or not in the shape LumaViewPro reads. Please send '
+        'a support report, which names the file.'
+    )
 
 
 # Channel sub-keys whose names changed when the storage dict became the L2 API
