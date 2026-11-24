@@ -111,7 +111,10 @@ class TestARunThatMeetsTheLidEndsAtOnce:
         self, tmp_path
     ):
         """On the simulated LS720, its production TMCM-6110 driver: the lid
-        opens at the first arrival poll of the step's X or Y move."""
+        opens at the first arrival poll of X or Y once the step has started
+        both. Opened before Y's start, Y would be refused before it moved,
+        the case the test above pins, and the run would never meet a move
+        under way."""
         session = ScopeSession.create(
             complete_settings(**_settings(tmp_path, microscope='LS720')), simulate=True
         )
@@ -119,13 +122,20 @@ class TestARunThatMeetsTheLidEndsAtOnce:
             session.scope.motion.home()
             driver = session.scope._motion_driver
             polled = driver.target_status
+            drive = driver.move_abs_pos
+            started = set()
 
-            def lid_opens_while_x_or_y_moves(axis):
-                if axis in ('X', 'Y'):
+            def recorded_start(axis, pos):
+                drive(axis, pos)
+                started.add(axis)
+
+            def lid_opens_while_x_and_y_move(axis):
+                if axis in ('X', 'Y') and {'X', 'Y'} <= started:
                     session.scope.simulation.interlock(lid_open=True)
                 return polled(axis)
 
-            driver.target_status = lid_opens_while_x_or_y_moves
+            driver.move_abs_pos = recorded_start
+            driver.target_status = lid_opens_while_x_and_y_move
 
             outcome = _run(session, tmp_path)
 
