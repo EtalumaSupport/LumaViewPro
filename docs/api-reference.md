@@ -13913,7 +13913,38 @@ replaces were, so a caller catching a bad argument keeps working.
 
 **Attributes**
 
-- `reason`: One of: - `'not_offered'` -- a value of a closed set (a `StrEnum`) that is not one of `offered`: not a member, nor a member's plain string, or a member the taker does not take. Values are exact: `'off'` is not `'Off'`. - `'not_a_number'` -- a number was needed and the value is not a finite one: NaN, an infinity, a `bool` or not a number at all. Every comparison with NaN is False, so a range check alone passes it. - `'plate_frame_axis'` -- a plate coordinate for an axis the plate frame does not define (`offered`: X and Y). - `'well_unknown'` -- a well label the selected plate (`plate`) does not have. - `'out_of_range'` -- a number outside the `limits` its member takes. - `'fan_duty_out_of_range'` -- a fan duty outside 0 to 100 percent. - `'channel_unknown'` -- the name is not one of this release's channels (`offered`, the catalog). Names are exact: `'bf'` is not `'BF'`. A channel this model lacks is a name, and is refused as absent hardware, not here. - `'no_channel_selected'` -- the member needs a channel and was given None (`offered`, the catalog). - `'led_address_unknown'` -- an LED address that is not one of the attached LED board's addresses (`offered`). A `bool` is not an address. - `'illumination_out_of_range'` -- an LED current below 0 mA. A current above the attached LED board's maximum is lit at it (`ValueClampedNotice`), not refused. - `'missing_key'` -- an argument its member reads with the others given was not given, or a dictionary argument lacks a key its member reads; `argument` names it, or the key's path. - `'not_read'` -- an argument given where its member does not read it (`takes`: when it is read, in words). - `'wrong_kind'` -- an argument, or a value in a dictionary argument, is not of the kind its member reads (`takes`, in words). - `'protocol_source_ambiguous'` -- not exactly one of the protocol sources `offered` was given. - `'not_a_setting'` -- a dotted path that names no setting. The same fact a write is refused for as `SettingRefusedError('not_a_setting')`; this type says a read asked it. - `'has_member'` -- a dotted path to a setting that has a read of its own, named in `member` by its path from the session, so one setting has one read. - `'needs_simulated_scope'` -- an argument that exists only on a simulated scope, given for a real one. - `'needs_simulated_camera'` -- an argument that exists only on the simulated camera, given for a model simulated with an FX2. - `'needs_simulated_firmware'` -- an argument that exists only on the simulated motor firmware (the `firmware` and `realistic` simulator tiers, on a model with an EL-0940 motor board), given for a simulated scope whose motor board, named in `board`, does not run it. - `'exposure_not_recorded'` -- a frame the simulated camera holds no exposure record for: one it did not deliver, or one older than the records it keeps. - `'not_an_installation'` -- a folder the caller named that holds no settings template, so it is not an LVP installation root. - `'binning_size_invalid'` -- a binning label that is not a positive square `NxN`. - `'fault_unknown'` -- a simulated fault's board, or a device's hardware ID, that is not one of `offered`: sets this scope's boards and this machine's devices decide. - `'fault_bound'` -- a simulated fault's count, fraction or time outside what it takes (`takes`, in words). - `'not_injectable_on_board'` -- a simulated fault the board that would present it cannot produce; `argument` names the `scope.simulation` member, `board` the board. - `'argument_not_on_board'` -- an argument of a simulated fault the board cannot take; `board` names the board, `takes` what it takes for that argument. - `'slot_not_holding_objective'` -- a turret slot given for steps naming an objective the slot does not hold now (`offered`: the slots that hold it). - `'objective_in_several_slots'` -- an objective to turn the turret to that two or more slots hold (`offered`: the slots), so no one slot is meant. - `'objective_not_on_turret'` -- an objective to turn the turret to that no slot holds (`offered`: the objectives the slots hold, in slot order). - `'slot_required'` -- an objective confirmed on a turret scope with no slot named; the confirmation records the glass in a slot. - `'gain_range_inverted'` -- auto-gain settings whose `min_gain_db` is above their `max_gain_db`; `value` holds the two.
+- `reason`: One of:
+  - `'not_offered'` -- a value of a closed set (a `StrEnum`) that is not one of `offered`: not a member, nor a member's plain string, or a member the taker does not take. Values are exact: `'off'` is not `'Off'`.
+  - `'not_a_number'` -- a number was needed and the value is not a finite one: NaN, an infinity, a `bool` or not a number at all. Every comparison with NaN is False, so a range check alone passes it.
+  - `'plate_frame_axis'` -- a plate coordinate for an axis the plate frame does not define (`offered`: X and Y).
+  - `'well_unknown'` -- a well label the selected plate (`plate`) does not have.
+  - `'out_of_range'` -- a number outside the `limits` its member takes.
+  - `'fan_duty_out_of_range'` -- a fan duty outside 0 to 100 percent.
+  - `'channel_unknown'` -- the name is not one of this release's channels (`offered`, the catalog). Names are exact: `'bf'` is not `'BF'`. A channel this model lacks is a name, and is refused as absent hardware, not here.
+  - `'no_channel_selected'` -- the member needs a channel and was given None (`offered`, the catalog).
+  - `'led_address_unknown'` -- an LED address that is not one of the attached LED board's addresses (`offered`). A `bool` is not an address.
+  - `'illumination_out_of_range'` -- an LED current below 0 mA. A current above the attached LED board's maximum is lit at it (`ValueClampedNotice`), not refused.
+  - `'missing_key'` -- an argument its member reads with the others given was not given, or a dictionary argument lacks a key its member reads; `argument` names it, or the key's path.
+  - `'not_read'` -- an argument given where its member does not read it (`takes`: when it is read, in words).
+  - `'wrong_kind'` -- an argument, or a value in a dictionary argument, is not of the kind its member reads (`takes`, in words).
+  - `'protocol_source_ambiguous'` -- not exactly one of the protocol sources `offered` was given.
+  - `'not_a_setting'` -- a dotted path that names no setting. The same fact a write is refused for as `SettingRefusedError('not_a_setting')`; this type says a read asked it.
+  - `'has_member'` -- a dotted path to a setting that has a read of its own, named in `member` by its path from the session, so one setting has one read.
+  - `'needs_simulated_scope'` -- an argument that exists only on a simulated scope, given for a real one.
+  - `'needs_simulated_camera'` -- an argument that exists only on the simulated camera, given for a model simulated with an FX2.
+  - `'needs_simulated_firmware'` -- an argument that exists only on the simulated motor firmware (the `firmware` and `realistic` simulator tiers, on a model with an EL-0940 motor board), given for a simulated scope whose motor board, named in `board`, does not run it.
+  - `'exposure_not_recorded'` -- a frame the simulated camera holds no exposure record for: one it did not deliver, or one older than the records it keeps.
+  - `'not_an_installation'` -- a folder the caller named that holds no settings template, so it is not an LVP installation root.
+  - `'binning_size_invalid'` -- a binning label that is not a positive square `NxN`.
+  - `'fault_unknown'` -- a simulated fault's board, or a device's hardware ID, that is not one of `offered`: sets this scope's boards and this machine's devices decide.
+  - `'fault_bound'` -- a simulated fault's count, fraction or time outside what it takes (`takes`, in words).
+  - `'not_injectable_on_board'` -- a simulated fault the board that would present it cannot produce; `argument` names the `scope.simulation` member, `board` the board.
+  - `'argument_not_on_board'` -- an argument of a simulated fault the board cannot take; `board` names the board, `takes` what it takes for that argument.
+  - `'slot_not_holding_objective'` -- a turret slot given for steps naming an objective the slot does not hold now (`offered`: the slots that hold it).
+  - `'objective_in_several_slots'` -- an objective to turn the turret to that two or more slots hold (`offered`: the slots), so no one slot is meant.
+  - `'objective_not_on_turret'` -- an objective to turn the turret to that no slot holds (`offered`: the objectives the slots hold, in slot order).
+  - `'slot_required'` -- an objective confirmed on a turret scope with no slot named; the confirmation records the glass in a slot.
+  - `'gain_range_inverted'` -- auto-gain settings whose `min_gain_db` is above their `max_gain_db`; `value` holds the two.
 - `value`: What was given, as given.
 
 `argument`, `offered`, `limits`, `takes`, `board`, `plate`
@@ -14733,7 +14764,13 @@ not be read; a camera that is not there is refused instead
 
 **Attributes**
 
-- `reason`: One of: - `'no_frame'` -- the camera delivered no new frame within its grab window, whether the capture was draining, grabbing or waiting for a sum's next frame. - `'deadline_expired'` -- the scope's state kept changing for longer than the capture's budget. - `'chunk_rejected'` -- frames came, but none was exposed at the `source` setting asked. - `'no_fresh_frame'` -- frames came, but none within the capture's bound counted for the `source` change: each was exposed, by its source's rule, before that change reached it. - `'record_read_failed'` -- a frame came, but the camera did not answer a read its record needs (the gain, exposure or black level), so it was not kept; chained from the `CameraReadFailedError`. - `'unknown_save_encoding'` -- a frame was handed an encoding no writer knows, which the program, not the person, got wrong.
+- `reason`: One of:
+  - `'no_frame'` -- the camera delivered no new frame within its grab window, whether the capture was draining, grabbing or waiting for a sum's next frame.
+  - `'deadline_expired'` -- the scope's state kept changing for longer than the capture's budget.
+  - `'chunk_rejected'` -- frames came, but none was exposed at the `source` setting asked.
+  - `'no_fresh_frame'` -- frames came, but none within the capture's bound counted for the `source` change: each was exposed, by its source's rule, before that change reached it.
+  - `'record_read_failed'` -- a frame came, but the camera did not answer a read its record needs (the gain, exposure or black level), so it was not kept; chained from the `CameraReadFailedError`.
+  - `'unknown_save_encoding'` -- a frame was handed an encoding no writer knows, which the program, not the person, got wrong.
 
 **Fields**
 

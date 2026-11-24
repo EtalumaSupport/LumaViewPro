@@ -565,19 +565,32 @@ def _dedent(lines: list[str]) -> list[str]:
 
 
 def _entries(lines: list[str]) -> list[tuple[str, str]]:
-    """A section body's entries in their order, each its name and its words joined onto one line.
+    """A section body's entries in their order, each its name and its words.
 
-    A name can be given twice: a ``Raises:`` lists one class once for each
-    reason it is raised with.
+    An entry's continuation lines are joined onto its line, except that a
+    nested list item (a line starting ``- ``) starts a line of its own, its
+    own continuation joined onto it: the list stays a list. A name can be
+    given twice: a ``Raises:`` lists one class once for each reason it is
+    raised with.
     """
-    found: list[tuple[str, list[str]]] = []
+    found: list[tuple[str, list[list[str]]]] = []
     for line in lines:
         entry = None if line[:1].isspace() else _ENTRY.match(line)
         if entry:
-            found.append((entry.group(1), [entry.group(2)]))
+            found.append((entry.group(1), [[entry.group(2)]]))
         elif found and line.strip():
-            found[-1][1].append(line.strip())
-    return [(n, ' '.join(w for w in words if w)) for n, words in found]
+            text = line.strip()
+            if text.startswith('- '):
+                found[-1][1].append([text])
+            else:
+                found[-1][1][-1].append(text)
+    return [(n, '\n'.join(_joined(parts))) for n, parts in found]
+
+
+def _joined(parts: list[list[str]]) -> list[str]:
+    """An entry's lines, each part's words joined onto one, an empty one dropped."""
+    lines = (' '.join(w for w in part if w) for part in parts)
+    return [line for line in lines if line]
 
 
 def entries_of(doc: str, section: str) -> dict[str, str]:
@@ -651,7 +664,11 @@ def markdown_of(
         if heading is None:
             text = '\n'.join(_inline(line) for line in lines).strip('\n')
         elif entries:
-            items = '\n'.join(f'- `{name}`: {_inline(words)}' for name, words in entries)
+            # A nested list item is indented under its entry's bullet.
+            items = '\n'.join(
+                f'- `{name}`: ' + '\n  '.join(_inline(part) for part in words.split('\n'))
+                for name, words in entries
+            )
             text = f'**{heading}**\n\n{items}'
         else:
             body = ' '.join(line.strip() for line in lines if line.strip())

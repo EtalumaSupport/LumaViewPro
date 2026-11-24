@@ -90,6 +90,37 @@ def test_an_entry_section_with_no_entry_is_its_prose() -> None:
     assert markdown_of('Read it.\n\nRaises:\n    Nothing.') == 'Read it.\n\n**Raises**\n\nNothing.'
 
 
+NESTED = """Refused.
+
+Attributes:
+    reason: One of:
+
+        - ``'not_offered'`` -- a value that is not
+          one of ``offered``.
+        - ``'out_of_range'`` -- a number outside
+          its limits.
+    value: What was given."""
+
+
+def test_a_nested_list_in_an_entry_keeps_one_line_per_item() -> None:
+    assert entries_of(NESTED, 'Attributes')['reason'] == (
+        'One of:\n'
+        "- ``'not_offered'`` -- a value that is not one of ``offered``.\n"
+        "- ``'out_of_range'`` -- a number outside its limits."
+    )
+
+
+def test_a_nested_list_in_an_entry_renders_as_a_list_under_its_bullet() -> None:
+    assert markdown_of(NESTED) == (
+        'Refused.\n\n'
+        '**Attributes**\n\n'
+        '- `reason`: One of:\n'
+        "  - `'not_offered'` -- a value that is not one of `offered`.\n"
+        "  - `'out_of_range'` -- a number outside its limits.\n"
+        '- `value`: What was given.'
+    )
+
+
 FIELDS = """A refusal of an argument.
 
 Attributes:
