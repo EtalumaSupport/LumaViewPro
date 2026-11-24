@@ -2749,9 +2749,9 @@ class HyperstackNotBuiltError(Fault, CaptureError):
     """The hyperstack builder did not build a recording's frames into one file.
 
     Raised by the manual recording's finish when the builder answers
-    status=False, or raises ``InputFramesUnusableError`` because a frame
-    cannot be read or cannot share the stack: the frames are on disk as
-    recorded.
+    status=False, raises ``InputFramesUnusableError`` because a frame
+    cannot be read or cannot share the stack, or cannot write the stack's
+    file: the frames are on disk as recorded.
     The builder's own sentence rides in ``message`` so the notification the
     user sees says why, in the builder's words, rather than telling them to
     read a log.
@@ -2766,7 +2766,8 @@ class HyperstackNotBuiltError(Fault, CaptureError):
             ``'unreadable_input_frame'`` -- a frame could not be read;
             ``'input_frames_not_one_size'`` -- the frames are not all one
             size; ``'mixed_input_pixel_types'`` -- frames of different pixel
-            types cannot share one stack.
+            types cannot share one stack; ``'hyperstack_not_written'`` -- the
+            disk refused the stack's file.
     """
 
     title = 'Hyperstack Not Built'
@@ -2776,6 +2777,7 @@ class HyperstackNotBuiltError(Fault, CaptureError):
             'unreadable_input_frame',
             'input_frames_not_one_size',
             'mixed_input_pixel_types',
+            'hyperstack_not_written',
         )
     )
 
@@ -3122,7 +3124,7 @@ class RecordingFinalizeError(Fault, CaptureError):
         else:
             message = (
                 'The recording finished but its output could not be fully assembled. '
-                'Frames already written are on disk; check the log.'
+                f'Frames already written are on disk. {INTERNAL_FAULT_SENTENCE}'
             )
             reason = 'recording_finalize_failed'
         super().__init__(message, reason)
@@ -3154,6 +3156,8 @@ class VideoFramesDroppedError(Fault, CaptureError):
 
     Attributes:
         dropped: Selected frames that could not be written.
+        failed_writes: Each of them as (the frame, why), in the words a
+            person reads; said once per cause.
         selected: Frames the recording selected.
         unstamped: Frames that came without the camera's timestamp and were
             left out.
@@ -3179,7 +3183,7 @@ class VideoFramesDroppedError(Fault, CaptureError):
 
     def __init__(
         self,
-        dropped: int,
+        failed_writes: 'Sequence[tuple[str, str]]',
         selected: int,
         *,
         unstamped: int,
@@ -3187,6 +3191,10 @@ class VideoFramesDroppedError(Fault, CaptureError):
         lost_at_camera: int | None,
         lost_in: FramesLostIn,
     ):
+        from _lumascope.modules.common_utils import causes_in_words
+
+        failed_writes = tuple(failed_writes)
+        dropped = len(failed_writes)
         what, during, reached, gaps = {
             FramesLostIn.MANUAL_RECORDING: ('', '', 'the recording', 'the saved video has gaps'),
             FramesLostIn.VIDEO_STEP: (
@@ -3219,16 +3227,17 @@ class VideoFramesDroppedError(Fault, CaptureError):
             lost.append(
                 f'{lost_at_camera} frame(s) the camera sent{during} never reached {reached}'
             )
-        advice = []
-        if skipped:
-            advice.append('A lower Recording max FPS in Advanced Settings avoids the skips.')
+        said = []
         if dropped:
-            advice.append('Check the log for why frames could not be written.')
+            said.append(f'Not written: {causes_in_words(failed_writes)}.')
+        if skipped:
+            said.append('A lower Recording max FPS in Advanced Settings avoids the skips.')
         super().__init__(
-            ' '.join([f'{"; ".join(lost)}, so {gaps}.', *advice]),
+            ' '.join([f'{"; ".join(lost)}, so {gaps}.', *said]),
             'video_frames_dropped',
         )
         self.dropped = dropped
+        self.failed_writes = failed_writes
         self.selected = selected
         self.unstamped = unstamped
         self.skipped = skipped
@@ -3298,19 +3307,20 @@ class VideoWriterFailedError(Fault, CaptureError):
 class RecordingDetailsNotSavedError(Fault, CaptureError):
     """A recording's details file could not be written; its frames are whole.
 
-    Chained from the write's error. The details file is the only record of
-    the recording's channel color and measured rate, so a video built from
-    these frames later falls back to grayscale and a default rate.
+    Raised from the write's error, which its words state. The details file
+    is the only record of the recording's channel color and measured rate,
+    so a video built from these frames later falls back to grayscale and a
+    default rate.
     """
 
     title = 'Recording details not saved'
     causes: ClassVar[dict[str, RefusalCause | None]] = {'recording_details_not_saved': None}
 
-    def __init__(self):
+    def __init__(self, failed: OSError):
         super().__init__(
             'The video frames are safe on disk, but the recording details file '
-            'could not be written. Videos built from this recording may be '
-            'grayscale and use a default frame rate; check disk space and the log.',
+            f'could not be written ({system_words(failed)}). Videos built from this '
+            'recording may be grayscale and use a default frame rate.',
             'recording_details_not_saved',
         )
 
@@ -3320,9 +3330,10 @@ class VideoNotFinishedError(Fault, CaptureError):
 
     Raised when the encoder's last flush or the file's close fails at the
     end of a recording or a video build (a full disk, a drive lost at the
-    close), chained from what failed. The file is released either way; a recording
-    keeps it, since it is the only copy of what was captured, and a video
-    build removes it, since its source frames remain.
+    close), chained from what failed, whose words it states. The file is
+    released either way; a recording keeps it, since it is the only copy of
+    what was captured, and a video build removes it, since its source frames
+    remain.
 
     Attributes:
         output_path: The video file that was not finished.
@@ -3331,10 +3342,10 @@ class VideoNotFinishedError(Fault, CaptureError):
     title = 'Video Not Finished'
     causes: ClassVar[dict[str, RefusalCause | None]] = {'video_not_finished': None}
 
-    def __init__(self, output_path):
+    def __init__(self, output_path, failed: 'OSError | FFmpegError'):
         super().__init__(
-            f'The video {output_path} could not be finished and may not open. '
-            'Check disk space and the log.',
+            f'The video {output_path} could not be finished ({system_words(failed)}) '
+            'and may not open.',
             'video_not_finished',
         )
         self.output_path = output_path
@@ -3385,6 +3396,9 @@ class RunFilesNotWrittenError(Fault, CaptureError):
             ``'write_batch_video_unfinished'`` -- a video step's file did
             not finish. ``RunImagesNotSavedError`` carries all but the
             first as the same facts.
+        unfinished_video: For ``'write_batch_video_unfinished'``, the first
+            video that did not finish and why, as (the video, the cause),
+            which the words state.
     """
 
     title = 'Run Images Not Written'
@@ -3399,8 +3413,15 @@ class RunFilesNotWrittenError(Fault, CaptureError):
         )
     )
 
-    def __init__(self, reason: str, *, bound_s: float | None = None):
+    def __init__(
+        self,
+        reason: str,
+        *,
+        bound_s: float | None = None,
+        unfinished_video: 'tuple[str, str] | None' = None,
+    ):
         self.reason = reason
+        self.unfinished_video = unfinished_video
         if reason == 'write_batch_timeout':
             message = (
                 f"The run's images did not finish writing within {bound_s:.0f} s, "
@@ -3431,9 +3452,10 @@ class RunFilesNotWrittenError(Fault, CaptureError):
                 'folder. Free space on the drive and run again.'
             )
         else:
+            video, cause = unfinished_video
             message = (
                 "A video step's file did not finish, so nothing was built from "
-                'the incomplete folder. Check the log for why the video stopped.'
+                f'the incomplete folder. {video}: {cause}'
             )
         super().__init__(message, reason)
 

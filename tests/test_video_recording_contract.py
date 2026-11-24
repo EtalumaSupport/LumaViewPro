@@ -1267,7 +1267,7 @@ class TestABacklogWithMemoryShortSkipsFrames:
         assert result.frames_written == 4
         assert sorted(writer.finished) == [0, 1, 2, 3], 'kept frames are numbered without gaps'
         assert result.end_reason == 'frame_budget_filled'
-        assert not result.kept_every_frame(0)
+        assert not result.kept_every_frame()
         manifest = json.loads(result.manifest_path.read_text())
         assert manifest['frames_skipped'] == 16
         assert claim.owner is None
@@ -1305,9 +1305,9 @@ class TestTheCamerasOwnLossesAreCounted:
         assert result.frames_lost_at_camera == 7
         assert json.loads(result.manifest_path.read_text())['frames_lost_at_camera'] == 7
         assert '7 lost at the camera' in result.summary()
-        assert not result.kept_every_frame(0)
+        assert not result.kept_every_frame()
         late = dataclasses.replace(result, save_wait_s=30.0)
-        assert late.save_wait_to_tell(0) is None, (
+        assert late.save_wait_to_tell() is None, (
             'a recording with gaps was told every frame was kept'
         )
 
@@ -1317,7 +1317,7 @@ class TestTheCamerasOwnLossesAreCounted:
         )
         assert result.frames_selected < 20
         assert result.frames_lost_at_camera == 0
-        assert dataclasses.replace(result, save_wait_s=30.0).save_wait_to_tell(0) == 30.0
+        assert dataclasses.replace(result, save_wait_s=30.0).save_wait_to_tell() == 30.0
 
     def test_an_unstamped_frame_reached_the_recording_and_is_no_gap(self, tmp_path):
         def feed(engine, clock):

@@ -102,10 +102,6 @@ class VideoWriter:
         self._vfr_origin_s: float | None = None
         self._shape = (height, width) if (width is not None and height is not None) else None
         self._frame_count = 0
-        # Frames the encoder accepted but failed to write -- counted so the
-        # caller can warn the user that the output is short rather than
-        # delivering a silently-truncated video.
-        self._dropped_frames = 0
         # Protects _frame_count + encoder state for REST queries
         self._frame_lock = threading.Lock()
 
@@ -369,7 +365,6 @@ class VideoWriter:
                 self._frame_count += 1
             except Exception as e:
                 logger.error(f'VideoWriter: PyAV encode error: {e}')
-                self._dropped_frames += 1
                 return cause_in_words(e)
             return None
 
@@ -398,7 +393,7 @@ class VideoWriter:
                     # and Windows cannot remove or replace an open file.
                     self._container.close()
             except (OSError, FFmpegError) as failed:
-                raise VideoNotFinishedError(self._output_path) from failed
+                raise VideoNotFinishedError(self._output_path, failed) from failed
             logger.info(f'VideoWriter: H.264 video closed ({self._frame_count} frames)')
         else:
             # Reached only when the encoder was never opened -- _init_pyav
@@ -413,9 +408,3 @@ class VideoWriter:
         """Frames successfully encoded into the container so far."""
         with self._frame_lock:
             return self._frame_count
-
-    @property
-    def dropped_frames(self) -> int:
-        """Frames the encoder failed to write during this recording."""
-        with self._frame_lock:
-            return self._dropped_frames

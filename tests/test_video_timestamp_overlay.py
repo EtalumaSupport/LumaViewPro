@@ -37,7 +37,6 @@ def test_shipped_default_is_overlay_on():
 class _OverlayCapturingWriter:
     captured: ClassVar[dict] = {}
     on_frame: ClassVar = None
-    dropped_frames = 0
 
     def __init__(self, **kwargs):
         _OverlayCapturingWriter.captured = kwargs

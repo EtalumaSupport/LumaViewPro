@@ -10,7 +10,11 @@ The "FPS budget exceeded" notice is gone: the setting is a limit, and a
 camera slower than a limit is not a problem.
 """
 
+import errno
+import json
+import os
 import pathlib
+import re
 import threading
 
 import pytest
@@ -37,9 +41,13 @@ from _lumascope.modules.image_mode import RecordingFormat
 import _lumascope.modules.common_utils as common_utils
 from tests.disk_fakes import PLENTY_MB, free_space_is, the_start_finds_room
 from tests.test_manual_recording_controller import feed_frames, finish, make_controller
-from tests.video_close_faults import fail_the_close
+from tests.video_close_faults import fail_the_close, refuse_packets
 from tests.video_step_drives import record_first_frame, record_first_mp4_frame, video_step_on
 from tests.video_engine_harness import NotifyRecorder
+
+
+# Two frames a full disk refused, as the recording keeps them.
+_FULL_DISK_TWICE = (('frame 3', 'No space left on device'), ('frame 4', 'No space left on device'))
 
 
 def _record_reports(monkeypatch, module):
@@ -70,16 +78,18 @@ def _record_reports(monkeypatch, module):
             'recording again.',
         ),
         (
-            VideoNotFinishedError('/data/clip.mp4'),
+            VideoNotFinishedError(
+                '/data/clip.mp4', OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), '/data/clip.mp4')
+            ),
             'Video Not Finished',
-            'The video /data/clip.mp4 could not be finished and may not open. '
-            'Check disk space and the log.',
+            'The video /data/clip.mp4 could not be finished (No space left on device) '
+            'and may not open.',
         ),
         (
             RecordingFinalizeError(protocol_step=False),
             'Recording Finalize Failed',
             'The recording finished but its output could not be fully assembled. '
-            'Frames already written are on disk; check the log.',
+            f'Frames already written are on disk. {INTERNAL_FAULT_SENTENCE}',
         ),
         (
             RecordingFinalizeError(protocol_step=True),
@@ -89,7 +99,7 @@ def _record_reports(monkeypatch, module):
         ),
         (
             VideoFramesDroppedError(
-                2,
+                _FULL_DISK_TWICE,
                 9,
                 unstamped=0,
                 skipped=0,
@@ -97,20 +107,26 @@ def _record_reports(monkeypatch, module):
                 lost_in=FramesLostIn.MANUAL_RECORDING,
             ),
             'Video Frames Dropped',
-            '2 of 9 frame(s) could not be written, so the saved video has gaps. Check '
-            'the log for why frames could not be written.',
+            '2 of 9 frame(s) could not be written, so the saved video has gaps. Not '
+            'written: No space left on device (2: frame 3, frame 4).',
         ),
         (
             VideoFramesDroppedError(
-                2, 9, unstamped=0, skipped=0, lost_at_camera=0, lost_in=FramesLostIn.VIDEO_STEP
+                (('frame 3', 'No space left on device'), ('frame 7', 'Permission denied')),
+                9,
+                unstamped=0,
+                skipped=0,
+                lost_at_camera=0,
+                lost_in=FramesLostIn.VIDEO_STEP,
             ),
             'Video Frames Dropped',
             '2 of 9 frame(s) in a video step could not be written, so that video has '
-            'gaps. Check the log for why frames could not be written.',
+            'gaps. Not written: No space left on device (frame 3); Permission denied '
+            '(frame 7).',
         ),
         (
             VideoFramesDroppedError(
-                2,
+                _FULL_DISK_TWICE,
                 9,
                 unstamped=3,
                 skipped=0,
@@ -120,11 +136,11 @@ def _record_reports(monkeypatch, module):
             'Video Frames Dropped',
             '2 of 9 frame(s) could not be written; 3 frame(s) came from the camera '
             'without their timestamps and were left out, so the saved video has gaps. '
-            'Check the log for why frames could not be written.',
+            'Not written: No space left on device (2: frame 3, frame 4).',
         ),
         (
             VideoFramesDroppedError(
-                0, 9, unstamped=3, skipped=0, lost_at_camera=0, lost_in=FramesLostIn.VIDEO_STEP
+                (), 9, unstamped=3, skipped=0, lost_at_camera=0, lost_in=FramesLostIn.VIDEO_STEP
             ),
             'Video Frames Dropped',
             '3 frame(s) in a video step came from the camera without their timestamps '
@@ -132,7 +148,7 @@ def _record_reports(monkeypatch, module):
         ),
         (
             VideoFramesDroppedError(
-                0,
+                (),
                 9,
                 unstamped=0,
                 skipped=4,
@@ -146,7 +162,7 @@ def _record_reports(monkeypatch, module):
         ),
         (
             VideoFramesDroppedError(
-                0, 9, unstamped=0, skipped=0, lost_at_camera=5, lost_in=FramesLostIn.VIDEO_STEP
+                (), 9, unstamped=0, skipped=0, lost_at_camera=5, lost_in=FramesLostIn.VIDEO_STEP
             ),
             'Video Frames Dropped',
             '5 frame(s) the camera sent during a video step never reached the '
@@ -154,7 +170,7 @@ def _record_reports(monkeypatch, module):
         ),
         (
             VideoFramesDroppedError(
-                0, 9, unstamped=0, skipped=4, lost_at_camera=5, lost_in=FramesLostIn.RUN
+                (), 9, unstamped=0, skipped=4, lost_at_camera=5, lost_in=FramesLostIn.RUN
             ),
             'Video Frames Dropped',
             "4 frame(s) in the run's video steps were skipped because this PC could not "
@@ -261,6 +277,38 @@ def test_a_failed_finish_is_one_fault_chained_from_what_failed(
     assert kw == {'solicited': False, 'category': 'Recording', 'once_per_run': True}
 
 
+def test_a_hyperstack_the_disk_refused_is_not_built_in_the_systems_words(
+    tmp_path, monkeypatch, post_processing
+):
+    controller, scope, clock = make_controller(
+        tmp_path, recording_format=RecordingFormat.HYPERSTACK, post_processing=post_processing
+    )
+    reported = _record_reports(monkeypatch, manual_recording_module)
+    full = OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+
+    # A stand-in by design: a disk that fills at the stack's write, which the
+    # simulator has no member to produce.
+    class _DiskFullBuilder:
+        def __init__(self, **kwargs):
+            pass
+
+        def create_single_recording_stack(self, **kwargs):
+            raise full
+
+    monkeypatch.setattr(stack_builder_module, 'StackBuilder', _DiskFullBuilder)
+    controller.start()
+    feed_frames(scope, clock, 3, fps=10.0)
+    controller.stop()
+    finish(controller)
+
+    ((fault, kw),) = reported
+    assert isinstance(fault, HyperstackNotBuiltError)
+    assert fault.reason == 'hyperstack_not_written'
+    assert '(No space left on device)' in str(fault) and 'log' not in str(fault)
+    assert fault.__cause__ is full
+    assert kw == {'solicited': False, 'category': 'Recording', 'once_per_run': True}
+
+
 def test_a_refused_hyperstack_is_reported_in_the_builders_words(
     tmp_path, monkeypatch, post_processing
 ):
@@ -350,6 +398,36 @@ def test_dropped_frames_are_reported_once_unsolicited(tmp_path, monkeypatch, pos
     assert kw == {'solicited': False, 'category': 'Recording', 'once_per_run': True}
 
 
+def test_frames_a_full_disk_refused_are_told_with_its_words_and_counted_as_failed_writes(
+    tmp_path, monkeypatch, post_processing
+):
+    # The encoder's dropped frames are the recording's failed writes: told
+    # in the system's words, and counted so in the details file, never as
+    # frames written.
+    controller, scope, clock = make_controller(
+        tmp_path, recording_format=RecordingFormat.MP4, post_processing=post_processing
+    )
+    reported = _record_reports(monkeypatch, manual_recording_module)
+    failing = refuse_packets(monkeypatch, frozenset({2, 3}))
+
+    controller.start()
+    feed_frames(scope, clock, 40, fps=10.0)
+    controller.stop()
+    finish(controller)
+
+    ((fault, kw),) = reported
+    assert isinstance(fault, VideoFramesDroppedError)
+    assert fault.dropped == failing.packets_refused == 2
+    assert f'{fault.dropped} of {fault.selected} frame(s) could not be written' in str(fault)
+    assert 'Not written: No space left on device (2: frame ' in str(fault)
+    assert 'log' not in str(fault)
+    (manifest_path,) = tmp_path.rglob('*_manifest.json')
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest['write_failures'] == 2
+    assert manifest['frames_written'] == manifest['frames_selected'] - 2
+    assert kw == {'solicited': False, 'category': 'Recording', 'once_per_run': True}
+
+
 def test_frames_skipped_for_memory_are_reported_once_in_their_own_words(
     tmp_path, monkeypatch, post_processing
 ):
@@ -426,11 +504,20 @@ def test_a_limit_above_the_cameras_rate_shows_nothing(tmp_path, centre_posts, po
 def test_a_video_steps_dropped_frames_are_reported_under_protocol(sim_scope, tmp_path, monkeypatch):
     reported = _record_reports(monkeypatch, protocol_recording)
 
-    record_first_frame(sim_scope, tmp_path, monkeypatch, write_fails=True)
+    step, _ = record_first_frame(sim_scope, tmp_path, monkeypatch, write_fails=True)
 
     ((fault, kw),) = reported
     assert isinstance(fault, VideoFramesDroppedError)
     assert fault.lost_in is FramesLostIn.VIDEO_STEP
+    assert f'Not written: disk said no ({fault.dropped}: frame 0, ' in str(fault)
+    # The run's losses name each frame with its video, so a run of several
+    # videos names each lost frame once.
+    lost = step.frame_losses.failed_writes
+    assert len(lost) == fault.dropped
+    assert all(
+        re.fullmatch(r'frame \d+ of \S+', frame) and cause == 'disk said no'
+        for frame, cause in lost
+    ), lost
     assert kw == {'solicited': False, 'category': 'Protocol', 'log_only': True}
 
 
@@ -510,8 +597,11 @@ def test_a_video_step_that_cannot_be_finished_is_one_file_not_written(
     assert str(fault.output_path) == failing[0]
     assert kw == {'solicited': False, 'category': 'Protocol'}
     step._record_dropped_capture.assert_called_once_with(
-        reason='video_finalize_failed', capture_time=step._start_dt
+        reason='video_finalize_failed',
+        capture_time=step._start_dt,
+        cause=outcome_of(fault).shown_words,
     )
+    assert 'No space left on device' in outcome_of(fault).shown_words
     step._record_step_row.assert_not_called()
     # Its loss is the file: the run's end neither counts its frames nor
     # says every frame was kept.
@@ -577,7 +667,12 @@ def test_a_dropped_frames_fault_carries_its_counts_on_the_wire():
     from _lumascope.rest import problems
 
     fault = VideoFramesDroppedError(
-        1, 9, unstamped=2, skipped=3, lost_at_camera=None, lost_in=FramesLostIn.MANUAL_RECORDING
+        (('frame 3', 'No space left on device'),),
+        9,
+        unstamped=2,
+        skipped=3,
+        lost_at_camera=None,
+        lost_in=FramesLostIn.MANUAL_RECORDING,
     )
     body = problems.answered_by_member(fault, 'req').body
     assert body['type'].endswith('video_frames_dropped')

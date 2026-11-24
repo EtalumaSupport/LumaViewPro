@@ -68,6 +68,7 @@ from _lumascope.modules.activity_claim import (
 from _lumascope.modules.exceptions import CaptureFailedError, RecordingRefusedError
 from _lumascope.modules.lumascope_api.frame_record import ClockMapping, TimestampSource
 from _lumascope.modules.live_work import WorkKind
+from _lumascope.modules.notification_center import cause_in_words
 from _lumascope.modules.settings_saver import write_whole
 from _lumascope.modules.video_cadence import CadenceSelector, StallWatch, frame_budget
 
@@ -348,12 +349,27 @@ class RecordingFinished:
 
 
 @dataclass(frozen=True)
+class FrameNotWritten:
+    """A write edge's answer for a frame it did not write, and why.
+
+    The MP4 encoder takes a frame it cannot encode as a dropped frame and
+    goes on, so its edge answers this rather than raising; the engine counts
+    it with the writes that raised, so the manifest's counts are the file's.
+
+    Attributes:
+        cause: Why the frame is not in the file, as a person reads it.
+    """
+
+    cause: str
+
+
+@dataclass(frozen=True)
 class FrameLosses:
     """The frames one recording, or a run's video steps together, lost, by cause.
 
     Attributes:
-        dropped: Selected frames that could not be written: write failures
-            and the MP4 encoder's drops.
+        failed_writes: Each selected frame that could not be written, as
+            (the frame, why), in the words a person reads.
         selected: Frames selected.
         unstamped: Frames that came without the camera's timestamp and were
             left out.
@@ -363,11 +379,16 @@ class FrameLosses:
             recording; None when no recording's camera numbers its frames.
     """
 
-    dropped: int = 0
+    failed_writes: tuple[tuple[str, str], ...] = ()
     selected: int = 0
     unstamped: int = 0
     skipped: int = 0
     lost_at_camera: int | None = None
+
+    @property
+    def dropped(self) -> int:
+        """Selected frames that could not be written."""
+        return len(self.failed_writes)
 
     def __bool__(self) -> bool:
         """Whether any frame was lost."""
@@ -380,7 +401,7 @@ class FrameLosses:
         else:
             lost_at_camera = (self.lost_at_camera or 0) + (other.lost_at_camera or 0)
         return FrameLosses(
-            dropped=self.dropped + other.dropped,
+            failed_writes=self.failed_writes + other.failed_writes,
             selected=self.selected + other.selected,
             unstamped=self.unstamped + other.unstamped,
             skipped=self.skipped + other.skipped,
@@ -398,8 +419,10 @@ class RecordingResult:
     Attributes:
         frames_selected: Frames the cadence selector kept.
         frames_written: Frames whose final artifact landed on disk.
-        write_failures: Frames lost to per-frame write errors (each cost
-            exactly that frame; the recording continued).
+        failed_writes: Each frame lost to its write, as (its frame number,
+            why, as a person reads it): a write that raised, or a frame the
+            MP4 encoder dropped. Each cost exactly that frame; the
+            recording continued.
         frames_unstamped: Frames that arrived without the camera's
             timestamp in a recording whose times are the camera's, and so
             were never offered to the selector (``note_unstamped``).
@@ -441,7 +464,7 @@ class RecordingResult:
 
     frames_selected: int
     frames_written: int
-    write_failures: int
+    failed_writes: tuple[tuple[int, str], ...]
     frames_unstamped: int
     frames_skipped: int
     frames_lost_at_camera: int | None
@@ -456,6 +479,11 @@ class RecordingResult:
     manifest_path: pathlib.Path | None
     end_reason: RecordingEndReason
     save_wait_s: float | None
+
+    @property
+    def write_failures(self) -> int:
+        """Frames lost to their write (``failed_writes``)."""
+        return len(self.failed_writes)
 
     @property
     def aborted(self) -> bool:
@@ -481,53 +509,49 @@ class RecordingResult:
             f'measured {self.measured_fps:.2f} fps over {self.measured_duration_s:.2f} s{saved}'
         )
 
-    def losses(self, writer_dropped: int) -> FrameLosses:
+    def losses(self, *, of: str | None = None) -> FrameLosses:
         """The frames the camera sent that the recording lost, by cause.
 
-        Lost to a write failure, to the caller's own writer
-        (``writer_dropped``, the MP4 encoder's count, known only once the
-        encoder has closed), to a missing camera timestamp, to a skip for
-        memory, or at the camera.
+        Lost to its write, to a missing camera timestamp, to a skip for
+        memory, or at the camera. Each failed write is named as its frame,
+        and as that frame *of* the named video when one is given, so the
+        losses of a run's several videos still name each frame once.
         """
+        video = '' if of is None else f' of {of}'
         return FrameLosses(
-            dropped=self.write_failures + writer_dropped,
+            failed_writes=tuple(
+                (f'frame {frame}{video}', cause) for frame, cause in self.failed_writes
+            ),
             selected=self.frames_selected,
             unstamped=self.frames_unstamped,
             skipped=self.frames_skipped,
             lost_at_camera=self.frames_lost_at_camera,
         )
 
-    def lost_frames(self, writer_dropped: int) -> bool:
+    def lost_frames(self) -> bool:
         """Whether any frame the camera sent was lost (``losses``).
 
         A camera that numbers no frames states no loss there, so its
         recording is judged by the rest.
         """
-        return bool(self.losses(writer_dropped))
+        return bool(self.losses())
 
-    def kept_every_frame(self, writer_dropped: int) -> bool:
+    def kept_every_frame(self) -> bool:
         """Whether the recording kept and saved every frame it was sent.
 
         True only when the backlog was saved, not discarded, the writer did
         not die, and no frame was lost (``lost_frames``).
         """
-        return (
-            self.save_wait_s is not None
-            and not self.aborted
-            and not self.lost_frames(writer_dropped)
-        )
+        return self.save_wait_s is not None and not self.aborted and not self.lost_frames()
 
-    def save_wait_to_tell(self, writer_dropped: int) -> float | None:
+    def save_wait_to_tell(self) -> float | None:
         """The save wait the person is told of, or None when there is none to tell.
 
         Told only when it is longer than ``RECORDING_SAVE_WAIT_NOTICE_S`` and
         every frame was kept (``kept_every_frame``): the notice says so, and
         each loss is told in its own words.
         """
-        if (
-            not self.kept_every_frame(writer_dropped)
-            or self.save_wait_s <= RECORDING_SAVE_WAIT_NOTICE_S
-        ):
+        if not self.kept_every_frame() or self.save_wait_s <= RECORDING_SAVE_WAIT_NOTICE_S:
             return None
         return self.save_wait_s
 
@@ -569,7 +593,8 @@ class _Take:
     # writer renames on collision -- so a manifest named from the REQUESTED
     # name can end up describing a different recording's file.
     last_written_path: pathlib.Path | None = None
-    write_failures: int = 0
+    # Each frame lost to its write: (its frame number, why).
+    failed_writes: list[tuple[int, str]] = field(default_factory=list)
     frames_unstamped: int = 0
     frames_skipped: int = 0
     # None until a delivered frame states its FrameID: a camera that numbers
@@ -596,15 +621,17 @@ class VideoRecordingEngine:
     Args:
         write_frame: Writer edge invoked on a writer lane once per kept
             frame: ``write_frame(image, timestamp_s, frame_number, config,
-            chunks, fact) -> pathlib.Path``. ``chunks`` is the frame's
+            chunks, fact) -> pathlib.Path | FrameNotWritten``, the path
+            written, or why the frame was not. ``chunks`` is the frame's
             camera chunk metadata (or None) and ``fact`` is whatever the
             caller recorded about the scope when the frame arrived (or
             None) -- both travel WITH the frame, because the write runs
             later, behind the backlog, and a write-time read would
             describe a different moment. The engine reads neither.
-            Raising costs exactly that frame. With more than one lane,
-            frames are written concurrently and may finish out of order;
-            each keeps the frame number it was enqueued under.
+            Raising, or answering ``FrameNotWritten``, costs exactly that
+            frame. With more than one lane, frames are written concurrently
+            and may finish out of order; each keeps the frame number it was
+            enqueued under.
         writers: The writer lanes each recording drains on: the caller's
             count for what it writes (several for per-frame files, one for
             an encoder that takes frames in order).
@@ -624,7 +651,7 @@ class VideoRecordingEngine:
     def __init__(
         self,
         *,
-        write_frame: Callable[..., pathlib.Path],
+        write_frame: Callable[..., 'pathlib.Path | FrameNotWritten'],
         writers: int,
         claim: ActivityClaim | BorrowedClaim,
         clock: Callable[[], float],
@@ -1054,6 +1081,15 @@ class VideoRecordingEngine:
         take.pending -= dropped
         return dropped
 
+    def _count_failed_write(self, take: _Take, frame_number: int, cause: str, said: object) -> None:
+        """Count one frame lost to its write, with why; *said* is what the log names."""
+        with self._lock:
+            take.failed_writes.append((frame_number, cause))
+        logger.error(
+            f'[VideoEngine] Frame {frame_number} write failed and is lost '
+            f'({said}); the recording continues'
+        )
+
     def _drain_under(self, take: _Take) -> None:
         """Run one writer lane under the recording's taking.
 
@@ -1086,23 +1122,21 @@ class VideoRecordingEngine:
                         'ts_ms,duration_ms,frame_number,pending',
                         lambda n=frame_number: [n, take.pending],
                     ):
-                        written_path = self._write_frame(
+                        written = self._write_frame(
                             image, timestamp_s, frame_number, take.config, chunks, fact
                         )
                 except Exception as ex:
-                    with self._lock:
-                        take.write_failures += 1
-                    logger.error(
-                        f'[VideoEngine] Frame {frame_number} write failed and is lost '
-                        f'({ex}); the recording continues'
-                    )
+                    self._count_failed_write(take, frame_number, cause_in_words(ex), ex)
                 except BaseException as ex:
                     self._abort_from_lane_death(take, ex)
                     return
                 else:
-                    with self._lock:
-                        take.frames_written += 1
-                        take.last_written_path = written_path
+                    if isinstance(written, FrameNotWritten):
+                        self._count_failed_write(take, frame_number, written.cause, written.cause)
+                    else:
+                        with self._lock:
+                            take.frames_written += 1
+                            take.last_written_path = written
                 finally:
                     with self._lock:
                         take.pending -= 1
@@ -1216,7 +1250,7 @@ class VideoRecordingEngine:
         take.result = RecordingResult(
             frames_selected=take.frames_selected,
             frames_written=take.frames_written,
-            write_failures=take.write_failures,
+            failed_writes=tuple(take.failed_writes),
             frames_unstamped=take.frames_unstamped,
             frames_skipped=take.frames_skipped,
             frames_lost_at_camera=take.frames_lost_at_camera,
@@ -1273,7 +1307,7 @@ class VideoRecordingEngine:
                 'manifest_version': 1,
                 'frames_selected': take.frames_selected,
                 'frames_written': take.frames_written,
-                'write_failures': take.write_failures,
+                'write_failures': len(take.failed_writes),
                 'frames_unstamped': take.frames_unstamped,
                 'frames_skipped': take.frames_skipped,
                 'frames_lost_at_camera': take.frames_lost_at_camera,

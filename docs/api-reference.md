@@ -15571,9 +15571,9 @@ A fault; bases `Fault`, `CaptureError`.
 The hyperstack builder did not build a recording's frames into one file.
 
 Raised by the manual recording's finish when the builder answers
-status=False, or raises `InputFramesUnusableError` because a frame
-cannot be read or cannot share the stack: the frames are on disk as
-recorded.
+status=False, raises `InputFramesUnusableError` because a frame
+cannot be read or cannot share the stack, or cannot write the stack's
+file: the frames are on disk as recorded.
 The builder's own sentence rides in `message` so the notification the
 user sees says why, in the builder's words, rather than telling them to
 read a log.
@@ -15585,11 +15585,12 @@ failing to get its stack.
 **Attributes**
 
 - `message`: The builder's one-paragraph reason, user-facing.
-- `reason`: `'builder_declined'` -- the builder answered status=False; `'unreadable_input_frame'` -- a frame could not be read; `'input_frames_not_one_size'` -- the frames are not all one size; `'mixed_input_pixel_types'` -- frames of different pixel types cannot share one stack.
+- `reason`: `'builder_declined'` -- the builder answered status=False; `'unreadable_input_frame'` -- a frame could not be read; `'input_frames_not_one_size'` -- the frames are not all one size; `'mixed_input_pixel_types'` -- frames of different pixel types cannot share one stack; `'hyperstack_not_written'` -- the disk refused the stack's file.
 
 | Reason | Cause | REST status |
 |---|---|---|
 | `builder_declined` | -- | 500 |
+| `hyperstack_not_written` | -- | 500 |
 | `input_frames_not_one_size` | -- | 500 |
 | `mixed_input_pixel_types` | -- | 500 |
 | `unreadable_input_frame` | -- | 500 |
@@ -16795,9 +16796,10 @@ A fault; bases `Fault`, `CaptureError`.
 
 A recording's details file could not be written; its frames are whole.
 
-Chained from the write's error. The details file is the only record of
-the recording's channel color and measured rate, so a video built from
-these frames later falls back to grayscale and a default rate.
+Raised from the write's error, which its words state. The details file
+is the only record of the recording's channel color and measured rate,
+so a video built from these frames later falls back to grayscale and a
+default rate.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -17151,6 +17153,7 @@ silently incomplete. Nothing is built.
 **Attributes**
 
 - `reason`: `'write_batch_timeout'` -- the run's writes did not finish within the build's bound. `'write_batch_abandoned'` -- some of the run's writes never ran: the file writer was recovered, or the app shut down, while they were outstanding. `'write_batch_not_taken'` -- some of the run's images never reached the file writer: it was stuck, or had stopped taking work, when they were handed over. `'write_batch_save_failed'` -- saving some of the run's images failed on disk. `'write_batch_disk_full'` -- some of the run's images were refused because the save drive was nearly full. `'write_batch_video_unfinished'` -- a video step's file did not finish. `RunImagesNotSavedError` carries all but the first as the same facts.
+- `unfinished_video`: For `'write_batch_video_unfinished'`, the first video that did not finish and why, as (the video, the cause), which the words state.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -17673,6 +17676,7 @@ counts too.
 **Attributes**
 
 - `dropped`: Selected frames that could not be written.
+- `failed_writes`: Each of them as (the frame, why), in the words a person reads; said once per cause.
 - `selected`: Frames the recording selected.
 - `unstamped`: Frames that came without the camera's timestamp and were left out.
 - `skipped`: Frames skipped because this PC could not save frames as fast as the camera sent them.
@@ -17703,9 +17707,10 @@ A video file could not be finished, so it may not open.
 
 Raised when the encoder's last flush or the file's close fails at the
 end of a recording or a video build (a full disk, a drive lost at the
-close), chained from what failed. The file is released either way; a recording
-keeps it, since it is the only copy of what was captured, and a video
-build removes it, since its source frames remain.
+close), chained from what failed, whose words it states. The file is
+released either way; a recording keeps it, since it is the only copy of
+what was captured, and a video build removes it, since its source frames
+remain.
 
 **Attributes**
 

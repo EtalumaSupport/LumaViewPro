@@ -45,6 +45,7 @@ import _lumascope.modules.channel_record as channel_record
 from _lumascope.modules.write_size import FrameSizing, estimate_step_write_mb
 from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.labware import Labware
+from _lumascope.lib.lumascope_error import INTERNAL_FAULT_SENTENCE
 from _lumascope.modules.exceptions import (
     FramesLostIn,
     RecordingDetailsNotSavedError,
@@ -56,7 +57,7 @@ from _lumascope.modules.exceptions import (
 )
 from _lumascope.modules.run_events import RunEvents, VideoPhase, VideoProgress, deliver
 from _lumascope.modules.run_outcome import RunEnding, RunStatus
-from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.notification_center import cause_in_words, notifications
 from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 from _lumascope.modules.lumascope_api.frame_record import (
     ClockMapping,
@@ -83,6 +84,7 @@ from _lumascope.modules.video_cadence import (
 )
 from _lumascope.modules.video_recording import (
     FrameLosses,
+    FrameNotWritten,
     PreRollEnd,
     RecordingConfig,
     RecordingEndReason,
@@ -138,8 +140,9 @@ class ProtocolVideoStep:
         record_step_row: Records the finished step's execution-record
             row: ``record_step_row(capture_result_file_name, frame_count,
             duration_sec, timestamp)``.
-        record_dropped_capture: Records a no-artifact row:
-            ``record_dropped_capture(reason, capture_time)``.
+        record_dropped_capture: Records a no-artifact row and the video
+            the run did not get: ``record_dropped_capture(reason,
+            capture_time, cause)``, *cause* why, as a person reads it.
         run_claim: The run's activity claim, lent to this step. The
             recording acts under it, and the step's end leaves it held:
             the run releases its claim at run end, never per step.
@@ -682,7 +685,9 @@ class ProtocolVideoStep:
     # Writer-lane edge
     # ------------------------------------------------------------------
 
-    def _write_frame(self, image, timestamp_s, frame_number, config, chunks, facts) -> Path:
+    def _write_frame(
+        self, image, timestamp_s, frame_number, config, chunks, facts
+    ) -> Path | FrameNotWritten:
         """Write one kept frame as its final artifact (runs on the lane)."""
         self._check_room_to_write(config)
 
@@ -710,8 +715,10 @@ class ProtocolVideoStep:
 
         writer = self._writer
         significant_bits = self._capture_config.capture_depth if image.dtype != np.uint8 else None
-        writer.add_frame(image=image, timestamp=timestamp_s, significant_bits=significant_bits)
-        return writer.output_path
+        dropped = writer.add_frame(
+            image=image, timestamp=timestamp_s, significant_bits=significant_bits
+        )
+        return writer.output_path if dropped is None else FrameNotWritten(dropped)
 
     def _check_room_to_write(self, config) -> None:
         """Rolling floor probe on the write lanes; a breach aborts the RUN.
@@ -787,8 +794,8 @@ class ProtocolVideoStep:
             self._send_progress(VideoProgress(VideoPhase.WRITING, progress_pct=done / total * 100))
 
         result = None
-        writer_dropped = 0
         unfinished = None
+        fault = None
         try:
             # Close the encoder before reading measured truth: an unclosed
             # container is a corrupt file on disk, while the result is only
@@ -802,10 +809,6 @@ class ProtocolVideoStep:
                     # writer that died still ends the run as itself. The file
                     # stays where it is, the only copy of what was captured.
                     unfinished = not_finished
-                # The MP4 writer swallows per-frame encode errors into its
-                # own counter; fold them into the user-facing total. The
-                # manifest carries the engine-counted failures.
-                writer_dropped = self._writer.dropped_frames
             result = engine.result()
         except Exception as failed:
             fault = RecordingFinalizeError(protocol_step=True)
@@ -820,10 +823,13 @@ class ProtocolVideoStep:
                 # step still owes the run a row: a video step that vanishes
                 # from the execution record reads as one that never ran.
                 self._record_dropped_capture(
-                    reason='video_finalize_failed', capture_time=self._start_dt
+                    reason='video_finalize_failed',
+                    capture_time=self._start_dt,
+                    # None only for an escape that is not an Exception (the
+                    # process ending), which is no cause of the video's own.
+                    cause=INTERNAL_FAULT_SENTENCE if fault is None else cause_in_words(fault),
                 )
             else:
-                dropped = result.write_failures + writer_dropped
                 # Frames came and none had the camera's timestamp: the step
                 # saved none, and says why in its own words.
                 all_unstamped = result.frames_selected == 0 and result.frames_unstamped > 0
@@ -843,30 +849,36 @@ class ProtocolVideoStep:
                         RunEnding(RunStatus.FAILED, 'video_writer_died', str(died)), 'Recording'
                     )
                     self._record_dropped_capture(
-                        reason='video_write_failed', capture_time=self._start_dt
+                        reason='video_write_failed',
+                        capture_time=self._start_dt,
+                        cause=cause_in_words(died),
                     )
                 elif unfinished is not None:
                     # Frames reached the file and it did not finish: one file
                     # not written, which the run's end counts.
                     self._record_dropped_capture(
-                        reason='video_finalize_failed', capture_time=self._start_dt
+                        reason='video_finalize_failed',
+                        capture_time=self._start_dt,
+                        cause=cause_in_words(unfinished),
                     )
                 elif result.frames_written == 0:
+                    cause = 'It recorded no frames.'
                     if all_unstamped:
+                        unstamped = RecordingFramesUnstampedError(
+                            result.frames_unstamped, protocol_step=True
+                        )
+                        cause = cause_in_words(unstamped)
                         # Logged: the run's end tells the step's unstamped
                         # frames with the run's other losses.
                         notifications.report_outcome(
-                            RecordingFramesUnstampedError(
-                                result.frames_unstamped, protocol_step=True
-                            ),
-                            solicited=False,
-                            category='Protocol',
-                            log_only=True,
+                            unstamped, solicited=False, category='Protocol', log_only=True
                         )
                     # The row's reason is the engine's recorded end reason --
                     # a camera death and a user stop must not share a label.
                     self._record_dropped_capture(
-                        reason=f'video_{result.end_reason}', capture_time=self._start_dt
+                        reason=f'video_{result.end_reason}',
+                        capture_time=self._start_dt,
+                        cause=cause,
                     )
                     # No file exists to name: the mp4 muxer writes nothing at
                     # all for an empty stream, so the configured output path
@@ -878,24 +890,21 @@ class ProtocolVideoStep:
                     )
                 else:
                     if self._writer is not None:
-                        artifact_name = self._writer.output_path.name
                         logger.info(f'[PROTOCOL-VIDEO] Video written to {self._writer.output_path}')
-                    else:
-                        artifact_name = self._output_dir.name
                     self._record_step_row(
-                        capture_result_file_name=artifact_name,
+                        capture_result_file_name=self._video_name(),
                         frame_count=result.frames_written,
                         duration_sec=result.measured_duration_s,
                         timestamp=self._start_dt,
                     )
                 if result.manifest_failure is not None:
-                    unsaved = RecordingDetailsNotSavedError()
+                    unsaved = RecordingDetailsNotSavedError(result.manifest_failure)
                     unsaved.__cause__ = result.manifest_failure
                     notifications.report_outcome(
                         unsaved, solicited=False, category='Video Recording'
                     )
                 if (
-                    result.lost_frames(writer_dropped)
+                    result.lost_frames()
                     and not result.aborted
                     and not all_unstamped
                     and unfinished is None
@@ -907,7 +916,7 @@ class ProtocolVideoStep:
                     # not open, so its own report is the whole answer there.
                     notifications.report_outcome(
                         VideoFramesDroppedError(
-                            dropped,
+                            result.losses().failed_writes,
                             result.frames_selected,
                             unstamped=result.frames_unstamped,
                             skipped=result.frames_skipped,
@@ -922,11 +931,13 @@ class ProtocolVideoStep:
                 # close, tells its own loss: its frame counts are not told
                 # beside it, nor is every frame said to be kept.
                 if not result.aborted and unfinished is None:
-                    self._frame_losses = result.losses(writer_dropped)
-                self._kept_every_frame = (
-                    result.kept_every_frame(writer_dropped) and unfinished is None
-                )
+                    self._frame_losses = result.losses(of=self._video_name())
+                self._kept_every_frame = result.kept_every_frame() and unfinished is None
                 logger.info(f'[PROTOCOL-VIDEO] Finished: {result.summary()}')
+
+    def _video_name(self) -> str:
+        """The step's artifact by name: its video file, or its folder of frames."""
+        return self._writer.output_path.name if self._writer is not None else self._output_dir.name
 
     # ------------------------------------------------------------------
     # The step's video_progress event

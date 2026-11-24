@@ -179,6 +179,9 @@ class RunWriteBatch:
         # Why images did not land, other than an abandon or a refusal to
         # take them, in the order each first happened.
         self._lost_reasons: list[str] = []
+        # The first video step whose file did not finish, and why, for the
+        # build the loss refuses to say which.
+        self._unfinished_video: tuple[str, str] | None = None
         self._lost = 0
         self._written = 0
         self._on_complete = None
@@ -437,7 +440,9 @@ class RunWriteBatch:
         if not self._completed.wait(timeout=timeout_s):
             raise RunFilesNotWrittenError('write_batch_timeout', bound_s=timeout_s)
         if self._outcome != FilesOutcome.WRITTEN:
-            raise RunFilesNotWrittenError(self.not_written_reason)
+            raise RunFilesNotWrittenError(
+                self.not_written_reason, unfinished_video=self._unfinished_video
+            )
 
     def _refuse_if_ended(self, what: str) -> None:
         if self._abandoned:
@@ -491,21 +496,24 @@ class RunWriteBatch:
         if due is not None:
             self._complete(*due)
 
-    def count_off_lane(self, what: str, lost: str | None) -> None:
-        """Count one image the run wrote on another lane: written, or *lost* and why.
+    def count_off_lane(self, what: str, *, unfinished: str | None) -> None:
+        """Count one video the run wrote on another lane: written, or *unfinished* and why.
 
         A video step writes its file on its own lane and finishes it after
         the step, so the batch never sees the write; it is told the file's
-        end here, one image per step whatever the container. Counted before
+        end here, one image per step whatever the container, with why it did
+        not finish, as a person reads it, when it did not. Counted before
         the run closes its writes, since cleanup waits for video steps to
         finish first; one that finishes after the batch completed is
         logged, and changes nothing.
         """
         with self._cond:
             if self._outcome is None:
-                self._count_image_locked(lost)
+                if unfinished is not None and self._unfinished_video is None:
+                    self._unfinished_video = (what, unfinished)
+                self._count_image_locked(None if unfinished is None else 'video_unfinished')
                 return
-        ended = 'written' if lost is None else f'not written ({lost})'
+        ended = 'written' if unfinished is None else f'not written ({unfinished})'
         logger.warning(
             f'[Protocol-Writer] {what} was {ended}, but the run had '
             'already reported its files; it is not counted'
@@ -1029,7 +1037,7 @@ class ProtocolImageWriter:
         with add_step inside write_capture; the video lane pairs them here so
         the end-of-run reconcile stays balanced.
         """
-        self._write_batch.count_off_lane(f'The video {name}', lost=None)
+        self._write_batch.count_off_lane(f'The video {name}', unfinished=None)
         if self._execution_record is None:
             return
         self._execution_record.note_capture_attempt()
@@ -1048,14 +1056,14 @@ class ProtocolImageWriter:
         except Exception as ex:
             logger.error(f'[Protocol-Writer] Failed to record video step row: {ex}')
 
-    def _record_unfinished_video(self, *, reason, name, **row) -> None:
-        """A video step whose file did not finish: its row, and one image not written.
+    def _record_unfinished_video(self, *, reason, name, cause, **row) -> None:
+        """A video step whose file did not finish: its row, and one image not written, and why.
 
         The step's file is written on its own lane, outside the run's batch,
         so the batch is told here; otherwise a run whose video never
         finished would report its files written.
         """
-        self._write_batch.count_off_lane(f'The video {name}', lost='video_unfinished')
+        self._write_batch.count_off_lane(f'The video {name}', unfinished=cause)
         self._record_dropped_capture(reason=reason, **row)
 
     def _record_dropped_capture(

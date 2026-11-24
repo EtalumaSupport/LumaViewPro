@@ -125,8 +125,10 @@ def record_first_mp4_frame(scope, save_folder, monkeypatch, **overrides):
 
     class _EndsAtItsFirstFrame(real_writer):
         def add_frame(self, *args, **kwargs):
-            super().add_frame(*args, **kwargs)
+            # The writer's answer passes through: a frame it dropped is told.
+            dropped = super().add_frame(*args, **kwargs)
             elapsed.pass_duration()
+            return dropped
 
     monkeypatch.setattr(protocol_recording, 'VideoWriter', _EndsAtItsFirstFrame)
     step = video_step_on(

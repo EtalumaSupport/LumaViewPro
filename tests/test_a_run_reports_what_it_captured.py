@@ -363,21 +363,31 @@ class TestTheFileCountCountsImages:
         shown = [n.title for n in centre_posts[start:] if n.shown]
         assert shown == ['Disk Space Critical'], shown
 
-    def test_a_video_whose_file_did_not_finish_is_not_written(self):
+    def test_a_video_whose_file_did_not_finish_is_not_written_and_a_build_says_why(self):
         # A video step writes its file on its own lane, outside the batch;
-        # when the file does not finish, the run's image is still missing.
+        # when the file does not finish, the run's image is still missing,
+        # and the build it refuses names the first such video and its cause.
         from unittest.mock import MagicMock
 
+        from _lumascope.modules.exceptions import RunFilesNotWrittenError
         from _lumascope.modules.protocol_image_writer import RunWriteBatch
 
         batch = RunWriteBatch(MagicMock())
-        batch.count_off_lane('The video V1', lost='video_unfinished')
+        batch.count_off_lane('The video V1', unfinished='No space left on device')
+        batch.count_off_lane('The video V2', unfinished='It recorded no frames.')
         outcomes = []
         batch.close()
         batch.when_complete(outcomes.append)
         assert outcomes == ['incomplete']
-        assert (batch.written, batch.not_written) == (0, 1)
+        assert (batch.written, batch.not_written) == (0, 2)
         assert batch.not_written_reason == 'write_batch_video_unfinished'
+        with pytest.raises(RunFilesNotWrittenError) as refused:
+            batch.wait_until_written(0)
+        assert refused.value.reason == 'write_batch_video_unfinished'
+        assert str(refused.value) == (
+            "A video step's file did not finish, so nothing was built from the "
+            'incomplete folder. The video V1: No space left on device'
+        )
 
 
 class TestARunWhoseCleanupFailedSaysWhich:

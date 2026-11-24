@@ -434,7 +434,7 @@ def run_cleanup(
 
         notifications.report_outcome(
             VideoFramesDroppedError(
-                video_losses.dropped,
+                video_losses.failed_writes,
                 video_losses.selected,
                 unstamped=video_losses.unstamped,
                 skipped=video_losses.skipped,

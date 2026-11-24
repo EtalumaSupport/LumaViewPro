@@ -164,7 +164,6 @@ class TestManualFramesTakeTheNumericSortBranch:
             return True, None, None
 
         writer = MagicMock()
-        writer.dropped_frames = 0
         with (
             patch.object(VideoBuilder, '_add_source_frame', _record_frame),
             patch('_lumascope.modules.video_builder.VideoWriter', return_value=writer),

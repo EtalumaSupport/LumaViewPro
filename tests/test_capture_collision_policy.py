@@ -429,8 +429,6 @@ def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch, sim_s
     added = []
 
     class _RelocatingWriter:
-        dropped_frames = 0
-
         def __init__(self, **kwargs):
             self.output_path = kwargs['output_path'].with_name('clip_000001.mp4')
 

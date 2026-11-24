@@ -64,6 +64,7 @@ from _lumascope.modules.exceptions import (
     VideoFramesDroppedError,
     VideoNotFinishedError,
     VideoWriterFailedError,
+    system_words,
 )
 from _lumascope.modules.lumascope_api.frame_record import (
     ClockMapping,
@@ -89,6 +90,7 @@ from _lumascope.modules.image_mode import RecordingFormat
 from _lumascope.modules.recording_manifest import gather_host_provenance
 from _lumascope.modules.video_cadence import StallWatch, effective_recording_fps, stall_threshold_s
 from _lumascope.modules.video_recording import (
+    FrameNotWritten,
     RecordingEndReason,
     RecordingFinished,
     PreRollEnd,
@@ -920,7 +922,7 @@ class ManualRecordingController:
 
     def _write_frame(
         self, recording, image, timestamp_s, frame_number, config, chunks, facts
-    ) -> Path:
+    ) -> Path | FrameNotWritten:
         """Write one kept frame of *recording* as its final artifact (runs on a lane)."""
         self._check_room_to_write(recording, config)
 
@@ -976,11 +978,13 @@ class ManualRecordingController:
             )
         return file_loc
 
-    def _write_mp4_frame(self, recording, image, timestamp_s) -> Path:
+    def _write_mp4_frame(self, recording, image, timestamp_s) -> Path | FrameNotWritten:
         writer = recording.writer
         significant_bits = recording.plan.capture_depth if image.dtype != np.uint8 else None
-        writer.add_frame(image=image, timestamp=timestamp_s, significant_bits=significant_bits)
-        return writer.output_path
+        dropped = writer.add_frame(
+            image=image, timestamp=timestamp_s, significant_bits=significant_bits
+        )
+        return writer.output_path if dropped is None else FrameNotWritten(dropped)
 
     def _check_room_to_write(self, recording, config) -> None:
         """Rolling floor probe; a breach stops selection, never the drain.
@@ -1025,7 +1029,6 @@ class ManualRecordingController:
         self._scope.imaging.remove_frame_listener(self._on_camera_frame)
 
         result = None
-        writer_dropped = 0
         unfinished = None
         try:
             # Close the encoder before reading measured truth. An unclosed
@@ -1040,11 +1043,6 @@ class ManualRecordingController:
                     # writer that died is told as itself. The file stays where
                     # it is, the only copy of what was captured.
                     unfinished = not_finished
-                # The MP4 writer swallows per-frame encode errors into its
-                # own counter; fold them into the user-facing total. The
-                # manifest carries the engine-counted failures -- the
-                # frames+manifest leg is the reference artifact.
-                writer_dropped = recording.writer.dropped_frames
 
             result = engine.result()
 
@@ -1081,7 +1079,7 @@ class ManualRecordingController:
                         died, solicited=False, category='Recording', once_per_run=True
                     )
                 if result.manifest_failure is not None:
-                    unsaved = RecordingDetailsNotSavedError()
+                    unsaved = RecordingDetailsNotSavedError(result.manifest_failure)
                     unsaved.__cause__ = result.manifest_failure
                     notifications.report_outcome(
                         unsaved, solicited=False, category='Video Recording', once_per_run=True
@@ -1103,7 +1101,6 @@ class ManualRecordingController:
                 if result.frames_written:
                     self._on_saved(recording.plan.save_folder)
 
-                dropped = result.write_failures + writer_dropped
                 # Frames came and none had the camera's timestamp: the
                 # recording saved none, and says why in its own words.
                 if result.frames_selected == 0 and result.frames_unstamped > 0:
@@ -1113,14 +1110,12 @@ class ManualRecordingController:
                         category='Recording',
                         once_per_run=True,
                     )
-                elif (
-                    result.lost_frames(writer_dropped) and not result.aborted and unfinished is None
-                ):
+                elif result.lost_frames() and not result.aborted and unfinished is None:
                     # An unfinished video's counts describe a file that may
                     # not open: its own report above is the whole answer.
                     notifications.report_outcome(
                         VideoFramesDroppedError(
-                            dropped,
+                            result.losses().failed_writes,
                             result.frames_selected,
                             unstamped=result.frames_unstamped,
                             skipped=result.frames_skipped,
@@ -1131,7 +1126,7 @@ class ManualRecordingController:
                         category='Recording',
                         once_per_run=True,
                     )
-                save_wait_s = result.save_wait_to_tell(writer_dropped)
+                save_wait_s = result.save_wait_to_tell()
                 # The notice says every frame was kept, untrue of a file that
                 # may not open.
                 if save_wait_s is not None and unfinished is None:
@@ -1178,6 +1173,14 @@ class ManualRecordingController:
             raise HyperstackNotBuiltError(
                 str(unusable), _HYPERSTACK_REASON_OF[unusable.reason]
             ) from unusable
+        except OSError as failed:
+            # The disk refused the stack's file: a hyperstack the recording
+            # did not get, in the system's words, not a fault of our own.
+            raise HyperstackNotBuiltError(
+                f'The hyperstack {output} could not be written ({system_words(failed)}). '
+                'The recorded frames are on disk.',
+                'hyperstack_not_written',
+            ) from failed
         # The builder reports refusal in its return value rather than by
         # raising. Raise it as the typed fault so the finish handler tells
         # the user the builder's reason; announcing a hyperstack the builder

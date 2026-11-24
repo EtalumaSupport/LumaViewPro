@@ -266,8 +266,8 @@ class TestTimestampOverlay:
 
 
 class TestVideoWriterDropAccounting:
-    """A frame the encoder fails to write is a dropped frame: it must be
-    counted as dropped and must NOT inflate the written-frame count."""
+    """A frame the encoder fails to write is a dropped frame: it is answered
+    as dropped, with why, and does NOT inflate the written-frame count."""
 
     def test_pyav_encode_error_counts_as_drop(self, tmp_path):
         fake_av, fake_stream = _make_fake_av([])
@@ -286,7 +286,6 @@ class TestVideoWriterDropAccounting:
             )
             dropped = writer.add_frame(image=np.zeros((24, 32, 3), dtype=np.uint8), timestamp=None)
         assert writer._frame_count == 0, 'a failed encode must not count as a written frame'
-        assert writer.dropped_frames == 1
         # Not the encoder's words: an error it does not declare is our own.
         assert dropped == INTERNAL_FAULT_SENTENCE
 

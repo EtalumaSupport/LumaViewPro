@@ -18,6 +18,7 @@ import builtins
 import errno
 import inspect
 import io
+import os
 import pathlib
 
 import _lumascope.modules.manual_recording as manual_recording_module
@@ -139,14 +140,14 @@ def test_the_writers_death_says_the_run_stopped_only_on_a_run():
     assert outcome_of(manual).for_person
 
 
-def test_the_lost_details_file_keeps_its_words():
-    fault = RecordingDetailsNotSavedError()
+def test_the_lost_details_file_says_why():
+    fault = RecordingDetailsNotSavedError(PermissionError(errno.EACCES, os.strerror(errno.EACCES)))
 
     assert fault.title == 'Recording details not saved'
     assert str(fault) == (
         'The video frames are safe on disk, but the recording details file '
-        'could not be written. Videos built from this recording may be '
-        'grayscale and use a default frame rate; check disk space and the log.'
+        'could not be written (Permission denied). Videos built from this '
+        'recording may be grayscale and use a default frame rate.'
     )
     assert outcome_of(fault).for_person
 
