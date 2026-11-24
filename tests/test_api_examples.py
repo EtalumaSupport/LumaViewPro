@@ -3,7 +3,8 @@
 
 Each example is a task a reader copies: its test runs it and asserts what
 the task leaves -- the file, the record, the outcome -- and runs its REST
-twin, ``<name>.sh``, line by line on a simulated server and asserts the same.
+twin, ``<name>.sh``, under bash against a simulated server and asserts the
+same.
 An example that only had to run raised nothing while it saved a saturated
 frame, so ran-without-raising is not a test of one.
 
@@ -32,16 +33,19 @@ so a slow CI box cannot flake the suite on wall clock.
 import ast
 import inspect
 import itertools
+import json
+import os
 import pathlib
 import runpy
 import shutil
+import socket
 import subprocess
 import sys
+import threading
 
 import pytest
 from tests.ast_seams import REPO_ROOT, tracked_files
 from tests.case_walk import failing_cases
-from tests.guards.test_api_doc_guard import ShellRun, curl_failures
 from tests.installation_fixtures import an_installation_holding
 from tests.settings_fixtures import complete_settings
 
@@ -83,42 +87,116 @@ def _run_example(name):
 
 
 @pytest.fixture
-def served(prepared_settings):
-    """Runs an example's REST twin on a simulated server; answers its client and its run.
+def served(prepared_settings, tmp_path):
+    """Runs an example's REST twin under bash on a simulated server; answers its client and its folder.
 
-    The server is the one ``python -m lumascope.rest --simulate`` serves: a session
-    brought up from the prepared settings, its startup motion run.
+    The server is the one the README starts, ``python -m lumascope.rest
+    --simulate --source-path <a copy of data/>``: a session brought up as that
+    command brings it up, on the test's installation -- the shipped data and a
+    new install's settings -- its startup motion run, served by the one
+    builder on a port the system found free. The twin runs as a reader runs
+    it, ``bash <twin>`` in a folder of its own with ``LVP_PORT`` naming the
+    port, and exits 0: each of its curls ends the script on an answer it did
+    not expect, and each refusal it shows on purpose is checked to be that
+    refusal. What it downloads is in the folder answered.
     """
-    from fastapi.testclient import TestClient
+    import httpx
 
     from _lumascope.modules.scope_session import ScopeSession
-    from _lumascope.rest.app import build_app
+    from _lumascope.rest.server import build_server
 
-    session = ScopeSession.create(prepared_settings.copy(), simulate=True)
-    session.run_application_session()
-    with TestClient(build_app(session)) as client:
+    missing = [tool for tool in ('bash', 'curl', 'jq') if shutil.which(tool) is None]
+    if missing:
+        pytest.skip(f'the REST twins run under bash with curl and jq; not installed: {missing}')
+    # The installation prepared_settings made and runs the test from.
+    installation = pathlib.Path.cwd()
+    with socket.create_server(('127.0.0.1', 0)) as probe:
+        port = probe.getsockname()[1]
+    settings_file = ScopeSession.user_settings_file(installation)
+    current = json.loads(pathlib.Path(settings_file).read_text(encoding='utf-8'))
+    current['rest_api'] = {
+        'enabled': True,
+        'address': '127.0.0.1',
+        'port': port,
+        'allowed_clients': [],
+    }
+    pathlib.Path(settings_file).write_text(json.dumps(current), encoding='utf-8')
+    session = ScopeSession.create(
+        ScopeSession.load_user_settings(str(installation)),
+        source_path=str(installation),
+        simulate=True,
+        warn_pre_release=False,
+        settings_file=settings_file,
+    )
+    server = build_server(session, shut_down=session.shutdown)
+    thread = threading.Thread(target=server.run)
+    try:
+        # The startup motion first, as the command runs it before it serves.
+        session.run_application_session()
+        thread.start()
+        while not server.serving:
+            assert thread.is_alive(), 'the server ended before it served'
+            thread.join(0.01)
+        folder = tmp_path / 'twin'
+        folder.mkdir()
 
         def run_twin(name):
             path = EXAMPLES_DIR / f'{name}.sh'
-            run = ShellRun()
-            lines = enumerate(path.read_text().splitlines(), 1)
-            failures = curl_failures(lines, path.name, client, run)
-            assert not failures, (
-                f'{path.name} has a curl line that does not answer as its comment states. '
-                'Correct the line or its comment.\n' + '\n'.join(failures)
+            ran = subprocess.run(
+                ['bash', str(path)],
+                cwd=folder,
+                env={**os.environ, 'LVP_PORT': str(port)},
+                capture_output=True,
+                text=True,
+                timeout=180,
             )
-            return client, run
+            assert ran.returncode == 0, (
+                f'{path.name} exited {ran.returncode}: an answer it did not expect.\n'
+                f'stdout tail:\n{ran.stdout[-2000:]}\nstderr tail:\n{ran.stderr[-2000:]}'
+            )
+            return client, folder
 
-        yield run_twin
-    session.shutdown()
+        with httpx.Client(base_url=f'http://127.0.0.1:{port}', timeout=60) as client:
+            yield run_twin
+    finally:
+        if not server.close():
+            # It stopped before it served, so the session is the test's to close.
+            session.shutdown()
+        if thread.ident is not None:
+            thread.join(60)
+            assert not thread.is_alive()
 
 
-def test_every_example_has_its_twin_and_its_outcome_test():
-    """An example is run by a test of what it leaves, and has its REST twin."""
-    tested = {name for name in EXAMPLES if any(t.startswith(f'test_{name}_') for t in globals())}
+def _jobs_of(client, member):
+    """The served session's jobs of the member named ``member``, oldest first."""
+    return [
+        job
+        for job in reversed(client.get('/api/v1/jobs').json())
+        if job['member'].rsplit('/', 1)[-1] == member
+    ]
+
+
+def _files_job(client, run_job):
+    """The files job of ``run_job``, read once it has ended."""
+    return client.get(f'/api/v1/jobs/{run_job["files"]["id"]}').json()
+
+
+def test_every_example_has_its_twin_and_its_outcome_tests():
+    """An example and its REST twin are each run by a test of what it leaves.
+
+    A twin's test runs it under bash through ``served``, which fails it on
+    any exit but 0, so every twin is run.
+    """
+    tests = [t for t in globals() if t.startswith('test_')]
     for name in EXAMPLES:
         assert (EXAMPLES_DIR / f'{name}.sh').is_file(), f'{name}.py has no REST twin {name}.sh'
-        assert name in tested, f'{name}.py has no test_{name}_... asserting what it leaves'
+        over_rest = f'test_{name}_over_rest_'
+        assert any(t.startswith(f'test_{name}_') and not t.startswith(over_rest) for t in tests), (
+            f'{name}.py has no test_{name}_... asserting what it leaves'
+        )
+        assert any(t.startswith(over_rest) for t in tests), (
+            f'{name}.sh has no {over_rest}... running it and asserting what it leaves'
+        )
 
 
 def _full_scale(bits):
@@ -137,17 +215,16 @@ def test_first_still_saves_a_lit_unsaturated_still_and_its_record():
     assert (record['channel'], record['illumination_ma'], record['dark']) == ('BF', 5.0, False)
 
 
-def test_first_still_over_rest_saves_the_same_still(served, tmp_path):
+def test_first_still_over_rest_saves_the_same_still(served):
     from _lumascope.modules.image_utils import read_file_record
 
-    client, run = served('first_still')
-    still = client.get(f'/api/v1/jobs/{run.variables["JOB"]}').json()['result'][0]
+    client, folder = served('first_still')
+    [job] = _jobs_of(client, 'start_save_still')
+    still = job['result'][0]
     assert (still['channel'], still['well_label']) == ('BF', 'B2')
     assert still['record']['dark'] is False
     assert still['statistics']['maximum'] < _full_scale(still['significant_bits'])
-    downloaded = tmp_path / 'still.tiff'
-    downloaded.write_bytes(run.written['still.tiff'])
-    record = read_file_record(downloaded)
+    record = read_file_record(folder / 'still.tiff')
     assert (record['channel'], record['illumination_ma'], record['dark']) == ('BF', 5.0, False)
 
 
@@ -210,11 +287,8 @@ def test_channel_settings_takes_each_still_with_the_settings_it_wrote():
 
 
 def test_channel_settings_over_rest_takes_the_same_stills(served):
-    client, run = served('channel_settings')
-    stills = [
-        client.get(f'/api/v1/jobs/{run.variables[job]}').json()['result'][0]
-        for job in ('BF_JOB', 'EX488_JOB', 'RAW_JOB')
-    ]
+    client, _ = served('channel_settings')
+    stills = [job['result'][0] for job in _jobs_of(client, 'start_save_still')]
     assert [
         (
             s['channel'],
@@ -246,16 +320,17 @@ def test_scan_completes_and_keeps_an_image_of_each_well():
     ]
 
 
-def test_scan_over_rest_completes_and_keeps_its_images(served, tmp_path):
+def test_scan_over_rest_completes_and_keeps_its_images(served):
     from _lumascope.modules.image_utils import read_file_record
 
-    client, run = served('scan')
-    files = client.get(f'/api/v1/jobs/{run.variables["FILES"]}').json()
+    client, folder = served('scan')
+    [job] = _jobs_of(client, 'start_single_scan')
+    assert job['result']['status'] == 'completed', job
+    assert (job['result']['captures']['asked'], job['result']['captures']['captured']) == (2, 2)
+    files = _files_job(client, job)
     assert files['status'] == 'completed', files
     assert (files['result']['outcome'], files['result']['written']) == ('written', 2)
-    downloaded = tmp_path / 'first.tiff'
-    downloaded.write_bytes(run.written['first.tiff'])
-    record = read_file_record(downloaded)
+    record = read_file_record(folder / 'first.tiff')
     assert (record['channel'], record['plate']['well_label'], record['dark']) == (
         'BF',
         'B2',
@@ -280,11 +355,13 @@ def test_z_stack_saved_writes_a_slice_per_step_of_its_range():
 
 
 def test_z_stack_saved_over_rest_writes_the_same_slices(served, prepared_settings):
-    client, run = served('z_stack_saved')
-    files = client.get(f'/api/v1/jobs/{run.variables["FILES"]}').json()
+    client, _ = served('z_stack_saved')
+    [job] = _jobs_of(client, 'start_zstack')
+    assert job['result']['status'] == 'completed', job
+    files = _files_job(client, job)
     assert files['status'] == 'completed', files
     assert (files['result']['outcome'], files['result']['written']) == ('written', 5)
-    run_dir = pathlib.Path(prepared_settings['live_folder']) / run.variables['RUN_DIR']
+    run_dir = pathlib.Path(prepared_settings['live_folder']) / job['progress']['run_dir']['name']
     assert _slice_steps_um(sorted(run_dir.glob('*.tiff'))) == [5.0] * 4
 
 
@@ -297,13 +374,17 @@ def test_stop_a_run_ends_it_aborted_after_its_first_scan_with_its_images_written
     assert (files.outcome, files.written) == (FilesOutcome.WRITTEN, 3)
 
 
-def test_stop_a_run_over_rest_ends_its_job_aborted(served):
-    client, run = served('stop_a_run')
-    job = client.get(f'/api/v1/jobs/{run.variables["JOB"]}').json()
+def test_stop_a_run_over_rest_ends_it_aborted_after_its_first_scan_with_its_images_written(
+    served,
+):
+    client, _ = served('stop_a_run')
+    [job] = _jobs_of(client, 'start_protocol')
     assert job['status'] == 'completed', job
     outcome = job['result']
     assert (outcome['status'], outcome['reason']) == ('aborted', 'stopped')
-    assert outcome['captures']['captured'] < outcome['captures']['asked']
+    assert outcome['captures']['captured'] == 3 < outcome['captures']['asked']
+    files = _files_job(client, job)
+    assert (files['result']['outcome'], files['result']['written']) == ('written', 3)
 
 
 def test_refusals_and_faults_meets_one_refusal_of_each_cause():
@@ -318,8 +399,9 @@ def test_refusals_and_faults_meets_one_refusal_of_each_cause():
 
 
 def test_refusals_and_faults_over_rest_answers_each_problem(served):
-    client, run = served('refusals_and_faults')
-    job = client.get(f'/api/v1/jobs/{run.variables["JOB"]}').json()
+    client, _ = served('refusals_and_faults')
+    assert _jobs_of(client, 'start_move_z') == []
+    [job] = _jobs_of(client, 'start_save_still')
     assert job['status'] == 'failed', job
     assert (job['error']['reason'], job['error']['status']) == ('not_connected', 503)
 
@@ -331,8 +413,9 @@ def test_control_session_acts_in_it_and_refuses_outside_it_and_after_it():
 
 
 def test_control_session_over_rest_acts_in_it_and_refuses_outside_it_and_after_it(served):
-    client, run = served('control_session')
-    job = client.get(f'/api/v1/jobs/{run.variables["JOB"]}').json()
+    client, _ = served('control_session')
+    assert _jobs_of(client, 'start_move_z') == []
+    [job] = _jobs_of(client, 'start_save_still')
     assert job['status'] == 'completed', job
     assert job['result'][0]['channel'] == 'BF'
     assert client.get('/api/v1/control').json() is None

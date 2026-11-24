@@ -1222,9 +1222,9 @@ def _expand(token, variables):
 def _curl_request(command, variables):
     """``(method, path, headers, body, output)`` of a ``curl`` command, its variables expanded.
 
-    Reads the flags the guide and the examples use: ``-s``, ``-X``, ``-H``,
-    ``--json``, ``-o`` and ``-w`` (what curl prints after the answer, which
-    sends nothing); any other is refused, so a line the runner cannot send
+    Reads the flags the guide uses: ``-s``, ``-X``, ``-H``, ``--json``,
+    ``-o`` and ``-w`` (what curl prints after the answer, which sends
+    nothing); any other is refused, so a line the runner cannot send
     is never read as sent.
     """
     words = shlex.split(command)
@@ -1257,8 +1257,8 @@ def _curl_request(command, variables):
 
 
 def _jq_raw(answer, path):
-    """``jq -r <path>`` of a JSON answer, for the paths the guide and the
-    examples use (``.``, ``.a.b``, ``'.a[0].b'``)."""
+    """``jq -r <path>`` of a JSON answer, for the paths the guide uses
+    (``.``, ``.a.b``, ``'.a[0].b'``)."""
     for key, index in re.findall(r'\.([A-Za-z_]\w*)|\[(\d+)\]', shlex.split(path)[0]):
         answer = answer[key] if key else answer[int(index)]
     return answer if isinstance(answer, str) else json.dumps(answer)

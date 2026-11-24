@@ -4,8 +4,8 @@ Each example does one task on a simulated microscope, so it needs no hardware
 and moves nothing real. Each task comes in two forms that do the same thing:
 
 - `<task>.py` -- Python, calling the API in its own process.
-- `<task>.sh` -- the same task over REST, with `curl`, against a running
-  LumaViewPro.
+- `<task>.sh` -- the same task over REST, with `curl`, against a simulated
+  server running on a copy of LumaViewPro's `data/`.
 
 | Task | Python | REST |
 |---|---|---|
@@ -46,54 +46,48 @@ LumaViewPro settings name: `capture/` in a fresh copy of the source.
 
 ## Running a REST example
 
-A REST example runs against a LumaViewPro that is serving the API: the
-installed app, or a server started from the source. You need `bash`, `curl`
-7.82 or newer and [`jq`](https://jqlang.github.io/jq/). On Windows, Git Bash (from
-[Git for Windows](https://gitforwindows.org)) has `bash` and `curl`; install
-`jq` with `winget install jqlang.jq`.
+A REST example runs only against a simulated server started from the source
+on a copy of its `data/` folder, never against LumaViewPro's own settings.
+Each example confirms the objective the simulator proposes and writes the
+settings it uses; on your own `data/`, a scope with no turret would then
+never be asked which objective is mounted, and its files would carry the
+default objective's scale, whatever is mounted. A copy keeps every write and capture out of your files.
 
-1. Start a simulated LumaViewPro that serves the API, one of:
-   - **The installed app.** Close LumaViewPro. Open
-     `Documents\LumaViewPro <version>\data\current.json` (made the first time
-     the app starts) in a text editor and set
+You need LumaViewPro's source, installed as in [Running a Python
+example](#running-a-python-example), and `bash`, `curl` 7.82 or newer and
+[`jq`](https://jqlang.github.io/jq/). On Windows, run them in Git Bash (from
+[Git for Windows](https://gitforwindows.org)), which has `bash` and `curl`
+(install `jq` with `winget install jqlang.jq`), or in WSL with the source
+installed there; run both steps below in the same one.
 
-     ```json
-     "rest_api": {"enabled": true, "port": 8000, "address": "127.0.0.1", "allowed_clients": []}
-     ```
+1. Start the simulated server on a copy of `data/`. In the LumaViewPro
+   folder, the one holding `lumaviewpro.py`:
 
-     Then start the app in simulation from a command prompt, in its folder
-     under `Program Files`:
+   ```
+   mkdir -p /tmp/lvp-sim && cp -R data /tmp/lvp-sim/ && rm -f /tmp/lvp-sim/data/current.json
+   python -m lumascope.rest --simulate --source-path /tmp/lvp-sim
+   ```
 
-     ```
-     lumaviewpro.exe --simulate
-     ```
-
-     It serves the API while its window is open. Set `enabled` back to
-     `false` when you are done.
-   - **From the source.** In the LumaViewPro folder:
-
-     ```
-     python -m lumascope.rest --simulate
-     ```
-
-     It serves until you press Ctrl-C.
-
-   Either way the scope homes as it starts; wait for that to finish.
+   (`python3` on macOS and Linux.) The copy has no `current.json`, so the
+   server comes up as a new install. The scope homes as it starts; once it
+   has, the server prints `LumaViewPro REST server:` and where it serves. It
+   serves until you press Ctrl-C.
 2. In another terminal, in a folder you can write to (`first_still.sh` and
-   `scan.sh` download an image into it), run the example by its path: in
-   the source, or in the installed app's folder, which carries these
-   examples too.
+   `scan.sh` download an image into it), run the example by its path:
 
    ```
    bash <LumaViewPro folder>/docs/api_examples/first_still.sh
    ```
 
-Each line prints its answer on a line of its own, and its comment says the
-status it answers. The server is
-`http://127.0.0.1:8000`, this computer only; with another `port` or
-`address` (another computer's scope: the guide's [Serving another
-computer](../guide/rest.md#serving-another-computer)), change `API=` at the top of the example. The interactive reference of every route is
-at `http://127.0.0.1:8000/docs` while the server runs.
+Each line prints its answer, and its comment says the status it answers.
+An example stops at the first answer it does not expect, with the problem
+it was answered printed, and exits non-zero; one that shows a refusal on
+purpose checks that it is that refusal and goes on, and `curl` prints the
+refusal's status as it does. The server is `http://127.0.0.1:8000`, this
+computer only. A copy of `data/` with another `rest_api.port` serves on
+that port: name it to the example with `LVP_PORT`, as in
+`LVP_PORT=8001 bash .../first_still.sh`. The interactive reference of
+every route is at `http://127.0.0.1:8000/docs` while the server runs.
 
 `refusals_and_faults` pulls the simulated camera's cable, as its Python form
 does: restart the server after it to have a camera again.
