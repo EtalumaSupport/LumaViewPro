@@ -41,11 +41,13 @@ def raises_the_failure_from(original: type[BaseException]):
     """
     import pytest
 
-    from _lumascope.modules.exceptions import AutofocusFailedError
+    from _lumascope.modules.exceptions import INTERNAL_FAULT_SENTENCE, AutofocusFailedError
 
     with pytest.raises(AutofocusFailedError) as raised:
         yield raised
     assert raised.value.reason == 'unexpected_error'
+    # LumaViewPro's own failure, told as one, for the support report to carry.
+    assert INTERNAL_FAULT_SENTENCE in str(raised.value), str(raised.value)
     assert isinstance(raised.value.__cause__, original), repr(raised.value.__cause__)
 
 

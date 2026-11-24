@@ -26,7 +26,11 @@ import _lumascope.modules.video_recording as video_recording
 from _lumascope.drivers import host_clock
 from tests.video_step_drives import record_first_frame
 from _lumascope.modules.activity_claim import ActivityClaim
-from _lumascope.modules.exceptions import RecordingDetailsNotSavedError, VideoWriterFailedError
+from _lumascope.modules.exceptions import (
+    INTERNAL_FAULT_SENTENCE,
+    RecordingDetailsNotSavedError,
+    VideoWriterFailedError,
+)
 from _lumascope.modules.notification_center import outcome_of
 from _lumascope.modules.run_outcome import RunEnding, RunStatus
 from _lumascope.modules.video_recording import VideoRecordingEngine
@@ -125,11 +129,11 @@ def test_the_writers_death_says_the_run_stopped_only_on_a_run():
     assert manual.title == step.title == 'Recording Failed'
     assert str(manual) == (
         'The video writer stopped working and the recording was aborted. '
-        'Frames already written are on disk; check the log for the cause.'
+        f'Frames already written are on disk. {INTERNAL_FAULT_SENTENCE}'
     )
     assert str(step) == (
         'The video writer stopped working, so the recording and the run were stopped. '
-        'Frames already written are on disk; check the log for the cause.'
+        f'Frames already written are on disk. {INTERNAL_FAULT_SENTENCE}'
     )
     assert manual.reason == step.reason == 'video_writer_died'
     assert outcome_of(manual).for_person

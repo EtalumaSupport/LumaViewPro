@@ -55,6 +55,7 @@ from _lumascope.modules.activity_claim import acting
 from _lumascope.modules.caller import Caller, calling
 from _lumascope.modules.autofocus_thread import AutofocusSweep
 from _lumascope.modules.exceptions import (
+    INTERNAL_FAULT_SENTENCE,
     ControlSessionRefusedError,
     ProtocolNotSavedError,
     ProtocolRunRefusedError,
@@ -549,9 +550,9 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
         # The crash is chained for the log, never quoted to the person.
         assert 'OSError' not in str(excinfo.value)
         assert 'labware config unreadable' not in str(excinfo.value)
-        # Its words say whose failure it is: the check's, inside LumaViewPro,
-        # never the person's labware or objectives configuration.
-        assert 'inside LumaViewPro' in str(excinfo.value)
+        # Its words say whose failure it is: LumaViewPro's, sent to us in a
+        # support report, never the person's labware or objectives configuration.
+        assert INTERNAL_FAULT_SENTENCE in str(excinfo.value)
         assert 'configuration' not in str(excinfo.value)
 
         # Observationally a no-op: the record getters still answer for

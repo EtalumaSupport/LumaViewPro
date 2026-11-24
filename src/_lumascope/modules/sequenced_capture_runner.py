@@ -62,6 +62,7 @@ from _lumascope.modules.exceptions import (
     CompositeFailedError,
     ControlSessionRefusedError,
     FileWriterStalledError,
+    INTERNAL_FAULT_SENTENCE,
     HardwareCommandRefusedError,
     Holder,
     LaneCallStillRunningError,
@@ -1502,8 +1503,8 @@ class SequencedCaptureRunner:
             raise RunCheckFailedError(
                 reason='validation_crashed',
                 message=(
-                    "The check of the protocol's steps failed inside LumaViewPro, so the "
-                    'run did not start. The log has the details.'
+                    "The run did not start: the check of the protocol's steps failed. "
+                    f'{INTERNAL_FAULT_SENTENCE}'
                 ),
             ) from ex
         if validation_errors:
@@ -2147,7 +2148,7 @@ class SequencedCaptureRunner:
             ):
                 raise _RunStartError(
                     'dispatch_refused',
-                    'The run could not be started. See the log for details.',
+                    f'The run could not be started. {INTERNAL_FAULT_SENTENCE}',
                 ) from dispatch_future.exception()
         except Exception as exc:
             self._fail_run_at_start(exc, handle)
@@ -2212,7 +2213,7 @@ class SequencedCaptureRunner:
             ending = RunEnding(
                 RunStatus.FAILED_AT_START,
                 'start_failed',
-                'The run could not start. See the log for details.',
+                f'The run could not start. {INTERNAL_FAULT_SENTENCE}',
             )
         self.end_run_not_begun(ending, run)
 

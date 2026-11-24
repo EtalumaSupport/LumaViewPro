@@ -34,6 +34,7 @@ fires the regression.
 from __future__ import annotations
 
 from _lumascope.drivers.exceptions import BoardPortFailedError
+from _lumascope.modules.exceptions import INTERNAL_FAULT_SENTENCE
 from _lumascope.modules.scope_parts import Board
 
 
@@ -150,7 +151,7 @@ class TestOurOwnDefectEndsTheRunAtOnce:
             c.args for c in runner._image_writer._abort_run_fatal.call_args_list
         ]
         assert ending.reason == 'run_loop_crashed'
-        assert 'LumaViewPro failed' in ending.message
+        assert INTERNAL_FAULT_SENTENCE in ending.message
         assert runner._protocol.step_row.call_count == 1, 'a defect is not retried'
 
     def test_the_apis_routine_failures_are_still_retried(self):

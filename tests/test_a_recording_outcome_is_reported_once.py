@@ -20,6 +20,7 @@ import _lumascope.modules.stack_builder as stack_builder_module
 import _lumascope.modules.protocol_recording as protocol_recording
 import _lumascope.modules.video_recording as video_recording
 from _lumascope.modules.exceptions import (
+    INTERNAL_FAULT_SENTENCE,
     FramesLostIn,
     HyperstackNotBuiltError,
     InputFramesUnusableError,
@@ -84,7 +85,7 @@ def _record_reports(monkeypatch, module):
             RecordingFinalizeError(protocol_step=True),
             'Video Finalize Failed',
             'A video step finished but its output could not be fully assembled. '
-            'Frames already written are on disk; check the log.',
+            f'Frames already written are on disk. {INTERNAL_FAULT_SENTENCE}',
         ),
         (
             VideoFramesDroppedError(

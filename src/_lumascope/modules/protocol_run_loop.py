@@ -21,6 +21,7 @@ from _lumascope.modules.lumascope_api.illumination import LedTransition, LedTran
 from _lumascope.modules.protocol_state_machine import ProtocolState
 from _lumascope.modules.exceptions import (
     INTERLOCK_REASONS,
+    INTERNAL_FAULT_SENTENCE,
     HardwareCommandRefusedError,
     MoveStoppedError,
     describe_unknown_positions,
@@ -79,8 +80,7 @@ class ProtocolRunLoop:
             ending = RunEnding(
                 RunStatus.FAILED,
                 'run_loop_crashed',
-                'The protocol stopped: LumaViewPro failed while running it. '
-                'The log has the details.',
+                f'The protocol stopped. {INTERNAL_FAULT_SENTENCE}',
             )
             # Through the funnel, as every run-killing fault: a crashed run
             # is shown, and a fault already shown stays the one shown.

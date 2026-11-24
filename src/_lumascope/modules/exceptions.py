@@ -46,6 +46,13 @@ if TYPE_CHECKING:
     from _lumascope.modules.plugins import PluginNotLoaded
     from _lumascope.modules.tech_support_report import SupportReportKind
 
+# A failure that is LumaViewPro's own, never the scope's or the person's: the
+# log holds its cause for us, and a support report carries the log to us. It
+# names no menu, since a REST or headless caller reads the same words.
+INTERNAL_FAULT_SENTENCE = (
+    'LumaViewPro hit an internal fault. Please send a support report so it can be fixed.'
+)
+
 # A camera that is connected and not delivering frames: a run refused at its
 # start and a capture refused at its call carry the one heading.
 CAMERA_NOT_STREAMING_TITLE = 'Camera Not Streaming'
@@ -1329,8 +1336,8 @@ class CameraNotAvailableError(Fault, BringUpError):
         ),
         'camera_bring_up_failed': (
             'Camera not brought up',
-            'LumaViewPro failed while bringing the camera up. The log has the details; '
-            'restart LumaViewPro, and send a support report if it happens again.',
+            f'The camera was not brought up. {INTERNAL_FAULT_SENTENCE} '
+            'Restart LumaViewPro to try again.',
         ),
     }
     titles: ClassVar[dict[str, str]] = {reason: title for reason, (title, _) in _WORDS.items()}
@@ -3102,7 +3109,7 @@ class RecordingFinalizeError(Fault, CaptureError):
         if protocol_step:
             message = (
                 'A video step finished but its output could not be fully assembled. '
-                'Frames already written are on disk; check the log.'
+                f'Frames already written are on disk. {INTERNAL_FAULT_SENTENCE}'
             )
             reason = 'video_step_finalize_failed'
         else:
@@ -3275,7 +3282,7 @@ class VideoWriterFailedError(Fault, CaptureError):
         )
         super().__init__(
             f'The video writer stopped working{stopped}. Frames already written '
-            'are on disk; check the log for the cause.',
+            f'are on disk. {INTERNAL_FAULT_SENTENCE}',
             'video_writer_died',
         )
         self.protocol_step = protocol_step
@@ -3800,7 +3807,7 @@ class AutofocusFailedError(Fault, CaptureError):
             'Autofocus would search past the end of Z travel -- start it further from the '
             "travel limit, or narrow the objective's autofocus range."
         ),
-        'unexpected_error': 'Autofocus stopped on an unexpected error; the log has the details.',
+        'unexpected_error': f'Autofocus stopped. {INTERNAL_FAULT_SENTENCE}',
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_WORDS)
 

@@ -19,6 +19,7 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import MagicMock
 
+from _lumascope.modules.exceptions import INTERNAL_FAULT_SENTENCE
 from _lumascope.modules.run_events import RunEvents
 from _lumascope.modules.run_outcome import ENDING_TITLES, EndingLatch, PendingRunOutcome, RunEnding
 from tests.ast_seams import REPO_ROOT, tracked_files
@@ -375,6 +376,7 @@ class TestAStartFailureCarriesItsCause:
             f'a raw exception string reached a field a popup shows and a REST '
             f'handler serialises: {ending.message!r}'
         )
+        assert INTERNAL_FAULT_SENTENCE in ending.message, ending.message
 
 
 # ---------------------------------------------------------------------------
@@ -481,8 +483,8 @@ class TestTheRunLoopsOwnEndings:
     def test_a_crashed_run_loop_is_told_as_lumaviewpros_failure(self):
         """The safety net used to hand cleanup the bare word 'failed', then
         the exception's own text, a programmer's. The ending names the crash
-        and the person reads that LumaViewPro failed; the text stays in the
-        log."""
+        and the person reads that LumaViewPro hit an internal fault and to
+        send a support report; the text stays in the log."""
         from tests.protocol_drives import protocol_step, run_loop_ready_runner
 
         runner = run_loop_ready_runner(protocol_step())
@@ -497,7 +499,7 @@ class TestTheRunLoopsOwnEndings:
             c.args for c in runner._image_writer._abort_run_fatal.call_args_list
         ]
         assert (recorded.reason, domain) == ('run_loop_crashed', 'Protocol')
-        assert 'LumaViewPro failed' in recorded.message
+        assert INTERNAL_FAULT_SENTENCE in recorded.message
         assert 'the loop died here' not in recorded.message
         ending = runner._cleanup.call_args.args[0]
         assert ending == recorded, (

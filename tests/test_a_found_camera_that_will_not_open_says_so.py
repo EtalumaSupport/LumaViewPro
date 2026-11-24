@@ -27,7 +27,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from _lumascope.drivers.exceptions import CameraSetupFailedError, CameraUsbOpenFailedError
-from _lumascope.modules.exceptions import CameraNotAvailableError
+from _lumascope.modules.exceptions import INTERNAL_FAULT_SENTENCE, CameraNotAvailableError
 from _lumascope.modules.lumascope_api._lumascope import _camera_failure_cause
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
 
@@ -225,5 +225,5 @@ def test_the_bring_up_tells_its_own_failure_as_lumaviewpros_not_the_cables():
 
     assert _camera_failure_cause(fault, False) == 'camera_bring_up_failed'
     words = str(CameraNotAvailableError('camera_bring_up_failed'))
-    assert 'LumaViewPro failed' in words
+    assert INTERNAL_FAULT_SENTENCE in words
     assert 'USB' not in words
