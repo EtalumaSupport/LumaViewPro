@@ -38,7 +38,7 @@ from _lumascope.modules.exceptions import (
     RefusalCause,
     Remedy,
 )
-from _lumascope.modules.api_surface import api_fields
+from _lumascope.modules.api_surface import api, api_fields
 
 logger = logging.getLogger('LVP.notifications')
 # The reporter's own record -- what happened, with the traceback when it is
@@ -139,6 +139,17 @@ class OutcomeKind(StrEnum):
     UNCLASSIFIED = 'unclassified'
 
 
+@api_fields(
+    'kind',
+    'title',
+    'words',
+    'for_person',
+    'shown_words',
+    'reason',
+    'remedy',
+    'fatal',
+    'cause',
+)
 @dataclass(frozen=True)
 class Outcome:
     """What an exception's type says it is, read once for every host that answers it.
@@ -151,10 +162,11 @@ class Outcome:
         for_person: Whether ``words`` are written for the person: a
             refusal's, a notice's, a quiet outcome's, and a fault's whose type
             writes them so. Any other fault's are a developer's.
-        shown_words: What a person reads: ``words`` when written for one;
-            else its type's ``person_words``; else, for an exception that
-            declares neither, LumaViewPro's own fault, the internal-fault
-            sentence, which asks for a support report.
+        shown_words: What a person reads, the words a REST problem's
+            ``detail`` carries: ``words`` when written for one; else its
+            type's one sentence of what failed and what to do; else, for an
+            exception whose type says neither, LumaViewPro's own fault: that
+            it hit an internal fault, and a request for a support report.
         reason: Its machine-readable code; empty when its type declares none.
         remedy: The one action that answers it, when it has one.
         fatal: A fault that ends what was running.
@@ -175,6 +187,7 @@ class Outcome:
     cause: RefusalCause | None = None
 
 
+@api(in_process=True)
 def outcome_of(exception: BaseException) -> Outcome:
     """What *exception* is, as its type says: the one reading of an outcome's kind and words.
 

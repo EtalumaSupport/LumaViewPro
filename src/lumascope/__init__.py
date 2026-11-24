@@ -373,7 +373,9 @@ from _lumascope.modules.manual_recording import (
 )
 from _lumascope.modules.notification_center import (
     Notification,
+    Outcome,
     OutcomeKind,
+    outcome_of,
 )
 from _lumascope.modules.objectives_loader import (
     Objective,
@@ -747,6 +749,7 @@ __all__ = [
     'OperationSettleRefusedError',
     'OperationWaitExpiredError',
     'OpticsStatus',
+    'Outcome',
     'OutcomeKind',
     'OutputFormat',
     'PackagesNotAsPinnedError',
@@ -905,4 +908,5 @@ __all__ = [
     'build_app',
     'build_server',
     'configure_logging',
+    'outcome_of',
 ]

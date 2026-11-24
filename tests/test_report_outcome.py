@@ -225,3 +225,15 @@ def test_a_listener_that_reports_does_not_deadlock(centre):
     threading.Thread(target=_run, daemon=True).start()
     assert done.wait(2.0), 'the reporter held the centre lock while notifying'
     assert [n.category for n in centre.shown] == ['Task:outer', 'Task:inner']
+
+
+def test_a_python_client_reads_what_a_person_is_shown_from_the_sdk():
+    # REST answers a fault with the words a person reads; a Python client
+    # holding the exception reads the same words through the one reader.
+    import lumascope
+
+    outcome = lumascope.outcome_of(lumascope.CameraReadFailedError('BlackLevel read failed: x'))
+
+    assert (outcome.kind, outcome.title) == (lumascope.OutcomeKind.FAULT, 'Camera Read Failed')
+    assert outcome.shown_words.startswith('The camera did not answer'), outcome.shown_words
+    assert 'BlackLevel' not in outcome.shown_words

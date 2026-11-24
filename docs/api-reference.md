@@ -50,6 +50,7 @@ NaN stays a NaN, and a key keeps its type.
 - [`build_app`](#build_app)
 - [`build_server`](#build_server)
 - [`configure_logging`](#configure_logging)
+- [`outcome_of`](#outcome_of)
 
 **Records**
 
@@ -124,6 +125,7 @@ NaN stays a NaN, and a key keeps its type.
 - [`Objective`](#Objective)
 - [`ObjectiveQuestion`](#ObjectiveQuestion)
 - [`OpticsStatus`](#OpticsStatus)
+- [`Outcome`](#Outcome)
 - [`PartStatus`](#PartStatus)
 - [`PlateLocation`](#PlateLocation)
 - [`PluginHealth`](#PluginHealth)
@@ -10575,6 +10577,26 @@ both be held.
 - <a id="OpticsStatus.field_of_view"></a>`field_of_view`: `FieldOfView | ObjectiveUnknownError | HardwareCommandRefusedError | PixelSizeUnknownError` -- The frame's extent on the sample, or the first reason it is unknown, in this order: the objective's `ObjectiveUnknownError`; `HardwareCommandRefusedError`, `'not_connected'` naming the camera, or `'scope_disconnected'` after the scope's shutdown; `PixelSizeUnknownError`, `'optics_undeclared'`, `'binning_unread'` or `'frame_size_unread'`.
 - <a id="OpticsStatus.objective"></a>`objective`: `str | ObjectiveUnknownError` -- The active objective's id, or `ObjectiveUnknownError`: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalog'` or `'none_selected'`.
 
+<a id="Outcome"></a>
+## `lumascope.Outcome`
+
+A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+Returned by: [`outcome_of`](#outcome_of).
+
+What an exception's type says it is, read once for every host that answers it.
+
+**Fields**
+
+- <a id="Outcome.cause"></a>`cause`: `RefusalCause | None` -- Whether the same request could succeed later, as a refusal's, a quiet outcome's or a raised notice's type declares (`RefusalCause`); None for a fault, a notice that is only reported, and a by-contract cancel, which declares none.
+- <a id="Outcome.fatal"></a>`fatal`: `bool` -- A fault that ends what was running.
+- <a id="Outcome.for_person"></a>`for_person`: `bool` -- Whether `words` are written for the person: a refusal's, a notice's, a quiet outcome's, and a fault's whose type writes them so. Any other fault's are a developer's.
+- <a id="Outcome.kind"></a>`kind`: `OutcomeKind` -- A refusal, a notice, a quiet outcome or a fault.
+- <a id="Outcome.reason"></a>`reason`: `str` -- Its machine-readable code; empty when its type declares none.
+- <a id="Outcome.remedy"></a>`remedy`: `Remedy | None` -- The one action that answers it, when it has one.
+- <a id="Outcome.shown_words"></a>`shown_words`: `str` -- What a person reads, the words a REST problem's `detail` carries: `words` when written for one; else its type's one sentence of what failed and what to do; else, for an exception whose type says neither, LumaViewPro's own fault: that it hit an internal fault, and a request for a support report.
+- <a id="Outcome.title"></a>`title`: `str | None` -- The heading its type declares; None for a fault whose type declares none, which each host names in its own way.
+- <a id="Outcome.words"></a>`words`: `str` -- Its own words, or a sentence saying they could not be written.
+
 <a id="PartStatus"></a>
 ## `lumascope.PartStatus`
 
@@ -11733,7 +11755,7 @@ What a manual recording's operation answers once it is done.
 ## `lumascope.Remedy`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Held in: [`Notification.remedy`](#Notification.remedy).  
+Held in: [`Notification.remedy`](#Notification.remedy), [`Outcome.remedy`](#Outcome.remedy).  
 Taken by: [`ScopeSession.apply_remedy`](#ScopeSession.apply_remedy).
 
 The one action that answers a refusal, offered to whoever was refused.
@@ -12879,6 +12901,22 @@ any library's do.
 
 - [`LoggingConfigurationRefusedError`](#LoggingConfigurationRefusedError): `logging_configured_otherwise`
 
+<a id="outcome_of"></a>
+## `lumascope.outcome_of`
+
+```python
+def outcome_of(exception: BaseException) -> Outcome
+```
+
+Marks: in-process.  
+Raises nothing.
+
+What *exception* is, as its type says: the one reading of an outcome's kind and words.
+
+**Args**
+
+- `exception`: The exception to read, raised or not: any exception, a cancellation and one the API does not declare included.
+
 ## Closed sets
 
 A closed set crosses the wire as its value, and in Python equals its value's string.
@@ -13364,7 +13402,7 @@ datagrams), or no board connected, answers None.
 <a id="OutcomeKind"></a>
 ### `lumascope.OutcomeKind`
 
-Held in: [`Notification.kind`](#Notification.kind).
+Held in: [`Notification.kind`](#Notification.kind), [`Outcome.kind`](#Outcome.kind).
 
 What an outcome is, read from its type by the reporter.
 
@@ -13510,7 +13548,7 @@ written. `LANE_EXITED` -- a writer lane ended abnormally.
 <a id="RefusalCause"></a>
 ### `lumascope.RefusalCause`
 
-Held in: [`Notification.cause`](#Notification.cause).
+Held in: [`Notification.cause`](#Notification.cause), [`Outcome.cause`](#Outcome.cause).
 
 Whether a refused request could succeed later, and what must change for it to.
 
