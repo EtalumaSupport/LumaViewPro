@@ -6828,7 +6828,7 @@ class TestProtocolCleanupLedRestoreKey:
 class TestPreReleaseFutureWarning:
     """The pre-freeze warning bundle requires a runtime
     FutureWarning, paired with the README banner and the
-    lumascope-skills.md preface.
+    api-guide.md preface.
 
     Warning fires once-per-process: either L2 entry point
     (Lumascope() and ScopeSession.create)
@@ -6857,7 +6857,7 @@ class TestPreReleaseFutureWarning:
         assert len(future_warnings) >= 1
         msg = str(future_warnings[0].message)
         assert 'PRE-RELEASE' in msg
-        assert 'lumascope-skills' in msg
+        assert 'api-guide' in msg
 
     def test_warning_fires_once_per_process(self):
         import warnings

@@ -1,6 +1,6 @@
 """Structural guard: the guide's code is the API's, and it runs.
 
-The guide is the hub, ``docs/lumascope-skills.md``, and the files its map
+The guide is the hub, ``docs/api-guide.md``, and the files its map
 names under ``docs/guide/`` (``guide_files``): every check below reads each
 file on its own -- its chapters, its fences' names, its Changelog -- and the
 coverage checks read their union. The map is the one list of the files: a
@@ -102,7 +102,7 @@ from _lumascope.lib.lumascope_error import LumascopeError
 from tests.ast_seams import REPO_ROOT, MemberNames, Packages, Words, tracked_files
 from tests.settings_fixtures import complete_settings, installation_of_its_own
 
-HUB = 'docs/lumascope-skills.md'
+HUB = 'docs/api-guide.md'
 
 # Receivers the reference uses for the live objects an L2 caller holds.
 # `scope` is the Lumascope composition root, `session` the ScopeSession L2

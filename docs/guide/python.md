@@ -55,7 +55,7 @@ if question is not None:                     # until answered, a saved still and
 ```
 
 `create` warns once (`FutureWarning`) that the API is pre-release until
-`4.0.0` ([the note](../lumascope-skills.md)). Its other keywords are
+`4.0.0` ([the note](../api-guide.md)). Its other keywords are
 [its reference's](../api-reference.md#ScopeSession.create).
 `run_application_session(disable_homing=True)` runs no startup motion at all.
 

@@ -301,7 +301,7 @@ def test_the_model_table_states_what_each_model_has():
 
 
 def test_the_integration_guide_link_names_the_guide():
-    """The manual points integrators at ``docs/lumascope-skills.md`` by its
+    """The manual points integrators at ``docs/api-guide.md`` by its
     GitHub URL (a relative link is dead in the PDF), and that file exists."""
     urls = [
         url
@@ -312,7 +312,7 @@ def test_the_integration_guide_link_names_the_guide():
         )
     ]
     paths = [urllib.parse.urlsplit(url).path.split('/', 5)[5] for url in urls]
-    assert 'docs/lumascope-skills.md' in paths, f'no link to the integration guide; links: {urls}'
+    assert 'docs/api-guide.md' in paths, f'no link to the integration guide; links: {urls}'
     missing = [path for path in paths if not (REPO_ROOT / path).is_file()]
     assert not missing, f'linked files not in the tree: {missing}'
 

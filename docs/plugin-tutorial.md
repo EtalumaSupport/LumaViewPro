@@ -30,7 +30,7 @@ plugin cannot crash the app. `ctx` is the `ScopeSession` hosting the
 plugin: the same session the GUI, REST and scripts drive, and a plugin
 starts from it as every caller does: the session's members for what is the
 session's (its settings, the shown channel, runs, captures), `ctx.scope.<api>`
-for the hardware (`docs/lumascope-skills.md`).
+for the hardware (`docs/api-guide.md`).
 
 Four namespaces are defined for 4.x:
 
@@ -696,7 +696,7 @@ the folder they share, without normalizing them.
 - For hardware-side context -- LED, motion, capture, protocol APIs
   your processor can read about (post-processors operate on saved
   files, not live hardware, but understanding what produced the
-  files helps) -- see the guide, [`lumascope-skills.md`](lumascope-skills.md),
+  files helps) -- see the guide, [`api-guide.md`](api-guide.md),
   and every member in [`api-reference.md`](api-reference.md).
 - For per-frame listeners (running on the live stream, not after a
   run), see **Live frame listeners** above and

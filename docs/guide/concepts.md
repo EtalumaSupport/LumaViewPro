@@ -5,7 +5,7 @@ What every task uses: the architecture's detail, outcomes, bringing a session up
 ## Architecture
 
 The layers, the session and the scope's areas are the hub's
-[architecture at a glance](../lumascope-skills.md#the-architecture-at-a-glance);
+[architecture at a glance](../api-guide.md#the-architecture-at-a-glance);
 this is their detail.
 
 **The lanes.** Each lane is one thread: the IO lane runs every LED and motion

@@ -41,5 +41,5 @@ that needs particular hardware starts with a note naming it, for example
 
 This manual is for people using LumaViewPro at the microscope. To drive a
 Lumascope from your own software (Python, REST, MATLAB or Micro-Manager),
-read the [Lumascope API guide](https://github.com/EtalumaSupport/LumaViewPro/blob/main/docs/lumascope-skills.md),
-`docs/lumascope-skills.md` in the LumaViewPro repository on GitHub.
+read the [Lumascope API guide](https://github.com/EtalumaSupport/LumaViewPro/blob/main/docs/api-guide.md),
+`docs/api-guide.md` in the LumaViewPro repository on GitHub.

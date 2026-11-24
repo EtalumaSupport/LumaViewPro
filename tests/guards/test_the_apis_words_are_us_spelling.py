@@ -9,7 +9,7 @@ words before they were renamed, with no check to stop the next one.
 Read: every name LVP defines in ``src/`` and ``ui/`` (a function, class,
 argument, assigned name or attribute, an import's alias) and every string
 there, docstrings included; the ``.kv`` files' lines; the guide, the
-plugin tutorial, ``docs/lumascope-skills.md`` and the examples. A comment
+plugin tutorial, ``docs/api-guide.md`` and the examples. A comment
 is not read. A name LVP uses but does not define (``CancelledError``,
 ``usb1.TRANSFER_CANCELLED``, ``Future.cancelled``) is not LVP's spelling
 and is not read either; a string that names one is exempt by its whole
@@ -67,7 +67,7 @@ _NOT_OURS = Words(
 
 _CODE_FOLDERS = Packages({'src', 'ui'})
 _PY_EXAMPLES = 'docs/api_examples'
-_DOCS = ('docs/guide/**/*.md', 'docs/plugin-tutorial.md', 'docs/lumascope-skills.md')
+_DOCS = ('docs/guide/**/*.md', 'docs/plugin-tutorial.md', 'docs/api-guide.md')
 _LEVEL_ROW = '| level '
 
 
