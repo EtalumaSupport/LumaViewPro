@@ -37,6 +37,7 @@ from _lumascope.modules.exceptions import (
     PostProcessingFailedError,
     PostProcessingOperation,
     PostProcessingRefusedError,
+    system_words,
 )
 from _lumascope.modules.notification_center import notifications
 from _lumascope.modules.api_surface import ProgressCallback
@@ -235,7 +236,7 @@ def load_cell_count_method(path: str | os.PathLike) -> CellCountMethod:
         with open(path, encoding='utf-8') as f:
             saved = json.load(f)
     except OSError as e:
-        raise refuse('method_unreadable', f'it could not be read ({e.strerror})') from e
+        raise refuse('method_unreadable', f'it could not be read ({system_words(e)})') from e
     except ValueError as e:
         raise refuse('method_unreadable', f'it is not JSON ({e})') from e
 
@@ -303,7 +304,7 @@ def read_cell_count_results(path: str | os.PathLike) -> pd.DataFrame:
         with open(path, encoding='utf-8-sig', newline='') as f:
             columns, rows = read_table(f, sep=',')
     except OSError as e:
-        raise refuse(f'it could not be read ({e.strerror})') from e
+        raise refuse(f'it could not be read ({system_words(e)})') from e
     except ValueError as e:
         raise refuse(f'it is not a CSV file ({e})') from e
     table = pd.DataFrame(
@@ -600,7 +601,7 @@ class PostProcessing:
             discard_temps()
             raise PostProcessingFailedError(
                 operation=CELL_COUNT_OPERATION,
-                missing=f'The results could not be written to {results_file_path} ({e.strerror}).',
+                missing=f'The results could not be written to {results_file_path} ({system_words(e)}).',
             ) from e
         try:
             save_cell_count_method(method, method_temp)
@@ -608,7 +609,7 @@ class PostProcessing:
             discard_temps()
             raise PostProcessingFailedError(
                 operation=CELL_COUNT_OPERATION,
-                missing=f'The method could not be written to {method_file_path} ({e.strerror}).',
+                missing=f'The method could not be written to {method_file_path} ({system_words(e)}).',
             ) from e
 
         # The results go first: failing there names nothing new.
@@ -618,7 +619,7 @@ class PostProcessing:
             discard_temps()
             raise PostProcessingFailedError(
                 operation=CELL_COUNT_OPERATION,
-                missing=f'The results could not be written to {results_file_path} ({e.strerror}).',
+                missing=f'The results could not be written to {results_file_path} ({system_words(e)}).',
             ) from e
         try:
             os.replace(method_temp, method_file_path)
@@ -628,7 +629,7 @@ class PostProcessing:
                 operation=CELL_COUNT_OPERATION,
                 missing=(
                     f'The method these results were counted by could not be written to'
-                    f' {method_file_path} ({e.strerror}).'
+                    f' {method_file_path} ({system_words(e)}).'
                 ),
                 produced_paths=(results_file_path,),
                 output_root=str(path),

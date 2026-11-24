@@ -16,7 +16,7 @@ import _lumascope.modules.path_utils as path_utils
 import _lumascope.modules.recording_frames as recording_frames
 from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.api_surface import ProgressCallback
-from _lumascope.modules.common_utils import PostFunction
+from _lumascope.modules.common_utils import PostFunction, first_few
 from _lumascope.modules.exceptions import (
     ExcludedInput,
     InputFramesUnusableError,
@@ -24,6 +24,7 @@ from _lumascope.modules.exceptions import (
     PostProcessingOperation,
     PostProcessingRefusedError,
     VideoNotFinishedError,
+    system_words,
 )
 from _lumascope.modules.objectives_loader import objective_short_name
 from _lumascope.modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
@@ -33,10 +34,6 @@ from _lumascope.modules.stitch_mode import StitchMode
 from _lumascope.modules.tiling_config import TilingGrids
 
 from _lumascope.lvp_logger import logger
-
-if typing.TYPE_CHECKING:
-    from av.error import FFmpegError
-
 
 # What each post-processing function needs to find in a folder to produce
 # output. Used in the empty-output user message so the popup explains which
@@ -79,25 +76,16 @@ class _Unwritten(typing.NamedTuple):
     def reason(self) -> str:
         if isinstance(self.failed, VideoNotFinishedError):
             # The writer's own words name its temporary, never the video.
-            return f'it could not be finished ({_system_words(self.failed.__cause__)})'
+            return f'it could not be finished ({system_words(self.failed.__cause__)})'
         if self.written:
             return (
                 'it was saved, and the post-processing record could not list it '
-                f'({_system_words(self.failed)})'
+                f'({system_words(self.failed)})'
             )
-        return f'it could not be written ({_system_words(self.failed)})'
+        return f'it could not be written ({system_words(self.failed)})'
 
     def sentence(self) -> str:
         return f'the build stopped at {self.output}: {self.reason()}'
-
-
-def _system_words(failed: 'OSError | FFmpegError') -> str:
-    """The system's words for *failed*, never Python's rendering of the errno and path.
-
-    An error raised with a message alone states no ``strerror``; its message
-    is its words.
-    """
-    return failed.strerror or str(failed)
 
 
 # Each operation's name as a person reads it, for the titles and words of
@@ -574,11 +562,10 @@ class ProtocolPostProcessor(abc.ABC):
                 f'{len(group_errors)} of {attempted} {label} group(s) failed ({shown}{more})'
             )
         if refused_count:
-            names = ', '.join(sorted(colliding_names)[:3])
-            more = ', ...' if len(colliding_names) > 3 else ''
+            names = first_few(sorted(colliding_names), separator=', ')
             missing.append(
                 f'{refused_count} group(s) were refused because more than one group '
-                f'derives the same output filename ({names}{more})'
+                f'derives the same output filename ({names})'
             )
         if dropped_frames:
             missing.append(
@@ -590,7 +577,7 @@ class ProtocolPostProcessor(abc.ABC):
         if stopped is not None and stopped.unrecorded is not None:
             record_note = (
                 ' The post-processing record could not be updated '
-                f'({_system_words(stopped.unrecorded)}).'
+                f'({system_words(stopped.unrecorded)}).'
             )
         return PostProcessingFailedError(
             operation=self.operation_label,
@@ -1075,11 +1062,10 @@ class ProtocolPostProcessor(abc.ABC):
             ) from unwritten.failed
 
         if skipped_single_paths:
-            shown = ', '.join(skipped_single_paths[:3])
-            more = ', ...' if len(skipped_single_paths) > 3 else ''
+            shown = first_few(skipped_single_paths, separator=', ')
             logger.info(
                 f'[{self._name} ] Skipped {len(skipped_single_paths)} single-image '
-                f'group(s) (nothing to combine): {shown}{more}'
+                f'group(s) (nothing to combine): {shown}'
             )
 
         single_skip_note = (

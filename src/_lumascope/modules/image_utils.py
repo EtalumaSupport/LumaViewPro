@@ -24,6 +24,7 @@ from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     FrameDepthError,
     InputFramesUnusableError,
+    system_words,
 )
 from _lumascope.modules.channel_record import GRAY, Color, stored_key
 import _lumascope.modules.common_utils as common_utils
@@ -685,7 +686,7 @@ def _unreadable(path: pathlib.Path, detail: str = '') -> InputFramesUnusableErro
 def _refused_by_the_system(path: pathlib.Path, ex: OSError) -> InputFramesUnusableError:
     """The unreadable refusal for a file the system would not read, in the system's words."""
     return _unreadable(
-        path, 'no such file' if isinstance(ex, FileNotFoundError) else ex.strerror or str(ex)
+        path, 'no such file' if isinstance(ex, FileNotFoundError) else system_words(ex)
     )
 
 

@@ -78,6 +78,7 @@ from _lumascope.modules.exceptions import (
     _RunStartError,
     SingleScanNotice,
     ValueClampedNotice,
+    system_words,
     unknown_positions_sentence,
 )
 from _lumascope.modules.protocol import Protocol
@@ -2196,8 +2197,7 @@ class SequencedCaptureRunner:
         except OSError as ex:
             raise _RunStartError(
                 'run_dir_init_failed',
-                f'The run folder {self._run_dir!s} could not be initialized '
-                f'({ex.strerror or type(ex).__name__}).',
+                f'The run folder {self._run_dir!s} could not be initialized ({system_words(ex)}).',
             ) from ex
 
     def _fail_run_at_start(self, exc: Exception, run: EngineRun) -> None:

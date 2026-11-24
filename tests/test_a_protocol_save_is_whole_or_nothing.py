@@ -98,3 +98,17 @@ def test_the_words_are_on_the_type():
         'The protocol was not saved to /data/plate.tsv (Permission denied). '
         'A file already there is unchanged.'
     )
+
+
+def test_an_error_raised_with_a_message_alone_is_told_in_its_message():
+    # An OSError a library raises with a message alone carries no strerror;
+    # its message is what happened, where its type's name says nothing.
+    error = ProtocolNotSavedError(
+        file=pathlib.Path('/data/plate.tsv'),
+        cause=OSError('the volume was unmounted'),
+    )
+
+    assert str(error) == (
+        'The protocol was not saved to /data/plate.tsv (the volume was unmounted). '
+        'A file already there is unchanged.'
+    )

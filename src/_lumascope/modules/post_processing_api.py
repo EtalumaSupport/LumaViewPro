@@ -52,6 +52,7 @@ from _lumascope.modules.exceptions import (
     PostProcessingFailedError,
     PostProcessingOperation,
     PostProcessingRefusedError,
+    system_words,
 )
 from _lumascope.modules.live_work import WorkItem
 from _lumascope.modules.operation import Operation
@@ -608,7 +609,7 @@ def _save_graph(results, path, *, x, y, trendline, x_label, y_label, title, on_p
     except OSError as e:
         raise PostProcessingFailedError(
             operation=PostProcessingOperation.GRAPHING,
-            missing=f'The graph could not be written to {path} ({e.strerror or e}).',
+            missing=f'The graph could not be written to {path} ({system_words(e)}).',
         ) from e
     return GraphResult(message=f'Saved the graph of {y} against {x} to {path}.', path=path)
 

@@ -21,6 +21,7 @@ from _lumascope.modules.exceptions import (
     RecordingRefusedError,
     Refusal,
     RefusalCause,
+    system_words,
 )
 
 
@@ -279,7 +280,7 @@ def allocate_directory(desired: pathlib.Path) -> pathlib.Path:
         except OSError as exc:
             raise CaptureLocationError(
                 'capture_location_unusable',
-                f'Could not create {candidate} in the capture location ({exc.strerror}).',
+                f'Could not create {candidate} in the capture location ({system_words(exc)}).',
             ) from exc
         return candidate
     raise CaptureLocationError(

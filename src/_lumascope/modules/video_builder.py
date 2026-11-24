@@ -21,6 +21,7 @@ from _lumascope.modules.exceptions import (
     InputFramesUnusableError,
     PostProcessingRefusedError,
     VideoNotFinishedError,
+    system_words,
 )
 from _lumascope.modules.api_surface import ProgressCallback
 from _lumascope.modules.protocol_post_processor import (
@@ -611,7 +612,7 @@ class VideoBuilder(ProtocolPostProcessor):
             except OSError as e:
                 raise self._unreadable_manifest(
                     manifest_path,
-                    f'could not be opened ({e.strerror or e}). Close any program '
+                    f'could not be opened ({system_words(e)}). Close any program '
                     f'that has it open and build again.',
                 ) from e
             except ValueError as e:

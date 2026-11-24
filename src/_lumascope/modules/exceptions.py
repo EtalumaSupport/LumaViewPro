@@ -38,6 +38,8 @@ from _lumascope.modules.scope_parts import MISSING_PART_REASONS, Board, Part
 from _lumascope.modules.run_outcome import ENDING_TITLES, FAILURE_REASONS, MergeReason
 
 if TYPE_CHECKING:
+    from av.error import FFmpegError
+
     from _lumascope.modules.frame_validity import FrameValiditySource
     from _lumascope.modules.host_resources import GpuAdapter, HostReading, ProgramCpu
     from _lumascope.modules.lumascope_api.imaging import SlowCameraStop
@@ -76,6 +78,15 @@ Holder.__doc__ = 'What holds the microscope when a refusal names its holder.'
 def _holder(kind: str | None) -> Holder | None:
     """The holder a refusal names, from the claim's kind or a member; None for none."""
     return None if kind is None else Holder(kind)
+
+
+def system_words(error: 'OSError | FFmpegError') -> str:
+    """The system's words for *error*, never Python's rendering of the errno and path.
+
+    An error raised with a message alone states no ``strerror``; its message
+    is its words.
+    """
+    return error.strerror or str(error)
 
 
 # The run refusals that name the axes without a position, and only they.
@@ -203,7 +214,7 @@ class LiveFolderFileNotWrittenError(Fault, Exception):
     title = 'File Not Written'
 
     def __init__(self, name: str, cause: OSError):
-        reason = cause.strerror or type(cause).__name__
+        reason = system_words(cause)
         super().__init__(f'{name} was not written to the live folder ({reason}).')
         self.name = name
 
@@ -1004,7 +1015,7 @@ class ProtocolNotLoadedError(Fault, ProtocolError):
     title = 'Protocol Not Loaded'
 
     def __init__(self, file, cause: OSError):
-        reason = cause.strerror or type(cause).__name__
+        reason = system_words(cause)
         super().__init__(f'The protocol at {file} could not be read ({reason}).')
         self.file = file
 
@@ -1027,7 +1038,7 @@ class ProtocolNotSavedError(Fault, ProtocolError):
     title = 'Protocol Not Saved'
 
     def __init__(self, file, cause: OSError):
-        reason = cause.strerror or type(cause).__name__
+        reason = system_words(cause)
         super().__init__(
             f'The protocol was not saved to {file} ({reason}). A file already there is unchanged.'
         )
@@ -1496,7 +1507,7 @@ class RestServerNotStartedError(Fault, Exception):
         self, address: object, port: object, cause: OSError | tuple[tuple[str, str], ...]
     ) -> None:
         if isinstance(cause, OSError):
-            reason = cause.strerror or type(cause).__name__
+            reason = system_words(cause)
             if cause.errno in _ADDRESS_NOT_HERE:
                 advice = (
                     'rest_api.address must be an address of this computer, on a network that is '
@@ -2090,7 +2101,7 @@ class SettingsFileNotReplacedError(Fault, ConfigError):
     title = 'Settings File Not Replaced'
 
     def __init__(self, file: str, cause: OSError):
-        reason = cause.strerror or type(cause).__name__
+        reason = system_words(cause)
         super().__init__(
             f'{file} could not be moved aside ({reason}). Close any program that has '
             'it open, then choose again.'
@@ -2115,7 +2126,7 @@ class SettingsFileNotWrittenError(Fault, ConfigError):
     title = 'Settings File Not Written'
 
     def __init__(self, file: str, cause: OSError):
-        reason = cause.strerror or type(cause).__name__
+        reason = system_words(cause)
         super().__init__(
             f'The settings were not saved to {file} ({reason}). The file already there is '
             'unchanged; the next settings change saves again.'
