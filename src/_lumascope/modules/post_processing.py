@@ -28,10 +28,11 @@ from _lumascope.modules.tiling_config import TilingGrids
 from _lumascope.lvp_logger import logger
 from _lumascope.modules.cell_count import CellCount
 from _lumascope.modules.cell_count_method import CellCountMethod, from_saved_form, saved_form
-from _lumascope.modules.common_utils import read_table
+from _lumascope.modules.common_utils import causes_in_words, read_table
 from _lumascope.modules.python_values import python_values
 from _lumascope.modules.exceptions import (
     CellCountScaleDroppedNotice,
+    InputFramesUnusableError,
     LeftOutReason,
     LiveFolderPathRefusedError,
     PostProcessingFailedError,
@@ -39,7 +40,7 @@ from _lumascope.modules.exceptions import (
     PostProcessingRefusedError,
     system_words,
 )
-from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.notification_center import cause_in_words, notifications
 from _lumascope.modules.api_surface import ProgressCallback
 
 # The operation's name as a person reads it, in its refusals and failures.
@@ -183,7 +184,9 @@ def read_cell_count_image(path: str | os.PathLike) -> tuple[np.ndarray, int]:
         raise PostProcessingRefusedError(
             operation=CELL_COUNT_OPERATION,
             reason='unreadable',
-            message=f'The image cannot be counted: {e}.',
+            # The reader's refusal is a sentence of its own, its period kept.
+            message=f'The image cannot be counted: {e}',
+            detail=e.detail if isinstance(e, InputFramesUnusableError) else None,
         ) from e
 
 
@@ -542,7 +545,7 @@ class PostProcessing:
                 # Not an image after all, a folder named like one, or gone
                 # since the folder was listed.
                 logger.warning(f'[LVP Main  ] Not counting {filename}: {e}')
-                not_counted.append(str(e))
+                not_counted.append((filename, cause_in_words(e)))
                 continue
 
             taken_at[filename] = taken
@@ -569,8 +572,8 @@ class PostProcessing:
                 message = 'No images were found in the selected folder.'
             elif not_counted:
                 message = (
-                    f'None of the {len(filenames)} image(s) in the folder could be counted.'
-                    f'{left_out_sentence}'
+                    f'None of the {len(filenames)} image(s) in the folder could be counted: '
+                    f'{causes_in_words(not_counted)}.{left_out_sentence}'
                 )
             else:
                 message = f'No image in the folder is one to count: {left_out_words}.'
@@ -578,6 +581,12 @@ class PostProcessing:
                 operation=CELL_COUNT_OPERATION, reason='no_data', message=message
             )
         results = _in_taken_order(results, taken_at)
+        uncounted_sentence = (
+            f' {len(not_counted)} of {len(filenames)} image(s) could not be counted: '
+            f'{causes_in_words(not_counted)}.'
+            if not_counted
+            else ''
+        )
 
         results_file_path = os.path.join(path, f'{stem}{_RESULTS_ENDING}')
         method_file_path = os.path.join(path, f'{stem}{_METHOD_ENDING}')
@@ -629,7 +638,7 @@ class PostProcessing:
                 operation=CELL_COUNT_OPERATION,
                 missing=(
                     f'The method these results were counted by could not be written to'
-                    f' {method_file_path} ({system_words(e)}).'
+                    f' {method_file_path} ({system_words(e)}).{uncounted_sentence}'
                 ),
                 produced_paths=(results_file_path,),
                 output_root=str(path),
@@ -639,10 +648,7 @@ class PostProcessing:
         if not_counted:
             raise PostProcessingFailedError(
                 operation=CELL_COUNT_OPERATION,
-                missing=(
-                    f'{len(not_counted)} of {len(filenames)} image(s) could not be counted.'
-                    f'{left_out_sentence}'
-                ),
+                missing=f'{uncounted_sentence.lstrip()}{left_out_sentence}',
                 produced_paths=(results_file_path, method_file_path),
                 output_root=str(path),
                 errors=not_counted,

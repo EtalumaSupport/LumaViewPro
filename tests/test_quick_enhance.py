@@ -748,7 +748,7 @@ def test_mixed_folder_exports_bf_composite_png_jpeg_and_skips_bad_or_derived_fil
         )
 
     assert len(raised.value.produced_paths) == 4
-    assert [error.split(':')[0] for error in raised.value.errors] == ['bad.tif']
+    assert [name for name, _ in raised.value.errors] == ['bad.tif']
     assert [(completed, total) for completed, total, _ in progress] == [
         (1, 5),
         (2, 5),

@@ -50,9 +50,9 @@ def test_a_stitch_missing_one_projection_fails_that_mosaic_and_builds_the_rest(s
     with pytest.raises(PostProcessingFailedError) as failed:
         session.post_processing.stitch(run_folder)
 
-    (error,) = [error for error in failed.value.errors if 'Stitched-ZProject' in error]
-    assert gone.name in error
-    assert 'build Z-Projection again' in error
+    (cause,) = [cause for output, cause in failed.value.errors if 'Stitched-ZProject' in output]
+    assert gone.name in cause
+    assert 'build Z-Projection again' in cause
     mosaics = sorted(pathlib.Path(path).name for path in failed.value.produced_paths)
     assert 'custom0000_BF_0000_zproj_max_stitched.tiff' in mosaics
     assert not any(f'{LED0}_0000_zproj_max_stitched' in name for name in mosaics)
@@ -99,7 +99,7 @@ def test_a_selected_folder_missing_one_projection_fails_that_mosaic(session, run
     with pytest.raises(PostProcessingFailedError) as failed:
         session.post_processing.stitch(run_folder / 'ZProject')
 
-    assert any(gone.name in error for error in failed.value.errors)
+    assert any(gone.name in cause for _, cause in failed.value.errors)
 
 
 def test_a_deleted_composite_is_not_counted_among_the_inputs_left_out(session, run_folder):

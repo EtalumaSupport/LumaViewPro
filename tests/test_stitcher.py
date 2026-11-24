@@ -381,10 +381,16 @@ class TestSimplePositionStitcher:
         # A degraded stitch completes, so its words reach the person as the
         # result's message: they name the geometry-only fallback and what to
         # review, for every caller, not only the GUI.
-        summary = Stitcher(has_turret=False)._degraded_summary(2)
+        reason = 'overlap matching could not match the tiles where they overlap'
+        summary = Stitcher(has_turret=False)._degraded_summary(
+            [{'filepath': name, 'fallback_reason': reason} for name in ('a.tiff', 'b.tiff')]
+        )
 
         assert 'geometry-only fallback' in summary
         assert 'Review the mosaic geometry' in summary
+        # Why each fell back, said once, never the log to read for it.
+        assert f'{reason} (2: a.tiff, b.tiff)' in summary
+        assert 'log' not in summary
 
     def test_stitch_ui_explains_modes_and_time_estimation(self):
         root = pathlib.Path(__file__).resolve().parent.parent
@@ -795,6 +801,9 @@ class TestStitchOutputAlgorithmStamp:
         assert structured['Algorithm'] == 'simple_position_stitcher'
 
 
+_TWO_DEGRADED = [{'filepath': name, 'fallback_reason': 'a reason'} for name in ('a.tiff', 'b.tiff')]
+
+
 class TestDegradedSummaryDeleaked:
     """The degraded-output summary wording lives in a subclass hook, so the
     shared post-processing loop does not describe zproject / composite / stack
@@ -807,7 +816,7 @@ class TestDegradedSummaryDeleaked:
 
         stitcher = Stitcher.__new__(Stitcher)
         stitcher._post_function = PostFunction.STITCHED
-        assert 'fallback stitching' in stitcher._degraded_summary(2)
+        assert 'fallback stitching' in stitcher._degraded_summary(_TWO_DEGRADED)
 
     def test_non_stitch_base_wording_is_generic(self):
         from _lumascope.modules.common_utils import PostFunction
@@ -815,7 +824,7 @@ class TestDegradedSummaryDeleaked:
 
         zproj = ZProjector.__new__(ZProjector)
         zproj._post_function = PostFunction.ZPROJECT
-        summary = zproj._degraded_summary(2)
+        summary = zproj._degraded_summary(_TWO_DEGRADED)
         assert 'stitching' not in summary
         assert 'fallback' in summary
 
@@ -931,7 +940,7 @@ class TestLiveStitcherRealGeometry:
         result = overlap_stitcher(tmp_path, df, pixel_size_um=None, channel_colors=release_colors())
 
         assert result['status'] is False
-        assert 'pixel_size_um' in result['error']
+        assert 'pixel size, and they state none' in result['error']
 
 
 def _textured_neighbours(

@@ -394,6 +394,28 @@ def first_few(items: list[str], *, separator: str, limit: int = 5) -> str:
     return f'{shown}{separator}and {remaining} more' if remaining > 0 else shown
 
 
+def causes_in_words(failures: 'Iterable[tuple[str, str]]') -> str:
+    """Each cause of *failures*, said once, with the items it hit.
+
+    *failures* is (item, cause) pairs, as a build that lost several items
+    keeps them. A full disk costs every group after it the same way, and
+    saying it once per group buries a second cause behind the first; so a
+    cause is said once, with how many items it hit when more than one.
+    Causes keep the order they were first met; items and causes are both
+    cut by ``first_few``.
+    """
+    hit: dict[str, list[str]] = {}
+    for item, cause in failures:
+        hit.setdefault(cause.rstrip('.'), []).append(item)
+    said = [
+        f'{cause} ({first_few(items, separator=", ")})'
+        if len(items) == 1
+        else f'{cause} ({len(items)}: {first_few(items, separator=", ")})'
+        for cause, items in hit.items()
+    ]
+    return first_few(said, separator='; ')
+
+
 def is_valid_gain_db(value: object) -> bool:
     """True when a camera gain reading is usable (a number >= 0 dB).
 

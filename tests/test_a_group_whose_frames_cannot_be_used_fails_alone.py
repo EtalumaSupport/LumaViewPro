@@ -338,8 +338,9 @@ def test_a_stitch_tile_cut_short_fails_its_group_once_in_the_readers_words(tmp_p
             path=folder, tiling_grids=shipped_grids(), channel_colors=release_colors()
         )
 
-    (error,) = incomplete.value.errors
-    assert 'A1_BF_T1_0000.tiff' in error and 'stitching failed' not in error, error
+    ((_, cause),) = incomplete.value.errors
+    assert 'A1_BF_T1_0000.tiff' in cause and 'stitching failed' not in cause, cause
+    assert cause.rstrip('.') in str(incomplete.value) and 'log' not in str(incomplete.value)
 
 
 def test_a_failed_group_is_one_error_the_reporters(tmp_path, caplog):
@@ -563,8 +564,8 @@ def test_a_composite_whose_source_states_a_broken_record_fails_that_position_alo
             channel_colors=release_colors(),
         )
 
-    (error,) = incomplete.value.errors
-    assert broken.name in error and 'Error generating composite' not in error, error
+    ((_, cause),) = incomplete.value.errors
+    assert broken.name in cause and 'Error generating composite' not in cause, cause
     made = _outputs(folder)
     assert any(name.startswith('A2') for name in made), made
     assert not any(name.startswith('A1') for name in made), made

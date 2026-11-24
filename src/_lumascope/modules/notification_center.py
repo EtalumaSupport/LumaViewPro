@@ -29,14 +29,19 @@ from concurrent.futures import CancelledError
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from av.error import FFmpegError
+
 from _lumascope.lib import profile_trace
 from _lumascope.modules.exceptions import (
     INTERNAL_FAULT_SENTENCE,
+    InputFramesUnusableError,
     Notice,
+    PostProcessingRefusedError,
     Quiet,
     Refusal,
     RefusalCause,
     Remedy,
+    system_words,
 )
 from _lumascope.modules.api_surface import api, api_fields
 
@@ -228,6 +233,22 @@ def outcome_of(exception: BaseException) -> Outcome:
         fatal=fault and bool(getattr(exception, 'fatal', False)),
         cause=_cause_of(exception) if not fault else None,
     )
+
+
+def cause_in_words(error: BaseException) -> str:
+    """Why one item of a build failed, as a person reads it.
+
+    An OSError or an encoder's error is told in the system's words (a full
+    disk, a denied write); a refusal that states its detail apart from the
+    file it names, by that detail, since the build names the item itself;
+    anything else as ``outcome_of`` tells it, so a refusal keeps its own
+    words and a defect is told as our own fault.
+    """
+    if isinstance(error, (OSError, FFmpegError)):
+        return system_words(error)
+    if isinstance(error, (InputFramesUnusableError, PostProcessingRefusedError)) and error.detail:
+        return error.detail
+    return outcome_of(error).shown_words
 
 
 def _cause_of(exception: BaseException) -> RefusalCause | None:

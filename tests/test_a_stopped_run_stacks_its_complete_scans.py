@@ -153,7 +153,7 @@ def test_a_well_cut_short_in_its_only_scan_gets_no_stack_and_is_named(session, t
     fault = raised.value
     assert fault.reason == 'post_processing_incomplete'
     assert len(fault.produced_paths) == 1
-    assert [e.split(': ', 1)[1] for e in fault.errors] == [
+    assert [cause for _, cause in fault.errors] == [
         f'Well {cut} has no complete scan: the run ended partway through its only scan. '
         'Its 2 image(s) are saved.'
     ]

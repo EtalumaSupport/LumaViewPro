@@ -22,7 +22,10 @@ from _lumascope.lib.real_numbers import is_integer_number
 from _lumascope.lvp_logger import logger
 from _lumascope.modules import image_mode, image_utils, path_utils, wall_time
 from _lumascope.modules.channel_record import GRAY, ChannelColors, Color, stored_key
+from _lumascope.modules.common_utils import causes_in_words
+from _lumascope.modules.notification_center import cause_in_words
 from _lumascope.modules.exceptions import (
+    InputFramesUnusableError,
     PostProcessingFailedError,
     PostProcessingOperation,
     PostProcessingRefusedError,
@@ -439,7 +442,9 @@ class QuickEnhancer:
             raise PostProcessingRefusedError(
                 operation=QUICK_ENHANCE_OPERATION,
                 reason='unreadable',
-                message=f'{source_path.name} cannot be enhanced: {e}.',
+                # The reader's refusal is a sentence of its own, its period kept.
+                message=f'{source_path.name} cannot be enhanced: {e}',
+                detail=e.detail if isinstance(e, InputFramesUnusableError) else None,
             ) from e
         legacy_channel = self._legacy_false_color_channel(source_pixels)
         image = (
@@ -569,7 +574,7 @@ class QuickEnhancer:
                 skipped.append(
                     {
                         'source_path': source_path,
-                        'error': str(exc),
+                        'error': cause_in_words(exc),
                         'refused': isinstance(exc, PostProcessingRefusedError),
                     }
                 )
@@ -577,12 +582,14 @@ class QuickEnhancer:
                 progress_callback(completed, total, source_path)
         # Nothing enhanced and nothing failed in the enhance itself: the
         # folder holds no image this can read, as the cell count says of it.
+        failures = [(item['source_path'].name, item['error']) for item in skipped]
         if not created and all(item['refused'] for item in skipped):
             raise PostProcessingRefusedError(
                 operation=QUICK_ENHANCE_OPERATION,
                 reason='no_data',
                 message=(
-                    f'None of the {total} image(s) in the folder can be read by Quick Enhance.'
+                    f'None of the {total} image(s) in the folder can be read by Quick '
+                    f'Enhance: {causes_in_words(failures)}.'
                     if files
                     else 'The folder holds no image Quick Enhance can read.'
                 ),
@@ -591,10 +598,13 @@ class QuickEnhancer:
             produced = [str(item['output_path']) for item in created]
             raise PostProcessingFailedError(
                 operation=QUICK_ENHANCE_OPERATION,
-                missing=f'{len(skipped)} of {total} image(s) could not be enhanced.',
+                missing=(
+                    f'{len(skipped)} of {total} image(s) could not be enhanced: '
+                    f'{causes_in_words(failures)}.'
+                ),
                 produced_paths=produced,
                 output_root=str(folder),
-                errors=[f'{item["source_path"].name}: {item["error"]}' for item in skipped],
+                errors=failures,
             )
         return {
             'status': True,

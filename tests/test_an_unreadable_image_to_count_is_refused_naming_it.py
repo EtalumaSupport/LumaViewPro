@@ -69,7 +69,9 @@ def test_the_folder_count_names_an_unreadable_image_in_the_same_words(tmp_path):
         PostProcessing().apply_cell_count_to_folder(
             str(tmp_path), CellCountMethod(), tiling_grids=shipped_grids()
         )
-    assert list(failed.value.errors) == [str(refused.value)]
+    # The folder names the file itself, so it states the refusal's detail.
+    assert refused.value.detail in str(refused.value)
+    assert list(failed.value.errors) == [('broken.tif', refused.value.detail)]
 
 
 @pytest.mark.skipif(
@@ -91,8 +93,8 @@ def test_the_folder_count_refuses_an_image_the_system_will_not_open_and_counts_t
     finally:
         locked.chmod(0o600)
 
-    [error] = failed.value.errors
-    assert str(locked) in error and 'Permission denied' in error, error
+    assert list(failed.value.errors) == [('locked.tif', 'Permission denied')]
+    assert 'could not be counted: Permission denied (locked.tif).' in str(failed.value)
     results = pathlib.Path(failed.value.produced_paths[0]).read_text(encoding='utf-8')
     assert 'good.tif' in results and 'locked.tif' not in results, results
 
@@ -106,8 +108,8 @@ def test_a_folder_named_like_an_image_is_not_counted_and_named(tmp_path):
             str(tmp_path), CellCountMethod(), tiling_grids=shipped_grids()
         )
 
-    assert len(failed.value.errors) == 1
-    assert 'stack.tif is a folder, not a file' in failed.value.errors[0]
+    [(name, cause)] = failed.value.errors
+    assert name == 'stack.tif' and 'stack.tif is a folder, not a file' in cause, cause
 
 
 def test_the_panel_reports_an_unreadable_preview_and_keeps_its_image(tmp_path, monkeypatch):

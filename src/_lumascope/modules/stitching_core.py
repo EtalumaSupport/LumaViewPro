@@ -174,6 +174,12 @@ def _result(
     }
 
 
+# Why a stitching method could not make its mosaic, after the method's name.
+_NO_PIXEL_SIZE = "needs the tiles' pixel size, and they state none"
+_NO_CANVAS = "found no mosaic size from the tiles' positions"
+_NO_MEMORY = 'needs more memory than this computer has free'
+
+
 def _failure(algorithm: str, error: str, center: dict | None = None) -> dict:
     metadata = {'algorithm': algorithm}
     if center is not None:
@@ -187,7 +193,9 @@ def _failure(algorithm: str, error: str, center: dict | None = None) -> dict:
 
 
 def _failure_reason(failures: list[dict[str, str]]) -> str:
-    return '; '.join(f'{item["algorithm"]}: {item["error"]}' for item in failures)
+    # Each failure's words name its method as a person reads it; the
+    # algorithm's id stays in ``fallback_failures`` for a program.
+    return '; '.join(item['error'] for item in failures)
 
 
 def _run_fallback_chain(
@@ -258,7 +266,7 @@ def overlap_stitcher(
     """Use the newest stage-position + overlap-registration stitch math."""
     center = _center_metadata(df)
     if pixel_size_um is None or pixel_size_um <= 0:
-        return _failure('overlap_stitcher', 'pixel_size_um must be greater than 0', center)
+        return _failure('overlap_stitcher', f'overlap matching {_NO_PIXEL_SIZE}', center)
 
     try:
         frame = df.copy()
@@ -292,7 +300,7 @@ def overlap_stitcher(
         frame['y_pix'] = ((frame['Y'] - y_min) * 1000 / pixel_size_um).round().astype(int)
 
         if int(frame['x_pix'].max() + image_w) <= 0 or int(frame['y_pix'].max() + image_h) <= 0:
-            return _failure('overlap_stitcher', 'invalid stitched image dimensions', center)
+            return _failure('overlap_stitcher', f'overlap matching {_NO_CANVAS}', center)
         nominal_output_shape = (
             int(frame['y_pix'].max() + image_h),
             int(frame['x_pix'].max() + image_w),
@@ -323,9 +331,12 @@ def overlap_stitcher(
         # A match that cannot run, or a canvas too large: the next algorithm
         # may still place the tiles. A tile it cannot read is refused as
         # itself, and anything else is a defect.
+        logger.warning('[Stitch] overlap matching failed: %s: %s', type(exc).__name__, exc)
         return _failure(
             'overlap_stitcher',
-            f'overlap stitching failed: {type(exc).__name__}: {exc}',
+            'overlap matching could not match the tiles where they overlap'
+            if isinstance(exc, cv2.error)
+            else f'overlap matching {_NO_MEMORY}',
             center,
         )
 
@@ -379,7 +390,9 @@ def stage_position_stitcher(
     """Place tiles by recorded stage position without registration correction."""
     center = _center_metadata(df)
     if pixel_size_um is None or pixel_size_um <= 0:
-        return _failure('stage_position_stitcher', 'pixel_size_um must be greater than 0', center)
+        return _failure(
+            'stage_position_stitcher', f'stage-position placement {_NO_PIXEL_SIZE}', center
+        )
 
     try:
         frame = df.copy()
@@ -415,7 +428,9 @@ def stage_position_stitcher(
         max_x = int(frame['x_pix'].max() + image_w)
         max_y = int(frame['y_pix'].max() + image_h)
         if max_x <= min_x or max_y <= min_y:
-            return _failure('stage_position_stitcher', 'invalid stitched image dimensions', center)
+            return _failure(
+                'stage_position_stitcher', f'stage-position placement {_NO_CANVAS}', center
+            )
 
         if image_utils.is_color_image(sample):
             stitched_img = np.zeros((max_y - min_y, max_x - min_x, 3), dtype=sample.dtype)
@@ -451,9 +466,10 @@ def stage_position_stitcher(
         )
     except MemoryError as exc:
         # A canvas too large: the simple grid's may still fit.
+        logger.warning('[Stitch] stage-position placement failed: %r', exc)
         return _failure(
             'stage_position_stitcher',
-            f'stage-position stitching failed: {type(exc).__name__}: {exc}',
+            f'stage-position placement {_NO_MEMORY}',
             center,
         )
 
@@ -565,9 +581,10 @@ def simple_position_stitcher(
             stitched_img.dtype,
         )
     except MemoryError as exc:
+        logger.warning('[Stitch] grid placement failed: %r', exc)
         return _failure(
             'simple_position_stitcher',
-            f'simple-position stitching failed: {type(exc).__name__}: {exc}',
+            f'grid placement {_NO_MEMORY}',
             None,
         )
 

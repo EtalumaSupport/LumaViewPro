@@ -84,7 +84,9 @@ def test_a_place_whose_one_capture_failed_is_counted_as_having_no_image(session,
     words = str(HyperstacksSavedNotice(answer))
     assert answer['new_count'] == 0
     assert f'{len(steps) - 1} single-image group(s) skipped.' in words
-    assert '1 single-image group(s) have no image in the folder' in words
+    # The place is named, never left to the log to name.
+    assert '1 single-image group(s) have no image in the folder: ' in words, words
+    assert 'log' not in words, words
 
 
 def test_a_run_with_one_place_to_stack_stacks_it_and_counts_the_singles(session, tmp_path):

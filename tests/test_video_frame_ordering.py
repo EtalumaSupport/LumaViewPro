@@ -41,7 +41,7 @@ def _consumed_order(tmp_path, frame_numbers):
 
     def _record_frame(self, writer, image_path, **kwargs):
         consumed.append(int(image_path.name.rsplit('_', 1)[1].split('.')[0]))
-        return True, None
+        return True, None, None
 
     writer = MagicMock()
     writer.dropped_frames = 0

@@ -679,7 +679,9 @@ def read_tiff_significant_bits(path: pathlib.Path) -> int:
 def _unreadable(path: pathlib.Path, detail: str = '') -> InputFramesUnusableError:
     """The one refusal for a pixel file that is missing or will not decode, naming it."""
     return InputFramesUnusableError(
-        f'Could not read image {path}{": " + detail if detail else ""}.', 'unreadable'
+        f'Could not read image {path}{": " + detail if detail else ""}.',
+        'unreadable',
+        detail=detail or 'it will not decode as an image',
     )
 
 

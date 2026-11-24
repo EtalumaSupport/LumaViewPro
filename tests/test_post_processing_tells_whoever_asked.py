@@ -119,9 +119,22 @@ def test_a_build_where_some_groups_failed_raises_with_what_it_made(
     assert fault.reason == 'post_processing_incomplete'
     assert fault.title == 'Hyperstack Incomplete'
     assert fault.produced_paths == (str(tmp_path / 'Hyperstack' / 'out0.tiff'),)
-    assert [e.split(': ', 1)[1] for e in fault.errors] == ['bad tile', 'bad plane']
-    assert '2 of 3 hyperstack group(s) failed' in str(fault)
+    assert [cause for _, cause in fault.errors] == ['bad tile', 'bad plane']
+    assert '2 of 3 hyperstack group(s) failed: bad tile (' in str(fault)
+    assert 'log' not in str(fault)
     assert centre_posts == []
+
+
+def test_groups_lost_to_one_cause_say_it_once_with_their_count(tmp_path, monkeypatch):
+    full = 'No space left on device'
+    processor = _Processor([_ok(), *(PostProcResult.failed(full) for _ in range(4))])
+
+    with pytest.raises(PostProcessingFailedError) as raised:
+        _drive(processor, tmp_path, monkeypatch, groups=5)
+
+    told = str(raised.value)
+    assert '4 of 5 hyperstack group(s) failed: No space left on device (4: ' in told, told
+    assert told.count(full) == 1, told
 
 
 def test_a_build_where_every_group_failed_names_every_error(tmp_path, monkeypatch):
@@ -139,7 +152,9 @@ def test_a_build_where_every_group_failed_names_every_error(tmp_path, monkeypatc
 
 
 def test_a_video_short_of_frames_raises_with_the_video(tmp_path, monkeypatch, centre_posts):
-    processor = _Processor([_ok(dropped_frames=3), _ok()], post_function=PostFunction.VIDEO)
+    unreadable = 'it will not decode as an image'
+    dropped = tuple((f'frame{n}.tiff', unreadable) for n in range(3))
+    processor = _Processor([_ok(dropped_frames=dropped), _ok()], post_function=PostFunction.VIDEO)
 
     with pytest.raises(PostProcessingFailedError) as raised:
         _drive(processor, tmp_path, monkeypatch)
@@ -147,6 +162,8 @@ def test_a_video_short_of_frames_raises_with_the_video(tmp_path, monkeypatch, ce
     fault = raised.value
     assert len(fault.produced_paths) == 2
     assert '3 frame(s) could not be added' in str(fault)
+    # One cause, said once, with how many frames it cost.
+    assert f'{unreadable} (3: frame0.tiff, frame1.tiff, frame2.tiff)' in str(fault)
     assert centre_posts == []
 
 
@@ -417,9 +434,15 @@ def test_a_manual_video_short_of_frames_raises_with_the_video(tmp_path, monkeypa
             {
                 'status': True,
                 'actual_output_file_loc': video,
-                'metadata': {'dropped_frames': 2},
+                'metadata': {
+                    'dropped_frames': (
+                        ('frame1.tiff', 'No space left on device'),
+                        ('frame2.tiff', 'No space left on device'),
+                    )
+                },
             },
         )
 
     assert raised.value.produced_paths == (str(video),)
     assert '2 frame(s) could not be added' in str(raised.value)
+    assert 'No space left on device (2: frame1.tiff, frame2.tiff)' in str(raised.value)

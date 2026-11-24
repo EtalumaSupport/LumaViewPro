@@ -55,6 +55,7 @@ from _lumascope.modules.exceptions import (
     system_words,
 )
 from _lumascope.modules.live_work import WorkItem
+from _lumascope.modules.notification_center import cause_in_words
 from _lumascope.modules.operation import Operation
 from _lumascope.modules.sequential_io_executor import IOTask
 from _lumascope.modules.stitch_mode import StitchAlgorithm, StitchMode
@@ -2086,10 +2087,13 @@ class PostProcessingAPI:
                     )
                 ]
             except (OSError, ValueError, cv2.error, MemoryError) as e:
+                # The system's words, never the error's text, which names the
+                # hidden temporary the output was being written to.
+                cause = cause_in_words(e)
                 raise PostProcessingFailedError(
                     operation=QUICK_ENHANCE_OPERATION,
-                    missing=f'{target.name} could not be enhanced.',
-                    errors=[str(e)],
+                    missing=f'{target.name} could not be enhanced: {cause.rstrip(".")}.',
+                    errors=[(target.name, cause)],
                 ) from e
             if on_progress is not None:
                 on_progress(100, 'Image 1 of 1')

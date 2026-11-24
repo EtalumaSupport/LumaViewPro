@@ -306,9 +306,29 @@ def test_a_later_frame_with_no_time_is_left_out_and_counted(sim_scope, tmp_path)
     with pytest.raises(PostProcessingFailedError) as incomplete:
         _build(tmp_path)
 
-    assert '1 frame(s) could not be added' in str(incomplete.value)
+    told = str(incomplete.value)
+    assert '1 frame(s) could not be added' in told
+    # Which frame, and why, in the words: never the log to read for it.
+    assert 'it states no time after the frame before it (ManualVideo_Frame_0004_' in told, told
+    assert 'log' not in told, told
     video = incomplete.value.produced_paths[0]
     assert _frame_times_s(video) == pytest.approx([0.0, 0.1, 0.2, 1.2], abs=1e-3)
+
+
+def test_a_frame_that_will_not_decode_is_left_out_and_named_with_why(sim_scope, tmp_path):
+    _write_timed_frames(sim_scope, tmp_path, [0.0, 0.1, 0.2])
+    broken = tmp_path / 'ManualVideo_Frame_0003_2026-11-12_16-35-01-300.tiff'
+    broken.write_bytes(b'not a tiff')
+
+    with pytest.raises(PostProcessingFailedError) as incomplete:
+        _build(tmp_path, frame_rate_fps=5)
+
+    told = str(incomplete.value)
+    assert '1 frame(s) could not be added' in told, told
+    [(frame, cause)] = incomplete.value.errors
+    assert frame.endswith(broken.name) and str(broken) not in cause, cause
+    assert f'{cause.rstrip(".")} ({frame})' in told, told
+    assert 'log' not in told, told
 
 
 def test_a_frame_at_or_before_the_one_before_it_is_left_out_and_counted(sim_scope, tmp_path):

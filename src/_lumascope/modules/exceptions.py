@@ -2800,6 +2800,9 @@ class InputFramesUnusableError(Refusal, CaptureError, ValueError):
             ``'geometry'`` -- the frames are not all one size;
             ``'mixed_pixel_types'`` -- the frames' pixel types cannot share
             one output.
+        detail: What is wrong with the one frame, without naming it ("Permission
+            denied"), for a build that names its frames itself; None when the
+            message alone says it.
     """
 
     titles: ClassVar[dict[str, str]] = {
@@ -2809,8 +2812,9 @@ class InputFramesUnusableError(Refusal, CaptureError, ValueError):
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles, RefusalCause.REQUEST)
 
-    def __init__(self, message: str, reason: str):
+    def __init__(self, message: str, reason: str, *, detail: 'str | None' = None):
         super().__init__(message, reason)
+        self.detail = detail
 
 
 class PostProcessingOperation(StrEnum):
@@ -2959,9 +2963,12 @@ class PostProcessingRefusedError(Refusal, CaptureError):
         ),
     }
 
-    def __init__(self, *, operation: str, reason: str, message: str):
+    def __init__(self, *, operation: str, reason: str, message: str, detail: 'str | None' = None):
         self.reason = reason
         self.operation = PostProcessingOperation(operation)
+        # What is wrong with the one file, without naming it, as the reader's
+        # refusal states it; None when the message alone says it.
+        self.detail = detail
         _, advice = self._row()
         super().__init__(f'{message}{advice}', reason)
 
@@ -3027,7 +3034,8 @@ class PostProcessingFailedError(Fault, CaptureError):
         operation: The operation's name as a person reads it ("Stitch").
         produced_paths: Every artifact that was written.
         output_root: The folder the artifacts went under, or None.
-        errors: Every failed group's error, in order.
+        errors: Every item that failed and why, in order, as (item, cause)
+            pairs; the message states each cause once.
         excluded_inputs: The files of each kind the build did not take, as
             a complete build's result names them; empty for an operation
             that reads no protocol folder (Quick Enhance, a cell count).
@@ -3059,7 +3067,7 @@ class PostProcessingFailedError(Fault, CaptureError):
         missing: str,
         produced_paths: Iterable[str] = (),
         output_root: 'str | None' = None,
-        errors: Iterable[str] = (),
+        errors: 'Iterable[tuple[str, str]]' = (),
         excluded_inputs: 'Iterable[ExcludedInput]' = (),
     ):
         produced_paths = tuple(produced_paths)
@@ -3069,7 +3077,7 @@ class PostProcessingFailedError(Fault, CaptureError):
             saved = 'Nothing was saved.'
         operation = PostProcessingOperation(operation)
         reason = 'post_processing_incomplete' if produced_paths else 'post_processing_failed'
-        super().__init__(f'{missing} {saved} Check the log for the cause.', reason)
+        super().__init__(f'{missing} {saved}', reason)
         self.operation = operation
         self.produced_paths = produced_paths
         self.output_root = output_root

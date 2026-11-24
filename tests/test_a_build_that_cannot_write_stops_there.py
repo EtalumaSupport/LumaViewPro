@@ -114,6 +114,8 @@ def test_a_composite_whose_second_output_cannot_be_written_stops_there_naming_it
     assert f'Composite/{refused[0]}' in told, told
     assert '.tmp' not in told and '[Errno' not in told, told
     assert 'No space left on device' in told, told
+    # The cause is the whole answer: the person is never sent to the log.
+    assert 'log' not in told, told
     assert stopped.value.reason == 'post_processing_incomplete'
     assert [pathlib.Path(p).name for p in stopped.value.produced_paths] == [
         name for name in _outputs(folder) if name.startswith('A1_Composite')

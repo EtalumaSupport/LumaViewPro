@@ -18,6 +18,7 @@ import _lumascope.modules.path_utils as path_utils
 import _lumascope.modules.wall_time as wall_time
 from _lumascope.modules.channel_record import GRAY, Color
 from _lumascope.modules.exceptions import VideoNotFinishedError
+from _lumascope.modules.notification_center import cause_in_words
 from _lumascope.lvp_logger import logger
 
 
@@ -263,8 +264,8 @@ class VideoWriter:
         timestamp: datetime.datetime | float | None = None,
         significant_bits: int | None = None,
         white_bits: int | None = None,
-    ) -> None:
-        """Add a frame to the video.
+    ) -> str | None:
+        """Add a frame to the video; return why it was dropped, or None.
 
         Accepts mono 2D (H, W) input when `color` was set at __init__; the
         writer applies the channel false-color before the encoder boundary.
@@ -288,6 +289,11 @@ class VideoWriter:
         timestamp raises immediately rather than silently degrading the
         file's timing.
 
+        Returns:
+            None when the frame was encoded or the writer is closed; else
+            why the encoder dropped it, as a person reads it, for a caller
+            that says which frames a video lacks.
+
         Raises:
             ValueError: VFR mode and ``timestamp`` is None.
         """
@@ -298,7 +304,7 @@ class VideoWriter:
             )
         with self._frame_lock:
             if self._finished:
-                return
+                return None
 
             # Init the encoder on the first frame when it was not opened
             # eagerly at __init__ -- no dimensions given, or color was None
@@ -364,6 +370,8 @@ class VideoWriter:
             except Exception as e:
                 logger.error(f'VideoWriter: PyAV encode error: {e}')
                 self._dropped_frames += 1
+                return cause_in_words(e)
+            return None
 
     def close(self) -> None:
         """Flush encoder and close the container. Idempotent.

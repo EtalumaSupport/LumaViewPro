@@ -35,13 +35,14 @@ class Stitcher(ProtocolPostProcessor):
         )
         self._name = self.__class__.__name__
 
-    def _degraded_summary(self, count: int) -> str:
+    def _degraded_summary(self, degraded_outputs: list[dict]) -> str:
         # Stitching is the one post-processor with a named registration fallback
         # chain, so its degraded outputs are the montages that dropped to
         # unregistered edge-to-edge placement.
         return (
-            f'{count} {self.operation_label} artifact(s) used geometry-only '
-            'fallback stitching. Review the mosaic geometry; the log names each reason.'
+            f'{len(degraded_outputs)} {self.operation_label} artifact(s) used geometry-only '
+            f'fallback stitching: {self._fallback_reasons(degraded_outputs)}. Review the '
+            'mosaic geometry.'
         )
 
     @staticmethod

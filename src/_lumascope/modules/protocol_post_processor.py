@@ -5,7 +5,7 @@ import datetime
 import pathlib
 import time
 import typing
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 import pandas as pd
 
@@ -16,7 +16,7 @@ import _lumascope.modules.path_utils as path_utils
 import _lumascope.modules.recording_frames as recording_frames
 from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.api_surface import ProgressCallback
-from _lumascope.modules.common_utils import PostFunction, first_few
+from _lumascope.modules.common_utils import PostFunction, causes_in_words, first_few
 from _lumascope.modules.exceptions import (
     ExcludedInput,
     InputFramesUnusableError,
@@ -452,14 +452,24 @@ class ProtocolPostProcessor(abc.ABC):
             return None
         return objective_short_name(objective_id)
 
-    def _degraded_summary(self, count: int) -> str:
-        """One clause naming what a degraded (fallback-produced) output means for
-        this operation. The base states it generically; a subclass whose
-        algorithm has a named fallback chain (e.g. stitching) overrides with its
-        own wording so the shared loop does not hardcode a stitch-only vocabulary
-        for zproject / composite / stack outputs.
+    def _degraded_summary(self, degraded_outputs: list[dict]) -> str:
+        """What the degraded (fallback-produced) outputs mean for this
+        operation, with why each fell back. The base states it generically; a
+        subclass whose algorithm has a named fallback chain (e.g. stitching)
+        overrides with its own wording so the shared loop does not hardcode a
+        stitch-only vocabulary for zproject / composite / stack outputs.
         """
-        return f'{count} {self.operation_label} artifact(s) used a fallback method.'
+        return (
+            f'{len(degraded_outputs)} {self.operation_label} artifact(s) used a fallback '
+            f'method: {self._fallback_reasons(degraded_outputs)}.'
+        )
+
+    @staticmethod
+    def _fallback_reasons(degraded_outputs: list[dict]) -> str:
+        """Why each degraded output fell back, each reason said once."""
+        return causes_in_words(
+            (output['filepath'], output['fallback_reason']) for output in degraded_outputs
+        )
 
     @staticmethod
     def _prepend_capture_root(name: str, kwargs: dict) -> str:
@@ -531,11 +541,11 @@ class ProtocolPostProcessor(abc.ABC):
     def _incomplete(
         self,
         *,
-        group_errors: list,
+        group_errors: 'list[tuple[str, str]]',
         attempted: int,
         refused_count: int,
         colliding_names: set,
-        dropped_frames: int,
+        dropped_frames: 'Sequence[tuple[str, str]]',
         artifact_paths: list,
         output_root: str,
         accounting_note: str,
@@ -547,19 +557,19 @@ class ProtocolPostProcessor(abc.ABC):
         It carries what the build left out as a complete result does, so a
         group that failed does not also silence the inputs that were never
         tried. *stopped* is the output a build stopped at, which it says
-        first.
+        first. *group_errors* and *dropped_frames* are (item, cause) pairs,
+        each cause said once.
         """
         label = self.operation_label.lower()
         missing = []
         errors = list(group_errors)
         if stopped is not None:
             missing.append(stopped.sentence())
-            errors.append(f'{stopped.output}: {stopped.reason()}')
+            errors.append((str(stopped.output), stopped.reason()))
         if group_errors:
-            shown = '; '.join(group_errors[:3])
-            more = '; ...' if len(group_errors) > 3 else ''
             missing.append(
-                f'{len(group_errors)} of {attempted} {label} group(s) failed ({shown}{more})'
+                f'{len(group_errors)} of {attempted} {label} group(s) failed: '
+                f'{causes_in_words(group_errors)}'
             )
         if refused_count:
             names = first_few(sorted(colliding_names), separator=', ')
@@ -568,11 +578,13 @@ class ProtocolPostProcessor(abc.ABC):
                 f'derives the same output filename ({names})'
             )
         if dropped_frames:
+            errors.extend(dropped_frames)
             missing.append(
-                f'{dropped_frames} frame(s) could not be added, so the video is '
-                'shorter than its source'
+                f'{len(dropped_frames)} frame(s) could not be added, so the video is '
+                f'shorter than its source: {causes_in_words(dropped_frames)}'
             )
-        sentence = '; '.join(missing)
+        # A sentence each: a cause can hold a semicolon of its own.
+        sentence = '. '.join(f'{part[0].upper()}{part[1:]}' for part in missing)
         record_note = ''
         if stopped is not None and stopped.unrecorded is not None:
             record_note = (
@@ -581,7 +593,7 @@ class ProtocolPostProcessor(abc.ABC):
             )
         return PostProcessingFailedError(
             operation=self.operation_label,
-            missing=f'{sentence[0].upper()}{sentence[1:]}.{record_note}{accounting_note}',
+            missing=f'{sentence}.{record_note}{accounting_note}',
             produced_paths=artifact_paths,
             output_root=output_root,
             errors=errors,
@@ -795,14 +807,15 @@ class ProtocolPostProcessor(abc.ABC):
         # Every failed group's error, not only the last: a build that lost
         # several groups for different reasons must say each.
         group_errors = []
-        dropped_frames = 0
+        # Each frame a video could not add, and why.
+        dropped_frames = []
         degraded_outputs = []
         output_significant_bits = None
         completed_group_ms = []
         skipped_single_paths = []
-        # Each one-image group whose image is not in the folder: counted
-        # apart from the skipped singles, which are saved and these are not.
-        no_image_groups = 0
+        # Each one-image group whose image is not in the folder: named apart
+        # from the skipped singles, which are saved and these are not.
+        no_image_groups = []
         # The build that made each removed group's images (``_removed``).
         removed_groups: list[PostProcessingOperation] = []
         # Where each produced artifact landed. The return used to carry only
@@ -847,7 +860,7 @@ class ProtocolPostProcessor(abc.ABC):
                         f'ended partway through its only scan. Its {len(cut)} image(s) '
                         'are saved.'
                     )
-                    group_errors.append(f'{cut_loc_rel}: {last_error}')
+                    group_errors.append((str(cut_loc_rel), last_error))
                     logger.info(f'Not generating {cut_loc_rel}: {last_error}')
                     continue
                 left_out.append(f'{subject} ({len(cut)} image(s))')
@@ -864,7 +877,7 @@ class ProtocolPostProcessor(abc.ABC):
                         f'[{self._name} ] Skipping generation for {present.iloc[0]["Filepath"]} since only {len(group)} image found.'
                     )
                 else:
-                    no_image_groups += 1
+                    no_image_groups.append(_subject(group))
                     logger.info(
                         f'[{self._name} ] Nothing to combine at {_subject(group)}, and its '
                         f'one image is not in the folder: {_missing_frames_error(missing)}'
@@ -914,7 +927,7 @@ class ProtocolPostProcessor(abc.ABC):
             doubled = self._two_images_in_one_place(group)
             if doubled is not None:
                 last_error = doubled
-                group_errors.append(f'{output_file_loc_rel}: {doubled}')
+                group_errors.append((str(output_file_loc_rel), doubled))
                 logger.info(f'Not generating {output_file_loc_rel}: {doubled}')
                 continue
 
@@ -923,7 +936,7 @@ class ProtocolPostProcessor(abc.ABC):
             # failure, never an output short of it.
             if not missing.empty:
                 last_error = _missing_frames_error(missing)
-                group_errors.append(f'{output_file_loc_rel}: {last_error}')
+                group_errors.append((str(output_file_loc_rel), last_error))
                 logger.info(f'Not generating {output_file_loc_rel}: {last_error}')
                 continue
 
@@ -954,7 +967,7 @@ class ProtocolPostProcessor(abc.ABC):
 
             if not alg_results.status:
                 last_error = alg_results.error
-                group_errors.append(f'{output_file_loc_rel}: {alg_results.error}')
+                group_errors.append((str(output_file_loc_rel), alg_results.error))
                 logger.info(
                     f'[PostProcPerf] {self._name} group failed after {group_ms:.1f}ms: {group_label}'
                 )
@@ -966,7 +979,7 @@ class ProtocolPostProcessor(abc.ABC):
             alg_metadata = alg_results.record_metadata
             # A video writes what frames it could read; the ones it could not
             # leave it shorter than its source, which the build must say.
-            dropped_frames += alg_metadata.get('dropped_frames', 0)
+            dropped_frames.extend(alg_metadata.get('dropped_frames', ()))
             logger.info(
                 f'[PostProcPerf] {self._name} group done in {group_ms:.1f}ms: '
                 f'algorithm={alg_metadata.get("algorithm", "")} '
@@ -1074,8 +1087,8 @@ class ProtocolPostProcessor(abc.ABC):
             else ''
         )
         no_image_note = (
-            f' {no_image_groups} single-image group(s) have no image in the folder '
-            '(the log names each).'
+            f' {len(no_image_groups)} single-image group(s) have no image in the folder: '
+            f'{first_few(no_image_groups, separator=", ")}.'
             if no_image_groups
             else ''
         )
@@ -1112,8 +1125,8 @@ class ProtocolPostProcessor(abc.ABC):
                     'collision',
                     f'No {fname} was generated: every image group derives an '
                     f'output filename shared with another group, so their '
-                    f'artifacts would be indistinguishable. See '
-                    f'lumaviewpro.log for the colliding names.',
+                    f'artifacts would be indistinguishable. The shared names: '
+                    f'{first_few(sorted(colliding_names), separator=", ")}.',
                 )
             if derived_text and last_error is None:
                 # The emptiness is explained by what the filter excluded, not
@@ -1135,12 +1148,15 @@ class ProtocolPostProcessor(abc.ABC):
             only_singles = bool(skipped_single_paths or no_image_groups)
             nothing_to_combine = last_error is None and self._SINGLES_ARE_COMPLETE and only_singles
             if last_error is None and not nothing_to_combine:
+                found = (
+                    'Every scan position in the folder holds one image.'
+                    if only_singles
+                    else 'The folder holds no images this build can take.'
+                )
                 raise self._refuse(
                     'no_data',
                     f'No {fname} was generated. {fname} requires {needed}. '
-                    f'The folder may have image files but not the structure '
-                    f'this operation needs -- check the log if you expected '
-                    f'the folder to be compatible.{accounting_note}',
+                    f'{found}{accounting_note}',
                 )
             # Usable groups WERE found and attempted, but every one failed in
             # the algorithm itself: that is a failure, not a folder lacking the
@@ -1167,7 +1183,7 @@ class ProtocolPostProcessor(abc.ABC):
             f'{accounting_note}'
         )
         if degraded_outputs:
-            summary = self._degraded_summary(len(degraded_outputs))
+            summary = self._degraded_summary(degraded_outputs)
             logger.warning(f'{self._name}: Complete with degraded outputs: {summary}')
             return {
                 'status': True,

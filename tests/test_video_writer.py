@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 import _lumascope.modules.video_writer as video_writer_module
-from _lumascope.modules.exceptions import VideoNotFinishedError
+from _lumascope.modules.exceptions import INTERNAL_FAULT_SENTENCE, VideoNotFinishedError
 from _lumascope.modules.video_writer import VideoWriter
 from _lumascope.modules.channel_record import GRAY, release_color
 from tests.stock_channels import LED0, LED2
@@ -284,9 +284,11 @@ class TestVideoWriterDropAccounting:
                 height=24,
                 include_timestamp_overlay=False,
             )
-            writer.add_frame(image=np.zeros((24, 32, 3), dtype=np.uint8), timestamp=None)
+            dropped = writer.add_frame(image=np.zeros((24, 32, 3), dtype=np.uint8), timestamp=None)
         assert writer._frame_count == 0, 'a failed encode must not count as a written frame'
         assert writer.dropped_frames == 1
+        # Not the encoder's words: an error it does not declare is our own.
+        assert dropped == INTERNAL_FAULT_SENTENCE
 
 
 class TestAVideoThatCannotBeFinished:

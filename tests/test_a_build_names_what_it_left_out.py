@@ -262,6 +262,7 @@ def test_a_folder_holding_only_a_recording_says_video_builds_it(session, recorde
 
     assert refused.value.reason == 'no_data'
     assert 'this folder holds a recording, not stills; Video builds it' in str(refused.value)
+    assert 'log' not in str(refused.value)
 
 
 def test_stills_beside_a_recording_are_not_called_a_recording_or_derived(session, recorded):
@@ -274,6 +275,7 @@ def test_stills_beside_a_recording_are_not_called_a_recording_or_derived(session
     assert 'holds a recording' not in str(refused.value)
     assert 'derived outputs' not in str(refused.value)
     assert '2 single-image group(s) skipped' in str(refused.value)
+    assert 'Every scan position in the folder holds one image.' in str(refused.value)
 
 
 def test_a_deleted_recording_is_not_offered_to_video(session, recorded):

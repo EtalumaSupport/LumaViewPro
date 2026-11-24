@@ -161,7 +161,7 @@ class TestManualFramesTakeTheNumericSortBranch:
 
         def _record_frame(self, writer, image_path, **kwargs):
             consumed.append(recording_frames.frame_number(image_path.name))
-            return True, None
+            return True, None, None
 
         writer = MagicMock()
         writer.dropped_frames = 0

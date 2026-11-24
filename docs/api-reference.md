@@ -15654,6 +15654,7 @@ cannot read keeps doing so.
 **Attributes**
 
 - `reason`: `'unreadable'` -- a frame is missing or will not decode; `'geometry'` -- the frames are not all one size; `'mixed_pixel_types'` -- the frames' pixel types cannot share one output.
+- `detail`: What is wrong with the one frame, without naming it ("Permission denied"), for a build that names its frames itself; None when the message alone says it.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -16469,7 +16470,7 @@ incomplete build as a complete one.
 - `operation`: The operation's name as a person reads it ("Stitch").
 - `produced_paths`: Every artifact that was written.
 - `output_root`: The folder the artifacts went under, or None.
-- `errors`: Every failed group's error, in order.
+- `errors`: Every item that failed and why, in order, as (item, cause) pairs; the message states each cause once.
 - `excluded_inputs`: The files of each kind the build did not take, as a complete build's result names them; empty for an operation that reads no protocol folder (Quick Enhance, a cell count).
 - `reason`: `'post_processing_failed'` -- the build produced nothing. `'post_processing_incomplete'` -- the build produced part of what it was asked for, named in `produced_paths`.
 

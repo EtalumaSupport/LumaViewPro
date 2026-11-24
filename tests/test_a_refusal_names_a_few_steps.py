@@ -49,6 +49,24 @@ def test_a_long_list_names_five_in_the_given_order_then_the_rest():
     assert first_few(items, separator='\n').endswith('item5\nand 2 more')
 
 
+def test_one_cause_of_many_items_is_said_once_with_its_count():
+    from _lumascope.modules.common_utils import causes_in_words
+
+    full = 'No space left on device'
+    told = causes_in_words([('a', full), ('b', 'Permission denied.'), ('c', full), ('d', full)])
+    assert told == 'No space left on device (3: a, c, d); Permission denied (b)'
+
+
+def test_many_causes_name_five_in_the_order_met_then_the_rest():
+    from _lumascope.modules.common_utils import causes_in_words
+
+    told = causes_in_words([(f'item{n}', f'cause {n}') for n in range(7)])
+    assert told == (
+        'cause 0 (item0); cause 1 (item1); cause 2 (item2); cause 3 (item3); '
+        'cause 4 (item4); and 2 more'
+    )
+
+
 def _stack_refusal(proto):
     with (
         patch('_lumascope.modules.protocol.notifications.report_outcome'),

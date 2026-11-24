@@ -15,7 +15,7 @@ import _lumascope.modules.post_derivation as post_derivation
 from _lumascope.modules.channel_record import GRAY, ChannelColors, Color
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.recording_frames as recording_frames
-from _lumascope.modules.common_utils import PostFunction
+from _lumascope.modules.common_utils import PostFunction, causes_in_words
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     InputFramesUnusableError,
@@ -24,6 +24,7 @@ from _lumascope.modules.exceptions import (
     system_words,
 )
 from _lumascope.modules.api_surface import ProgressCallback
+from _lumascope.modules.notification_center import cause_in_words
 from _lumascope.modules.protocol_post_processor import (
     ProtocolPostProcessor,
     group_progress,
@@ -47,6 +48,8 @@ DEFAULT_BUILD_FPS = 5
 
 # What a broken recording manifest is told as, whatever about it is broken.
 _NOT_A_MANIFEST = 'is not a recording details file LumaViewPro can read.'
+# Why a frame is left out of a video played at each frame's own time.
+_NO_LATER_TIME = 'it states no time after the frame before it'
 
 _a_recordings_frames = rows_of(stills=False, recordings=True)
 
@@ -338,9 +341,10 @@ class VideoBuilder(ProtocolPostProcessor):
         added. When the overlay is off in an even build, the file's time is
         not read, so the cheaper depth-only read is used.
 
-        Returns whether the frame was added, and the time it was handed with.
-        A frame not added (unreadable, or with no place in a ``vfr`` video)
-        is counted by the caller as a skipped / dropped frame.
+        Returns whether the frame was handed to the writer, the time it was
+        handed with, and why it is not in the video, or None when it is: a
+        frame unreadable, with no place in a ``vfr`` video, or dropped by the
+        encoder, which the caller says the video lacks.
         """
         try:
             if enable_timestamp_overlay or vfr:
@@ -355,26 +359,26 @@ class VideoBuilder(ProtocolPostProcessor):
             # Only a frame the reader refuses is a dropped frame: anything
             # else raised here is a defect, which ends the build as itself.
             logger.error(f'[{self._name}] Failed to read image: {image_path}: {e}')
-            return False, None
+            return False, None, cause_in_words(e)
         if vfr and not _follows(frame_ts, previous_ts):
             logger.warning(
                 f'[{self._name}] {image_path.name} states no time after the frame before it '
                 f'({frame_ts} after {previous_ts}), so it has no place in a video played at '
                 'each frame time; it is left out'
             )
-            return False, None
+            return False, None, _NO_LATER_TIME
 
         # image is mono 2D (a legacy 3-channel replica collapses to mono inside
         # load_pixels). VideoWriter applies the channel false-color, the 8-bit
         # downconvert scaled by significant_bits against white_bits (one frame's
         # white, for a sum), and any cv2 BGR-swap internally.
-        writer.add_frame(
+        dropped = writer.add_frame(
             image=image,
             timestamp=frame_ts,
             significant_bits=significant_bits,
             white_bits=white_bits,
         )
-        return True, frame_ts
+        return True, frame_ts, dropped
 
     def _create_video(
         self,
@@ -423,11 +427,12 @@ class VideoBuilder(ProtocolPostProcessor):
         report = group_progress(on_progress, current_group=current_group, total_groups=total_groups)
         total_frames = len(df)
         i = 0
-        skipped = 0
+        # Each frame not in the video, and why, for the build to say.
+        dropped = []
         previous_ts = None
         for _, row in df.iterrows():
             image_path = path / row['Filepath']
-            added, frame_ts = self._add_source_frame(
+            handed, frame_ts, cause = self._add_source_frame(
                 video,
                 image_path,
                 enable_timestamp_overlay=enable_timestamp_overlay,
@@ -435,8 +440,9 @@ class VideoBuilder(ProtocolPostProcessor):
                 vfr=vfr,
                 previous_ts=previous_ts,
             )
-            if not added:
-                skipped += 1
+            if cause is not None:
+                dropped.append((str(row['Filepath']), cause))
+            if not handed:
                 continue
             previous_ts = frame_ts
 
@@ -454,7 +460,7 @@ class VideoBuilder(ProtocolPostProcessor):
             pathlib.Path(video.output_path).unlink(missing_ok=True)
             raise
 
-        if i - video.dropped_frames <= 0:
+        if len(dropped) == total_frames:
             # Not one frame reached the video: there is no video to record,
             # and a success here put a file that does not exist in the record,
             # which every later build then skipped as already made. The
@@ -465,19 +471,17 @@ class VideoBuilder(ProtocolPostProcessor):
                 'status': False,
                 'error': (
                     f'Cannot build a video: none of its {total_frames} frames could be '
-                    f'read or encoded ({df.iloc[0]["Filepath"]} first).'
+                    f'added: {causes_in_words(dropped)}.'
                 ),
                 'metadata': {},
             }
 
-        total_dropped = skipped + video.dropped_frames
-        if total_dropped > 0:
-            # The count rides the group's metadata to the build, which says
-            # the video is short to whoever asked for it.
+        if dropped:
+            # The frames ride the group's metadata to the build, which says
+            # the video is short, and why, to whoever asked for it.
             logger.warning(
-                f'[{self._name}] {total_dropped} of {total_frames} frames missing '
-                'from output (unreadable source, no time after the frame before, '
-                'or encode failure)'
+                f'[{self._name}] {len(dropped)} of {total_frames} frames missing '
+                f'from output: {causes_in_words(dropped)}'
             )
 
         logger.debug(f'[{self._name}] - Complete')
@@ -493,7 +497,7 @@ class VideoBuilder(ProtocolPostProcessor):
             # 8 bits inside the writer), so the output artifact's depth is 8
             # regardless of the source frames' depth.
             'significant_bits': 8,
-            'metadata': {'dropped_frames': total_dropped},
+            'metadata': {'dropped_frames': tuple(dropped)},
         }
 
     def build_from_folder(
@@ -807,17 +811,17 @@ class VideoBuilder(ProtocolPostProcessor):
         # video returns; a failed or short one raises with what was written.
         if not result['status']:
             raise self._incomplete(
-                group_errors=[f'{output_file_loc}: {result.get("error") or "the encode failed"}'],
+                group_errors=[(str(output_file_loc), result.get('error') or 'the encode failed')],
                 attempted=1,
                 refused_count=0,
                 colliding_names=set(),
-                dropped_frames=0,
+                dropped_frames=(),
                 artifact_paths=[],
                 output_root=str(path),
                 accounting_note='',
                 excluded_inputs=(),
             )
-        dropped = result.get('metadata', {}).get('dropped_frames', 0)
+        dropped = result.get('metadata', {}).get('dropped_frames', ())
         if dropped:
             raise self._incomplete(
                 group_errors=[],
