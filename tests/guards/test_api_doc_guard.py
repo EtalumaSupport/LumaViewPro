@@ -71,12 +71,12 @@ member, field or class the generator rendered.
 
 The docs beyond the guide
 -------------------------
-The plugin tutorial (its level table aside, a changelog), the examples'
-README, the manual and the generated reference teach the API too, so a
-member or a route each names is held to the guide's rules, and no line of
-them or of the guide names the internal package but the one sentence that
-says it is internal (polarity 7). There, and in the guide, a member marked
-engineering is off the surface.
+The plugin tutorial, the examples' README, the manual and the generated
+reference teach the API too, so a member or a route each names is held to
+the guide's rules, and no line of them or of the guide names the internal
+package but the one sentence that says it is internal (polarity 7). There,
+and in the guide, a member marked engineering is off the surface. The plugin
+API levels are a changelog, and are not read.
 """
 
 import ast
@@ -1594,11 +1594,11 @@ class TestLumascopeSkillsProseNamesResolve:
 # `tests/guards/test_no_client_reads_an_unmarked_member.py` counts every read
 # its code makes round the surface, receivers followed through its types.
 #
-# Exempt: the tutorial's level table, a changelog (a row that taught an
-# internal is superseded by a later row saying it is not API, never
-# rewritten); and the one sentence that says `_lumascope` is internal.
+# Not read: the plugin API levels, `docs/plugin-api-levels.md`, a changelog
+# (a row that taught an internal is superseded by a later row saying it is
+# not API, never rewritten). Exempt: the one sentence that says `_lumascope`
+# is internal.
 _TUTORIAL = 'docs/plugin-tutorial.md'
-_LEVEL_TABLE_SECTION = '## The plugin API level'
 _INTERNAL = re.compile(r'\b_lumascope\b')
 # The kinds of prose name judged here: a member and a route. A settings path
 # is the settings' vocabulary, not a member, and a quoted value in the
@@ -1608,16 +1608,6 @@ _SAYS_IT_IS_INTERNAL = (
     'docs/guide/concepts.md',
     'under `_lumascope` is internal and may change in any release.',
 )
-
-
-def _without_level_table(text):
-    """The tutorial with its level table's rows blanked, every line kept in place."""
-    lines, inside = [], False
-    for line in text.splitlines():
-        if line.startswith('## '):
-            inside = line == _LEVEL_TABLE_SECTION
-        lines.append('' if inside and line.startswith('|') else line)
-    return '\n'.join(lines)
 
 
 def taught_doc_labels(root=None):
@@ -1631,13 +1621,11 @@ def taught_doc_labels(root=None):
 
 
 def taught_docs(root=None):
-    """``[(label, text), ...]`` for each of ``taught_doc_labels``, the tutorial's level table blanked."""
+    """``[(label, text), ...]`` for each of ``taught_doc_labels``."""
     root = REPO_ROOT if root is None else root
-    docs = []
-    for label in taught_doc_labels(root):
-        text = (root / label).read_text(encoding='utf-8')
-        docs.append((label, _without_level_table(text) if label == _TUTORIAL else text))
-    return docs
+    return [
+        (label, (root / label).read_text(encoding='utf-8')) for label in taught_doc_labels(root)
+    ]
 
 
 def internal_mentions(text, label):
@@ -1716,7 +1704,7 @@ class TestTheDocsTeachOnlyTheSurface:
             f'the walk read no manual chapter: {sorted(judged)}'
         )
 
-    def test_a_planted_doc_reports_each_kind_and_not_the_level_table(self, prose_owners):
+    def test_a_planted_doc_reports_each_kind(self, prose_owners):
         planted = (
             '## A chapter\n'
             'Call `ImagingAPI.capture_still` and `ctx.scope.motion.get_current_position()`.\n'
@@ -1726,12 +1714,8 @@ class TestTheDocsTeachOnlyTheSurface:
             'Import `_lumascope.modules.scope_session` if you must.\n'
             'Every route under `/api/v1/scope/camera/`, and none under `/api/v1/nowhere/`.\n'
             'Right: `ScopeSession.capture_still`, `ctx.scope.motion.axis_positions`.\n'
-            f'{_LEVEL_TABLE_SECTION}\n'
-            '| Level | Added |\n'
-            '|---|---|\n'
-            '| level 1 | `CameraAPI.active` |\n'
         )
-        rows = off_surface_rows(_without_level_table(planted), _TUTORIAL, prose_owners)
+        rows = off_surface_rows(planted, _TUTORIAL, prose_owners)
         assert sorted(rows) == [
             (2, 'ImagingAPI.capture_still', 'ImagingAPI.capture_still is not API'),
             (2, 'MotionAPI.get_current_position', 'MotionAPI.get_current_position is not API'),

@@ -6370,8 +6370,7 @@ class ScopeSession:
     def plugin_api_level(self) -> int:
         """What this LumaViewPro does that a plugin may rely on.
 
-        Each level's additions are listed in plugin-tutorial.md, "The
-        plugin API level".
+        Each level's additions are listed in plugin-api-levels.md.
 
         Raises:
             Nothing.

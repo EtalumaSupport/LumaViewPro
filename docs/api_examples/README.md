@@ -15,7 +15,7 @@ and moves nothing real. Each task comes in two forms that do the same thing:
 | Stopping a run | [`stop_a_run.py`](stop_a_run.py) | [`stop_a_run.sh`](stop_a_run.sh) |
 | A saved z-stack | [`z_stack_saved.py`](z_stack_saved.py) | [`z_stack_saved.sh`](z_stack_saved.sh) |
 | Refusals, and a fault the simulator injects | [`refusals_and_faults.py`](refusals_and_faults.py) | [`refusals_and_faults.sh`](refusals_and_faults.sh) |
-| Holding the scope in a control session | [`control_session.py`](control_session.py) | [`control_session.sh`](control_session.sh) |
+| Taking the control session | [`control_session.py`](control_session.py) | [`control_session.sh`](control_session.sh) |
 
 What each one does and prints is at the top of its file. How the API fits
 together is the guide, [`api-guide.md`](../api-guide.md); every
@@ -25,13 +25,12 @@ suite runs every example, both forms, and checks what it leaves.
 ## Running a Python example
 
 A Python example needs LumaViewPro's source: it imports the API from
-`lumascope`, which the installed app keeps inside its program file.
+`lumascope`.
 
-1. Get the source and install its Python packages, as LumaViewPro's
-   [README](https://github.com/EtalumaSupport/LumaViewPro#getting-started) says (Python 3.12 or
-   3.13). Its install scripts also make `lumascope` importable by the Python
-   they installed into, and that Python runs the examples.
-2. Open a terminal in the LumaViewPro folder, the one holding
+1. Get the source and run its install script, as the guide's
+   [Where it runs](../guide/python.md#where-it-runs) says; the Python it
+   installed into runs the examples.
+2. Open a terminal in the source folder, the one holding
    `lumaviewpro.py`. If you installed into a virtual environment, activate it.
 3. Run the example by its path:
 
@@ -42,14 +41,14 @@ A Python example needs LumaViewPro's source: it imports the API from
    (`python3` on macOS and Linux.)
 
 It prints what it did. Its images are saved in the live folder your
-LumaViewPro settings name: `capture/` in a fresh copy of the source.
+LumaViewPro settings name: `capture/` under the source folder, as shipped.
 
 ## Running a REST example
 
 A REST example runs only against a simulated server started from the source
 on a copy of its `data/` folder, never against LumaViewPro's own settings.
 Each example confirms the objective the simulator proposes and writes the
-settings it uses; on your own `data/`, a scope with no turret would then
+settings it uses. On your own `data/`, a scope with no turret would then
 never be asked which objective is mounted, and its files would carry the
 default objective's scale, whatever is mounted. A copy keeps every write and capture out of your files.
 
@@ -58,9 +57,9 @@ example](#running-a-python-example), and `bash`, `curl` 7.82 or newer and
 [`jq`](https://jqlang.github.io/jq/). On Windows, run them in Git Bash (from
 [Git for Windows](https://gitforwindows.org)), which has `bash` and `curl`
 (install `jq` with `winget install jqlang.jq`), or in WSL with the source
-installed there; run both steps below in the same one.
+installed there. Run both steps below in the same one.
 
-1. Start the simulated server on a copy of `data/`. In the LumaViewPro
+1. Start the simulated server on a copy of `data/`. In the source
    folder, the one holding `lumaviewpro.py`:
 
    ```
@@ -81,7 +80,7 @@ installed there; run both steps below in the same one.
 
 Each line prints its answer, and its comment says the status it answers.
 An example stops at the first answer it does not expect, with the problem
-it was answered printed, and exits non-zero; one that shows a refusal on
+it was answered printed, and exits non-zero. One that shows a refusal on
 purpose checks that it is that refusal and goes on, and `curl` prints the
 refusal's status as it does. The server is `http://127.0.0.1:8000`, this
 computer only. A copy of `data/` with another `rest_api.port` serves on

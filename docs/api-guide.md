@@ -12,10 +12,10 @@ it rather than repeating it. The guide is this page and the files under
 > renamed, moved or removed. Most likely to move are the REST surface (its
 > routes, handles, jobs, problems and event stream) and the protocol members
 > and file columns. If you build on the API before `4.0.0`, **contact Etaluma
-> support**, so we can consult you before a structural change. From `4.0.0` a
+> support**, so we can consult you before a structural change. From `4.0.0`, a
 > 4.x release changes the API only as the [Changelog](#changelog)'s rules
-> allow -- an addition or a behavior change at a minor version, never a rename
-> or removal without a deprecation cycle -- and records each change there. What freezes is what the
+> allow: an addition or a behavior change at a minor version, never a rename
+> or removal without a deprecation cycle. Each change is recorded there. What freezes is what the
 > [API reference](api-reference.md) lists, and the plugin contract
 > ([Plugins](#plugins)), with one exception: the simulator's surface,
 > [`SimulationAPI`](api-reference.md#SimulationAPI), may change in any 4.x
@@ -25,8 +25,8 @@ it rather than repeating it. The guide is this page and the files under
 **Contents.** [What LumaViewPro is](#what-lumaviewpro-is) ·
 [Supported Lumascopes](#supported-lumascopes) ·
 [The architecture at a glance](#the-architecture-at-a-glance) ·
-[The API at a glance](#the-api-at-a-glance) · [Examples](#examples) ·
-[The map](#the-map) · [Plugins](#plugins) · [Changelog](#changelog)
+[The map](#the-map) · [Plugins](#plugins) ·
+[Writing this guide](#writing-this-guide) · [Changelog](#changelog)
 
 ## What LumaViewPro is
 
@@ -44,11 +44,9 @@ This guide is for researchers who script an experiment and for developers who
 integrate a Lumascope into a larger system. LumaViewPro runs on Python 3.12 and
 3.13, on Windows, macOS and Linux.
 
-A Python program needs LumaViewPro's source: the installed app keeps the API
-inside its program file. LumaViewPro's install scripts make `lumascope`
-importable by the Python they install into
-([README](https://github.com/EtalumaSupport/LumaViewPro#getting-started)), and
-that Python runs your program. A REST client needs only a running server.
+A Python program runs from LumaViewPro's source, with the Python its install
+script set up ([Where it runs](guide/python.md#where-it-runs)). A REST client
+needs only a running server.
 To start, bring a session up on the simulator, which needs no microscope
 ([Bringing a session up in Python](guide/python.md#bringing-a-session-up-in-python),
 `simulate=True`), or start a simulated server
@@ -99,112 +97,57 @@ sensor, not the scope: every FX2 model answers `MT9P031-LS620`.
 
 ## The architecture at a glance
 
-```text
- Your program                       LumaViewPro's window
- (Python script, REST client)       (one client of the same API)
-        |                                      |
-        v                                      |
-   REST server  --- one route per member ---   |
-        |                                      |
-        v                                      v
- ScopeSession -- settings, protocols, runs, the control session, outcomes
-   v
- Lumascope (session.scope) -- the instrument, one area per part
-   v
- Drivers -- the motor board, the LED board, the camera
-   v
- Hardware (or the simulator, which stands in for every board)
-```
+| Layer | What it is | How a caller reaches it |
+|---|---|---|
+| The session, `ScopeSession` | One per microscope, brought up by `ScopeSession.create` the same way in every host. It owns the settings, protocols, runs, captures, the control session and outcomes. | In Python, the session your program brought up, or the one a plugin is handed; over REST, `/api/v1/<member>`. |
+| The scope, `session.scope` | The instrument, one area per part: `motion`, `illumination`, `camera`, `imaging` and the rest. | In Python, `session.scope.<area>`; over REST, `/api/v1/scope/<area>/<member>`. |
+| The drivers and the hardware | The motor board, the LED board and the camera, or the simulator, which stands in for every board. | Only through the scope. |
 
-- **The session**, `ScopeSession`, one per microscope, is brought up by
-  `ScopeSession.create` the same way in every host, and owns the settings, runs,
-  captures, who may write, and outcomes. **The scope**, `session.scope`, is the
-  instrument, in the areas below.
+LumaViewPro's window is one client of the same API, and its REST server, beside
+the window or run without one, has one route per member.
+
 - **Python and REST are one API**: `scope.motion.start_move_z` is
   `POST /api/v1/scope/motion/start_move_z`, with the same refusals, faults and
   events; the form that waits, `move_z`, is in-process, and a REST client reads
   the start form's job instead. Each part's commands, from every caller, run one at a time, in order.
 - **A call that works returns its value; every other outcome is a typed
-  exception** with a `reason`, raised to the caller or posted to listeners: a
-  refusal (nothing was done), a fault (something broke) or a notice (something
-  the caller should know, a stopped move among them).
-- **One client at a time may hold the scope** in a control session; a run, a
-  home, a recording or a diagnostic holds it for its length
-  ([the holders](guide/concepts.md#who-may-act)).
+  exception** with a `reason`. It is raised to the caller or reported to
+  listeners. It is a refusal (nothing was done), a fault (something broke) or a
+  notice (something the caller should know, a stopped move among them).
+- **One client at a time may take the control session.** Work holds the scope
+  for its length: a run, a home, a recording or a diagnostic
+  ([The holders](guide/concepts.md#the-holders)).
 
 The detail is [concepts.md](guide/concepts.md).
 
-## The API at a glance
-
-| Area | What it does, and the members that matter | File |
-|---|---|---|
-| Bring-up and settings | `ScopeSession.create` (`simulate=True` for the simulator), then `session.run_application_session()` to home; `session.update_settings` writes a setting by path. | [concepts](guide/concepts.md), [python](guide/python.md) |
-| `scope.motion` | Homes and moves the stage, focus and turret: `home`, `move_z`, `move_xy`, `move_to_well`, `move_turret`, `start_move_z`; `axis_limits` bounds every move. | [motion](guide/motion.md) |
-| `scope.illumination`, `scope.camera` | The LEDs (`led_on`, `leds_off`), the camera's settings (`set_exposure_ms`, `set_gain_db`), and `session.show_channel`, the channel a capture is named for. | [light-and-camera](guide/light-and-camera.md) |
-| Captures and files | A saved still (`session.manual_capture.start_save_still`), a recording (`session.manual_recording.start`), and the record a saved file carries. | [captures-and-files](guide/captures-and-files.md) |
-| Protocols and runs | A protocol of steps (`create_empty_protocol`, `add_step`), run by `session.protocol_runner()` (`start_single_scan`, `start_protocol`), then post-processed (`post_processing.build`). | [runs](guide/runs.md) |
-| `scope.simulation` | Faults injected into a simulated scope. | [simulator](guide/simulator.md) |
-| The control session | `take_control`, `acting_in_control`, `end_control`; over REST, the `Control-Session` header. | [concepts](guide/concepts.md), [rest](guide/rest.md#the-control-session) |
-| REST's own routes | Serving it, jobs, handles, problems, events, the live view and files, a walkthrough with `curl`, a client on another computer. | [rest](guide/rest.md) |
-| In-process Python | Operations, outcome listeners, live frames and events, a still as an image. | [python](guide/python.md) |
-| Another acquisition engine | What Micro-Manager, pymmcore-plus or a lab's own sequencer needs to drive the scope as it sets it. | [outside-engines](guide/outside-engines.md) |
-
-## Examples
-
-[`api_examples/`](api_examples) holds a Python script per task, each with a
-`.sh` twin that does the same over REST with `curl`. Its
-[README](api_examples/README.md) says how to run them: a script from
-LumaViewPro's source, a twin against the installed app or
-`python -m lumascope.rest --simulate`.
-
-| Example | What it shows |
-|---|---|
-| `first_still` | a first saved still |
-| `channel_settings` | channels with their own current, exposure and gain |
-| `scan` | a scan whose images are kept |
-| `stop_a_run` | stopping a run |
-| `z_stack_saved` | a saved z-stack |
-| `refusals_and_faults` | refusals and an injected fault |
-| `control_session` | the control session |
-
-Every example, script and twin, every Python block of this guide but the
-server in [Serving it](guide/rest.md#serving-it), which serves until it is
-stopped, and the REST walkthrough run on the simulator in LumaViewPro's test
-suite.
-
 ## The map
 
-Load this page, then the files the task names; each links to the others where
-it needs them. Every member, field and outcome is in the
+For every task, read [concepts.md](guide/concepts.md) first. Then read
+[python.md](guide/python.md) if your program calls the API from Python, in its
+own process or as a plugin, or [rest.md](guide/rest.md) if it calls over HTTP.
+Then read the files the task's row names; each links to the others where it
+needs them. Every member, field and outcome is in the
 [API reference](api-reference.md), which the files link into by anchor.
+[`api_examples/`](api_examples) holds a Python script per task, each with a
+`.sh` twin that does the same over REST with `curl`; its
+[README](api_examples/README.md) says how to run them. LumaViewPro's test suite runs
+every example, script and twin on the simulator, with the REST walkthrough and
+every Python block of this guide. The one block it does not run is the server in
+[Serving it](guide/rest.md#serving-it), which serves until it is stopped.
 
-| Task | Load |
-|---|---|
-| Bring a session up, or read and write its settings, in Python | [concepts.md](guide/concepts.md), [python.md](guide/python.md) |
-| Read and write the settings, over REST | [concepts.md](guide/concepts.md), [rest.md](guide/rest.md) |
-| Take a still, in Python | [concepts.md](guide/concepts.md), [light-and-camera.md](guide/light-and-camera.md), [captures-and-files.md](guide/captures-and-files.md), [python.md](guide/python.md) |
-| Take a still or download a file, over REST | [concepts.md](guide/concepts.md), [light-and-camera.md](guide/light-and-camera.md), [captures-and-files.md](guide/captures-and-files.md), [rest.md](guide/rest.md) |
-| Record a video, in Python | [concepts.md](guide/concepts.md), [light-and-camera.md](guide/light-and-camera.md), [captures-and-files.md](guide/captures-and-files.md), [python.md](guide/python.md) |
-| Record a video, over REST | [concepts.md](guide/concepts.md), [light-and-camera.md](guide/light-and-camera.md), [captures-and-files.md](guide/captures-and-files.md), [rest.md](guide/rest.md) |
-| Run a scan or a protocol, in Python | [concepts.md](guide/concepts.md), [runs.md](guide/runs.md), [python.md](guide/python.md) |
-| Run a scan or a protocol and download its files, over REST | [concepts.md](guide/concepts.md), [runs.md](guide/runs.md), [rest.md](guide/rest.md) |
-| Build a stack, stitch, composite or video from a run's folder, in Python | [concepts.md](guide/concepts.md), [runs.md](guide/runs.md), [python.md](guide/python.md) |
-| Build a stack, stitch, composite or video from a run's folder, over REST | [concepts.md](guide/concepts.md), [runs.md](guide/runs.md), [rest.md](guide/rest.md) |
-| Move the stage, the focus or the turret, in Python | [concepts.md](guide/concepts.md), [motion.md](guide/motion.md), [python.md](guide/python.md) |
-| Move the stage, the focus or the turret, over REST | [concepts.md](guide/concepts.md), [motion.md](guide/motion.md), [rest.md](guide/rest.md) |
-| Light a channel or set the camera, in Python | [concepts.md](guide/concepts.md), [light-and-camera.md](guide/light-and-camera.md), [python.md](guide/python.md) |
-| Light a channel or set the camera, over REST | [concepts.md](guide/concepts.md), [light-and-camera.md](guide/light-and-camera.md), [rest.md](guide/rest.md) |
-| Learn the REST API from a worked session with `curl` | [concepts.md](guide/concepts.md), [rest.md](guide/rest.md) |
-| Start a REST server, on this computer or for a client on another | [concepts.md](guide/concepts.md), [rest.md](guide/rest.md) |
-| Hear live frames or events, in Python | [concepts.md](guide/concepts.md), [python.md](guide/python.md) |
-| Hear events or show the live view, over REST | [concepts.md](guide/concepts.md), [rest.md](guide/rest.md) |
-| Hold the scope in a control session, in Python | [concepts.md](guide/concepts.md), [python.md](guide/python.md) |
-| Hold the scope in a control session, over REST | [concepts.md](guide/concepts.md), [rest.md](guide/rest.md) |
-| Test against the simulator or inject a fault, in Python | [concepts.md](guide/concepts.md), [simulator.md](guide/simulator.md), [python.md](guide/python.md) |
-| Test against the simulator or inject a fault, over REST | [concepts.md](guide/concepts.md), [simulator.md](guide/simulator.md), [rest.md](guide/rest.md) |
-| Drive the scope from another acquisition engine, in Python | [concepts.md](guide/concepts.md), [outside-engines.md](guide/outside-engines.md), [light-and-camera.md](guide/light-and-camera.md), [python.md](guide/python.md) |
-| Drive the scope from another acquisition engine, over REST | [concepts.md](guide/concepts.md), [outside-engines.md](guide/outside-engines.md), [light-and-camera.md](guide/light-and-camera.md), [rest.md](guide/rest.md) |
-| Write a plugin | [plugin-tutorial.md](plugin-tutorial.md), [python.md](guide/python.md) |
+| Task | Start from | Example | Read |
+|---|---|---|---|
+| Bring a session up; read and write its settings | `ScopeSession.create` (`simulate=True` for the simulator), `session.run_application_session()`, `session.update_settings` | `first_still` | [concepts.md](guide/concepts.md), [python.md](guide/python.md), [rest.md](guide/rest.md) |
+| Move the stage, the focus or the turret, by stage position or on the plate | `home`, `move_z`, `move_xy`, `move_to_well`, `move_turret`, `start_move_z`; `axis_limits` bounds every move | | [motion.md](guide/motion.md) |
+| Light a channel; set the camera | `session.show_channel`, the channel a capture is named for; `led_on`, `leds_off`; `session.set_channel_settings`; `set_exposure_ms`, `set_gain_db` | `channel_settings` | [light-and-camera.md](guide/light-and-camera.md) |
+| Take a still or a recording; download a file | `session.capture_still`, `session.manual_capture.start_save_still`, `session.manual_recording.start`; the record a saved file carries | `first_still` | [light-and-camera.md](guide/light-and-camera.md), [captures-and-files.md](guide/captures-and-files.md) |
+| Run a scan or a protocol; build a stack, stitch, composite or video from its folder | `create_empty_protocol`, `add_step`, `session.protocol_runner()` (`start_single_scan`, `start_protocol`), `post_processing.build` | `scan`, `z_stack_saved`, `stop_a_run` | [runs.md](guide/runs.md) |
+| Take the control session, so no other client writes ([Who may act](guide/concepts.md#who-may-act)) | `take_control`, `acting_in_control`, `end_control`; over REST, the `Control-Session` header ([The control session](guide/rest.md#the-control-session)) | `control_session` | [concepts.md](guide/concepts.md), [python.md](guide/python.md), [rest.md](guide/rest.md) |
+| Hear outcomes, events and live frames ([Hearing outcomes](guide/python.md#hearing-outcomes), [The event stream](guide/rest.md#the-event-stream)) | `add_outcome_listener`, `add_frame_listener`; `GET /api/v1/events`, `GET /api/v1/live` | | [python.md](guide/python.md), [rest.md](guide/rest.md) |
+| Test against the simulator, or inject a fault | `simulate=True`, `scope.simulation` | `refusals_and_faults` | [simulator.md](guide/simulator.md) |
+| Drive the scope from another acquisition engine (Micro-Manager, pymmcore-plus, a lab's own sequencer) | `capture_still(exposed_after_call=True)`, `set_exposure_ms`, `led_on` | | [outside-engines.md](guide/outside-engines.md), [light-and-camera.md](guide/light-and-camera.md) |
+| Serve REST, on this computer or for a client on another; learn it from a worked session with `curl` ([Serving it](guide/rest.md#serving-it), [A walkthrough](guide/rest.md#a-walkthrough), [Serving another computer](guide/rest.md#serving-another-computer)) | `python -m lumascope.rest`, `build_server` | the walkthrough | [rest.md](guide/rest.md) |
+| Write a plugin | `PluginSpec`, `ctx.plugins.<namespace>.register` | | [plugin-tutorial.md](plugin-tutorial.md), [python.md](guide/python.md) |
 
 ## Plugins
 
@@ -214,9 +157,27 @@ session, and it uses the API this guide describes. How to write one, its
 lifecycle, and which plugin API level a host offers are in
 [`plugin-tutorial.md`](plugin-tutorial.md). The plugin contract -- the session's
 `plugins` and the namespaces' members the tutorial teaches -- freezes with the
-API at `4.0.0`. A plugin cannot add REST routes in this release
-(`plugins.rest.register` is refused `'rest_namespace_reserved'`), and that
-namespace is outside the freeze.
+API at `4.0.0`. A plugin cannot add REST routes in this release, and that
+namespace is outside the freeze
+([The reserved namespace](plugin-tutorial.md#the-reserved-namespace)).
+
+## Writing this guide
+
+How the hub, the files under `guide/` and the examples' README are written. A
+change to them keeps to these lines.
+
+- **Identifiers verbatim.** A class, member, field, reason, route or setting is
+  spelled as the code spells it, in backticks, whatever the lines below say.
+- **US spelling** in prose: color, gray, center, behavior, catalog.
+- **"You" for the reader**, the person writing the program.
+- **One name for one thing**, the name
+  [Words this guide uses](guide/concepts.md#words-this-guide-uses) gives it. A
+  new term goes there before the guide uses it.
+- **Short sentences**: one idea each, about 20 words. A long sentence splits at
+  its semicolons and dashes, and keeps every qualifier it had.
+- **Plain words first, then the contract.** A call that is refused is
+  "refused", with its class and reason, never "won't": the reason is what your
+  program reads.
 
 ## Changelog
 

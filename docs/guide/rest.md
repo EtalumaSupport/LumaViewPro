@@ -1,10 +1,10 @@
 # REST
 
-The API over HTTP: serving it, routes, handles, jobs, the control session, problems, events, the live view and files, a walkthrough with `curl`, and serving a client on another computer.
+The API over HTTP: serving it, routes, handles, jobs, limits, the control session, problems, events, the live view and files, a walkthrough with `curl`, and serving a client on another computer.
 
 A server is LumaViewPro's, beside its window, or `python -m lumascope.rest`
 from its source ([Serving it](#serving-it)). `GET /api` answers
-the versions served; the OpenAPI 3.1 description of every route is at
+the versions served. The OpenAPI 3.1 description of every route is at
 `/api/v1/openapi.json`, with an interactive reference at `/docs`, served
 whole by the server, so it works with no internet. Each route's
 description lists the refusals and faults its member declares, under the
@@ -18,9 +18,9 @@ Two hosts serve the API, the same API from either:
   settings (shipped `false`). An installed LumaViewPro serves this way.
 - **`python -m lumascope.rest`**, with no window, run from LumaViewPro's
   source by the Python its install script installed into ([Where it
-  runs](python.md#bringing-a-session-up-in-python)); an installed copy has no
-  such command. It serves whatever `enabled` says, though `enabled` must still
-  be `true` or `false`.
+  runs](python.md#where-it-runs)). An installed LumaViewPro has no
+  such command. It serves even when `enabled` is `false`, but `enabled` must
+  still be `true` or `false`.
 
 ```bash
 python -m lumascope.rest --simulate      # a simulated scope; leave out --simulate for the hardware
@@ -30,14 +30,14 @@ It brings the scope up as LumaViewPro does -- the user's settings, the startup
 home, the plugins -- and serves where `rest_api` says (shipped
 `127.0.0.1:8000`, this computer only). It takes the single-instance lock, so
 it will not start while LumaViewPro or another server runs on this computer,
-simulated or not ([One session per scope](concepts.md#bringing-a-session-up)). A failed startup home is
+simulated or not ([One session per scope](concepts.md#one-session-per-scope)). A failed startup home is
 reported and the server still serves, so a client can home again. Ctrl-C or
 SIGTERM closes it: new calls are refused (`'server_closing'`), the session
 shuts down with the event stream open, and the stream's last event is
 `closing`. It exits `0`, or `1` when it could not take the lock or serve
 (printing why), stopped before it served, or the session did not close cleanly
-(the log says why). The log is `logs/LVP_Log/` under the source folder,
-`lumaviewpro.log` and `lumaviewpro_errors.log`, and captures go to the live
+(the log says why). The log is `logs/LVP_Log/` under the source folder:
+`lumaviewpro.log` and `lumaviewpro_errors.log`. Captures go to the live
 folder, `capture/` under the source folder as shipped (`live_folder`
 `./capture`, a relative path being the source folder's).
 
@@ -67,10 +67,10 @@ elif server.close_failed is not None:    # what the session's shutdown raised
     print(server.close_failed)
 ```
 
-A program that mounts the API in an ASGI application of its own takes it from
-`build_app(session)`; its `allowed_clients` and its body deadline hold whoever
-serves it, while the header deadline and the address check below are
-`build_server`'s, so that program sets its own server's.
+To mount the API in an ASGI application of your own, take it from
+`build_app(session)`. Its `allowed_clients` and its body deadline apply
+whoever serves it. The header deadline and the address check below are
+`build_server`'s, so your program sets its own server's.
 
 To test a client with no server, no port and no instance lock, send its
 requests through FastAPI's `TestClient`:
@@ -79,7 +79,7 @@ requests through FastAPI's `TestClient`:
 `TestClient` needs the HTTP client package that `requirements-dev.txt` pins.
 
 **Addressed to it.** The server answers only a request addressed to its own
-address and port: the `Host` a client sends names them, in any spelling of the
+address and port. The `Host` a client sends names them, in any spelling of the
 address, or `localhost` at that port when it serves on `127.0.0.1` or `::1`.
 Any other is refused `421` (`'wrong_host'`), so address the scope by its IP
 address, never by a name, which any site can point at it. A request sent by a
@@ -89,25 +89,25 @@ no `Origin`, and `/docs` sends the server's own.
 
 **The settings.** The server reads `rest_api` from the session's settings. It
 is installation-only: no call changes it, from any caller
-(`'installation_only'`), so it is edited in the installation's
-`data/current.json` ([Settings](python.md#bringing-a-session-up-in-python)),
-with LumaViewPro and the server closed, since each writes the whole settings
+(`'installation_only'`). So it is edited in the installation's
+`data/current.json` ([Settings](python.md#settings)),
+with LumaViewPro and the server closed. Each of them writes the whole settings
 file back as it runs and when it closes, over an edit made meanwhile. A source
-copy neither has run has no `current.json` and serves from the template's
-`rest_api`; to change it there, copy `data/settings.json` to
+folder neither has run in has no `current.json`, and serves from the template's
+`rest_api`. To change it there, copy `data/settings.json` to
 `data/current.json` and edit the copy. The port is
 `rest_api.port`, 1024 to 65535, and the command takes no port of its own: to
 serve on another, change the setting. A `rest_api` the server cannot use, or
 an address and port it cannot take, is refused `RestServerNotStartedError`
 before anything is served, from every host: LumaViewPro shows it and runs on
 without a server, and `python -m lumascope.rest` prints it and exits `1`. A
-`current.json` the server cannot use, an edit that left it short of a key or
-holding a block of the wrong kind, is `SettingsFileError`, printed the same
-way, naming the file and what is wrong; the file is not changed. So is a
-scope model it names that this version does not know, on a scope whose motor
-board reports no model (a board that reports one, an OEM name included, says
-what the scope is), `CatalogNameRefusedError` (reason `model_unknown`), naming
-the `microscope` setting and the models it does know.
+`current.json` the server cannot use -- an edit that left it short of a key or
+holding a block of the wrong kind -- is `SettingsFileError`, printed the same
+way, naming the file and what is wrong. The file is not changed. So is a
+`microscope` setting naming a model this version does not know, on a scope
+whose motor board reports no model: `CatalogNameRefusedError` (reason
+`model_unknown`), naming the setting and the models it does know. (A board that
+reports a model, an OEM name included, says what the scope is.)
 While it
 serves, `server.reach` says where and to whom (`python -m lumascope.rest`
 prints it, and LumaViewPro shows it in Advanced Settings).
@@ -118,7 +118,7 @@ The session is the root: its member `<member>` is `/api/v1/<member>`, and each s
 a path segment, so `session.scope.motion.start_move_xy` is
 `POST /api/v1/scope/motion/start_move_xy`. As in Python, what is the session's
 is a session route (`POST /api/v1/show_channel`) and the hardware is under
-`/api/v1/scope/` ([Where a call starts](concepts.md#architecture)); each
+`/api/v1/scope/` ([Where a call starts](concepts.md#where-a-call-starts)). Each
 capability has one route.
 
 - **A read is `GET`**: a property, a published field, or a method that changes
@@ -130,14 +130,14 @@ capability has one route.
   (`PUT /api/v1/scope/camera/binning` with `{"size": 2}` answers `2`). A
   setting kept per channel takes the channel in the body and the query
   (`PUT /api/v1/channel_settings` with `{"channel": "BF", "acquire": "image"}`,
-  then `GET /api/v1/channel_settings?channel=BF`); there a key left out is a
+  then `GET /api/v1/channel_settings?channel=BF`). There a key left out is a
   setting not written, and `null` is the value. Such a setter has no route
   of its own. Not every setter is one: `set_auto_gain` keeps its own `POST`
   beside its read. Each member's [reference](../api-reference.md) entry names
   its route.
 - **Every other call is `POST`**, its arguments a JSON object by parameter
   name; `null` is None, and a parameter left out takes its default. A member
-  that hands out a running call is a `POST` even when it changes nothing
+  that returns an operation is a `POST` even when it changes nothing
   (`last_run`). The parameter names are the member's, in its
   [reference](../api-reference.md) entry and its route's body in `/docs`:
   `move_to_well(well)` is `{"well": "B2"}`.
@@ -156,10 +156,10 @@ capability has one route.
   a time as ISO 8601 with its offset.
 
 In-process members -- those taking a callback, returning a live object, or
-waiting on the caller's thread -- have no route; each has a wire form beside
-it (a listener is an event; a call that waits for a long action -- a move, a
-home, a go-to, a build, a cell count, a report -- is its `start_` form, read
-as a job; `acting_in_control` is the `Control-Session` header).
+waiting on the caller's thread -- have no route. Each has a wire form beside
+it. A listener is an event, and `acting_in_control` is the `Control-Session`
+header. A call that waits for a long action -- a move, a home, a go-to, a
+build, a cell count, a report -- is its `start_` form, read as a job.
 
 ## Handles
 
@@ -168,12 +168,11 @@ A live object -- a protocol, a protocol runner -- crosses as a handle,
 `/api/v1/handles/<type>/<id>/<member>` (`GET /api/v1/handles/Protocol/1/period_s`),
 and a parameter that takes it is sent its id (`{"protocol": "1"}`).
 `GET /api/v1/handles` lists every handle held, oldest first.
-`DELETE /api/v1/handles/<type>/<id>` forgets the id, never the object (`204`);
-the session's protocol runner is every client's and is kept (`422`,
+`DELETE /api/v1/handles/<type>/<id>` forgets the id, never the object (`204`).
+The session's protocol runner is every client's and is kept (`422`,
 `'handle_shared'`). A forget is a write: under another's control session it is
-refused. At most 1000 handles are held; past that, a call whose answer could
-carry a new one is refused `503` (`'overloaded'`, `Retry-After: 5`) before it
-runs, so forget the handles a client is done with.
+refused. The handles held are bounded ([Limits](#limits)), so forget the
+handles a client is done with.
 
 ## Jobs
 
@@ -199,50 +198,62 @@ job:
 
 A member that returns an operation -- a run's start, `start_move_to_well`,
 `start_home`, a saved still's `start_save_still` -- is answered `202` with the operation's
-job as soon as it has started, whatever the wait; the route's description
-names the job's model, its `result` the record the operation ends with
+job as soon as it has started, whatever the wait. The route's description
+names the job's model, and its `result` the record the operation ends with
 (`start_build`'s `BuildsResultJob`, a run's `RunOutcomeJob`). Its twin that
 waits for the operation, `move_to_well` or `home`, is in-process and has no
 route. Any other call is answered `200` with its result within the wait, a
-`202` job past it. `GET /api/v1/jobs/<id>`, itself waiting by `Prefer: wait`, reads a
-job, `200` whatever its status; with `Prefer: respond-async` it answers at
-once, a poll of the job's `progress`. Once it has ended it carries `result` or `error` (the problem). A job's
+`202` job past it. `GET /api/v1/jobs/<id>` reads a job and answers `200`
+whatever its status. It waits as `Prefer: wait` says. With
+`Prefer: respond-async` it answers at once, which is how you poll the job's
+`progress`. Once it has ended it carries `result` or `error` (the problem). A job's
 `status` says whether the call answered a problem, not how the operation went:
 a stopped run's job is `completed` with its outcome `aborted`, a stopped move's
 `failed` with its stop notice. A run's job also carries `files`, the job of
-the run's images: the run's job ends as the run lets go of the scope, and its
-`files` job once the images are on disk, its `result` the run's `RunFiles`.
-Wait on it before reading the run's folder or starting the next run, which is
-refused `'files_writing'` until then. `GET /api/v1/jobs` lists every job held,
+the run's images, its `result` the run's `RunFiles`
+([A run's files](runs.md#a-runs-files)). The next run is refused
+`'files_writing'` until it ends. `GET /api/v1/jobs` lists every job held,
 newest first.
 
 `DELETE /api/v1/jobs/<id>` stops a running operation (`202`, the job) or
-forgets a finished job (`204`). A stop passes any control session; a forget is
+forgets a finished job (`204`). A stop passes any control session. A forget is
 a write: under another's control session it is refused, and the job is kept.
-A still has no stop, and its job ends as it would have; a call held as a job
-only because it outlived its wait holds no operation, and is refused `409`
-(`'not_cancelable'`). Finished jobs are kept up to 1000 and 24 hours; at most
-256 calls run at once, past which a call is refused `503` (`'overloaded'`). A
-call's JSON body is at most 64 KiB, refused `413` (`'body_too_large'`) past it,
-and arrives within 20 s plus its length at 64 KiB a second, else refused `408`
-(`'body_too_slow'`) and its connection closed. A connection has 20 s for each
-request's headers, from its opening and from each answer, or is closed; a
-request that has arrived is never ended by it, however long its answer takes.
-Take a job's id from the answer that made it, never count it: every call held
+A still has no stop, and its job ends as it would have. A call that became a
+job only because it ran past its wait has no operation to stop: deleting it
+while it runs is refused `409` (`'not_cancelable'`). How many jobs are kept, how many calls run at once, and
+how large and how slow a body may be are [Limits](#limits). Take a job's id from the answer that made it, never count it: every call held
 as a job takes the next id.
 
 A `POST` or `PUT` that may be sent twice, an upload among them, carries
-`Idempotency-Key`: sent again with the same key, it runs nothing and is
+`Idempotency-Key`. Sent again with the same key, it runs nothing and is
 answered what the first was, with `Idempotent-Replayed: true`. A key sent with
-another request is refused `422` (`'idempotency_key_reused'`). A key is held
-for 24 hours, and at most 10,000, the oldest let go first.
+another request is refused `422` (`'idempotency_key_reused'`). How long a key
+is held is [Limits](#limits).
+
+## Limits
+
+- **Calls.** At most 256 run at once, an upload counted among them while its
+  body arrives; past that a call is refused `503` (`'overloaded'`).
+- **Jobs.** Finished jobs are kept up to 1000 and 24 hours.
+- **Handles.** At most 1000 are held; past that, a call whose answer could
+  carry a new one is refused `503` (`'overloaded'`, `Retry-After: 5`) before
+  it runs.
+- **Bodies.** A call's JSON body is at most 64 KiB, an upload's 64 MiB, refused
+  `413` (`'body_too_large'`) past it; four uploads are read at once.
+- **Time.** A body arrives within 20 s plus its length at 64 KiB a second,
+  else it is refused `408` (`'body_too_slow'`) and its connection closed. A
+  connection has 20 s for each request's headers, from its opening and from
+  each answer, or is closed. A request that has arrived is never ended by it,
+  however long its answer takes.
+- **Idempotency keys.** A key is held for 24 hours, and at most 10,000, the
+  oldest let go first.
 
 ## The control session
 
-The wire form of [the control session](concepts.md#who-may-act).
+The wire form of [the control session](concepts.md#the-control-session).
 `POST /api/v1/take_control` with `{"name": ...}` answers the id, to this
-client alone; `GET /api/v1/control` reads who holds it, and since when. While
-it is held, every write carries its id in the `Control-Session` header; any
+client alone. `GET /api/v1/control` reads who holds it, and since when. While
+it is held, every write carries its id in the `Control-Session` header. Any
 other write is refused `409` (`'control_session_held'`), and a write naming
 an ended session `422` (`'control_session_ended'`). Reads, stops and the
 display preferences pass without it, and a read or a stop naming an ended
@@ -250,7 +261,8 @@ session is answered as one with no header: a client stops what it started
 whatever became of its session. `POST /api/v1/end_control` with
 `{"session_id": ...}` ends it, stopping a run or recording taken in it.
 Every request carrying the header renews the session, a read or a job poll
-included; one silent for 180 s is ended by the next client it would refuse.
+included. When a silent one ends is
+[The control session](concepts.md#the-control-session).
 Taking back control without the id is the window's alone: it has no route.
 
 ## Problems
@@ -266,15 +278,15 @@ Every answer that is not a result is an RFC 9457 problem,
  "board": null, "limits": null, "member": null, "plate": null, "takes": null}
 ```
 
-`title` and `detail` are the words a person is shown; `reason` is the code to
-branch on; `kind` is the outcome's; `remedy` is sent back as
+`title` and `detail` are the words a person is shown. `reason` is the code to
+branch on, and `kind` is the outcome's. `remedy` is sent back as
 `POST /api/v1/apply_remedy` with `{"remedy": ...}`. A refusal carries every
 field its class publishes -- `argument`, `offered`, `limits`, `holder` --
 null where unused, so a client corrects its request without reading the
 words. An outcome that declares no reason is `type` `about:blank`.
 
 The status is the outcome's [cause](concepts.md#outcomes), or the server's own
-refusal's; every reason and its status is in the reference's
+refusal's. Every reason and its status is in the reference's
 [table](../api-reference.md#ServerRefusedError) and
 [Outcomes](../api-reference.md#outcomes).
 
@@ -286,24 +298,24 @@ refusal's; every reason and its status is in the reference's
 | `421` | `'wrong_host'`: a request addressed to another server than this one's address and port ([Serving it](#serving-it)). |
 | `500` | A fault: the call failed. |
 | `404` | No such route, handle, job or file. |
-| `405` / `408` / `413` / `415` | The wrong method; a body that did not arrive in time (`'body_too_slow'`: 20 s plus its length at 64 KiB a second; the connection is closed); a body larger than its route takes (`'body_too_large'`: 64 KiB of JSON, 64 MiB for an upload); a body that is not JSON. |
+| `405` / `408` / `413` / `415` | The wrong method; a body that did not arrive in time (`'body_too_slow'`; the connection is closed); a body larger than its route takes (`'body_too_large'`), both in [Limits](#limits); a body that is not JSON. |
 | `503` | With `Retry-After`, try again later (`'overloaded'`, `'no_frame_yet'`). Without it, nothing succeeds until the application restarts (`'not_connected'`, `'session_closing'`, `'server_closing'`, and every other restart cause). |
 
 ## The event stream
 
 `GET /api/v1/events` is a server-sent event stream. Its first event is
-`status`, the scope as `GET /api/v1/status` reads it; after that every change
+`status`, the scope as `GET /api/v1/status` reads it. After that every change
 is an event, named as in the [events table](../api-reference.md#events), its data
 the event's record -- but the frame events, which are the live view's. A
 quiet stream sends a keep-alive comment every 15 s and asks a client to
-reconnect after 1 s (`retry: 1000`). A run's events carry `run`, `{"job": "<id>"}`, the job of
-the run that sent them, and every job's end is a `job_ended` event, its data
-the job: a run's `files` job ends with its own, so match a `job_ended` by its
-`id`. Every notice, and every outcome nobody asked for, is an `outcome` event
-(a model set for the next start among them); a refusal or fault that answered
-a call is not, its asker having had it.
+reconnect after 1 s (`retry: 1000`). A run's events carry `run`,
+`{"job": "<id>"}`, the job of the run that sent them. Every job's end is a
+`job_ended` event, its data the job. A run's `files` job ends with its own, so
+match a `job_ended` by its `id`. Every notice, and every outcome nobody asked
+for, is an `outcome` event (a model set for the next start among them). A
+refusal or fault that answered a call is not, its asker having had it.
 
-A client that reconnects with `Last-Event-ID` is sent what it missed; when the
+A client that reconnects with `Last-Event-ID` is sent what it missed. When the
 server no longer holds it (more than 1024 events ago, or a restarted server),
 it is sent `reset` and then `status`, where it starts again. A client that
 cannot hold a stream open polls `GET /api/v1/events/held?after=<id>`. It gets
@@ -335,26 +347,27 @@ the top of the picture, as LumaViewPro's window and its saved files have it.
   an upload never replaces a capture. It is a write, carrying
   `Control-Session` under a held session. It takes at most 64 MiB, refused
   `413` (`'body_too_large'`) on its `Content-Length` before a byte is read,
-  a chunked one at the first byte past it; the server still reads a refused
+  a chunked one at the first byte past it. The server still reads a refused
   body to its end. Four uploads are read at once, each counted among the 256
   calls while its body arrives: a fifth, or one past the 256, is refused `503`
   (`'overloaded'`, `Retry-After`) before its body is read, whichever clients
   hold the four. A body that stops arriving -- its client's link dropped -- is
-  refused `408` (`'body_too_slow'`) at 20 s plus its length at 64 KiB a second,
-  and its place given back.
+  refused `408` (`'body_too_slow'`) at the body's deadline
+  ([Limits](#limits)), and its place given back.
 - `GET /api/v1/previews/<name>` -- a saved image downscaled to a JPEG for
   display (`max_width` as for `/live`).
 - `POST /api/v1/still` -- a still at the camera's own depth, saved nowhere
   (`ScopeSession.capture_still`): the body is the still's record as JSON,
   `X-Record-Length` bytes, then its pixels, row by row, little-endian, shaped
   by `X-Image-Shape`, `X-Image-Dtype` and `X-Significant-Bits`. Its JSON body
-  takes the member's arguments, each its own default when left out:
-  `{"channel": "BF"}` holds the shown channel's stored settings for the frame,
-  where no body takes the camera as set; `{"sum_count": 4, "sum_delay_s":
-  0.1}` sums four frames; `accept_dark`, `all_ones_check` and `timeout_s` are
-  the member's; `{"exposed_after_call": true}` keeps only a frame exposed
-  after the call, for a light or shutter LVP did not switch. It answers when
-  the still is taken, never as a job.
+  takes the member's arguments, each its own default when left out. With
+  `{"channel": "BF"}` the camera holds the shown channel's stored settings for
+  the frame; with no body it takes the camera as set.
+  `{"sum_count": 4, "sum_delay_s": 0.1}` sums four frames. `accept_dark`,
+  `all_ones_check` and `timeout_s` are the member's.
+  `{"exposed_after_call": true}` keeps only a frame exposed after the call, for
+  a light or shutter LumaViewPro did not switch. It answers when the still is
+  taken, never as a job.
 
 The live view and previews are display: 8-bit gray, lossy, with no metadata.
 The data is the file. Every answer carries `X-Request-ID`, which a problem
@@ -383,13 +396,13 @@ curl -s --json '{}' $API/scope/illumination/leds_off        # 200
 ```
 
 Build a one-step protocol and run it. A run is answered `202` at once with its
-job; poll the job at once with `Prefer: respond-async`, or read it with
+job. Poll the job at once with `Prefer: respond-async`, or read it with
 `Prefer: wait` until it has ended, then its `files` job until the run's images
-are on disk. A new install has not been told which objective is mounted, and a
-protocol is refused until it has (`GET $API/objective_question` asks), so the
+are on disk. A new install does not yet know which objective is mounted, and a
+protocol is refused until it does (`GET $API/objective_question` asks), so the
 first lines say which it is. `GET $API/current_slot_objective_question` always
 answers: on a new install it proposes the catalog's default, and on a scope
-already told, the objective stored or the turret slot's, so the answer changes
+that already knows, the objective stored or the turret slot's, so the answer changes
 nothing there. Its `turret_slot` is `null` without a turret.
 
 ```bash
@@ -450,8 +463,8 @@ lab trusts, name the scope PC's address on that link:
 
 This is plain HTTP with no credential: anyone who can reach the address drives
 the scope, and the control session's id travels unencrypted. The allowlist
-guards against a client on the wrong network, not an attacker on the same one;
-use it on a cable or a network you trust. Nor does it bound connections: a
+guards against a client on the wrong network, not an attacker on the same one.
+Use it on a cable or a network you trust. Nor does it bound connections: a
 machine that can reach the address can open them faster than their header
 deadline closes them, until the server, and LumaViewPro with it, has no more
 files it can open.
@@ -460,7 +473,7 @@ On the scope PC:
 
 - **Connect the network before LumaViewPro starts.** An unplugged cable takes
   its address with it, so a server started before the cable is in cannot take
-  the address: LumaViewPro says so and runs with REST off until it restarts,
+  the address. LumaViewPro says so and runs with REST off until it restarts,
   and `python -m lumascope.rest` prints it and exits `1`.
 - **The firewall.** The installer adds no firewall rule: only REST on a
   network address needs one. Windows asks, the first time LumaViewPro serves
@@ -478,7 +491,7 @@ On the scope PC:
 
   `netsh advfirewall firewall delete rule name="LumaViewPro REST"` removes
   it. A site whose policy ignores local rules needs its IT to add the rule.
-  A copy run from source serves through its `python.exe`, and Windows asks
+  A server run from source serves through its `python.exe`, and Windows asks
   for that program instead. On Linux, a firewall that is on (firewalld on Fedora and RHEL, ufw when enabled
   on Ubuntu) drops the connection with no prompt and no message: open the port,
   for example `sudo firewall-cmd --permanent --add-port=8000/tcp && sudo

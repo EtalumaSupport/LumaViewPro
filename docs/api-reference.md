@@ -2269,8 +2269,7 @@ Raises nothing.
 
 What this LumaViewPro does that a plugin may rely on.
 
-Each level's additions are listed in plugin-tutorial.md, "The
-plugin API level".
+Each level's additions are listed in plugin-api-levels.md.
 
 <a id="ScopeSession.plugin_health"></a>
 ### `ScopeSession.plugin_health`

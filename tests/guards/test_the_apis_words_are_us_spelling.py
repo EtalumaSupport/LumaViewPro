@@ -13,8 +13,8 @@ plugin tutorial, ``docs/api-guide.md`` and the examples. A comment
 is not read. A name LVP uses but does not define (``CancelledError``,
 ``usb1.TRANSFER_CANCELLED``, ``Future.cancelled``) is not LVP's spelling
 and is not read either; a string that names one is exempt by its whole
-word in ``_NOT_OURS``. A row of the plugin tutorial's level table records
-the names a rename retired, so it is not read.
+word in ``_NOT_OURS``. The plugin API levels, ``docs/plugin-api-levels.md``,
+record the names a rename retired, so that file is not read.
 
 The words are the British forms LVP's text has carried, each with its
 inflections; a word is judged by each part of an identifier
@@ -68,7 +68,6 @@ _NOT_OURS = Words(
 _CODE_FOLDERS = Packages({'src', 'ui'})
 _PY_EXAMPLES = 'docs/api_examples'
 _DOCS = ('docs/guide/**/*.md', 'docs/plugin-tutorial.md', 'docs/api-guide.md')
-_LEVEL_ROW = '| level '
 
 
 def _british_words(text):
@@ -106,10 +105,9 @@ def _read_lines(rel_path):
     """
     lines = (REPO_ROOT / rel_path).read_text(encoding='utf-8').splitlines()
     for lineno, line in enumerate(lines, 1):
-        if rel_path.endswith('.md'):
-            if rel_path == 'docs/plugin-tutorial.md' and line.startswith(_LEVEL_ROW):
-                continue
-        elif line.lstrip().startswith('#') and not line.lstrip().startswith('#:'):
+        if not rel_path.endswith('.md') and (
+            line.lstrip().startswith('#') and not line.lstrip().startswith('#:')
+        ):
             continue
         yield lineno, line
 

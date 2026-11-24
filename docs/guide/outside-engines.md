@@ -5,27 +5,33 @@ What an acquisition engine of your own -- Micro-Manager, pymmcore-plus, a lab's 
 An acquisition engine of your own -- Micro-Manager, pymmcore-plus, a lab's own
 sequencer -- decides what each frame is: which light, which exposure, where the
 stage is. LumaViewPro's channels and runs make those decisions for its own
-acquisitions; an outside engine makes them itself, through the members that
+acquisitions. An outside engine makes them itself, through the members that
 take the scope as set and record what it was when each frame was taken.
 
-**The as-set members.** `scope.camera.set_exposure_ms` and `set_gain_db` write
-the camera now ([Camera](light-and-camera.md#camera)); `scope.illumination.led_on(channel,
+### The as-set members
+
+`scope.camera.set_exposure_ms` and `set_gain_db` write
+the camera now ([Camera](light-and-camera.md#camera)). `scope.illumination.led_on(channel,
 illumination_ma)` and `led_off(channel)` light and darken a channel's LEDs at
-the current the engine names ([Illumination](light-and-camera.md#illumination)); `start_move_xy`,
-`start_move_z` and `move_turret` move the stage ([Motion](motion.md#motion)); and
+the current the engine names ([Illumination](light-and-camera.md#illumination)). `start_move_xy`,
+`start_move_z` and `move_turret` move the stage ([Motion](motion.md#motion)).
 `session.capture_still()`, with no channel, takes a frame with the camera and
-the LEDs as they are ([A still](python.md#a-still)). None of
+the LEDs as they are ([A still](captures-and-files.md#a-still)). None of
 them reads or writes a channel's stored settings, so the engine's exposures and
 currents never change what the person at LumaViewPro's window has stored.
 
-**The channel layer is LumaViewPro's.** `session.show_channel`, a still named
+### The channel layer is LumaViewPro's
+
+`session.show_channel`, a still named
 for a channel, and a run's step put a channel's stored gain, exposure and
-auto-gain on the camera. An engine that holds its own settings calls none of
-them, or its next frame is taken at the channel's settings instead of its own;
-after a raw camera write a still's record says the camera holds no channel's
+auto-gain on the camera. An engine that keeps its own settings calls none of
+them, or its next frame is taken at the channel's settings instead of its own.
+After a raw camera write, a still's record says the camera holds no channel's
 (`held_channel` None).
 
-**A still exposed after the call.** Frame validity waits out every change
+### A still exposed after the call
+
+Frame validity waits out every change
 LumaViewPro recorded. A change it did not make -- another program's light or
 shutter, an illuminator on its own driver -- is not recorded, so a still taken
 just after it can keep a frame exposed before it. An engine that changed what
@@ -49,17 +55,17 @@ scope.simulation.clear()
 ```
 
 Over REST the same still is `POST /api/v1/still` with
-`{"exposed_after_call": true}`: its record, then its pixels at the camera's own
-depth, answered when the still is taken, never as a job
-([The live view and files](rest.md#the-live-view-and-files)).
+`{"exposed_after_call": true}` ([A still](captures-and-files.md#a-still)).
 
-**A move's outcome comes before the next frame's position.** A started move
-returns at once with its `Operation`; it ends arrived, or raises
+### A move's outcome comes before the next frame's position
+
+A started move
+returns at once with its `Operation`. It ends arrived, or raises
 `MoveStoppedError` when someone stopped it or a newer move superseded it, or
 `MoveFaultError` when the board failed, which leaves the axis unknown until it
-is homed ([How a move ends](motion.md#motion)). The person at LumaViewPro's window can
+is homed ([How a move ends](motion.md#how-a-move-ends)). The person at LumaViewPro's window can
 stop a move the engine started. An engine reads the move's outcome before it
-records a frame at the position it asked for; over REST that is the move's job,
+records a frame at the position it asked for. Over REST that is the move's job,
 `completed`, or `failed` with its notice or fault ([Jobs](rest.md#jobs)).
 
 ```python
@@ -73,14 +79,18 @@ moving.stop()                                      # as the person at the window
 moving.result(timeout=30)                          # stopped: Z is not at 6000 um
 ```
 
-**A host that has not homed refuses moves.** A session's axes have no position
-until its host's startup motion homes them, and again after a fault loses one;
-until then every move is refused `'position_unknown'`
+### A host that has not homed refuses moves
+
+A session's axes have no position
+until its host's startup motion homes them, and again after a fault loses one.
+Until then every move is refused `'position_unknown'`
 ([Bringing a session up](concepts.md#bringing-a-session-up)). An engine that connects to a
 host which has not homed, or after a fault, homes the scope (`home()`, over REST
 `POST /api/v1/scope/motion/start_home` and its job read until it ends) before its first move.
 
-**Binning and frame size are saved.** `scope.camera.set_binning` and
+### Binning and frame size are saved
+
+`scope.camera.set_binning` and
 `set_frame_size` are the one writer of each, and save what they set as
 LumaViewPro's own `binning` and `frame` settings: the person at LumaViewPro's
 window sees the engine's geometry, and the next session opens with it.
@@ -92,14 +102,13 @@ assert scope.camera.binning == 2    # taken, and saved as the window's own
 scope.camera.set_binning(1)
 ```
 
-**Control, and its end by silence.** An engine that must not be interfered with
-takes the control session ([Who may act](concepts.md#who-may-act)) and names it on every
+### Control, and its end by silence
+
+An engine that must not be interfered with
+takes the control session ([The control session](concepts.md#the-control-session)) and names it on every
 call, as the `Control-Session` header over REST
 ([The control session](rest.md#the-control-session)). A session in which nothing has
-acted for 180 s, with nothing it started still running, is silent: the next
-caller it would refuse ends it, and the engine's next call is refused
-`'control_session_ended'`. An engine idle between time points longer than that
-renews it -- any request naming it does, a read or a job poll included, and
-`POST /api/v1/renew_control` with `{"session_id": ...}` renews it with no other
-call. A refused `take_control` and an ended session are the engine's to report;
-neither is retried behind its back.
+acted for 180 s, with nothing it started still running, is silent and ends
+([The control session](concepts.md#the-control-session)), so an engine idle
+between time points longer than that renews it. A refused `take_control` and an ended session are the engine's to report.
+Neither is retried behind its back.

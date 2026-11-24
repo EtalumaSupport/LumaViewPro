@@ -6,15 +6,17 @@ The simulated scope: its tiers, its models, and the faults it injects.
 member works on it as on the hardware, so a program can be written and tested
 before it meets a scope. The camera images a specimen fixed to the stage, so moving the
 stage moves the image. It is the model the settings declare (`microscope`,
-shipped `LS850`), so a source copy's simulated scope is an LS850, its camera
-`SimulatedCamera-3840x2160` on an EL-0940 model and the FX2 camera on a
-Classic one.
+shipped `LS850`), so on the shipped settings the simulated scope is an LS850.
+Its camera is `SimulatedCamera-3840x2160` on an EL-0940 model, and the FX2
+camera on a Classic.
 
 The simulator's own surface, `scope.simulation`, is outside what `4.0.0`
-freezes: it may change in any 4.x release. It carries no version of its own; it
-ships with the release.
+freezes: it may change in any 4.x release. It carries no version of its own:
+it ships with the release.
 
-**Tiers.** `settings['simulator_tier']` in the settings handed to `create`
+### Tiers
+
+`settings['simulator_tier']` in the settings handed to `create`
 chooses the fidelity:
 
 | Tier | What is simulated |
@@ -26,11 +28,14 @@ chooses the fidelity:
 The tiers are the EL-0940 board's. `firmware` and `realistic` need a
 MicroPython runtime on the machine. LumaViewPro carries one for macOS. A
 Linux x86_64 machine builds its own with `build_sim_runtime.sh`, in the
-simulator's `runtime` folder of the source tree. Windows has none. Where there is none, the session runs `fast` and says why in the log. A Classic model is simulated as its own devices
+simulator's `runtime` folder of the source tree. Windows has none. Where there is none, the session runs `fast` and says why in
+the log. A Classic model is simulated as its own devices
 behind the production drivers, the same on every tier: the FX2 camera and LED
 board, and on the LS720 the TMCM-6110 motor board.
 
-**Faults.** `scope.simulation` injects what the hardware can do wrong, through
+### Faults
+
+`scope.simulation` injects what the hardware can do wrong, through
 the same production driver path a real fault takes: a board that drops replies,
 a camera unplugged, a home that never trips its switch, an open lid. Each is a
 write, refused under another's control session, refused on a real scope
@@ -59,17 +64,17 @@ member's own fault, and its arguments, are in the
 | `refuse_led_write`, `bind_camera_usb_driver` | refused | refused | FX2 |
 
 `hold_axis` halts the axis's next move part of the way and returns an
-operation done once it has halted there (over REST, a job), so a caller acts
-on a move while it travels without a clock; the move travels on after
+operation done once it has halted there (over REST, a job). So a caller acts
+on a move while it travels, without a clock. The move travels on after
 `clear()`, and a hold that a stop, a new target, a home or `clear()` ends first
 raises `HoldEndedError`.
 
 A fault is armed for the next command, not the one in flight. A removed camera,
 an unplugged or silenced FX2 and a reboot under way stay as they are after
-`clear()`, as on a real scope, and a board that found its cable pulled is
-plugged back in but stays disconnected until it is reconnected.
-`exposed_under(frame)`, in-process, is a read, not a fault: the settings the
-simulated camera's sensor exposed a frame under, so a test judges a frame by
+`clear()`, as on a real scope. A board that found its cable pulled is plugged
+back in, but stays disconnected until it is reconnected.
+`exposed_under(frame)`, in-process, is a read, not a fault. It answers the
+settings the simulated camera's sensor exposed a frame under, so a test judges a frame by
 what made it, never by its pixels.
 
 ```python
@@ -100,28 +105,31 @@ print(scope.motion.read_interlocks())
 scope.motion.move_xy(x_um=1000.0)           # lid_open_before_motion
 ```
 
+### Faults armed before bring-up
+
 `create` also arms a fault before bring-up, so what bring-up does with it is
 what a test sees. The simulated scope is one record,
 [`SimulatedScope`](../api-reference.md#SimulatedScope), passed as
-`create(simulate=True, simulated=...)`: among its fields, `model` builds the
-scope as another model than the settings declare, `camera_present=False` brings
-it up with no camera, `slide` puts a Ronchi ruling on the stage in place of the
-cells, `camera_stall` stops the camera's frames for a while, and `file_stall`
-holds the save drive. `refused_camera_writes` and `refused_camera_reads` have
-the camera refuse a setting's writes or fail its reads from bring-up on, so
-bring-up meets them; LumaViewPro takes them as
+`create(simulate=True, simulated=...)`. Among its fields, `model` builds the
+scope as another model than the settings declare, and `camera_present=False`
+brings it up with no camera. `slide` puts a Ronchi ruling on the stage in place
+of the cells, `camera_stall` stops the camera's frames for a while, and
+`file_stall` stalls the save drive. `refused_camera_writes` and
+`refused_camera_reads` have the camera refuse a setting's writes or fail its
+reads from bring-up on, so bring-up meets them. LumaViewPro takes them as
 `--sim-refused-camera-write=NODE,ANSWER[,COUNT]` and
-`--sim-refused-camera-read=NODE,ANSWER[,COUNT]`. On a Classic, `camera_usb_bindings` starts the FX2 on
-another driver, on none, or on LumaViewPro's with a Windows problem code, so
-bring-up refuses its camera as on a PC whose driver went wrong, and tells it
-once, by the camera's notice with Repair's cause. A simulated scope's USB
-census, `scope.diagnostics.read_usb_census()`, is its own parts, never the
-host's devices, and `unidentified_usb_devices` adds devices whose descriptor
+`--sim-refused-camera-read=NODE,ANSWER[,COUNT]`. On a Classic,
+`camera_usb_bindings` starts the FX2 on another driver, on none, or on
+LumaViewPro's with a Windows problem code. Bring-up then refuses its camera as
+on a PC whose driver went wrong, and reports it once, by the camera's notice
+with Repair's cause. A simulated scope's USB census,
+`scope.diagnostics.read_usb_census()`, is its own parts, never the host's
+devices. `unidentified_usb_devices` adds devices whose descriptor
 Windows could not read, as Device Manager lists them. `unit_config` takes a unit's own `motorconfig.json`, an
 OEM unit's included, and brings the scope up as that unit: under the name its
 board reports, on the axes the file marks present, with its optics and
 travel. The simulated motor firmware boots the file, so it runs on the
 `firmware` and `realistic` simulator tiers, on a model with an EL-0940 motor
-board, and is refused anywhere else. `python -m lumascope.rest` takes only `--simulate`, so
-a REST client has none of them; over REST the faults are at
+board, and is refused anywhere else. `python -m lumascope.rest` takes only
+`--simulate`, so a REST client has none of them. Over REST the faults are at
 `/api/v1/scope/simulation/<member>`.

@@ -28,12 +28,13 @@ datas = [
     ('docs/THIRD_PARTY_NOTICES.md', 'docs'),
     ('docs/CONTRIBUTORS.md', 'docs'),
     # The API's documents, for the reader of an installation: the guide (its hub and its files),
-    # the generated reference, the plugin tutorial the guide links to, and
+    # the generated reference, the plugin tutorial the guide links to and its level table, and
     # the examples with their REST twins. The app opens none of them.
     ('docs/api-guide.md', 'docs'),
     ('docs/guide/*.md', 'docs/guide'),
     ('docs/api-reference.md', 'docs'),
     ('docs/plugin-tutorial.md', 'docs'),
+    ('docs/plugin-api-levels.md', 'docs'),
     ('docs/api_examples/*.py', 'docs/api_examples'),
     ('docs/api_examples/*.sh', 'docs/api_examples'),
     ('docs/api_examples/README.md', 'docs/api_examples'),
