@@ -493,8 +493,8 @@ class CaptureTally:
 class RunOutcome:
     """How a run ended, and what its merge produced.
 
-    The first four fields are the run's ENDING, copied from the
-    RunEnding whatever ended the run recorded, with the boards a
+    The first four fields say how the run ended, as whatever ended it
+    recorded (``status``, ``reason``, ``title``, ``message``), with the boards a
     disconnect lost (``unconnected_parts``) and the axes a lost position
     left unplaced (``axes_without_position``); the next four describe
     the merge, the next two the autofocus characterization data, then

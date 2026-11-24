@@ -18,8 +18,9 @@ install into fails at the import, `ModuleNotFoundError: No module named
 naming each package, the version installed and the version pinned, the install
 script, and, when that Python can install into itself, the pip line that fixes
 it; re-run the install script after a pull. The source folder, the one
-holding `lumaviewpro.py` and `data/`, is your program's installation (`root` below) and its data root: the logs, and
-the shipped live folder `./capture`, are under it.
+holding `lumaviewpro.py` and `data/`, is your program's installation (`root` below),
+and the shipped live folder `./capture` is under it. The logs are under the
+source folder `lumascope` is imported from (**Logging**, below).
 
 **Settings.** A LumaViewPro installation keeps the user's configuration in
 `data/current.json`, the live file, and ships `data/settings.json`, the template
@@ -63,10 +64,10 @@ the dict you pass: `create` changes nothing in it, and a write into it afterward
 changes no setting; `session.update_settings(path, value)` does. The copy is
 completed from the template, and each of its values is judged as a write of it
 would be: a value outside its range is refused (`SettingRefusedError`, naming
-the path), never clamped. When the motor board reports a model the catalog
-knows and it differs from `settings['microscope']`, bring-up stores the board's
-model, `session.setting('microscope')`: the hardware outranks the stored
-selection.
+the path), never clamped. When the motor board names its model, the scope
+runs as the board's model at every start. `settings['microscope']` is left as
+it was saved (`session.selected_model`), for a scope that does not report its
+own ([Bringing a session up](concepts.md#bringing-a-session-up)).
 `settings['simulator_tier']` picks the simulator's fidelity
 ([The simulator](simulator.md#the-simulator)).
 
@@ -80,9 +81,9 @@ saved, which is what a test or a one-off script usually wants.
 **Logging.** Importing the API configures no logging: your `basicConfig()`,
 the root logger and your own records stay yours. The session's first call
 (`load_user_settings` or `create`) starts LumaViewPro's log folder,
-`logs/LVP_Log` under the data root (the source folder, [Where it
-runs](#bringing-a-session-up-in-python)), so a script leaves the support bundle
-without a line of setup. LumaViewPro logs everything under one logger, `LVP`;
+`logs/LVP_Log` under the source folder `lumascope` is imported from, whatever
+`root` names, so a script leaves the support bundle without a line of setup.
+LumaViewPro logs everything under one logger, `LVP`;
 the files hang off it, and its main-log records also reach your logging as any
 library's do, so a handler on `LVP` captures them. Its level is the setting
 `logging.default.level` (shipped `VERBOSE`), which `create` applies and the end
@@ -114,7 +115,7 @@ assert record.missing == ()                # the simulator has every part
 ```
 
 **A record as a dict.** Every record the API answers -- the bring-up record,
-`status()`, a still's record -- has `to_dict()`: its fields as plain Python, a
+`session.status`, a still's record -- has `to_dict()`: its fields as plain Python, a
 nested record a dict, an enum its string, a sequence a list. It is for a caller
 that takes a dict and not a record, such as MATLAB's `struct()`:
 
@@ -182,9 +183,10 @@ its asker having had it as the call's answer ([REST](rest.md)).
 
 ## Live frames
 
-`scope.imaging.add_frame_listener(callback)` hands each frame
-the camera delivers to `callback(frame)`, a read-only `Frame` (`image`, `seq`,
-`timestamp`, `arrived_ns`, `significant_bits`, `chunks`), on the camera's own
+`scope.imaging.add_frame_listener(listener)` hands each frame
+the camera delivers to `listener(frame)`, a read-only
+[`Frame`](../api-reference.md#Frame) (`image`, `seq`, `stored`, `arrived_ns`,
+`wall_ns`, `significant_bits`, `chunks`), on the camera's own
 thread. A listener has 24 ms per frame: one that overruns its budget or raises
 30 frames in a row is removed, and an outcome says so. Keeping a frame is safe:
 it is read-only and no later frame changes it, so draw on a copy. Return

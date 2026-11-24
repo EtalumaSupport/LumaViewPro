@@ -24,8 +24,9 @@ chooses the fidelity:
 | `realistic` | The same firmware, its motors moving at the speed fitted to bench moves, so a move or a home takes seconds. Shipped. |
 
 The tiers are the EL-0940 board's. `firmware` and `realistic` need a
-MicroPython runtime on the machine; where there is none, the session runs
-`fast` and says why in the log. A Classic model is simulated as its own devices
+MicroPython runtime on the machine. LumaViewPro carries one for macOS. A
+Linux x86_64 machine builds its own with `build_sim_runtime.sh`, in the
+simulator's `runtime` folder of the source tree. Windows has none. Where there is none, the session runs `fast` and says why in the log. A Classic model is simulated as its own devices
 behind the production drivers, the same on every tier: the FX2 camera and LED
 board, and on the LS720 the TMCM-6110 motor board.
 

@@ -4979,7 +4979,8 @@ class CameraAPI:
             dict | None: ``{'gain_db': ..., 'exposure_ms': ...}``, each the
                 value now in effect, which differs from the request when it
                 was past the range or the camera snapped it, None for one not
-                known (``set_gain_db``). ``None`` when no camera is active.
+                known (``set_gain_db``). ``None`` when the camera's teardown
+                landed after the lane asked for it.
 
         Raises:
             ArgumentRefusedError: ``'not_offered'``, an ``auto_gain`` other

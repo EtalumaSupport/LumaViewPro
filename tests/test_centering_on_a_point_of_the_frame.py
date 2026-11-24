@@ -7,7 +7,7 @@ and nobody was told why. It also converted the click with its own maths,
 and the cursor's plate readout with a second copy. The member takes the
 point as fractions of the camera's frame (row 0 at the top, as
 ``capture_still().image`` and a saved file hold it), refuses as a jog does, and moves X and
-Y as one request under one command; ``RuntimeStateAPI.frame_point_distance``
+Y as one request under one command; ``RuntimeState.frame_point_distance``
 is the one conversion both the move and the readout use, and
 ``RuntimeState.frame_point_plate`` the readout's plate position: the
 position, or the refusal that says why it is unknown, never raised.

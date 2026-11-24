@@ -2346,6 +2346,8 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             at the save location is below what starting needs: what the
             whole run will write, and never less than the floor every start
             shares, which the message states.
+            ``'capture_location_unusable'`` -- the run's save location
+            cannot hold the run folder, or its free space cannot be read.
             ``'position_unknown'`` -- an axis this scope has does not know
             its position, so the scope has to be homed first; the axes are
             ``axes_without_position``. ``'lid_open_before_motion'`` -- the stage's lid is
@@ -2382,6 +2384,9 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             ``'zstack_not_configured'`` -- a z-stack's range or step size is
             not greater than zero. ``'already_tiled'`` -- the protocol is
             tiled already, and a second grid cannot be laid over it.
+            ``'objective_not_in_catalog'`` -- a step being tiled names an
+            objective the scope's catalog does not hold, so its tile
+            spacing is unknown.
             ``'tiles_outside_travel'`` -- tiles of the grid fall outside the
             stage's travel. ``'zslices_outside_travel'`` -- z-slices of the
             stack fall outside Z's travel.
@@ -2398,7 +2403,9 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             this scope moves, having been recorded on a scope without it.
             ``'channel_not_on_scope'`` -- steps take a channel this scope
             does not have, or this scope's channels could not be
-            resolved. ``'objectives_require_turret'`` -- the protocol
+            resolved. ``'channel_unknown'`` -- steps name a channel no
+            release has, a typo or a hand edit.
+            ``'objectives_require_turret'`` -- the protocol
             changes objective between steps, and this scope has no turret
             to change it. ``'objective_not_given'`` -- a protocol with a
             channel set to acquire was built from a configuration that
@@ -2410,9 +2417,8 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             message names each.
         title: The heading shown above the sentence, the reason's.
         message: The sentence; the same text as the exception's message.
-        holder: What holds the microscope at refusal time (the
-            exclusive-activity claim's kind, or ``AUTOFOCUS`` for a sweep
-            in flight), or None when the refusal is not holder-shaped
+        holder: The kind of activity holding the scope (``AUTOFOCUS``
+            for a sweep in flight), or None when the refusal is not holder-shaped
             (validation, hardware, file drain).
         holder_trigger: Who started the run that holds the scope --
             ``'gui'``, ``'rest'`` or ``'api'``; for a file-drain refusal the
@@ -2650,12 +2656,11 @@ class _RunStartError(Fault, ProtocolError):
 class RecordingRefusedError(Refusal, CaptureError):
     """A video recording start was refused before any state was committed.
 
-    Raised when a recording cannot begin: by VideoRecordingEngine.start()
-    when an exclusive activity -- a protocol run or another recording --
-    already holds the session's activity claim or the engine is still
-    draining, and by the recording controllers for the caller-shaped
-    refusals they own (a previous recording still finishing, an inactive
-    camera, an unknown exposure, insufficient disk). Mirrors the
+    Raised when a recording cannot begin: a run or another recording
+    already holds the scope, or the recorder is still draining the last
+    one. The recording controllers raise it too for the refusals they
+    own: a previous recording still finishing, an inactive camera, an
+    unknown exposure, insufficient disk. Mirrors the
     ProtocolRunRefusedError shape so callers reconcile state the same way
     in both directions. Nothing reports it as it is raised: the caller that
     asked for the recording reports it where its flight ends.
@@ -2681,8 +2686,8 @@ class RecordingRefusedError(Refusal, CaptureError):
         title: Short user-facing refusal title, the reason's.
         message: One-sentence user-facing refusal body; the same text as
             the exception's message.
-        holder: The exclusive-activity claim owner at refusal time, or
-            None when the refusal is not claim-shaped.
+        holder: The kind of activity holding the scope, or None when the
+            refusal is not about a holder.
         holder_trigger: Who started the holding run (``'gui'``,
             ``'rest'``, ``'api'``) when the holder is 'protocol'; None for
             a recording holder.
@@ -4442,7 +4447,7 @@ class DiagnosticRefusedError(Refusal, Exception):
     """A diagnostic could not take the scope: another activity holds it.
 
     Raised by ``ScopeSession.diagnostic_claim()`` when a run, a recording, a
-    home or another diagnostic already holds the session's activity claim;
+    home or another diagnostic already holds the scope;
     a control session held by someone else refuses it with
     ``ControlSessionRefusedError``, as it does every lane. A diagnostic drives the
     hardware directly (homes, LED modes, forced grabs), so it runs only on a
@@ -4490,7 +4495,7 @@ class DiagnosticRefusedError(Refusal, Exception):
 class SessionClosingError(Refusal, Exception):
     """Something was asked of the session while it is closing, and was not done.
 
-    Raised by the activity claim for a run, a recording, a home or a
+    Raised for a run, a recording, a home or a
     diagnostic while ``ScopeSession.shutdown`` runs: the close finishes the
     work already under way, then releases the hardware, so nothing new may
     start in between. Once the close has finished, nothing takes the scope
@@ -4536,7 +4541,7 @@ class SessionClosingError(Refusal, Exception):
 class ControlSessionRefusedError(Refusal, Exception):
     """Control of the scope was not taken or used: someone else's work holds it.
 
-    Raised by the activity claim when a control session is asked for while
+    Raised when a control session is asked for while
     another one is held, while an activity holds the scope, while a setting
     or file write is still under way, or while work that has let the scope
     go is still finishing -- so a client never takes the scope over the
@@ -6018,8 +6023,8 @@ class AlreadyStartedError(Refusal, RuntimeError):
         reason: ``'plugins_loaded'`` -- this session already loaded its
             plugins; it never loads them again. ``'metrics_running'`` --
             metrics are already running; the host that started them stops
-            them before they start again. ``'scope_composed'`` -- this scope already has its
-            session's activity claim or settings; it is given them once.
+            them before they start again. ``'scope_composed'`` -- this scope already belongs to a
+            session, with its settings; it is given them once.
             ``'bring_up_ended'`` -- this scope's session has ended its
             bring-up; it is not configured again, and no write is made as
             bring-up's.

@@ -1056,7 +1056,9 @@ class ScopeSession:
         it holds the claim, a run or a recording start is refused, the
         controls lock and the objective cannot change, exactly as during a
         run. The claim is released when the block ends, including on a
-        raise, so no caller owns the release path.
+        raise, so no caller owns the release path. Before it is released,
+        the shown channel's stored settings go back on the camera, and on
+        its LED when lit.
 
         A run the diagnostic lent its claim to (``start_autofocus(claim=...)``)
         may still be live when the block ends -- a caller that raised
@@ -1080,6 +1082,15 @@ class ScopeSession:
                 live after the wait; the claim is released when the run ends.
                 When the block raised, its own exception is raised and this is
                 reported once instead. Still a ``RuntimeError``.
+            CameraSettingRejected: at the end of a block that ended
+                cleanly, the camera did not take a shown channel's setting
+                as it was put back. The claim is released. When the block
+                raised, its own exception is raised and this is reported
+                once instead.
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, when it leaves as the settings are put back after a
+                clean block. The claim is released. After a raised block
+                this is reported once instead.
         """
         held = self._activity_claim.try_claim(WorkKind.DIAGNOSTIC)
         if held is None:
@@ -1838,11 +1849,11 @@ class ScopeSession:
         session's scope is brought up the one way. The session's data folder
         and catalogs are always its scope's.
 
-        The executor bundle is always built, around the scope's own IO and
-        CAMERA lanes, via executor_registry.create_default, so every caller
-        gets the topology the GUI runs: the executors the bundle declares
-        as its own, started, plus protocol_thread (started) and
-        scope_display_thread (constructed, not started).
+        Every session gets the threads the GUI runs. Around the scope's IO
+        and CAMERA lanes, it starts its own FILE and post-processing lanes,
+        a worker pool, a diagnostics worker and the thread that runs
+        protocols. The display thread is built but not started: a host with
+        a display starts it.
 
         A process that has not started its logging starts the log folder
         here, as ``load_user_settings`` does; ``lumascope.configure_logging``
@@ -2080,6 +2091,8 @@ class ScopeSession:
 
             from _lumascope.modules.executor_registry import create_default
 
+            # Built and started here, the display thread left for a host
+            # with a display to start.
             executor_bundle = create_default(
                 scope.io_lane(),
                 scope.camera_lane(),
@@ -3331,12 +3344,10 @@ class ScopeSession:
     ) -> list[str]:
         """Add a step to ``protocol`` from this session's settings and live position.
 
-        The entry point a caller with no GUI uses to do what Add Step
-        does: one step per channel whose ``acquire`` is set, at the live
-        stage position on the protocol's plate, with the current objective,
-        in the settings' channel order. The protocols API performs the add
-        and refuses when nothing would be added; this composes its inputs
-        from the session the same way the GUI's handler does.
+        One step per channel whose ``acquire`` is set, at the live stage
+        position on the protocol's plate, with the current objective, in
+        the settings' channel order, as Add Step does in LumaViewPro's
+        window. It is refused when nothing would be added.
 
         Returns the inserted step names, in protocol order: each stack's
         slices when stacked.
@@ -7249,17 +7260,16 @@ class ScopeSession:
         images given up on, counted and reported. While it waits the close
         logs what it waits for.
 
-        Then the teardown. The bundle the session holds always stops: its long-lived consumer
-        threads first, then the FILE lane and the worker pool. The hardware
-        half follows: the LEDs drained through the io lane while its worker
-        is alive, then the scope disconnected, which shuts its IO and CAMERA
-        lanes before it turns the LEDs off and stops motion inline -- so a
-        headless host gets the same teardown the GUI gets. The consumers
-        stop BEFORE the lanes they consume (a consumer mid-iteration that
-        finds its lane already shut can hang on a dispatch that never
-        fires; scope_display_thread consumes camera_executor,
-        protocol_thread drives io + camera + file). Running metrics stop
-        first, or their ticks would outlive the executors they snapshot.
+        Then the settings the session ended with are saved, once. Then the
+        teardown. The session stops keeping the computer awake, its timers
+        stop, and its autofocus thread stops. The LEDs are turned off
+        through the IO lane while its worker is alive and it takes work.
+        The session's threads stop next: the display and protocol threads
+        first, then the FILE and post-processing lanes, the worker pool and
+        the diagnostics worker. Then the scope disconnects: it shuts its IO and CAMERA
+        lanes, then turns the LEDs off and stops motion. Last, the moves'
+        callbacks finish and the outcome listeners are removed. A headless
+        host gets the same teardown the GUI gets.
 
         Callable from any thread, a run's ``run_ended`` handler included.
         One close runs: a call on another thread while it runs waits for it
@@ -7298,6 +7308,8 @@ class ScopeSession:
         # Plugins first, while everything they hold still runs: an
         # unregister stops its own work and may wait for it.
         self.unload_plugins()
+        # Before the teardown, or the metrics' ticks would outlive the
+        # executors they snapshot.
         self.disable_metrics()
         runner = self._sequenced_capture_runner
         if runner is not None:
@@ -7410,6 +7422,10 @@ class ScopeSession:
                         logger.warning(f'[Session  ] shutdown leds_off failed: {e}')
             except Exception as e:
                 logger.warning(f'[Session  ] leds_off submission failed during shutdown: {e}')
+        # The bundle stops its consumers before the lanes they consume: a
+        # consumer mid-iteration that finds its lane shut can hang on a
+        # dispatch that never fires. The display thread consumes the CAMERA
+        # lane; the protocol thread drives the IO, CAMERA and FILE lanes.
         self.executor_bundle.shutdown()
         # disconnect() shuts the scope's lanes first, so nothing still
         # queued on them runs after the off, then turns the LEDs off

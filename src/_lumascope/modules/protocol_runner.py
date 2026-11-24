@@ -180,19 +180,16 @@ class ProtocolRunner:
     ) -> 'Operation[RunOutcome]':
         """Assemble a composite run and launch it, returning once committed.
 
-        Split out of run_composite so a caller that must not block -- a GUI
-        click on the thread that draws the button -- gets the same assembly
-        without the wait. The alternative was for such a caller to build the
-        run config itself, which is the duplicate composite implementation
-        this run kind exists to retire.
+        The form of ``run_composite`` that does not wait: a caller that
+        must not block, such as a UI thread, gets the same run and waits on
+        its operation or not.
 
         Args:
             sequence_name: The name of the protocol file the run saves in
                 its folder ('.tsv' added): a name, not a path.
             parent_dir: Parent directory for output. Defaults to
-                'Manual/Composites' under the live folder, where the button
-                already puts it, so a script's composite and a click's land
-                in the same place.
+                'Manual/Composites' under the live folder, where LumaViewPro's
+                window puts its composites too.
             events: The run's event handlers (``RunEvents``); None for none.
 
         Returns:
@@ -259,9 +256,8 @@ class ProtocolRunner:
     ) -> 'Operation[RunOutcome]':
         """Autofocus once on *channel*, at the current stage position.
 
-        The headless twin of the standalone autofocus button: a
-        one-position, one-channel run with autofocus on, saving no images and
-        no run artifacts, that leaves the stage at the focus it found.
+        A one-position, one-channel run with autofocus on, saving no images
+        and no run artifacts, that leaves the stage at the focus it found.
 
         The Z it chose is saved as *channel*'s focus, the Z every new step
         of the channel is born at, before the run lets go of the scope, so
@@ -271,14 +267,10 @@ class ProtocolRunner:
         none: it acts inside the caller's activity, which decides what it
         keeps from the outcome's ``af_focus_z_um``.
 
-        The channel is named rather than discovered. A GUI reads it from
-        whichever drawer is open, which is a fact about a running GUI and
-        means nothing to a caller that has none, so this asks for it and
-        has no default -- an autofocus on a channel nobody chose is not a
-        useful answer.
-
-        Everything else comes from the settings store, so this run and a
-        click on the button resolve the same way.
+        The channel has no default: an autofocus on a channel nobody chose
+        is not a useful answer. Everything else comes from the settings, so
+        this run and an autofocus in LumaViewPro's window resolve the same
+        way.
 
         The stage is deliberately left where the focus was found, and there
         is no return-to-position input: ending at the focus is the point.
@@ -298,7 +290,7 @@ class ProtocolRunner:
                 its folder ('.tsv' added): a name, not a path.
             parent_dir: Where characterization data goes. Defaults to
                 'Autofocus Characterization' under the live folder, where
-                the button already puts it. Unused when no data is saved:
+                LumaViewPro's window puts it too. Unused when no data is saved:
                 that run writes nowhere, so where it would have written
                 cannot refuse it.
             events: The run's event handlers (``RunEvents``); None for none.
@@ -450,30 +442,31 @@ class ProtocolRunner:
     ) -> 'Operation[RunOutcome]':
         """Capture a z-stack on *channel*, around the current stage position.
 
-        The one implementation of a z-stack run, for a script and for the
-        Acquire button on the z-stack panel alike: a one-position,
-        one-channel run that expands into one step per slice. The slices are
-        its product, so unlike an autofocus this one saves its images
-        unless the caller says otherwise.
+        The one implementation of a z-stack run, for a script and for
+        LumaViewPro's window alike: a one-position, one-channel run that
+        expands into one step per slice. The slices are its product, so
+        unlike an autofocus this one saves its images unless you say
+        otherwise.
 
         The stack's range, step size and reference -- whether the current
         position is the top, center or bottom of the sweep -- come from the
-        settings store, as does everything else about the capture, so this
-        run and a click on the button resolve the same way. The channel is named by the
-        caller for the same reason start_autofocus asks for it: an open
-        drawer is a fact about a running GUI.
+        settings, as does everything else about the capture. The channel
+        has no default, as for ``start_autofocus``.
 
-        Autofocus is forced OFF for the step, matching the button. A
-        z-stack with autofocus enabled refocuses at each slice and
-        flattens the stack it was asked to capture.
+        Autofocus is off for this run, so the stack is built around the
+        current stage position. With autofocus on, a z-stack is focused
+        once: a sweep at its first slice, centered on the reference slice,
+        and every slice is then placed around the focus it found. A
+        protocol's z-stack whose channel autofocuses is focused that way
+        (``add_step`` with ``use_zstacking=True``).
 
         Args:
             channel: Which channel to capture ('BF', 'Ex488', ...).
             sequence_name: The name of the protocol file the run saves in
                 its folder ('.tsv' added): a name, not a path.
             parent_dir: Parent directory for output. Defaults to
-                'Manual/Z-Stacks' under the live folder, where the button
-                already puts it.
+                'Manual/Z-Stacks' under the live folder, where LumaViewPro's
+                window puts its z-stacks too.
             events: The run's event handlers (``RunEvents``); None for none.
             return_to_start: Whether to put the stage back where the stack
                 was centered when the run ends; a press of STOP
@@ -526,8 +519,10 @@ class ProtocolRunner:
             channel=channel,
             position=position,
             position_name='ZStack',
-            # Off, and not a caller's choice: an autofocus at every slice
-            # re-centres the very range the stack is sweeping.
+            # Off, and not a caller's choice: the stack is built around this
+            # position. With autofocus on, the step runner sweeps once at the
+            # first slice and places every slice around the focus it found
+            # (protocol_step_runner.py, Protocol.apply_zstack_group_focus).
             autofocus=False,
             use_zstacking=True,
         )

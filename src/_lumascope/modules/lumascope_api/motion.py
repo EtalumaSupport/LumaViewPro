@@ -3847,7 +3847,7 @@ class MotionAPI:
         and ``y_fraction`` of its height from its row 0, in the frame as the
         API returns it (``capture_still().image``): row 0 is the top of the
         picture, as in the live view and a saved file. The stage moves by
-        ``RuntimeStateAPI.frame_point_distance`` for that point. Its
+        ``RuntimeState.frame_point_distance`` for that point. Its
         refusals come in the order a jog's do: the arguments, the lane's,
         the motion gate's, then the objective's and the scale's. X and Y
         are asked once whether they know their position and started on one
@@ -3983,7 +3983,7 @@ class MotionAPI:
                 is None on a scope no session composes, which has no setting
                 to read; nothing was asked of the scope.
 
-        While it runs, the home holds the session's activity claim as a run
+        While it runs, the home holds the scope as a run
         does: every other request to the scope is refused, naming the home,
         and the controls lock until it ends. Asked by an activity that
         already holds the scope (the support report's diagnostic), it runs

@@ -38,7 +38,8 @@ print(plate.num_steps, plate.tiling)
 
 Every z-stack is the stored one: `new_protocol` and `add_step` with
 `use_zstacking=True`, `apply_zstacking(protocol)` on steps already made, and
-the runner's `start_zstack` all read `zstack.range`, `zstack.step_size` and
+the runner's `start_zstack` all read `zstack.range` and `zstack.step_size`,
+both in micrometers, and
 `zstack.position` (top, center or bottom: where each step's Z sits in its
 stack), so a different stack is those settings written first.
 
@@ -144,7 +145,9 @@ A run that cannot start is refused before it takes the scope, mostly
 `Raises:` lists the rest. Once started, a run
 always ends with a `RunOutcome` -- it does not raise -- whose `status` is one of
 `completed`, `incomplete`, `aborted`, `failed` or `failed_at_start`, with a
-`reason` and the words a person reads.
+`reason` and the words a person reads. Every `reason` is a
+[`RunEndReason`](../api-reference.md#RunEndReason). The run's own `stop()` ends
+it `aborted`, `'stopped'`; a STOP ends it as [Motion](motion.md) says.
 
 **A run's files.** A run lets go of the scope before its images are on disk:
 its operation ends with the run, and `files`, its own operation, once they are
@@ -183,7 +186,10 @@ protocol file's `Name` column, never its file's), `Step Index` (the step's
 row, from 0), `Scan Count` (the scan, from 0), `Timestamp` (with its UTC
 offset), `Frame Count` (1 for a still, the frames written for a video step,
 0 for a capture that left no file) and `Duration (s)` (a video step's). A
-capture taken with saving off is named `unsaved`.
+capture taken with saving off is named `unsaved`. A tiled step's name carries
+its tile, `T<row><column>`: rows lettered from A, columns numbered from 1
+(`custom0000_BF_TA1_0000.tiff`). The tile is a place in the step's grid, not
+a well.
 
 **Where a run stands** is its operation's `progress`, a
 [`RunProgress`](../api-reference.md#RunProgress) -- `is_live`, `step_index`,
@@ -202,6 +208,8 @@ that ran past its period.
 `session.post_processing.build(folder, zproject=..., stitch=..., composite=...,
 video=...)` builds the projections first, then the stitches, the composites
 and the videos, each group of a run from every frame it recorded or not at all.
+Each step of the answer's `built` names the files it made, in its result's
+`artifact_paths`. A stitch writes them in a `Stitched` folder inside the run's.
 Each build takes only what the one before it in the call carried forward, so
 `zproject` and `stitch` together stitch the projections, and the same call made
 again rebuilds nothing already made and resumes where it stopped. A build does

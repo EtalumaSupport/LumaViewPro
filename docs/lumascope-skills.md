@@ -129,7 +129,8 @@ sensor, not the scope: every FX2 model answers `MT9P031-LS620`.
   refusal (nothing was done), a fault (something broke) or a notice (something
   the caller should know, a stopped move among them).
 - **One client at a time may hold the scope** in a control session; a run, a
-  home or a recording holds it for its length.
+  home, a recording or a diagnostic holds it for its length
+  ([the holders](guide/concepts.md#who-may-act)).
 
 The detail is [concepts.md](guide/concepts.md).
 

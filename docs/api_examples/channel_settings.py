@@ -56,8 +56,10 @@ def main():
 
         stored = {}
         for channel, (current_ma, exposure_ms, gain_db) in CHANNELS.items():
-            # One write, judged whole: a value outside its range is refused,
-            # never clamped, and then none of the three is stored.
+            # One write, judged whole: a value the setting cannot hold is
+            # refused, and then none of the three is stored. A value past this
+            # scope's camera or LED is stored at the limit and told
+            # ('value_clamped').
             session.set_channel_settings(
                 channel, illumination_ma=current_ma, exposure_ms=exposure_ms, gain_db=gain_db
             )

@@ -72,6 +72,12 @@ A program that mounts the API in an ASGI application of its own takes it from
 serves it, while the header deadline and the address check below are
 `build_server`'s, so that program sets its own server's.
 
+To test a client with no server, no port and no instance lock, send its
+requests through FastAPI's `TestClient`:
+`with fastapi.testclient.TestClient(build_app(session)) as client:`. The
+`with` runs the application's startup, which the event stream needs.
+`TestClient` needs the HTTP client package that `requirements-dev.txt` pins.
+
 **Addressed to it.** The server answers only a request addressed to its own
 address and port: the `Host` a client sends names them, in any spelling of the
 address, or `localhost` at that port when it serves on `127.0.0.1` or `::1`.
@@ -125,8 +131,10 @@ capability has one route.
   setting kept per channel takes the channel in the body and the query
   (`PUT /api/v1/channel_settings` with `{"channel": "BF", "acquire": "image"}`,
   then `GET /api/v1/channel_settings?channel=BF`); there a key left out is a
-  setting not written, and `null` is the value. The setter itself has no
-  route.
+  setting not written, and `null` is the value. Such a setter has no route
+  of its own. Not every setter is one: `set_auto_gain` keeps its own `POST`
+  beside its read. Each member's [reference](../api-reference.md) entry names
+  its route.
 - **Every other call is `POST`**, its arguments a JSON object by parameter
   name; `null` is None, and a parameter left out takes its default. A member
   that hands out a running call is a `POST` even when it changes nothing
@@ -178,7 +186,12 @@ job:
 
 ```json
 {"id": "3", "member": "handles/ProtocolRunner/2/start_single_scan", "status": "running",
- "requested": "2026-10-29T11:47:56.043-07:00", "ended": null, "progress": null,
+ "requested": "2026-10-29T11:47:56.043-07:00", "ended": null,
+ "progress": {"is_last_run": true, "is_live": true, "is_scanning": false,
+              "is_stopping": false, "next_scan_at": "2026-10-29T11:47:56-07:00",
+              "num_steps": 1, "period_s": 1200.0,
+              "run_dir": {"name": "ProtocolData/20261029_114756", "host_path": ...},
+              "scans_remaining": 1, "step_index": 0},
  "files": {"id": "4", "member": "handles/ProtocolRunner/2/start_single_scan/files",
            "status": "running", "requested": "2026-10-29T11:47:56.043-07:00",
            "ended": null, "progress": null}}
@@ -293,8 +306,11 @@ a call is not, its asker having had it.
 A client that reconnects with `Last-Event-ID` is sent what it missed; when the
 server no longer holds it (more than 1024 events ago, or a restarted server),
 it is sent `reset` and then `status`, where it starts again. A client that
-cannot hold a stream open polls `GET /api/v1/events/held?after=<id>`. The last
-event is `closing`.
+cannot hold a stream open polls `GET /api/v1/events/held?after=<id>`. It gets
+the events a stream resumed from `after` is sent, as
+`{"events": [{"id", "event", "data"}, ...], "next": <id>}`. Send `next` as the
+next `after`. With no `after`, it gets `status` and its id. The last event is
+`closing`.
 
 ## The live view and files
 
@@ -307,8 +323,9 @@ the top of the picture, as LumaViewPro's window and its saved files have it.
 - `GET /api/v1/live.jpg` -- one frame, `max_width` as for `/live`; `503`
   (`'no_frame_yet'`, with `Retry-After`) when the camera sends none in time.
 - `GET /api/v1/live_folder_listing?name=<folder>` -- what a folder in the live
-  folder holds, one level, each entry by its full name, which a download
-  takes as it is, its `/` sent as `/`. A run's folder is its job's `progress.run_dir`
+  folder holds, one level, each entry by its full name. A download sends that
+  name percent-encoded, its `/` kept as `/`: a run's `sequence_name` can put a
+  space, `#` or `%` in it (`curl` needs `%20` for a space). A run's folder is its job's `progress.run_dir`
   ([`RunProgress`](../api-reference.md#RunProgress)), there from the run's
   start, so list it once the run's `files` job has ended.
 - `GET /api/v1/files/<name>` -- a file in the live folder, as an attachment; a

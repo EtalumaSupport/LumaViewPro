@@ -358,12 +358,10 @@ Route: `POST /api/v1/add_step`.
 
 Add a step to `protocol` from this session's settings and live position.
 
-The entry point a caller with no GUI uses to do what Add Step
-does: one step per channel whose `acquire` is set, at the live
-stage position on the protocol's plate, with the current objective,
-in the settings' channel order. The protocols API performs the add
-and refuses when nothing would be added; this composes its inputs
-from the session the same way the GUI's handler does.
+One step per channel whose `acquire` is set, at the live stage
+position on the protocol's plate, with the current objective, in
+the settings' channel order, as Add Step does in LumaViewPro's
+window. It is refused when nothing would be added.
 
 Returns the inserted step names, in protocol order: each stack's
 slices when stacked.
@@ -981,11 +979,11 @@ keyword arguments below. The factory builds the scope, so every
 session's scope is brought up the one way. The session's data folder
 and catalogs are always its scope's.
 
-The executor bundle is always built, around the scope's own IO and
-CAMERA lanes, via executor_registry.create_default, so every caller
-gets the topology the GUI runs: the executors the bundle declares
-as its own, started, plus protocol_thread (started) and
-scope_display_thread (constructed, not started).
+Every session gets the threads the GUI runs. Around the scope's IO
+and CAMERA lanes, it starts its own FILE and post-processing lanes,
+a worker pool, a diagnostics worker and the thread that runs
+protocols. The display thread is built but not started: a host with
+a display starts it.
 
 A process that has not started its logging starts the log folder
 here, as `load_user_settings` does; `lumascope.configure_logging`
@@ -1131,7 +1129,9 @@ steps -- drives every axis, the LEDs and the camera directly. While
 it holds the claim, a run or a recording start is refused, the
 controls lock and the objective cannot change, exactly as during a
 run. The claim is released when the block ends, including on a
-raise, so no caller owns the release path.
+raise, so no caller owns the release path. Before it is released,
+the shown channel's stored settings go back on the camera, and on
+its LED when lit.
 
 A run the diagnostic lent its claim to (`start_autofocus(claim=...)`)
 may still be live when the block ends -- a caller that raised
@@ -1150,12 +1150,16 @@ The held claim.
 - `DiagnosticRefusedError`: `'exclusive_activity_running'`, a run, a recording, a home or another diagnostic holds the scope. Nothing was taken.
 - `ControlSessionRefusedError`: `'control_session_held'`, a control session is held by someone else. Nothing was taken.
 - `ClaimStillLentError`: `'claim_still_lent'`, at the end of a block that ended cleanly, a run under this claim was still live after the wait; the claim is released when the run ends. When the block raised, its own exception is raised and this is reported once instead. Still a `RuntimeError`.
+- `CameraSettingRejected`: at the end of a block that ended cleanly, the camera did not take a shown channel's setting as it was put back. The claim is released. When the block raised, its own exception is raised and this is reported once instead.
+- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, when it leaves as the settings are put back after a clean block. The claim is released. After a raised block this is reported once instead.
 
 **Refusals**
 
 - [`DiagnosticRefusedError`](#DiagnosticRefusedError): `exclusive_activity_running`
 - [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - [`ClaimStillLentError`](#ClaimStillLentError): `claim_still_lent`
+- [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
 
 <a id="ScopeSession.discard_pending_video"></a>
 ### `ScopeSession.discard_pending_video`
@@ -3057,17 +3061,16 @@ finished run's file writer judged stuck (its `live_work` item's
 images given up on, counted and reported. While it waits the close
 logs what it waits for.
 
-Then the teardown. The bundle the session holds always stops: its long-lived consumer
-threads first, then the FILE lane and the worker pool. The hardware
-half follows: the LEDs drained through the io lane while its worker
-is alive, then the scope disconnected, which shuts its IO and CAMERA
-lanes before it turns the LEDs off and stops motion inline -- so a
-headless host gets the same teardown the GUI gets. The consumers
-stop BEFORE the lanes they consume (a consumer mid-iteration that
-finds its lane already shut can hang on a dispatch that never
-fires; scope_display_thread consumes camera_executor,
-protocol_thread drives io + camera + file). Running metrics stop
-first, or their ticks would outlive the executors they snapshot.
+Then the settings the session ended with are saved, once. Then the
+teardown. The session stops keeping the computer awake, its timers
+stop, and its autofocus thread stops. The LEDs are turned off
+through the IO lane while its worker is alive and it takes work.
+The session's threads stop next: the display and protocol threads
+first, then the FILE and post-processing lanes, the worker pool and
+the diagnostics worker. Then the scope disconnects: it shuts its IO and CAMERA
+lanes, then turns the LEDs off and stops motion. Last, the moves'
+callbacks finish and the outcome listeners are removed. A headless
+host gets the same teardown the GUI gets.
 
 Callable from any thread, a run's `run_ended` handler included.
 One close runs: a call on another thread while it runs waits for it
@@ -4819,7 +4822,7 @@ range is set at its end and told, in one notice for both, as
 
 **Returns**
 
-dict | None: `{'gain_db': ..., 'exposure_ms': ...}`, each the value now in effect, which differs from the request when it was past the range or the camera snapped it, None for one not known (`set_gain_db`). `None` when no camera is active.
+dict | None: `{'gain_db': ..., 'exposure_ms': ...}`, each the value now in effect, which differs from the request when it was past the range or the camera snapped it, None for one not known (`set_gain_db`). `None` when the camera's teardown landed after the lane asked for it.
 
 **Raises**
 
@@ -6778,7 +6781,7 @@ answering; either ends it in `HomingFaultError`.
 - `MoveStoppedError`: for `'T'`, a Stop ended the Z park or the Z restore, the turret as for `MoveFaultError`; or a Stop ended the put-back after a home that succeeded, every homed axis keeping the position the home established.
 - `ConfigurationDefectError`: `'scope_not_composed'`, `put_back` is None on a scope no session composes, which has no setting to read; nothing was asked of the scope.
 
-While it runs, the home holds the session's activity claim as a run
+While it runs, the home holds the scope as a run
 does: every other request to the scope is refused, naming the home,
 and the controls lock until it ends. Asked by an activity that
 already holds the scope (the support report's diagnostic), it runs
@@ -7342,7 +7345,7 @@ The point is `x_fraction` of the frame's width from its column 0
 and `y_fraction` of its height from its row 0, in the frame as the
 API returns it (`capture_still().image`): row 0 is the top of the
 picture, as in the live view and a saved file. The stage moves by
-`RuntimeStateAPI.frame_point_distance` for that point. Its
+`RuntimeState.frame_point_distance` for that point. Its
 refusals come in the order a jog's do: the arguments, the lane's,
 the motion gate's, then the objective's and the scale's. X and Y
 are asked once whether they know their position and started on one
@@ -11467,9 +11470,8 @@ Route: `POST /api/v1/handles/ProtocolRunner/{handle_id}/start_autofocus`.
 
 Autofocus once on *channel*, at the current stage position.
 
-The headless twin of the standalone autofocus button: a
-one-position, one-channel run with autofocus on, saving no images and
-no run artifacts, that leaves the stage at the focus it found.
+A one-position, one-channel run with autofocus on, saving no images
+and no run artifacts, that leaves the stage at the focus it found.
 
 The Z it chose is saved as *channel*'s focus, the Z every new step
 of the channel is born at, before the run lets go of the scope, so
@@ -11479,14 +11481,10 @@ the focus as it was, however it ended. A run under a *claim* saves
 none: it acts inside the caller's activity, which decides what it
 keeps from the outcome's `af_focus_z_um`.
 
-The channel is named rather than discovered. A GUI reads it from
-whichever drawer is open, which is a fact about a running GUI and
-means nothing to a caller that has none, so this asks for it and
-has no default -- an autofocus on a channel nobody chose is not a
-useful answer.
-
-Everything else comes from the settings store, so this run and a
-click on the button resolve the same way.
+The channel has no default: an autofocus on a channel nobody chose
+is not a useful answer. Everything else comes from the settings, so
+this run and an autofocus in LumaViewPro's window resolve the same
+way.
 
 The stage is deliberately left where the focus was found, and there
 is no return-to-position input: ending at the focus is the point.
@@ -11498,7 +11496,7 @@ runs, which it must do anyway for the measurements to be comparable.
 - `channel`: Which channel to focus on ('BF', 'Ex488', ...).
 - `save_characterization_data`: Whether to write the per-position focus scores this sweep measured. Off by default: a caller that does not ask for data gets no folder. When on, the run's outcome reports whether the file was written and names it (af_data_saved / af_data_path), which is the only way a headless caller can tell a delivered file from a requested one.
 - `sequence_name`: The name of the protocol file the run saves in its folder ('.tsv' added): a name, not a path.
-- `parent_dir`: Where characterization data goes. Defaults to 'Autofocus Characterization' under the live folder, where the button already puts it. Unused when no data is saved: that run writes nowhere, so where it would have written cannot refuse it.
+- `parent_dir`: Where characterization data goes. Defaults to 'Autofocus Characterization' under the live folder, where LumaViewPro's window puts it too. Unused when no data is saved: that run writes nowhere, so where it would have written cannot refuse it.
 - `events`: The run's event handlers (`RunEvents`); None for none.
 - `claim`: A claim the caller holds -- the one `session.diagnostic_claim()` yields -- to run under instead of taking the scope. The run acts inside the caller's activity and cannot release its claim; it is refused if that claim no longer holds. None takes the scope for this run alone. The run is attended -- its failures are shown -- unless it runs under a claim.
 
@@ -11591,16 +11589,14 @@ Route: `POST /api/v1/handles/ProtocolRunner/{handle_id}/start_composite`.
 
 Assemble a composite run and launch it, returning once committed.
 
-Split out of run_composite so a caller that must not block -- a GUI
-click on the thread that draws the button -- gets the same assembly
-without the wait. The alternative was for such a caller to build the
-run config itself, which is the duplicate composite implementation
-this run kind exists to retire.
+The form of `run_composite` that does not wait: a caller that
+must not block, such as a UI thread, gets the same run and waits on
+its operation or not.
 
 **Args**
 
 - `sequence_name`: The name of the protocol file the run saves in its folder ('.tsv' added): a name, not a path.
-- `parent_dir`: Parent directory for output. Defaults to 'Manual/Composites' under the live folder, where the button already puts it, so a script's composite and a click's land in the same place.
+- `parent_dir`: Parent directory for output. Defaults to 'Manual/Composites' under the live folder, where LumaViewPro's window puts its composites too.
 - `events`: The run's event handlers (`RunEvents`); None for none.
 
 **Returns**
@@ -11731,28 +11727,29 @@ Route: `POST /api/v1/handles/ProtocolRunner/{handle_id}/start_zstack`.
 
 Capture a z-stack on *channel*, around the current stage position.
 
-The one implementation of a z-stack run, for a script and for the
-Acquire button on the z-stack panel alike: a one-position,
-one-channel run that expands into one step per slice. The slices are
-its product, so unlike an autofocus this one saves its images
-unless the caller says otherwise.
+The one implementation of a z-stack run, for a script and for
+LumaViewPro's window alike: a one-position, one-channel run that
+expands into one step per slice. The slices are its product, so
+unlike an autofocus this one saves its images unless you say
+otherwise.
 
 The stack's range, step size and reference -- whether the current
 position is the top, center or bottom of the sweep -- come from the
-settings store, as does everything else about the capture, so this
-run and a click on the button resolve the same way. The channel is named by the
-caller for the same reason start_autofocus asks for it: an open
-drawer is a fact about a running GUI.
+settings, as does everything else about the capture. The channel
+has no default, as for `start_autofocus`.
 
-Autofocus is forced OFF for the step, matching the button. A
-z-stack with autofocus enabled refocuses at each slice and
-flattens the stack it was asked to capture.
+Autofocus is off for this run, so the stack is built around the
+current stage position. With autofocus on, a z-stack is focused
+once: a sweep at its first slice, centered on the reference slice,
+and every slice is then placed around the focus it found. A
+protocol's z-stack whose channel autofocuses is focused that way
+(`add_step` with `use_zstacking=True`).
 
 **Args**
 
 - `channel`: Which channel to capture ('BF', 'Ex488', ...).
 - `sequence_name`: The name of the protocol file the run saves in its folder ('.tsv' added): a name, not a path.
-- `parent_dir`: Parent directory for output. Defaults to 'Manual/Z-Stacks' under the live folder, where the button already puts it.
+- `parent_dir`: Parent directory for output. Defaults to 'Manual/Z-Stacks' under the live folder, where LumaViewPro's window puts its z-stacks too.
 - `events`: The run's event handlers (`RunEvents`); None for none.
 - `return_to_start`: Whether to put the stage back where the stack was centered when the run ends; a press of STOP (`stop_motion`) leaves it where it stopped. On by default, because a stack leaves Z at whichever end it finished on, which is not where the operator was looking. A bool rather than a position, so a caller cannot hand back coordinates in a frame this run never used.
 - `enable_image_saving`: Whether the slices are written. On by default; off, the stack moves and captures and writes no file, to exercise the stage without filling the disk.
@@ -11947,8 +11944,8 @@ Held in: [`RunEnded.outcome`](#RunEnded.outcome), [`RunEvents.run_ended`](#RunEv
 
 How a run ended, and what its merge produced.
 
-The first four fields are the run's ENDING, copied from the
-RunEnding whatever ended the run recorded, with the boards a
+The first four fields say how the run ended, as whatever ended it
+recorded (`status`, `reason`, `title`, `message`), with the boards a
 disconnect lost (`unconnected_parts`) and the axes a lost position
 left unplaced (`axes_without_position`); the next four describe
 the merge, the next two the autofocus characterization data, then
@@ -12148,7 +12145,7 @@ gain its pixels were made at.
 - <a id="SensorExposure.gain_db"></a>`gain_db`: `float` -- The gain applied.
 - <a id="SensorExposure.illumination_ma"></a>`illumination_ma`: `float` -- The LED current lighting the sample, summed over the lit addresses; 0 for an unlit field.
 - <a id="SensorExposure.light"></a>`light`: `float` -- The light on the sample per second of exposure at unity gain: each lit address's current times its layer's light per mA-second, summed, and the light from outside the scope; 0 for an unlit field.
-- <a id="SensorExposure.outside_light_ma"></a>`outside_light_ma`: `float` -- The light from outside the scope on the sample, as the camera's reference LED lit at this current would make it; 0 when there is none (`set_outside_light`).
+- <a id="SensorExposure.outside_light_ma"></a>`outside_light_ma`: `float` -- The light from outside the scope on the sample, as the camera's reference LED lit at this current would make it; 0 when there is none (`SimulationAPI.light_outside`).
 - <a id="SensorExposure.pixel_size_um"></a>`pixel_size_um`: `float | None` -- The objective's image scale the frame was drawn at, micrometers of stage per sensor pixel at binning 1; None when no objective or no optics are known, and the frame is drawn at the scene's nominal scale.
 - <a id="SensorExposure.started_ticks"></a>`started_ticks`: `int` -- The camera's clock when the exposure started, as the frame's `Timestamp` chunk carries it.
 - <a id="SensorExposure.x_um"></a>`x_um`: `float | None` -- The stage's X when the exposure started; None on a scope with no X axis.
@@ -13981,7 +13978,7 @@ a `RuntimeError`, as it was documented.
 
 **Attributes**
 
-- `reason`: `'plugins_loaded'` -- this session already loaded its plugins; it never loads them again. `'metrics_running'` -- metrics are already running; the host that started them stops them before they start again. `'scope_composed'` -- this scope already has its session's activity claim or settings; it is given them once. `'bring_up_ended'` -- this scope's session has ended its bring-up; it is not configured again, and no write is made as bring-up's.
+- `reason`: `'plugins_loaded'` -- this session already loaded its plugins; it never loads them again. `'metrics_running'` -- metrics are already running; the host that started them stops them before they start again. `'scope_composed'` -- this scope already belongs to a session, with its settings; it is given them once. `'bring_up_ended'` -- this scope's session has ended its bring-up; it is not configured again, and no write is made as bring-up's.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -15126,7 +15123,7 @@ A refusal; bases `Refusal`, `Exception`.
 
 Control of the scope was not taken or used: someone else's work holds it.
 
-Raised by the activity claim when a control session is asked for while
+Raised when a control session is asked for while
 another one is held, while an activity holds the scope, while a setting
 or file write is still under way, or while work that has let the scope
 go is still finishing -- so a client never takes the scope over the
@@ -15170,7 +15167,7 @@ A refusal; bases `Refusal`, `Exception`.
 A diagnostic could not take the scope: another activity holds it.
 
 Raised by `ScopeSession.diagnostic_claim()` when a run, a recording, a
-home or another diagnostic already holds the session's activity claim;
+home or another diagnostic already holds the scope;
 a control session held by someone else refuses it with
 `ControlSessionRefusedError`, as it does every lane. A diagnostic drives the
 hardware directly (homes, LED modes, forced grabs), so it runs only on a
@@ -16736,10 +16733,10 @@ prints it prints what the GUI shows.
 
 **Attributes**
 
-- `reason`: Machine-readable refusal code for callers that map refusals to responses (REST status codes, UI branches). `'already_running'` -- a run already holds the scope. `'exclusive_activity_running'` -- another exclusive activity, such as a diagnostic, a home or a run, holds the scope, and the work asked for is not made under it. `'recording_active'` -- a video recording is in progress, or a previous one is still finishing. `'files_writing'` -- the last run is still writing its files. `'files_writing_stalled'` -- the last run's file writer has stopped making progress, and has to be recovered before a new run starts. `'post_processing_running'` -- a build is on the post-processing lane, and a capture never overlaps one. `'autofocus_running'` -- an autofocus sweep from a run that has ended did not stop, and still occupies the autofocus thread. `'not_connected'` -- a part the work needs is not connected, and none reconnects during a session; the boards are `unconnected_parts`. `'camera_not_streaming'` -- the camera is connected and delivers no frames. `'camera_not_delivering'` -- the run has a video step and no Recording max FPS, and no delivered rate of the camera's was measured within the run start's wait, so the disk the step will write cannot be sized. `'frame_size_unknown'` -- the run saves images and the camera's frame size or depth is not known, so what it will write cannot be sized. `'disk_space_insufficient'` -- free space at the save location is below what starting needs: what the whole run will write, and never less than the floor every start shares, which the message states. `'position_unknown'` -- an axis this scope has does not know its position, so the scope has to be homed first; the axes are `axes_without_position`. `'lid_open_before_motion'` -- the stage's lid is open, so the stage refuses to move. `'no_acquiring_channel'` -- no channel, or not the step's, is set to acquire, so there is no step to make. `'channel_already_in_add'` -- another step added with this one already takes the channel, and steps added together are one composite with one image per channel. `'composite_two_transmitted_channels'` -- a composite run has more than one transmitted channel set to capture. `'composite_video_channel'` -- a composite run has a channel set to capture video; a composite merges still images. `'turret_slot_ambiguous'` -- a step recorded no turret slot, and its objective is assigned to two or more. `'turret_slot_reassigned'` -- the turret slot a step recorded now holds another objective. `'step_position_unknown'` -- a step cannot be added or updated while an axis does not know its position; the axes are `axes_without_position`. `'turret_objectives_unassigned'` -- the protocol uses an objective no turret slot is assigned. `'objective_not_mounted'` -- on a scope with no turret, the protocol names an objective other than the selected one. `'sequence_name_invalid'` -- the run's name is a path: it holds a separator or a drive, or is `..`. `'empty_protocol'` -- the protocol has no steps. `'validation_failed'` -- the protocol's steps fail the pre-run validation; the message names the errors. `'composite_needs_two_channels'` -- a composite run has fewer than two channels set to capture. `'tiling_unknown'` -- the tile grid asked for is not one this installation offers. `'tiling_scale_unknown'` -- the scope cannot report its pixel size, so a tile grid's spacing is unknown. `'zstack_not_configured'` -- a z-stack's range or step size is not greater than zero. `'already_tiled'` -- the protocol is tiled already, and a second grid cannot be laid over it. `'tiles_outside_travel'` -- tiles of the grid fall outside the stage's travel. `'zslices_outside_travel'` -- z-slices of the stack fall outside Z's travel. `'positions_outside_travel'` -- steps of the protocol, a step being added, or a scan's return position fall outside the stage's travel. `'camera_range_unread'` -- the camera's gain and exposure range could not be read after its last readout change, so no step's value can be held to it; it is read again at the next binning, frame size or pixel format change. `'positions_unreachable'` -- the work needs motion on an axis this scope has no motor for. `'step_position_missing'` -- steps have no position on an axis this scope moves, having been recorded on a scope without it. `'channel_not_on_scope'` -- steps take a channel this scope does not have, or this scope's channels could not be resolved. `'objectives_require_turret'` -- the protocol changes objective between steps, and this scope has no turret to change it. `'objective_not_given'` -- a protocol with a channel set to acquire was built from a configuration that names no objective. `'focus_not_given'` -- a channel has no saved focus, and the configuration names no current Z to image it at. `'overlap_out_of_range'` -- the tile overlap is outside 0 to 50 percent. `'values_out_of_range'` -- channel settings the protocol would store hold values no channel setting takes; the message names each.
+- `reason`: Machine-readable refusal code for callers that map refusals to responses (REST status codes, UI branches). `'already_running'` -- a run already holds the scope. `'exclusive_activity_running'` -- another exclusive activity, such as a diagnostic, a home or a run, holds the scope, and the work asked for is not made under it. `'recording_active'` -- a video recording is in progress, or a previous one is still finishing. `'files_writing'` -- the last run is still writing its files. `'files_writing_stalled'` -- the last run's file writer has stopped making progress, and has to be recovered before a new run starts. `'post_processing_running'` -- a build is on the post-processing lane, and a capture never overlaps one. `'autofocus_running'` -- an autofocus sweep from a run that has ended did not stop, and still occupies the autofocus thread. `'not_connected'` -- a part the work needs is not connected, and none reconnects during a session; the boards are `unconnected_parts`. `'camera_not_streaming'` -- the camera is connected and delivers no frames. `'camera_not_delivering'` -- the run has a video step and no Recording max FPS, and no delivered rate of the camera's was measured within the run start's wait, so the disk the step will write cannot be sized. `'frame_size_unknown'` -- the run saves images and the camera's frame size or depth is not known, so what it will write cannot be sized. `'disk_space_insufficient'` -- free space at the save location is below what starting needs: what the whole run will write, and never less than the floor every start shares, which the message states. `'capture_location_unusable'` -- the run's save location cannot hold the run folder, or its free space cannot be read. `'position_unknown'` -- an axis this scope has does not know its position, so the scope has to be homed first; the axes are `axes_without_position`. `'lid_open_before_motion'` -- the stage's lid is open, so the stage refuses to move. `'no_acquiring_channel'` -- no channel, or not the step's, is set to acquire, so there is no step to make. `'channel_already_in_add'` -- another step added with this one already takes the channel, and steps added together are one composite with one image per channel. `'composite_two_transmitted_channels'` -- a composite run has more than one transmitted channel set to capture. `'composite_video_channel'` -- a composite run has a channel set to capture video; a composite merges still images. `'turret_slot_ambiguous'` -- a step recorded no turret slot, and its objective is assigned to two or more. `'turret_slot_reassigned'` -- the turret slot a step recorded now holds another objective. `'step_position_unknown'` -- a step cannot be added or updated while an axis does not know its position; the axes are `axes_without_position`. `'turret_objectives_unassigned'` -- the protocol uses an objective no turret slot is assigned. `'objective_not_mounted'` -- on a scope with no turret, the protocol names an objective other than the selected one. `'sequence_name_invalid'` -- the run's name is a path: it holds a separator or a drive, or is `..`. `'empty_protocol'` -- the protocol has no steps. `'validation_failed'` -- the protocol's steps fail the pre-run validation; the message names the errors. `'composite_needs_two_channels'` -- a composite run has fewer than two channels set to capture. `'tiling_unknown'` -- the tile grid asked for is not one this installation offers. `'tiling_scale_unknown'` -- the scope cannot report its pixel size, so a tile grid's spacing is unknown. `'zstack_not_configured'` -- a z-stack's range or step size is not greater than zero. `'already_tiled'` -- the protocol is tiled already, and a second grid cannot be laid over it. `'objective_not_in_catalog'` -- a step being tiled names an objective the scope's catalog does not hold, so its tile spacing is unknown. `'tiles_outside_travel'` -- tiles of the grid fall outside the stage's travel. `'zslices_outside_travel'` -- z-slices of the stack fall outside Z's travel. `'positions_outside_travel'` -- steps of the protocol, a step being added, or a scan's return position fall outside the stage's travel. `'camera_range_unread'` -- the camera's gain and exposure range could not be read after its last readout change, so no step's value can be held to it; it is read again at the next binning, frame size or pixel format change. `'positions_unreachable'` -- the work needs motion on an axis this scope has no motor for. `'step_position_missing'` -- steps have no position on an axis this scope moves, having been recorded on a scope without it. `'channel_not_on_scope'` -- steps take a channel this scope does not have, or this scope's channels could not be resolved. `'channel_unknown'` -- steps name a channel no release has, a typo or a hand edit. `'objectives_require_turret'` -- the protocol changes objective between steps, and this scope has no turret to change it. `'objective_not_given'` -- a protocol with a channel set to acquire was built from a configuration that names no objective. `'focus_not_given'` -- a channel has no saved focus, and the configuration names no current Z to image it at. `'overlap_out_of_range'` -- the tile overlap is outside 0 to 50 percent. `'values_out_of_range'` -- channel settings the protocol would store hold values no channel setting takes; the message names each.
 - `title`: The heading shown above the sentence, the reason's.
 - `message`: The sentence; the same text as the exception's message.
-- `holder`: What holds the microscope at refusal time (the exclusive-activity claim's kind, or `AUTOFOCUS` for a sweep in flight), or None when the refusal is not holder-shaped (validation, hardware, file drain).
+- `holder`: The kind of activity holding the scope (`AUTOFOCUS` for a sweep in flight), or None when the refusal is not holder-shaped (validation, hardware, file drain).
 - `holder_trigger`: Who started the run that holds the scope -- `'gui'`, `'rest'` or `'api'`; for a file-drain refusal the just-finished run's, for an autofocus sweep the run that dispatched it. None when no run is behind the holder -- a recording's kind IS the holder.
 - `remedy`: The action that answers this refusal, or None. A stalled file writer has one (recover it); a writer still making progress does not, since its files will land.
 - `unconnected_parts`: The boards not connected, each a `Board`, for `'not_connected'`, which always names at least one; empty for every other reason.
@@ -16753,7 +16750,7 @@ position, beside the words.
 **Fields**
 
 - <a id="ProtocolRunRefusedError.axes_without_position"></a>`axes_without_position`: `dict[Axis, AxisState]` -- Each axis that does not know its position, mapped to its `AxisState`, in the scope's axis order, as `MotionAPI.axes_without_position` answers it, for `'position_unknown'` and `'step_position_unknown'`, which always name at least one; empty for every other reason.
-- <a id="ProtocolRunRefusedError.holder"></a>`holder`: `Holder | None` -- What holds the microscope at refusal time (the exclusive-activity claim's kind, or `AUTOFOCUS` for a sweep in flight), or None when the refusal is not holder-shaped (validation, hardware, file drain).
+- <a id="ProtocolRunRefusedError.holder"></a>`holder`: `Holder | None` -- The kind of activity holding the scope (`AUTOFOCUS` for a sweep in flight), or None when the refusal is not holder-shaped (validation, hardware, file drain).
 - <a id="ProtocolRunRefusedError.holder_trigger"></a>`holder_trigger`: `Caller | None` -- Who started the run that holds the scope -- `'gui'`, `'rest'` or `'api'`; for a file-drain refusal the just-finished run's, for an autofocus sweep the run that dispatched it. None when no run is behind the holder -- a recording's kind IS the holder.
 - <a id="ProtocolRunRefusedError.unconnected_parts"></a>`unconnected_parts`: `tuple[Board, ...]` -- The boards not connected, each a `Board`, for `'not_connected'`, which always names at least one; empty for every other reason.
 
@@ -16957,12 +16954,11 @@ A refusal; bases `Refusal`, `CaptureError`.
 
 A video recording start was refused before any state was committed.
 
-Raised when a recording cannot begin: by VideoRecordingEngine.start()
-when an exclusive activity -- a protocol run or another recording --
-already holds the session's activity claim or the engine is still
-draining, and by the recording controllers for the caller-shaped
-refusals they own (a previous recording still finishing, an inactive
-camera, an unknown exposure, insufficient disk). Mirrors the
+Raised when a recording cannot begin: a run or another recording
+already holds the scope, or the recorder is still draining the last
+one. The recording controllers raise it too for the refusals they
+own: a previous recording still finishing, an inactive camera, an
+unknown exposure, insufficient disk. Mirrors the
 ProtocolRunRefusedError shape so callers reconcile state the same way
 in both directions. Nothing reports it as it is raised: the caller that
 asked for the recording reports it where its flight ends.
@@ -16972,14 +16968,14 @@ asked for the recording reports it where its flight ends.
 - `reason`: Machine-readable refusal code for callers that map refusals to responses (REST status codes, UI branches). A reason it shares with another refusal is explained there: with `ProtocolRunRefusedError`, and `'capture_location_unusable'` and `'names_exhausted'` with `CaptureLocationError`. Its own: `'camera_exposure_unknown'` -- the camera has not reported its exposure time, from which the recording's dead-feed bound derives. `'falsifying_change_in_flight'` -- an objective, camera frame or LED-lighting change is under way, which a recording would capture through. `'other_led_lit'` -- an LED other than the shown channel's is lit, and the recording is named for the shown channel. `'camera_holds_another_channel'` -- the camera holds another channel's settings than the shown channel's, which the recording is named for. `'changes_not_in_force'` -- a change the scope recorded (a setting, the light, a move) did not come into force within a capture's limit, so the first frame would have been made before it.
 - `title`: Short user-facing refusal title, the reason's.
 - `message`: One-sentence user-facing refusal body; the same text as the exception's message.
-- `holder`: The exclusive-activity claim owner at refusal time, or None when the refusal is not claim-shaped.
+- `holder`: The kind of activity holding the scope, or None when the refusal is not about a holder.
 - `holder_trigger`: Who started the holding run (`'gui'`, `'rest'`, `'api'`) when the holder is 'protocol'; None for a recording holder.
 
 `holder` and `holder_trigger` are published.
 
 **Fields**
 
-- <a id="RecordingRefusedError.holder"></a>`holder`: `Holder | None` -- The exclusive-activity claim owner at refusal time, or None when the refusal is not claim-shaped.
+- <a id="RecordingRefusedError.holder"></a>`holder`: `Holder | None` -- The kind of activity holding the scope, or None when the refusal is not about a holder.
 - <a id="RecordingRefusedError.holder_trigger"></a>`holder_trigger`: `Caller | None` -- Who started the holding run (`'gui'`, `'rest'`, `'api'`) when the holder is 'protocol'; None for a recording holder.
 
 | Reason | Cause | REST status |
@@ -17453,7 +17449,7 @@ A refusal; bases `Refusal`, `Exception`.
 
 Something was asked of the session while it is closing, and was not done.
 
-Raised by the activity claim for a run, a recording, a home or a
+Raised for a run, a recording, a home or a
 diagnostic while `ScopeSession.shutdown` runs: the close finishes the
 work already under way, then releases the hardware, so nothing new may
 start in between. Once the close has finished, nothing takes the scope

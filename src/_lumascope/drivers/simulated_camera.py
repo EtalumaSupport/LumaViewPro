@@ -107,7 +107,7 @@ class SensorExposure:
             an unlit field.
         outside_light_ma: The light from outside the scope on the sample,
             as the camera's reference LED lit at this current would make
-            it; 0 when there is none (``set_outside_light``).
+            it; 0 when there is none (``SimulationAPI.light_outside``).
         x_um: The stage's X when the exposure started; None on a scope
             with no X axis.
         y_um: The stage's Y, likewise.

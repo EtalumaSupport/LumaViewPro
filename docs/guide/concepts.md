@@ -15,10 +15,6 @@ command waits until the hardware has it, so calling the API from several
 threads is safe. The session adds a FILE lane for
 saving images, a worker pool, and the thread that runs protocols.
 
-**The holders.** Some work holds the scope for its length -- a run, an
-autofocus, a recording, a diagnostic, a home -- and a command that would change
-what it is doing is refused, naming the holder ([Who may act](#who-may-act)).
-
 **Where a call starts.** Every caller starts from the session: what is the
 session's -- the settings, the shown channel, runs, captures, who may act,
 outcomes -- is its member (`session.show_channel`, `session.manual_capture`),
@@ -55,12 +51,13 @@ stalls, a run's file writer that stops -- reaches the outcome listeners
 |---|---|
 | refusal | Nothing was done: the request was wrong, or the scope's state did not allow it. |
 | fault | Something broke while it was being done. |
-| notice | It ended differently from what was asked, by someone's choice: a move stopped, or superseded by a newer one. |
+| notice | Nothing failed and nothing was refused, but you should know: a value set at the hardware's limit, a move someone stopped. |
 | quiet | An expected answer that needs no report: a wait that ran out. |
 
 **Reasons and causes.** Every outcome carries a `reason`, the code your
-program branches on, and every refusal, notice and quiet outcome a `cause`:
-whether the same request could succeed later.
+program branches on. Every refusal and quiet outcome carries a `cause`:
+whether the same request could succeed later. So does a notice that ends
+your call, such as a stopped move; a notice that is only reported has none.
 
 ```python
 from lumascope import PositionOutOfRangeError, RefusalCause
@@ -118,8 +115,11 @@ except ArgumentRefusedError as refused:
 scope.motion.move_z(float('nan'))           # refused by move_z itself
 ```
 
-**Remedies.** A refusal that one action answers carries it as `remedy`: the
-remedy's name and the words of the offer. Take it through
+**Remedies.** A refusal that LumaViewPro can answer itself, on your say-so,
+carries that action as `remedy`: its name (`RemedyName`:
+`recover_file_writer`, `repair_camera_driver`) and the words of the offer.
+A refusal whose answer is your own call, such as a home before a move
+(`'position_unknown'`), has `remedy` None, and its words say what to do. Take a remedy through
 `session.apply_remedy(refusal.remedy)`, the one door to every remedy and the
 one place its name becomes an action; the remedy still decides whether it
 applies now.

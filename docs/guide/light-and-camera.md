@@ -80,8 +80,9 @@ range for gain and exposure is `scope.camera.setting_limits`, read again after
 each change of the camera's readout, since a pixel format or a binning moves
 it); a value no range makes sense of -- not a finite number, an exposure of 0
 or below, a gain or black level below 0 -- is refused (`ArgumentRefusedError`).
-A value the camera refused or did not answer is the fault
-`CameraSettingRejected` (`'camera_rejected'`, `'camera_no_answer'`). A setting
+A value the camera refused or did not answer, or a write whose read failed, is
+the fault [`CameraSettingRejected`](../api-reference.md#CameraSettingRejected);
+its `reason` says which. A setting
 can be several node writes, some of which the camera may take before it
 refuses one, so a refusal's `in_effect` is what the camera holds for the
 setting, read after it (None when that read fails), and its words say it. Each

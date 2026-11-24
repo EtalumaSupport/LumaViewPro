@@ -26,9 +26,11 @@ limit is refused, `RecordingRefusedError` (`'changes_not_in_force'`).
 **Which channel a still is.** A still is named for the shown channel, and the
 camera holds that channel's stored gain, exposure and auto-gain for the frame
 and after it, whatever came before: a run, a go-to. It is lit by the shown
-channel's LED alone: with another LED lit through `scope.illumination`, the
-still is refused, `HardwareCommandRefusedError` `'other_led_lit'`, before
-anything changes, as a recording's start is. To take a still of another
+channel's LED alone. With another LED lit through `scope.illumination`, a saved
+still and `capture_still(channel)` are refused before anything changes,
+`HardwareCommandRefusedError` `'other_led_lit'`. A recording's start is
+refused too, `RecordingRefusedError` `'other_led_lit'`. `capture_still()` with
+no channel takes the LEDs as they are ([A still](python.md#a-still)). To take a still of another
 channel, show it. After a raw camera write (`scope.camera.set_gain_db` and the
 other setters) the written values stand, and the frame's record says so: its
 `held_channel` is None.
@@ -121,8 +123,8 @@ it can reach, 14 for four 12-bit frames, and 65124 is 12. Every sum states
 
 **The record in the file.** Each TIFF and OME-TIFF carries what the instrument
 was when the frame was taken: the instrument (model, serial, camera), the
-objective and pixel size, the plate and well, the position and whether the
-stage was moving, each lit channel's current and when it was read, the
+objective and pixel size, the plate and well, the position (a recorded frame
+also whether the stage was moving), each lit channel's current and when it was read, the
 excitation, the exposure, gain, black level and binning, whether the frame was
 dark or saturated, the timestamps and where they came from, whether the camera
 held the channel's settings, and the frame-validity judgments. An OME-TIFF keeps the exposure and position in
@@ -177,8 +179,11 @@ Fiji open it with `Plugins > Bio-Formats > Importer`, color mode Composite.
 
 **Recordings.** A recording is saved as numbered TIFFs, each frame with its
 own record (position, whether the stage was moving, the channel and its
-current), or as an MP4 played at the frames' own times; either way a
-`recording_manifest.json` holds what was measured: the frames delivered, their
+current), or as an MP4 played at the frames' own times. The numbered TIFFs
+share their folder with a `recording_manifest.json`. An MP4's manifest is named
+for the video: a manual recording writes `Manual/Video_<date>_<time>.mp4` and
+`Manual/Video_<date>_<time>_manifest.json` in the live folder. Either manifest
+holds what was measured: the frames delivered, their
 timestamps and the rate. A rate is a limit: with one set, the manifest's
 `frame_budget` is the frames the limit and the duration allow, and a camera
 slower than the limit ends at the duration with fewer (`frames_selected`).
