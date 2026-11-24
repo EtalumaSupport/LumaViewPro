@@ -622,6 +622,7 @@ whose change concerns only Etaluma's own tools says so.
 | level 149 | Why a part did not come up is one closed set: `PartStatus.cause` is a `PartCause`, each member equal to the string it was (`'not_detected'`, `'port_in_use'`, ...). |
 | level 150 | A frame's size is one record: `camera.frame_at_binning(size)` and `camera.pixel_alignment` answer a `FrameSize` (`width`, `height`), as `set_binning` and `set_frame_size` do, where they answered a dictionary; read `.width` where it was `['width']`. REST's answers are unchanged. |
 | level 151 | The simulator's record of a frame states its exposure in milliseconds, as every other exposure does: `SensorExposure.exposure_ms` (`simulation.exposed_under(frame)`) where it was `exposure_us`, the value divided by 1000. |
+| level 152 | A frame listener's parameter is named as every other listener's: `imaging.add_frame_listener(listener, name=None)` and `remove_frame_listener(listener)`, where it was `cb`. A call that passes the handler by position is unchanged. |
 
 ---
 

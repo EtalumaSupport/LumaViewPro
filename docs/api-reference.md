@@ -6224,7 +6224,7 @@ capture/focus events. The camera's settings and state are
 ```python
 def add_frame_listener(
     self,
-    cb: Callable[[Frame], None],
+    listener: Callable[[Frame], None],
     name: str | None = None,
 ) -> None
 ```
@@ -6238,8 +6238,8 @@ The canonical entry point for live_processing plugins (see
 The supplied handler is wrapped in a budget enforcer
 (`HANDLER_BUDGET_MS` per call; `HANDLER_DROP_K` consecutive
 over-budget or raising invocations remove it, reported once as a
-`FrameHandlerRemovedError` warning). Callback
-signature is `cb(frame)`, the camera's `Frame` record
+`FrameHandlerRemovedError` warning). The listener's signature is
+`listener(frame)`, the camera's `Frame` record
 (`Frame`: `image`, `seq`, `stored`,
 `arrived_ns`, `wall_ns`, `significant_bits`, `chunks`);
 runs on the SDK
@@ -6249,7 +6249,7 @@ on an executor.
 
 **Args**
 
-- `cb`: Per-frame handler. Signature `cb(frame)`.
+- `listener`: Per-frame handler. Signature `listener(frame)`.
 - `name`: Display name for log + notification messages on over-budget / auto-removal. Defaults to the handler's qualname.
 
 The record is shared across all listeners, the preview and a
@@ -6260,7 +6260,7 @@ change. Draw on your own copy. Keeping the record is safe: no later
 frame changes it.
 
 Registration is idempotent for the same callable -- a second
-call with the same `cb` is a no-op (the original wrapper +
+call with the same `listener` is a no-op (the original wrapper +
 name are kept).
 
 **Raises**
@@ -6509,7 +6509,7 @@ Nothing.
 ### `ImagingAPI.remove_frame_listener`
 
 ```python
-def remove_frame_listener(self, cb: Callable[[Frame], None]) -> None
+def remove_frame_listener(self, listener: Callable[[Frame], None]) -> None
 ```
 
 Marks: in-process.
@@ -6524,7 +6524,7 @@ No-op when the listener was never registered.
 
 **Args**
 
-- `cb`: The callback given to `add_frame_listener`.
+- `listener`: The listener given to `add_frame_listener`.
 
 **Raises**
 

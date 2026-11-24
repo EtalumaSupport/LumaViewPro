@@ -2905,7 +2905,7 @@ class ImagingAPI:
     @api(in_process=True, event=FrameDelivered)
     def add_frame_listener(
         self,
-        cb: Callable[[Frame], None],
+        listener: Callable[[Frame], None],
         name: str | None = None,
     ) -> None:
         """Register a per-frame listener fired on every successful grab.
@@ -2915,8 +2915,8 @@ class ImagingAPI:
         The supplied handler is wrapped in a budget enforcer
         (``HANDLER_BUDGET_MS`` per call; ``HANDLER_DROP_K`` consecutive
         over-budget or raising invocations remove it, reported once as a
-        ``FrameHandlerRemovedError`` warning). Callback
-        signature is ``cb(frame)``, the camera's ``Frame`` record
+        ``FrameHandlerRemovedError`` warning). The listener's signature is
+        ``listener(frame)``, the camera's ``Frame`` record
         (``Frame``: ``image``, ``seq``, ``stored``,
         ``arrived_ns``, ``wall_ns``, ``significant_bits``, ``chunks``);
         runs on the SDK
@@ -2925,7 +2925,7 @@ class ImagingAPI:
         on an executor.
 
         Args:
-            cb: Per-frame handler. Signature ``cb(frame)``.
+            listener: Per-frame handler. Signature ``listener(frame)``.
             name: Display name for log + notification messages on
                   over-budget / auto-removal. Defaults to the handler's
                   qualname.
@@ -2938,7 +2938,7 @@ class ImagingAPI:
         frame changes it.
 
         Registration is idempotent for the same callable -- a second
-        call with the same ``cb`` is a no-op (the original wrapper +
+        call with the same ``listener`` is a no-op (the original wrapper +
         name are kept).
 
         Raises:
@@ -2947,22 +2947,22 @@ class ImagingAPI:
         """
         self._camera.refuse_camera_not_connected('add_frame_listener')
         if name is None:
-            name = getattr(cb, '__qualname__', None) or repr(cb)
+            name = getattr(listener, '__qualname__', None) or repr(listener)
         with self._frame_listener_lock:
-            if cb in self._frame_listener_wrappers:
+            if listener in self._frame_listener_wrappers:
                 return  # idempotent
-            wrapper = _BudgetedHandler(self, cb, name)
-            self._frame_listener_wrappers[cb] = wrapper
+            wrapper = _BudgetedHandler(self, listener, name)
+            self._frame_listener_wrappers[listener] = wrapper
         try:
             self._driver.register_frame_callback(wrapper)
         except BaseException:
             # Rolled back so a later registration can retry.
             with self._frame_listener_lock:
-                self._frame_listener_wrappers.pop(cb, None)
+                self._frame_listener_wrappers.pop(listener, None)
             raise
 
     @api(in_process=True)
-    def remove_frame_listener(self, cb: Callable[[Frame], None]) -> None:
+    def remove_frame_listener(self, listener: Callable[[Frame], None]) -> None:
         """Remove a listener registered via ``add_frame_listener``.
 
         No new call reaches the handler once this returns (a call already
@@ -2972,13 +2972,13 @@ class ImagingAPI:
         No-op when the listener was never registered.
 
         Args:
-            cb: The callback given to ``add_frame_listener``.
+            listener: The listener given to ``add_frame_listener``.
 
         Raises:
             Nothing.
         """
         with self._frame_listener_lock:
-            wrapper = self._frame_listener_wrappers.pop(cb, None)
+            wrapper = self._frame_listener_wrappers.pop(listener, None)
         if wrapper is None:
             return
         wrapper._removed = True

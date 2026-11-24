@@ -138,16 +138,16 @@ class _FakeImaging:
     def changes_in_force_limit_s(self, exclude_sources=()):
         return 3.0
 
-    def add_frame_listener(self, cb, name=None):
-        self.listener = cb
+    def add_frame_listener(self, listener, name=None):
+        self.listener = listener
 
-    def remove_frame_listener(self, cb):
+    def remove_frame_listener(self, listener):
         # Equality, not identity. A bound method is a fresh object on every
         # attribute access, so `is` never matches one that was stored
         # earlier; the production API keys its wrapper dict by the callable
         # and removes by equality, and a fake that removes by identity
         # would report a leaked listener the real path does not have.
-        if self.listener == cb:
+        if self.listener == listener:
             self.listener = None
 
 
