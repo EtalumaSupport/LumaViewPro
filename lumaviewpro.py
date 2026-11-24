@@ -793,14 +793,15 @@ class LumaViewProApp(TooltipMixin, App):
         )
 
     def _bring_up_owes(self) -> list[str]:
-        """What bring-up has not finished, for a walk waiting to start.
+        """What bring-up has not finished after the startup motion, for a walk waiting to start.
 
-        ``ctx.ready`` is a timer, 0.3 s after on_start, and nothing it names
-        has finished: the saved protocol loads once the objective question
-        resolves, and the display shows a frame once the display thread
-        delivers one. A walk started on the timer pressed a control
-        mid-layout and shot the black placeholder. A scope with no camera
-        connected has no frame to show, so none is owed.
+        The walk is started at the startup motion's end, once ``ctx.ready``
+        is set; what that end does not settle is owed here: the saved
+        protocol loads once the objective question resolves, and the
+        display shows a frame once the display thread delivers one. A walk
+        started before them pressed a control mid-layout and shot the black
+        placeholder. A scope with no camera connected has no frame to show,
+        so none is owed.
 
         While the objective question is showing, the load is owed by the
         walk's answer, not by bring-up: a walk of that question is the
@@ -810,8 +811,6 @@ class LumaViewProApp(TooltipMixin, App):
         from ui.walk import open_popups
 
         owed = []
-        if not ctx.ready:
-            owed.append('initialization')
         if not self._persisted_protocol_loaded and not open_popups():
             owed.append('the saved protocol load')
         if Board.CAMERA not in ctx.scope.unconnected_parts and ctx.scope_display.frames_shown == 0:
@@ -1351,6 +1350,11 @@ class LumaViewProApp(TooltipMixin, App):
             # writes nothing and repeats that report.
 
         if walk is not None:
+            # The walk starts at the startup motion's end (below), which a
+            # Classic's home puts a minute or more away.
+            logger.info(f'[WALK      ] {walk[0]}: waiting for the startup motion')
+
+        def start_the_walk() -> None:
             from ui.walk import Walk
 
             _walk_path, _walk_steps = walk
@@ -1378,6 +1382,11 @@ class LumaViewProApp(TooltipMixin, App):
             move_home_cb('ALL')
             ctx.image_settings.draw_shown_channel()
             complete_initialization(None)
+            # The walk's own bound covers only what bring-up owes after the
+            # motion; the motion is bounded by its drivers. Before the start
+            # finishes, so a raise here is a start that failed.
+            if walk is not None:
+                start_the_walk()
             ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state(prompt=False)
 
             # Both startup questions may only fire once the session is up and
