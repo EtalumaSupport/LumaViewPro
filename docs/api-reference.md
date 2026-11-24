@@ -13862,7 +13862,6 @@ so callers that catch a bad argument keep working.
 
 - `reason`: `'acceleration_out_of_range'`.
 - `value`: What was given, as given.
-- `limits`: The lowest and highest limit a board takes, in percent.
 
 `limits` is published, so a client corrects the value without reading
 the words.
@@ -13915,14 +13914,7 @@ replaces were, so a caller catching a bad argument keeps working.
 **Attributes**
 
 - `reason`: One of: - `'not_offered'` -- a value of a closed set (a `StrEnum`) that is not one of `offered`: not a member, nor a member's plain string, or a member the taker does not take. Values are exact: `'off'` is not `'Off'`. - `'not_a_number'` -- a number was needed and the value is not a finite one: NaN, an infinity, a `bool` or not a number at all. Every comparison with NaN is False, so a range check alone passes it. - `'plate_frame_axis'` -- a plate coordinate for an axis the plate frame does not define (`offered`: X and Y). - `'well_unknown'` -- a well label the selected plate (`plate`) does not have. - `'out_of_range'` -- a number outside the `limits` its member takes. - `'fan_duty_out_of_range'` -- a fan duty outside 0 to 100 percent. - `'channel_unknown'` -- the name is not one of this release's channels (`offered`, the catalog). Names are exact: `'bf'` is not `'BF'`. A channel this model lacks is a name, and is refused as absent hardware, not here. - `'no_channel_selected'` -- the member needs a channel and was given None (`offered`, the catalog). - `'led_address_unknown'` -- an LED address that is not one of the attached LED board's addresses (`offered`). A `bool` is not an address. - `'illumination_out_of_range'` -- an LED current below 0 mA. A current above the attached LED board's maximum is lit at it (`ValueClampedNotice`), not refused. - `'missing_key'` -- an argument its member reads with the others given was not given, or a dictionary argument lacks a key its member reads; `argument` names it, or the key's path. - `'not_read'` -- an argument given where its member does not read it (`takes`: when it is read, in words). - `'wrong_kind'` -- an argument, or a value in a dictionary argument, is not of the kind its member reads (`takes`, in words). - `'protocol_source_ambiguous'` -- not exactly one of the protocol sources `offered` was given. - `'not_a_setting'` -- a dotted path that names no setting. The same fact a write is refused for as `SettingRefusedError('not_a_setting')`; this type says a read asked it. - `'has_member'` -- a dotted path to a setting that has a read of its own, named in `member` by its path from the session, so one setting has one read. - `'needs_simulated_scope'` -- an argument that exists only on a simulated scope, given for a real one. - `'needs_simulated_camera'` -- an argument that exists only on the simulated camera, given for a model simulated with an FX2. - `'needs_simulated_firmware'` -- an argument that exists only on the simulated motor firmware (the `firmware` and `realistic` simulator tiers, on a model with an EL-0940 motor board), given for a simulated scope whose motor board, named in `board`, does not run it. - `'exposure_not_recorded'` -- a frame the simulated camera holds no exposure record for: one it did not deliver, or one older than the records it keeps. - `'not_an_installation'` -- a folder the caller named that holds no settings template, so it is not an LVP installation root. - `'binning_size_invalid'` -- a binning label that is not a positive square `NxN`. - `'fault_unknown'` -- a simulated fault's board, or a device's hardware ID, that is not one of `offered`: sets this scope's boards and this machine's devices decide. - `'fault_bound'` -- a simulated fault's count, fraction or time outside what it takes (`takes`, in words). - `'not_injectable_on_board'` -- a simulated fault the board that would present it cannot produce; `argument` names the `scope.simulation` member, `board` the board. - `'argument_not_on_board'` -- an argument of a simulated fault the board cannot take; `board` names the board, `takes` what it takes for that argument. - `'slot_not_holding_objective'` -- a turret slot given for steps naming an objective the slot does not hold now (`offered`: the slots that hold it). - `'objective_in_several_slots'` -- an objective to turn the turret to that two or more slots hold (`offered`: the slots), so no one slot is meant. - `'objective_not_on_turret'` -- an objective to turn the turret to that no slot holds (`offered`: the objectives the slots hold, in slot order). - `'slot_required'` -- an objective confirmed on a turret scope with no slot named; the confirmation records the glass in a slot. - `'gain_range_inverted'` -- auto-gain settings whose `min_gain_db` is above their `max_gain_db`; `value` holds the two.
-- `argument`: The name of the argument refused.
 - `value`: What was given, as given.
-- `offered`: The values the argument takes, where it takes a list; None otherwise.
-- `limits`: The lowest and highest value the argument takes, where it takes a range that depends on the scope; None otherwise.
-- `takes`: The value the argument takes, in words, for `'wrong_kind'`, `'fault_bound'` and `'argument_not_on_board'`, and when it is read, for `'not_read'`; None otherwise.
-- `board`: The simulated board, in words, for `'not_injectable_on_board'`, `'argument_not_on_board'` and `'needs_simulated_firmware'`; None otherwise.
-- `plate`: The name of the plate looked on, for `'well_unknown'`; None otherwise.
-- `member`: The member to read instead, for `'has_member'`; None otherwise.
 
 `argument`, `offered`, `limits`, `takes`, `board`, `plate`
 and `member` are published, so a REST problem carries them beside the
@@ -13989,9 +13981,6 @@ membership and a dictionary's contents stay their member's.
 **Attributes**
 
 - `reason`: `'wrong_argument_type'`.
-- `member`: The member called, as `Class.member`.
-- `argument`: The name of the argument refused.
-- `declared`: The type the member takes, as its annotation reads.
 - `value`: What was given, as given.
 
 **Fields**
@@ -14194,7 +14183,6 @@ several-axis gesture reads as one.
 **Attributes**
 
 - `reason`: `'position_unknown'`.
-- `axes_without_position`: Every refused axis, mapped to its `AxisState`, in the scope's axis order; never empty.
 
 `axes_without_position` is published, so a REST problem carries the
 axes beside the words, as a run's `ProtocolRunRefusedError` does.
@@ -14520,9 +14508,6 @@ notifies it.
 **Attributes**
 
 - `reason`: `'camera_rejected'` -- the camera refused the write, or its driver raised from it. `'camera_no_answer'` -- the camera did not answer the write, sent twice, so whether it took it is not known. `'camera_read_failed'` -- a read the write needs failed, so the setting was not written and the camera keeps its previous value of it. The setting is in `setting` and in the words.
-- `setting`: Machine-readable setting name (e.g. 'frame_size').
-- `requested`: The value the caller asked for.
-- `in_effect`: For `'camera_rejected'`, the value the camera holds for the setting, read from it after the refusal (a write of several nodes may have landed some); None when that read failed, for a setting no driver reads back, and for the other reasons. A tuple, in `requested`'s order, on a combined refusal.
 
 `setting`, `requested` and `in_effect` are published, so a REST
 problem carries them. A value is a number, a frame size's
@@ -14749,7 +14734,6 @@ not be read; a camera that is not there is refused instead
 **Attributes**
 
 - `reason`: One of: - `'no_frame'` -- the camera delivered no new frame within its grab window, whether the capture was draining, grabbing or waiting for a sum's next frame. - `'deadline_expired'` -- the scope's state kept changing for longer than the capture's budget. - `'chunk_rejected'` -- frames came, but none was exposed at the `source` setting asked. - `'no_fresh_frame'` -- frames came, but none within the capture's bound counted for the `source` change: each was exposed, by its source's rule, before that change reached it. - `'record_read_failed'` -- a frame came, but the camera did not answer a read its record needs (the gain, exposure or black level), so it was not kept; chained from the `CameraReadFailedError`. - `'unknown_save_encoding'` -- a frame was handed an encoding no writer knows, which the program, not the person, got wrong.
-- `source`: The source the capture failed for: for `'chunk_rejected'` the setting no frame matched, `EXPOSURE` or `GAIN`; for `'no_fresh_frame'` the change no frame came after (`Z_MOVE`, `LED`); None otherwise.
 
 **Fields**
 
@@ -14817,9 +14801,7 @@ name is refused every time it is sent.
 **Attributes**
 
 - `reason`: `'labware_unknown'` -- the labware name is no plate in the labware catalog. `'objective_not_in_catalog'` -- the objective name is no key of the objective catalog. `'model_unknown'` -- the model is none the scope catalog lists: with no board naming its own, the model is a scope's whole description (its axes, channels and optics), so one the catalog lacks would bring a scope up with none of them.
-- `argument`: Where the name came from, so the person who gave it can find it: the owner's parameter (`labware_id`, `objective_id`, `model`), or, for a model met at bring-up, the stored setting `microscope` or the `simulated` scope `ScopeSession.create` was handed.
 - `value`: What was given, as given.
-- `offered`: The catalog's keys, in the catalog's order.
 
 `argument` and `offered` are published, so a REST problem carries
 them beside the words. The run's `ProtocolRunRefusedError` names the
@@ -14953,8 +14935,6 @@ raised, is a field, since each is another vocabulary's string.
 **Attributes**
 
 - `reason`: `'run_not_completed'` -- the run ended before a composite was made. Otherwise the run's `MergeReason`, why the merge produced no file: `'no_run_dir'` -- the run has no folder to merge from. `'no_composite_config'` -- the run carries no composite thresholds. `'merge_failed'` -- the merge finished without writing a file. `'merge_error'` -- the merge failed. `'merge_not_started'` -- the merge did not start. `'cleanup_error'` -- the run's cleanup failed while it settled the run's outcome.
-- `run_ending`: The run's ending reason, for `'run_not_completed'`; otherwise None.
-- `merge_failure`: The reason of the outcome the merge failed with, for `'merge_error'` when it had one; otherwise None.
 
 **Fields**
 
@@ -15054,9 +15034,6 @@ was taken or written.
 
 - `reason`: `'control_session_held'` -- a control session is held, and the request is not its holder's. `'write_in_flight'` -- a setting or a file is still being written, so control is not taken over it half done. `'work_finishing'` -- a run or a recording that has ended is still finishing. `'control_session_ended'` -- the request names a control session that is not the live one: it has ended, or was never issued. `'exclusive_activity_running'`, an activity holding the scope, is `ProtocolRunRefusedError`'s to explain.
 - `title`: The heading the person reads, the reason's.
-- `holder`: The kind of activity holding the scope, for `'exclusive_activity_running'`; None otherwise.
-- `holder_trigger`: Who holds the scope: the control session's taker, or the holding run's starter (`'gui'`, `'rest'`, `'api'`); None when neither is known.
-- `control_session`: The name of the control session that holds, for `'control_session_held'`; None otherwise.
 
 `holder`, `holder_trigger` and `control_session` are published.
 
@@ -15094,8 +15071,6 @@ holder or stop it. Nothing was committed.
 - `reason`: Machine-readable refusal code for callers that map refusals to responses (REST status codes, SDK branches): `'exclusive_activity_running'`, as `ProtocolRunRefusedError` explains it.
 - `title`: Short user-facing refusal title, the reason's.
 - `message`: One-sentence user-facing refusal body.
-- `holder`: The activity kind holding the claim at refusal time.
-- `holder_trigger`: Who started the holding run (`'gui'`, `'rest'`, `'api'`) when the holder is a run; None otherwise.
 
 `holder` and `holder_trigger` are published.
 
@@ -15433,9 +15408,6 @@ log.
 
 - `reason`: Machine-readable refusal code. `'exclusive_activity_running'`, `'not_connected'`, `'camera_not_streaming'` and `'lid_open_before_motion'` are explained by `ProtocolRunRefusedError`, which carries them as the same fact. `'capture_in_flight'` -- an earlier still has not finished. `'home_in_flight'` -- another home holds the scope. `'home_not_stoppable'` -- a home drives on a motor controller that cannot stop one. `'scope_disconnected'` -- the scope's lanes are closed, so it takes no command until the application restarts. `'monitor_ended'` -- the motion monitor has ended, so nothing would judge the move. `'position_unread'` -- the move's drive needs a position the motor controller did not report: the relative base, or Z for the backlash approach. `'stage_unpowered_before_motion'` -- the stage has no power, so its interlock refuses to move it. `'axis_absent'` -- the scope does not have the motion part asked for. `'not_on_this_scope'` -- the scope does not have another part asked for, such as an LED channel or fan control. `'activity_ended'` -- the command was made under an activity that has ended. `'not_the_activity'` -- a command only the activity holding the scope makes was made by a caller outside it. `'other_led_lit'` -- a capture held at a channel would be lit by another LED, which `RecordingRefusedError` explains as the same fact. `'channel_not_shown'` -- a still was asked of a channel other than the shown one.
 - `member`: The member or task that was refused, for the log.
-- `holder`: The kind of activity holding the scope, when known.
-- `holder_trigger`: The holding run's starter, for a run (`'gui'`, `'rest'`, `'api'`); None otherwise.
-- `missing`: The part the command needed and the scope does not have, for `'not_connected'`, `'axis_absent'` and `'not_on_this_scope'`: its `part`, with the axis, channel or address that says which where it is one of several; None otherwise.
 - `title`: The heading shown with the sentence, which follows the reason: nothing connected is not a busy microscope.
 
 `holder`, `holder_trigger` and `missing` are published.
@@ -16435,9 +16407,7 @@ refusal is the same event, and only the sentence differs.
 
 **Attributes**
 
-- `axis`: The axis whose position or distance was refused.
 - `position`: What was asked for.
-- `limits`: The lowest and highest value `bound` allows, in the quantity's own unit.
 - `bound`: Which limit refused it.
 - `quantity`: What was refused: a position, a distance, a plate position.
 
@@ -16472,7 +16442,6 @@ incomplete build as a complete one.
 - `produced_paths`: Every artifact that was written.
 - `output_root`: The folder the artifacts went under, or None.
 - `errors`: Every item that failed and why, in order, as (item, cause) pairs; the message states each cause once.
-- `excluded_inputs`: The files of each kind the build did not take, as a complete build's result names them; empty for an operation that reads no protocol folder (Quick Enhance, a cell count).
 - `reason`: `'post_processing_failed'` -- the build produced nothing. `'post_processing_incomplete'` -- the build produced part of what it was asked for, named in `produced_paths`.
 
 **Fields**
@@ -16654,11 +16623,7 @@ prints it prints what the GUI shows.
 - `reason`: Machine-readable refusal code for callers that map refusals to responses (REST status codes, UI branches). `'already_running'` -- a run already holds the scope. `'exclusive_activity_running'` -- another exclusive activity, such as a diagnostic, a home or a run, holds the scope, and the work asked for is not made under it. `'recording_active'` -- a video recording is in progress, or a previous one is still finishing. `'files_writing'` -- the last run is still writing its files. `'files_writing_stalled'` -- the last run's file writer has stopped making progress, and has to be recovered before a new run starts. `'post_processing_running'` -- a build is on the post-processing lane, and a capture never overlaps one. `'autofocus_running'` -- an autofocus sweep from a run that has ended did not stop, and still occupies the autofocus thread. `'not_connected'` -- a part the work needs is not connected, and none reconnects during a session; the boards are `unconnected_parts`. `'camera_not_streaming'` -- the camera is connected and delivers no frames. `'camera_not_delivering'` -- the run has a video step and no Recording max FPS, and no delivered rate of the camera's was measured within the run start's wait, so the disk the step will write cannot be sized. `'frame_size_unknown'` -- the run saves images and the camera's frame size or depth is not known, so what it will write cannot be sized. `'disk_space_insufficient'` -- free space at the save location is below what starting needs: what the whole run will write, and never less than the floor every start shares, which the message states. `'capture_location_unusable'` -- the run's save location cannot hold the run folder, or its free space cannot be read. `'position_unknown'` -- an axis this scope has does not know its position, so the scope has to be homed first; the axes are `axes_without_position`. `'lid_open_before_motion'` -- the stage's lid is open, so the stage refuses to move. `'no_acquiring_channel'` -- no channel, or not the step's, is set to acquire, so there is no step to make. `'channel_already_in_add'` -- another step added with this one already takes the channel, and steps added together are one composite with one image per channel. `'composite_two_transmitted_channels'` -- a composite run has more than one transmitted channel set to capture. `'composite_video_channel'` -- a composite run has a channel set to capture video; a composite merges still images. `'turret_slot_ambiguous'` -- a step recorded no turret slot, and its objective is assigned to two or more. `'turret_slot_reassigned'` -- the turret slot a step recorded now holds another objective. `'step_position_unknown'` -- a step cannot be added or updated while an axis does not know its position; the axes are `axes_without_position`. `'turret_objectives_unassigned'` -- the protocol uses an objective no turret slot is assigned. `'objective_not_mounted'` -- on a scope with no turret, the protocol names an objective other than the selected one. `'sequence_name_invalid'` -- the run's name is a path: it holds a separator or a drive, or is `..`. `'empty_protocol'` -- the protocol has no steps. `'validation_failed'` -- the protocol's steps fail the pre-run validation; the message names the errors. `'composite_needs_two_channels'` -- a composite run has fewer than two channels set to capture. `'tiling_unknown'` -- the tile grid asked for is not one this installation offers. `'tiling_scale_unknown'` -- the scope cannot report its pixel size, so a tile grid's spacing is unknown. `'zstack_not_configured'` -- a z-stack's range or step size is not greater than zero. `'already_tiled'` -- the protocol is tiled already, and a second grid cannot be laid over it. `'objective_not_in_catalog'` -- a step being tiled names an objective the scope's catalog does not hold, so its tile spacing is unknown. `'tiles_outside_travel'` -- tiles of the grid fall outside the stage's travel. `'zslices_outside_travel'` -- z-slices of the stack fall outside Z's travel. `'positions_outside_travel'` -- steps of the protocol, a step being added, or a scan's return position fall outside the stage's travel. `'camera_range_unread'` -- the camera's gain and exposure range could not be read after its last readout change, so no step's value can be held to it; it is read again at the next binning, frame size or pixel format change. `'positions_unreachable'` -- the work needs motion on an axis this scope has no motor for. `'step_position_missing'` -- steps have no position on an axis this scope moves, having been recorded on a scope without it. `'channel_not_on_scope'` -- steps take a channel this scope does not have, or this scope's channels could not be resolved. `'channel_unknown'` -- steps name a channel no release has, a typo or a hand edit. `'objectives_require_turret'` -- the protocol changes objective between steps, and this scope has no turret to change it. `'objective_not_given'` -- a protocol with a channel set to acquire was built from a configuration that names no objective. `'focus_not_given'` -- a channel has no saved focus, and the configuration names no current Z to image it at. `'overlap_out_of_range'` -- the tile overlap is outside 0 to 50 percent. `'values_out_of_range'` -- channel settings the protocol would store hold values no channel setting takes; the message names each.
 - `title`: The heading shown above the sentence, the reason's.
 - `message`: The sentence; the same text as the exception's message.
-- `holder`: The kind of activity holding the scope (`AUTOFOCUS` for a sweep in flight), or None when the refusal is not holder-shaped (validation, hardware, file drain).
-- `holder_trigger`: Who started the run that holds the scope -- `'gui'`, `'rest'` or `'api'`; for a file-drain refusal the just-finished run's, for an autofocus sweep the run that dispatched it. None when no run is behind the holder -- a recording's kind IS the holder.
 - `remedy`: The action that answers this refusal, or None. A stalled file writer has one (recover it); a writer still making progress does not, since its files will land.
-- `unconnected_parts`: The boards not connected, each a `Board`, for `'not_connected'`, which always names at least one; empty for every other reason.
-- `axes_without_position`: Each axis that does not know its position, mapped to its `AxisState`, in the scope's axis order, as `MotionAPI.axes_without_position` answers it, for `'position_unknown'` and `'step_position_unknown'`, which always name at least one; empty for every other reason.
 
 `holder`, `holder_trigger`, `unconnected_parts` and
 `axes_without_position` are published, so a REST problem carries who
@@ -16887,8 +16852,6 @@ asked for the recording reports it where its flight ends.
 - `reason`: Machine-readable refusal code for callers that map refusals to responses (REST status codes, UI branches). A reason it shares with another refusal is explained there: with `ProtocolRunRefusedError`, and `'capture_location_unusable'` and `'names_exhausted'` with `CaptureLocationError`. Its own: `'camera_exposure_unknown'` -- the camera has not reported its exposure time, from which the recording's dead-feed bound derives. `'falsifying_change_in_flight'` -- an objective, camera frame or LED-lighting change is under way, which a recording would capture through. `'other_led_lit'` -- an LED other than the shown channel's is lit, and the recording is named for the shown channel. `'camera_holds_another_channel'` -- the camera holds another channel's settings than the shown channel's, which the recording is named for. `'changes_not_in_force'` -- a change the scope recorded (a setting, the light, a move) did not come into force within a capture's limit, so the first frame would have been made before it.
 - `title`: Short user-facing refusal title, the reason's.
 - `message`: One-sentence user-facing refusal body; the same text as the exception's message.
-- `holder`: The kind of activity holding the scope, or None when the refusal is not about a holder.
-- `holder_trigger`: Who started the holding run (`'gui'`, `'rest'`, `'api'`) when the holder is 'protocol'; None for a recording holder.
 
 `holder` and `holder_trigger` are published.
 
@@ -16970,7 +16933,6 @@ later with the caller changing nothing.
 **Attributes**
 
 - `title`: The heading the person reads above the message.
-- `remedy`: The action that answers this refusal, when one exists; the reporter then shows the refusal as an offer to take it. Set per instance: one reason of a refusal type can have a remedy that its others do not.
 
 **Fields**
 
@@ -17274,7 +17236,6 @@ a refusal.
 **Attributes**
 
 - `reason`: `'disconnect_failed'`.
-- `failures`: The steps that failed, in teardown order.
 
 **Fields**
 
@@ -17338,7 +17299,6 @@ read from this record.
 
 - `reason`: The machine-readable code. `'not_found'` -- the route, the handle or the job asked for is not there. `'invalid_request'` -- the request's arguments do not fit its member. `'method_not_allowed'` -- the route does not answer the method it was asked with. `'unsupported_media_type'` -- the request's body is not JSON. `'body_too_large'` -- the request's body is larger than its route takes; nothing past the ceiling was held, and nothing ran. `'body_too_slow'` -- the request's body did not arrive within its deadline; nothing ran, and the connection is closed. `'handle_shared'` -- the handle asked to be forgotten is one every client shares, and it is kept. `'overloaded'` -- the server holds as many handles, jobs or uploads as it keeps; asking again later may succeed. `'server_closing'` -- the server is closing: it finishes what is under way, answers nothing new, and exits. `'no_frame_yet'` -- the live view has no frame to show, because the camera sent none in time; asking again later may succeed. `'not_cancelable'` -- the job is a call held as a job when it outlived its wait, and holds no operation to stop. `'idempotency_key_reused'` -- the `Idempotency-Key` was sent before with a different request; a key is sent again only to retry the same request. `'client_not_allowed'` -- the scope serves only the clients its `rest_api.allowed_clients` names, and the request came from another address. `'wrong_host'` -- the request's `Host` names another server than the address and port it serves on. `'foreign_origin'` -- a page from another site sent the request.
 - `title`: The heading, the reason's.
-- `errors`: For `'invalid_request'` from the request reader, each argument that does not fit; None otherwise.
 
 **Fields**
 
@@ -17410,10 +17370,7 @@ responses branches on `reason`; a person reads the message.
 **Attributes**
 
 - `reason`: `'has_member'` -- the setting is changed by its own member, named in `member` by its path from the session (the camera's as `scope.camera.<name>`). `'host_only'` -- that member is in-process: only the application hosting the scope changes the setting, and a REST client reads it. `'not_a_setting'` -- no setting has this path. `'block'` -- the path names a block of settings, which is written one setting at a time. `'installation_only'` -- the setting is read only from the installation's settings file. `'wrong_kind'` -- the value is not the kind the setting holds. `'out_of_range'` -- the value is outside the setting's range. `'model_named_by_board'` -- the scope model was chosen on a scope whose board names its own, which it runs as at every start (`ScopeSession.select_model`). `'not_offered'` -- the setting holds a closed set (a `StrEnum`, such as `image_mode`'s `ImageMode`) and the value is not one of its values.
-- `path`: The dotted path that was written.
 - `detail`: Why, as a clause about the value (`'it must be above 0, not 0'`), for a caller that names the setting its own way: a protocol step's column.
-- `member`: The member that changes the setting, for `'has_member'` and `'host_only'`; otherwise None.
-- `limits`: The lowest and highest value the setting takes, for an `'out_of_range'` setting with both ends; otherwise None.
 - `takes`: The range the value is outside, as a clause (`'at least 0'`, `'above 0 and at most 1'`), for an `'out_of_range'` refused by a range's bound; otherwise None. A caller judging an argument by a setting's rule says it in the argument's own words.
 
 `path`, `member` and `limits` are published, so a REST problem
@@ -17675,12 +17632,7 @@ counts too.
 
 **Attributes**
 
-- `dropped`: Selected frames that could not be written.
 - `failed_writes`: Each of them as (the frame, why), in the words a person reads; said once per cause.
-- `selected`: Frames the recording selected.
-- `unstamped`: Frames that came without the camera's timestamp and were left out.
-- `skipped`: Frames skipped because this PC could not save frames as fast as the camera sent them.
-- `lost_at_camera`: Frames the camera sent that never reached the recording; None for a camera that numbers no frames, whose losses are not known.
 - `lost_in`: A manual recording, one protocol video step, or every video step of a protocol run together.
 
 The counts are published, so a REST problem carries them beside the

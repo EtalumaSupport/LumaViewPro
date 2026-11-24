@@ -556,7 +556,12 @@ def _class(owner: _Owner, index: _Index, *, outcome: bool = False) -> str:
         parts.append('  \n'.join(facts))
     doc = own_doc(cls)
     if doc:
-        parts.append(markdown_of(doc, leave_out=() if outcome else ('Attributes',)))
+        # A published field is told once, under Fields with its type: an
+        # outcome's Attributes keeps what Fields does not list (its reasons,
+        # an unpublished ``value``).
+        published = {i.member for i in owner.items if i.field}
+        leave_out = () if outcome else ('Attributes',)
+        parts.append(markdown_of(doc, leave_out=leave_out, leave_out_attributes=published))
     for text in (_fields(owner), _reasons(cls, index) if outcome else ''):
         if text:
             parts.append(text)

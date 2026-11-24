@@ -90,6 +90,29 @@ def test_an_entry_section_with_no_entry_is_its_prose() -> None:
     assert markdown_of('Read it.\n\nRaises:\n    Nothing.') == 'Read it.\n\n**Raises**\n\nNothing.'
 
 
+FIELDS = """A refusal of an argument.
+
+Attributes:
+    reason: Why.
+    argument: The argument refused.
+    value: What was given."""
+
+
+def test_an_attribute_left_out_is_not_rendered_and_the_rest_keep_their_order() -> None:
+    assert markdown_of(FIELDS, leave_out_attributes={'argument'}) == (
+        'A refusal of an argument.\n\n'
+        '**Attributes**\n\n'
+        '- `reason`: Why.\n'
+        '- `value`: What was given.'
+    )
+
+
+def test_attributes_with_every_entry_left_out_have_no_heading() -> None:
+    assert markdown_of(FIELDS, leave_out_attributes={'reason', 'argument', 'value'}) == (
+        'A refusal of an argument.'
+    )
+
+
 def test_a_section_left_out_is_not_rendered() -> None:
     assert markdown_of(DOC, leave_out=('Args', 'Returns', 'Raises')) == (
         'Set the gain, and answer with it.\n\nThe camera is asked on its lane.'

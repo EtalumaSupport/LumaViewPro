@@ -103,7 +103,7 @@ import re
 import sys
 import types
 import typing
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 
 # The attribute the mark is recorded under, on the function itself: a
 # property's getter, a classmethod's or staticmethod's function, or the
@@ -628,18 +628,26 @@ def _inline(text: str) -> str:
     )
 
 
-def markdown_of(doc: str, *, leave_out: tuple[str, ...] = ()) -> str:
+def markdown_of(
+    doc: str, *, leave_out: tuple[str, ...] = (), leave_out_attributes: Collection[str] = ()
+) -> str:
     """*doc* as Markdown: its prose as written, each section under a bold heading, an entry section as a list.
 
     *doc* is a docstring as ``inspect.getdoc`` gives it. A section named in
-    *leave_out* is not rendered; an entry section with no entry
-    (``Nothing.``) is rendered as its prose.
+    *leave_out* is not rendered, nor an ``Attributes`` entry named in
+    *leave_out_attributes*, nor the section once none of its entries is
+    left; an entry section with no entry (``Nothing.``) is rendered as its
+    prose.
     """
     out: list[str] = []
     for heading, lines in _section_lines(doc):
         if heading in leave_out:
             continue
         entries = _entries(lines) if heading in ENTRY_SECTIONS else []
+        if heading == 'Attributes' and entries:
+            entries = [(n, w) for n, w in entries if n not in leave_out_attributes]
+            if not entries:
+                continue
         if heading is None:
             text = '\n'.join(_inline(line) for line in lines).strip('\n')
         elif entries:
