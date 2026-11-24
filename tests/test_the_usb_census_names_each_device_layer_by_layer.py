@@ -25,7 +25,10 @@ from _lumascope.drivers.usb_driver_binding import DeviceProperties
 _USB2_PORT = 0x3  # USB 1.1 and 2.0
 _USB3_PORT = 0x7  # USB 1.1, 2.0 and 3.x
 _HIGH_SPEED = 2
-_SUPER_SPEED = 3
+# The V2 flags a hub answers, its Speed staying high speed: operating at
+# and capable of SuperSpeed (bits 0, 1), and of SuperSpeedPlus too (2, 3).
+_AT_SUPER_SPEED = 0x3
+_AT_SUPER_SPEED_PLUS = 0xF
 
 
 def _device(instance_id, **values) -> DeviceProperties:
@@ -72,13 +75,25 @@ def test_a_basler_on_a_usb3_port_at_high_speed_is_named_with_both_speeds():
     assert '480 Mb/s on a port of 5000 Mb/s' in basler.describe()
 
 
+def test_a_basler_at_super_speed_is_named_at_it_from_the_hubs_flags():
+    """Windows answers a USB 3 device's Speed as high speed; the flags say SuperSpeed."""
+    (basler,) = census_from(
+        [_BASLER],
+        set(),
+        _hub({_BASLER.instance_id: HubPort(_HIGH_SPEED, _USB3_PORT, _AT_SUPER_SPEED)}),
+    )
+
+    assert (basler.speed_mbps, basler.port_best_mbps) == (5000.0, 5000.0)
+    assert '5000 Mb/s on a port of 5000 Mb/s' in basler.describe()
+
+
 def test_every_census_vendor_and_every_present_device_with_a_problem_code_is_listed():
     census = census_from(
         [_A_MOUSE, _BASLER, _UNIDENTIFIED, _A_PAST_CLASSIC],
         set(),
         _hub(
             {
-                _BASLER.instance_id: HubPort(_SUPER_SPEED, _USB3_PORT, 0),
+                _BASLER.instance_id: HubPort(_HIGH_SPEED, _USB3_PORT, _AT_SUPER_SPEED),
                 _UNIDENTIFIED.instance_id: HubPort(_HIGH_SPEED, _USB2_PORT, 0),
             }
         ),
@@ -89,6 +104,7 @@ def test_every_census_vendor_and_every_present_device_with_a_problem_code_is_lis
         _UNIDENTIFIED.instance_id,
         _A_PAST_CLASSIC.instance_id,
     ]
+    assert census[0].speed_mbps == 5000.0
     unidentified = census[1]
     assert unidentified.vendor is None and unidentified.binding.problem_code == 43
     assert 'not a census vendor 0000:0002' in unidentified.describe()
@@ -120,7 +136,7 @@ def test_a_driver_property_of_an_unread_type_leaves_the_device_listed_without_it
 
 
 def test_the_hub_names_a_super_speed_plus_device_and_a_usb2_port():
-    assert HubPort(_SUPER_SPEED, _USB3_PORT, 0x4).speed_mbps == 10000.0
+    assert HubPort(_HIGH_SPEED, _USB3_PORT, _AT_SUPER_SPEED_PLUS).speed_mbps == 10000.0
     assert HubPort(_HIGH_SPEED, _USB2_PORT, 0).port_best_mbps == 480.0
 
 

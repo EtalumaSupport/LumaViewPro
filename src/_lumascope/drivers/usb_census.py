@@ -47,6 +47,7 @@ _HUB_SPEED_MBPS = {0: 1.5, 1: 12.0, 2: 480.0, 3: 5000.0}
 _PORT_USB110 = 0x1
 _PORT_USB200 = 0x2
 _PORT_USB300 = 0x4
+_OPERATING_AT_SUPER_SPEED = 0x1
 _OPERATING_AT_SUPER_SPEED_PLUS = 0x4
 
 
@@ -57,6 +58,11 @@ class HubPort:
     ``speed`` is ``USB_DEVICE_SPEED``; ``protocols`` the port's
     ``SupportedUsbProtocols`` bits; ``flags`` the connection's
     ``USB_NODE_CONNECTION_INFORMATION_EX_V2_FLAGS`` bits.
+
+    The hub's ``speed`` goes no higher than high speed: a device at
+    SuperSpeed or faster is told only by the flags (Microsoft's page for
+    ``USB_NODE_CONNECTION_INFORMATION_EX``: "The Speed member supports up
+    to UsbHighSpeed").
     """
 
     speed: int
@@ -68,6 +74,8 @@ class HubPort:
         """The speed the device negotiated, in Mb/s; None for a value Windows does not define."""
         if self.flags & _OPERATING_AT_SUPER_SPEED_PLUS:
             return 10000.0
+        if self.flags & _OPERATING_AT_SUPER_SPEED:
+            return 5000.0
         return _HUB_SPEED_MBPS.get(self.speed)
 
     @property
