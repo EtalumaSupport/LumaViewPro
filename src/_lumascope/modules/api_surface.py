@@ -537,7 +537,8 @@ SECTIONS = ('Args', 'Attributes', 'Raises', 'Returns', 'Yields')
 ENTRY_SECTIONS = frozenset({'Args', 'Attributes', 'Raises'})
 _SECTION_HEADING = re.compile(rf'^({"|".join(SECTIONS)}):\s*$')
 _ENTRY = re.compile(r'^([\w*.]+):\s*(.*)$')
-_CODE = re.compile(r'``(.+?)``')
+# A literal can wrap across a docstring line, so it is read across one.
+_CODE = re.compile(r'``(.+?)``', re.DOTALL)
 
 
 def _section_lines(doc: str) -> list[tuple[str | None, list[str]]]:
@@ -662,7 +663,7 @@ def markdown_of(
             if not entries:
                 continue
         if heading is None:
-            text = '\n'.join(_inline(line) for line in lines).strip('\n')
+            text = _inline('\n'.join(lines)).strip('\n')
         elif entries:
             # A nested list item is indented under its entry's bullet.
             items = '\n'.join(

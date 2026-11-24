@@ -86,6 +86,12 @@ def test_a_tag_outside_a_literal_is_text() -> None:
     )
 
 
+def test_a_literal_wrapped_across_a_line_is_one_code_span() -> None:
+    assert markdown_of('Pass ``create(settings,\nsource_path=root)`` to it.') == (
+        'Pass `create(settings,\nsource_path=root)` to it.'
+    )
+
+
 def test_an_entry_section_with_no_entry_is_its_prose() -> None:
     assert markdown_of('Read it.\n\nRaises:\n    Nothing.') == 'Read it.\n\n**Raises**\n\nNothing.'
 

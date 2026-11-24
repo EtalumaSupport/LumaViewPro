@@ -1915,8 +1915,8 @@ Marks: in-process.
 The user's configuration, as the GUI would configure a scope from it.
 
 For a host with no GUI -- a script, a server -- to pass to
-`create`: ``create(ScopeSession.load_user_settings(root),
-source_path=root, simulate=...)``, the settings and the scope from
+`create`: `create(ScopeSession.load_user_settings(root),
+source_path=root, simulate=...)`, the settings and the scope from
 one installation. Reading is its own call rather than a default of
 `create` so a caller that meant to pass settings and forgot is
 refused for the missing argument instead of quietly configured
@@ -3821,8 +3821,8 @@ Raises nothing.
 The file the installation at `source_path` keeps its user configuration in.
 
 For a host that saves accepted writes, to pass to `create`:
-``create(settings, source_path=root,
-settings_file=ScopeSession.user_settings_file(root))``, as the GUI
+`create(settings, source_path=root,
+settings_file=ScopeSession.user_settings_file(root))`, as the GUI
 and the REST server do. `load_user_settings` reads this file
 first. Nothing is read or created here.
 
