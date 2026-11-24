@@ -927,9 +927,10 @@ class AutofocusRunner:
             # score would be recorded at this one. A capture that got no
             # frame is tried again; the last failure is the sweep's, raised
             # as itself. A camera that is gone is refused, and stops the
-            # sweep at once.
+            # sweep at once. all_ones_check: every point logs the frame's
+            # saturated share, since a clipped frame scores differently.
             try:
-                image = self._scope.imaging.capture_still(accept_dark=True).image
+                still = self._scope.imaging.capture_still(accept_dark=True, all_ones_check=True)
                 break
             except CaptureFailedError as failed:
                 if attempt == num_retries:
@@ -946,15 +947,15 @@ class AutofocusRunner:
         # accept_dark here for the same reason as the grab loop above:
         # AF must accept a genuinely dark sample rather than reject the
         # frame.
-        mean_intensity = float(np.mean(image))
+        mean_intensity = float(np.mean(still.image))
         if mean_intensity < 1.0:
             _af_log.warning(f'  DARK FRAME: mean={mean_intensity:.2f}, retrying')
             try:
-                image = self._scope.imaging.capture_still(accept_dark=True).image
+                still = self._scope.imaging.capture_still(accept_dark=True, all_ones_check=True)
             except CaptureFailedError as failed:
                 _af_log.warning(f'  DARK FRAME kept: its retry failed ({failed.reason})')
 
-        focus_score = autofocus_functions.autofocus_score(image=image)
+        focus_score = autofocus_functions.autofocus_score(image=still.image)
         current_pos = round(
             self._scope.motion.get_current_position('Z'), common_utils.max_decimal_precision('z')
         )
@@ -965,7 +966,10 @@ class AutofocusRunner:
                 'score': focus_score,
             }
         )
-        _af_log.info(f'  Z={current_pos:.2f} score={focus_score:.1f}')
+        _af_log.info(
+            f'  Z={current_pos:.2f} score={focus_score:.1f} '
+            f'sat={still.record.saturated_fraction * 100.0:.1f}%'
+        )
 
         if self._abort_event is not None and self._abort_event.is_set():
             self._is_focusing_event.clear()

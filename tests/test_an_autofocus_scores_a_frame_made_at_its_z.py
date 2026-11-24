@@ -11,6 +11,8 @@ away from the true one.
 """
 
 import contextlib
+import logging
+import re
 
 import pytest
 
@@ -96,3 +98,20 @@ def test_the_scored_frame_is_drained_past_the_step_s_z_move():
     assert info['drained'] >= z_skip, (
         f'the last scored frame was not drained past its Z move: {info}'
     )
+
+
+def test_every_scored_point_states_its_frame_s_saturated_share(caplog):
+    """Each point of a sweep logs the saturated share of the frame it
+    scored, the capture's own measurement (``FrameRecord.saturated_fraction``):
+    a clipped frame scores differently, so a reader of ``autofocus.log``
+    can tell a jump in the curve that saturation made.
+    """
+    with _session_over_the_focus_target() as session:
+        session.scope.camera.set_exposure_ms(2.0)
+        with caplog.at_level(logging.INFO, logger='LVP.autofocus'):
+            _autofocus(session)
+
+    points = [m for m in caplog.messages if m.lstrip().startswith('Z=')]
+    assert points, 'the sweep logged no scored point'
+    unstated = [m for m in points if not re.search(r' sat=\d+\.\d%$', m)]
+    assert not unstated, f'points without their saturated share: {unstated[:3]}'
