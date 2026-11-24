@@ -147,47 +147,7 @@ _guarded_write = guarded_write(lambda controller: controller._claim)
 
 
 class ManualRecordingController:
-    """One manual-recording flow: snapshot, record, drain, finish.
-
-    Args:
-        scope: The Lumascope instance (frame listener, camera identity,
-            exposure, stage position).
-        settings_snapshot: Returns a private copy of the session's settings;
-            called once per ``start``, after its refusals, and the recording's
-            own settings (rate, duration, format, folder, overlay) are read
-            from that one copy, so a change made while it starts applies to
-            the next recording, not part of this one. The objective and the
-            plate are read once the recording holds the scope, which refuses
-            a change to either.
-        shown_channel: Reads the session's shown channel, once, at
-            ``start``, once the recording holds the scope: it names the
-            recording.
-        channel_colors: Reads every channel's color, from the Session's one
-            read of it, once, at ``start``.
-        activity_claim: The session's compare-and-claim handle; passed
-            through to the engine so a recording and a protocol run are
-            mutually exclusive.
-        scheduler: The session's scheduler; the controller arms its own
-            periodic health check on it at ``start`` and disarms at
-            finish. Required: a controller that can start a recording
-            but has no armed health bound is the trap this parameter
-            exists to make unconstructible.
-        post_processing: The session's builds; a recording's stack is
-            built through it.
-        on_saved: Told the recording's folder when its saving has ended
-            with a frame written, before the recording's operation settles.
-        clock: Wall-time source (seconds) for what is measured against
-            frame timestamps: the engine's cadence, and its start on a
-            camera without a clock mapping. Tests drive it.
-        steady_clock: The host's steady clock (nanoseconds) the engine
-            reads its start on through the recording's clock mapping.
-            Tests drive it.
-        elapsed_clock: Elapsed-time source (seconds) for the recording's
-            bounds: its elapsed time, the duration backstop, the stall watch and
-            the disk probe's interval. Monotonic, because wall time steps
-            (an NTP correction, a host resume) and a step would end a good
-            recording early or let one run past its backstop. Tests drive it.
-    """
+    """One manual-recording flow: snapshot, record, drain, finish."""
 
     def __init__(
         self,
@@ -204,6 +164,47 @@ class ManualRecordingController:
         steady_clock: Callable[[], int] = host_clock.steady_ns,
         elapsed_clock: Callable[[], float] = time.monotonic,
     ):
+        """The controller the session builds, over its scope and its parts.
+
+        Args:
+            scope: The Lumascope instance (frame listener, camera identity,
+                exposure, stage position).
+            settings_snapshot: Returns a private copy of the session's settings;
+                called once per ``start``, after its refusals, and the recording's
+                own settings (rate, duration, format, folder, overlay) are read
+                from that one copy, so a change made while it starts applies to
+                the next recording, not part of this one. The objective and the
+                plate are read once the recording holds the scope, which refuses
+                a change to either.
+            shown_channel: Reads the session's shown channel, once, at
+                ``start``, once the recording holds the scope: it names the
+                recording.
+            channel_colors: Reads every channel's color, from the Session's one
+                read of it, once, at ``start``.
+            activity_claim: The session's compare-and-claim handle; passed
+                through to the engine so a recording and a protocol run are
+                mutually exclusive.
+            scheduler: The session's scheduler; the controller arms its own
+                periodic health check on it at ``start`` and disarms at
+                finish. Required: a controller that can start a recording
+                but has no armed health bound is the trap this parameter
+                exists to make unconstructible.
+            post_processing: The session's builds; a recording's stack is
+                built through it.
+            on_saved: Told the recording's folder when its saving has ended
+                with a frame written, before the recording's operation settles.
+            clock: Wall-time source (seconds) for what is measured against
+                frame timestamps: the engine's cadence, and its start on a
+                camera without a clock mapping. Tests drive it.
+            steady_clock: The host's steady clock (nanoseconds) the engine
+                reads its start on through the recording's clock mapping.
+                Tests drive it.
+            elapsed_clock: Elapsed-time source (seconds) for the recording's
+                bounds: its elapsed time, the duration backstop, the stall watch and
+                the disk probe's interval. Monotonic, because wall time steps
+                (an NTP correction, a host resume) and a step would end a good
+                recording early or let one run past its backstop. Tests drive it.
+        """
         self._post_processing = post_processing
         self._on_saved = on_saved
         self._scope = scope

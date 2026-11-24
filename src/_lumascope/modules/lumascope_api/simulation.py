@@ -791,6 +791,9 @@ class SimulationAPI:
                 on every board but the fast motor board: the firmware's
                 axis reaches its target whatever is injected, and the
                 TMCM-6110's arrives too.
+            HoldEndedError: ``'stopped'``, ``'superseded'``, ``'homed'`` or
+                ``'released'``, the hold ended before the move reached it;
+                the operation raises it, never the call.
         """
         self._refuse_unless_simulated('hold_axis')
         self._bound('at_fraction', at_fraction, 'above 0 and below 1', 0 < at_fraction < 1)

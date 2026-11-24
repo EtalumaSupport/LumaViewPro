@@ -6,7 +6,7 @@ Every member and field of the API, rendered from the source: a member is API whe
 
 Every name with a section of its own is imported from `lumascope`, as its heading says: `from lumascope import ScopeSession`.
 
-A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes. **Refusals** adds the refusals of the doors the member enters (a hardware lane, a guarded write, a post-processing build's admission); for a member on the wire they are **Refusals by REST status**, under the HTTP status each answers. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
+A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes; a member that raises nothing says so beside its marks. **Refusals** adds the refusals of the doors the member enters (a hardware lane, a guarded write, a post-processing build's admission); for a member on the wire they are **Refusals by REST status**, under the HTTP status each answers. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
 
 <a id="to_dict"></a>A **record** crosses the wire as its data. In the same process every record also answers `to_dict()`, *in-process*, for a caller that takes a dict and not a record, such as MATLAB's `struct()`:
 
@@ -21,6 +21,8 @@ NaN stays a NaN, and a key keeps its type.
 
 ## Contents
 
+**Classes**
+
 - [`ScopeSession`](#ScopeSession)
 - [`ManualCaptureController`](#ManualCaptureController)
 - [`ManualRecordingController`](#ManualRecordingController)
@@ -33,6 +35,24 @@ NaN stays a NaN, and a key keeps its type.
 - [`MotionAPI`](#MotionAPI)
 - [`RuntimeState`](#RuntimeState)
 - [`SimulationAPI`](#SimulationAPI)
+- [`HeldClaim`](#HeldClaim)
+- [`LiveProcessingRegistry`](#LiveProcessingRegistry)
+- [`Operation`](#Operation)
+- [`PluginRegistry`](#PluginRegistry)
+- [`PostProcessingRegistry`](#PostProcessingRegistry)
+- [`Protocol`](#Protocol)
+- [`ProtocolRunner`](#ProtocolRunner)
+- [`RESTRegistry`](#RESTRegistry)
+- [`UIRegistry`](#UIRegistry)
+
+**Functions**
+
+- [`build_app`](#build_app)
+- [`build_server`](#build_server)
+- [`configure_logging`](#configure_logging)
+
+**Records**
+
 - [`AppliedAutoGain`](#AppliedAutoGain)
 - [`AppliedExposure`](#AppliedExposure)
 - [`AppliedGain`](#AppliedGain)
@@ -87,7 +107,6 @@ NaN stays a NaN, and a key keeps its type.
 - [`GpuAdapter`](#GpuAdapter)
 - [`GraphOptions`](#GraphOptions)
 - [`GraphResult`](#GraphResult)
-- [`HeldClaim`](#HeldClaim)
 - [`HostReading`](#HostReading)
 - [`ImageStatistics`](#ImageStatistics)
 - [`InjectedFault`](#InjectedFault)
@@ -97,7 +116,6 @@ NaN stays a NaN, and a key keeps its type.
 - [`LedReading`](#LedReading)
 - [`LeftOutImage`](#LeftOutImage)
 - [`LiveFolderEntry`](#LiveFolderEntry)
-- [`LiveProcessingRegistry`](#LiveProcessingRegistry)
 - [`LiveWork`](#LiveWork)
 - [`MissingPart`](#MissingPart)
 - [`MotorBoardInfo`](#MotorBoardInfo)
@@ -105,24 +123,18 @@ NaN stays a NaN, and a key keeps its type.
 - [`Notification`](#Notification)
 - [`Objective`](#Objective)
 - [`ObjectiveQuestion`](#ObjectiveQuestion)
-- [`Operation`](#Operation)
 - [`OpticsStatus`](#OpticsStatus)
 - [`PartStatus`](#PartStatus)
 - [`PlateLocation`](#PlateLocation)
 - [`PluginHealth`](#PluginHealth)
 - [`PluginNotLoaded`](#PluginNotLoaded)
-- [`PluginRegistry`](#PluginRegistry)
 - [`PluginRuntimeFailure`](#PluginRuntimeFailure)
 - [`PluginSpec`](#PluginSpec)
 - [`PluginStatus`](#PluginStatus)
 - [`PositionChanged`](#PositionChanged)
-- [`PostProcessingRegistry`](#PostProcessingRegistry)
 - [`ProcessorResult`](#ProcessorResult)
 - [`ProgramCpu`](#ProgramCpu)
-- [`Protocol`](#Protocol)
-- [`ProtocolRunner`](#ProtocolRunner)
 - [`ProtocolSizeAdvisory`](#ProtocolSizeAdvisory)
-- [`RESTRegistry`](#RESTRegistry)
 - [`RecordingFinished`](#RecordingFinished)
 - [`Remedy`](#Remedy)
 - [`RunEnded`](#RunEnded)
@@ -163,7 +175,6 @@ NaN stays a NaN, and a key keeps its type.
 - [`TurretChanged`](#TurretChanged)
 - [`TurretSlotQuestion`](#TurretSlotQuestion)
 - [`TurretStatus`](#TurretStatus)
-- [`UIRegistry`](#UIRegistry)
 - [`UiDispatcher`](#UiDispatcher)
 - [`UnfitArgument`](#UnfitArgument)
 - [`UsbBusCensus`](#UsbBusCensus)
@@ -175,11 +186,243 @@ NaN stays a NaN, and a key keeps its type.
 - [`VideoProgress`](#VideoProgress)
 - [`WorkItem`](#WorkItem)
 - [`ZProject`](#ZProject)
-- [`build_app`](#build_app)
-- [`build_server`](#build_server)
-- [`configure_logging`](#configure_logging)
-- [Closed sets](#closed-sets)
-- [Outcomes](#outcomes)
+
+**[Closed sets](#closed-sets)**
+
+- [`AcquireMode`](#AcquireMode)
+- [`AutoGainConvergence`](#AutoGainConvergence)
+- [`Axis`](#Axis)
+- [`AxisState`](#AxisState)
+- [`Background`](#Background)
+- [`Board`](#Board)
+- [`Caller`](#Caller)
+- [`CameraAutoMode`](#CameraAutoMode)
+- [`CameraReadAnswer`](#CameraReadAnswer)
+- [`CameraReadNode`](#CameraReadNode)
+- [`CameraShutter`](#CameraShutter)
+- [`CameraWriteAnswer`](#CameraWriteAnswer)
+- [`CameraWriteNode`](#CameraWriteNode)
+- [`Counter`](#Counter)
+- [`DisconnectStep`](#DisconnectStep)
+- [`EntryKind`](#EntryKind)
+- [`FilesOutcome`](#FilesOutcome)
+- [`FrameChunk`](#FrameChunk)
+- [`FrameValiditySource`](#FrameValiditySource)
+- [`GpuHybridType`](#GpuHybridType)
+- [`Holder`](#Holder)
+- [`HomeFault`](#HomeFault)
+- [`HomeTarget`](#HomeTarget)
+- [`IdentitySource`](#IdentitySource)
+- [`ImageMode`](#ImageMode)
+- [`Interlock`](#Interlock)
+- [`LedCommandSet`](#LedCommandSet)
+- [`LedState`](#LedState)
+- [`LeftOutReason`](#LeftOutReason)
+- [`LightTiming`](#LightTiming)
+- [`MergeReason`](#MergeReason)
+- [`Modality`](#Modality)
+- [`MotorCommandSet`](#MotorCommandSet)
+- [`OutcomeKind`](#OutcomeKind)
+- [`OutputFormat`](#OutputFormat)
+- [`Part`](#Part)
+- [`PartCause`](#PartCause)
+- [`PostProcessingOperation`](#PostProcessingOperation)
+- [`RecordingEndReason`](#RecordingEndReason)
+- [`RefusalCause`](#RefusalCause)
+- [`RemedyName`](#RemedyName)
+- [`RunEndReason`](#RunEndReason)
+- [`RunStatus`](#RunStatus)
+- [`SettingSource`](#SettingSource)
+- [`Slide`](#Slide)
+- [`StageAxis`](#StageAxis)
+- [`StitchAlgorithm`](#StitchAlgorithm)
+- [`StitchMode`](#StitchMode)
+- [`SupportReportKind`](#SupportReportKind)
+- [`TimestampSource`](#TimestampSource)
+- [`Trendline`](#Trendline)
+- [`UIMountPoint`](#UIMountPoint)
+- [`VideoPhase`](#VideoPhase)
+- [`WorkKind`](#WorkKind)
+- [`ZProjectMethod`](#ZProjectMethod)
+
+**[Outcomes](#outcomes)**
+
+- [`LumascopeError`](#LumascopeError)
+- [`AccelerationLimitRefusedError`](#AccelerationLimitRefusedError)
+- [`AlreadyStartedError`](#AlreadyStartedError)
+- [`ArgumentRefusedError`](#ArgumentRefusedError)
+- [`ArgumentTypeRefusedError`](#ArgumentTypeRefusedError)
+- [`AutoGainNotSettledError`](#AutoGainNotSettledError)
+- [`AutofocusAborted`](#AutofocusAborted)
+- [`AutofocusFailedError`](#AutofocusFailedError)
+- [`AutofocusLedsHeldError`](#AutofocusLedsHeldError)
+- [`AutofocusOutOfTravelError`](#AutofocusOutOfTravelError)
+- [`AutofocusRunEnded`](#AutofocusRunEnded)
+- [`AutofocusStopped`](#AutofocusStopped)
+- [`AutofocusZNotRestoredError`](#AutofocusZNotRestoredError)
+- [`AxisMovingError`](#AxisMovingError)
+- [`AxisStateUnknownError`](#AxisStateUnknownError)
+- [`BinningSubstitutedNotice`](#BinningSubstitutedNotice)
+- [`BlockingCallRefusedError`](#BlockingCallRefusedError)
+- [`BoardNoReplyError`](#BoardNoReplyError)
+- [`BoardPortFailedError`](#BoardPortFailedError)
+- [`BoardReplyUnreadableError`](#BoardReplyUnreadableError)
+- [`BoardReportedError`](#BoardReportedError)
+- [`BringUpError`](#BringUpError)
+- [`CameraConfigNotAppliedNotice`](#CameraConfigNotAppliedNotice)
+- [`CameraDriverRepairFailedError`](#CameraDriverRepairFailedError)
+- [`CameraDriverRepairRefusedError`](#CameraDriverRepairRefusedError)
+- [`CameraDriverRepairedNotice`](#CameraDriverRepairedNotice)
+- [`CameraFeatureAbsentNotice`](#CameraFeatureAbsentNotice)
+- [`CameraFirmwareMissingError`](#CameraFirmwareMissingError)
+- [`CameraNoAnswerError`](#CameraNoAnswerError)
+- [`CameraNodeNotReadableError`](#CameraNodeNotReadableError)
+- [`CameraNotAvailableError`](#CameraNotAvailableError)
+- [`CameraReadFailedError`](#CameraReadFailedError)
+- [`CameraSettingRejected`](#CameraSettingRejected)
+- [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError)
+- [`CameraSetupFailedError`](#CameraSetupFailedError)
+- [`CameraStopStalledNotice`](#CameraStopStalledNotice)
+- [`CameraStreamStalledError`](#CameraStreamStalledError)
+- [`CameraStreamStartFailedError`](#CameraStreamStartFailedError)
+- [`CameraUsbDriverUnusableError`](#CameraUsbDriverUnusableError)
+- [`CameraUsbLookupFailedError`](#CameraUsbLookupFailedError)
+- [`CameraUsbNotFoundError`](#CameraUsbNotFoundError)
+- [`CameraUsbOpenFailedError`](#CameraUsbOpenFailedError)
+- [`CameraWriteFailedError`](#CameraWriteFailedError)
+- [`CaptureError`](#CaptureError)
+- [`CaptureFailedError`](#CaptureFailedError)
+- [`CaptureLocationError`](#CaptureLocationError)
+- [`CapturePositionNotRecordedNotice`](#CapturePositionNotRecordedNotice)
+- [`CatalogNameRefusedError`](#CatalogNameRefusedError)
+- [`CellCountScaleDroppedNotice`](#CellCountScaleDroppedNotice)
+- [`ChannelBlockSupersededNotice`](#ChannelBlockSupersededNotice)
+- [`ChannelBlockUnusableNotice`](#ChannelBlockUnusableNotice)
+- [`ChannelRowsSkippedNotice`](#ChannelRowsSkippedNotice)
+- [`ChannelSettingCappedNotice`](#ChannelSettingCappedNotice)
+- [`ClaimStillLentError`](#ClaimStillLentError)
+- [`CompositeFailedError`](#CompositeFailedError)
+- [`ConfigError`](#ConfigError)
+- [`ConfigReadError`](#ConfigReadError)
+- [`ConfigurationDefectError`](#ConfigurationDefectError)
+- [`ControlSessionRefusedError`](#ControlSessionRefusedError)
+- [`DiagnosticRefusedError`](#DiagnosticRefusedError)
+- [`DriverNotLiveError`](#DriverNotLiveError)
+- [`DuplicateCaptureFilenamesNotice`](#DuplicateCaptureFilenamesNotice)
+- [`ExposureAtMaximumNotice`](#ExposureAtMaximumNotice)
+- [`ExposureAtMinimumNotice`](#ExposureAtMinimumNotice)
+- [`FalsifyingChangeInFlightError`](#FalsifyingChangeInFlightError)
+- [`Fault`](#Fault)
+- [`FileWriterNotStuckError`](#FileWriterNotStuckError)
+- [`FileWriterReplacedError`](#FileWriterReplacedError)
+- [`FileWriterStalledError`](#FileWriterStalledError)
+- [`FocusKeptNotice`](#FocusKeptNotice)
+- [`FocusNotSavedError`](#FocusNotSavedError)
+- [`FocusNotWrittenError`](#FocusNotWrittenError)
+- [`FrameDepthError`](#FrameDepthError)
+- [`FrameHandlerRemovedError`](#FrameHandlerRemovedError)
+- [`FrameRefittedNotice`](#FrameRefittedNotice)
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError)
+- [`HardwareError`](#HardwareError)
+- [`HoldEndedError`](#HoldEndedError)
+- [`HomingFailedError`](#HomingFailedError)
+- [`HomingFaultError`](#HomingFaultError)
+- [`HomingStoppedError`](#HomingStoppedError)
+- [`HyperstackNotBuiltError`](#HyperstackNotBuiltError)
+- [`HyperstacksSavedNotice`](#HyperstacksSavedNotice)
+- [`HyperstacksSavingNotice`](#HyperstacksSavingNotice)
+- [`ImageSaveError`](#ImageSaveError)
+- [`InputFramesUnusableError`](#InputFramesUnusableError)
+- [`InstallationFileError`](#InstallationFileError)
+- [`KeepAwakeNotHeldNotice`](#KeepAwakeNotHeldNotice)
+- [`LaneCallStillRunningError`](#LaneCallStillRunningError)
+- [`LedBoardUnavailableError`](#LedBoardUnavailableError)
+- [`LedFirmwareWedgedError`](#LedFirmwareWedgedError)
+- [`LedSafetyOffNotTakenError`](#LedSafetyOffNotTakenError)
+- [`LiveFolderFileNotWrittenError`](#LiveFolderFileNotWrittenError)
+- [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError)
+- [`LoggingConfigurationRefusedError`](#LoggingConfigurationRefusedError)
+- [`LowSystemResourcesNotice`](#LowSystemResourcesNotice)
+- [`MotionInterlockError`](#MotionInterlockError)
+- [`MotionNotCompletedError`](#MotionNotCompletedError)
+- [`MotorBoardUnavailableError`](#MotorBoardUnavailableError)
+- [`MotorStopFailedError`](#MotorStopFailedError)
+- [`MoveFaultError`](#MoveFaultError)
+- [`MoveNotCompletedError`](#MoveNotCompletedError)
+- [`MoveStoppedError`](#MoveStoppedError)
+- [`MoveWaitExpiredError`](#MoveWaitExpiredError)
+- [`NoHardwareDetectedNotice`](#NoHardwareDetectedNotice)
+- [`NoLiveDriverError`](#NoLiveDriverError)
+- [`NoWireFormError`](#NoWireFormError)
+- [`NotHandedOutError`](#NotHandedOutError)
+- [`Notice`](#Notice)
+- [`ObjectiveUnknownError`](#ObjectiveUnknownError)
+- [`OperationSettleRefusedError`](#OperationSettleRefusedError)
+- [`OperationWaitExpiredError`](#OperationWaitExpiredError)
+- [`PackagesNotAsPinnedError`](#PackagesNotAsPinnedError)
+- [`PartAbsentError`](#PartAbsentError)
+- [`PixelSizeUnknownError`](#PixelSizeUnknownError)
+- [`PluginError`](#PluginError)
+- [`PluginFailedError`](#PluginFailedError)
+- [`PluginNotLoadedError`](#PluginNotLoadedError)
+- [`PluginProcessorSkippedError`](#PluginProcessorSkippedError)
+- [`PluginRegistrationError`](#PluginRegistrationError)
+- [`PositionOutOfRangeError`](#PositionOutOfRangeError)
+- [`PostProcessingFailedError`](#PostProcessingFailedError)
+- [`PostProcessingRefusedError`](#PostProcessingRefusedError)
+- [`ProtocolAsksForStimulationError`](#ProtocolAsksForStimulationError)
+- [`ProtocolError`](#ProtocolError)
+- [`ProtocolFormatError`](#ProtocolFormatError)
+- [`ProtocolNotLoadedError`](#ProtocolNotLoadedError)
+- [`ProtocolNotSavedError`](#ProtocolNotSavedError)
+- [`ProtocolRunRefusedError`](#ProtocolRunRefusedError)
+- [`ProtocolScheduleRefusedError`](#ProtocolScheduleRefusedError)
+- [`ProtocolStepsInvalidNotice`](#ProtocolStepsInvalidNotice)
+- [`Quiet`](#Quiet)
+- [`RecordIncompleteError`](#RecordIncompleteError)
+- [`RecordingDetailsNotSavedError`](#RecordingDetailsNotSavedError)
+- [`RecordingFinalizeError`](#RecordingFinalizeError)
+- [`RecordingFramesUnstampedError`](#RecordingFramesUnstampedError)
+- [`RecordingPositionNotRecordedNotice`](#RecordingPositionNotRecordedNotice)
+- [`RecordingRefusedError`](#RecordingRefusedError)
+- [`RecordingSavedLateNotice`](#RecordingSavedLateNotice)
+- [`RecordingStoppedError`](#RecordingStoppedError)
+- [`Refusal`](#Refusal)
+- [`RestServerNotStartedError`](#RestServerNotStartedError)
+- [`RunCheckFailedError`](#RunCheckFailedError)
+- [`RunCleanupFailedError`](#RunCleanupFailedError)
+- [`RunEndedByStopNotice`](#RunEndedByStopNotice)
+- [`RunFailedError`](#RunFailedError)
+- [`RunFailedToStartError`](#RunFailedToStartError)
+- [`RunFilesNotWrittenError`](#RunFilesNotWrittenError)
+- [`RunImagesNotSavedError`](#RunImagesNotSavedError)
+- [`RunIncompleteError`](#RunIncompleteError)
+- [`RunWaitExpiredError`](#RunWaitExpiredError)
+- [`RunWriteRefusedError`](#RunWriteRefusedError)
+- [`ScopeDisconnectError`](#ScopeDisconnectError)
+- [`ScopeInUseError`](#ScopeInUseError)
+- [`ScopeModelDeferredNotice`](#ScopeModelDeferredNotice)
+- [`ServerRefusedError`](#ServerRefusedError)
+- [`SessionClosingError`](#SessionClosingError)
+- [`SettingRefusedError`](#SettingRefusedError)
+- [`SettingsFileError`](#SettingsFileError)
+- [`SettingsFileNotReplacedError`](#SettingsFileNotReplacedError)
+- [`SettingsFileNotWrittenError`](#SettingsFileNotWrittenError)
+- [`SettingsNotSavedNotice`](#SettingsNotSavedNotice)
+- [`SingleScanNotice`](#SingleScanNotice)
+- [`SlowFileWritesNotice`](#SlowFileWritesNotice)
+- [`StepEditRefusedError`](#StepEditRefusedError)
+- [`StepNotFoundError`](#StepNotFoundError)
+- [`StoredSettingReplacedNotice`](#StoredSettingReplacedNotice)
+- [`SupportReportNotSavedError`](#SupportReportNotSavedError)
+- [`UpdateError`](#UpdateError)
+- [`ValueClampedNotice`](#ValueClampedNotice)
+- [`VideoFramesDroppedError`](#VideoFramesDroppedError)
+- [`VideoNotFinishedError`](#VideoNotFinishedError)
+- [`VideoWriterFailedError`](#VideoWriterFailedError)
+
+**Tables**
+
 - [Routes](#routes)
 - [Events](#events)
 - [Saved-file facts](#saved-file-facts)
@@ -240,7 +483,8 @@ The session.
 def add_outcome_listener(self, listener: Callable[[Notification], None]) -> None
 ```
 
-Marks: in-process; event: [`Notification`](#Notification).
+Marks: in-process; event: [`Notification`](#Notification).  
+Raises nothing.
 
 Hear every outcome the scope reports from now on.
 
@@ -259,10 +503,6 @@ per process. `shutdown()` removes the listener.
 
 - `listener`: Called as `listener(notification)` once per delivery, on the thread that reported it, so it must return promptly and must not wait on the scope.
 
-**Raises**
-
-Nothing.
-
 <a id="ScopeSession.add_run_state_listener"></a>
 ### `ScopeSession.add_run_state_listener`
 
@@ -270,7 +510,8 @@ Nothing.
 def add_run_state_listener(self, listener: Callable[[], None]) -> None
 ```
 
-Marks: in-process; event: [`Status`](#Status).
+Marks: in-process; event: [`Status`](#Status).  
+Raises nothing.
 
 Register a run-state transition listener and level-sync it.
 
@@ -286,10 +527,6 @@ edge.
 
 - `listener`: Called with no arguments at each run-state transition, and once now; it re-reads whatever state it shows.
 
-**Raises**
-
-Nothing.
-
 <a id="ScopeSession.add_settings_listener"></a>
 ### `ScopeSession.add_settings_listener`
 
@@ -297,7 +534,8 @@ Nothing.
 def add_settings_listener(self, listener: Callable[[tuple[str, ...]], None]) -> None
 ```
 
-Marks: in-process; event: [`SettingsChanged`](#SettingsChanged).
+Marks: in-process; event: [`SettingsChanged`](#SettingsChanged).  
+Raises nothing.
 
 Tell `listener` `(paths)` each time a write stores settings, once it has let go of the store.
 
@@ -308,10 +546,6 @@ storing what it applied.
 
 - `listener`: Called as `listener(paths)`, `paths` the dotted paths one hold stored, together: a member that writes several settings tells them once. Called on the writer's thread, outside the settings lock, so a GUI listener schedules its drawing.
 
-**Raises**
-
-Nothing.
-
 <a id="ScopeSession.add_shown_channel_listener"></a>
 ### `ScopeSession.add_shown_channel_listener`
 
@@ -319,7 +553,8 @@ Nothing.
 def add_shown_channel_listener(self, listener: Callable[[str, bool], None]) -> None
 ```
 
-Marks: in-process; event: [`ShownChannel`](#ShownChannel).
+Marks: in-process; event: [`ShownChannel`](#ShownChannel).  
+Raises nothing.
 
 Tell `listener` `(channel, lit)` each time the shown channel moves, or the session lights or darkens it.
 
@@ -332,10 +567,6 @@ LED write, a run's light, its end policy -- is an `led` event
 **Args**
 
 - `listener`: Called as `listener(channel, lit)`, the channel now shown and whether its LED is lit, on the thread that changed it, so a GUI listener schedules its drawing.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.add_step"></a>
 ### `ScopeSession.add_step`
@@ -401,17 +632,14 @@ app_version: str | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/app_version`.
+Route: `GET /api/v1/app_version`.  
+Raises nothing.
 
 The application's version, `4.0.0-beta36`; None where the build has none.
 
 `version.txt`'s first line, through its one reader. A build with no
 readable `version.txt` answers None rather than a name it does not
 have.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.apply_focus_to_channel_steps"></a>
 ### `ScopeSession.apply_focus_to_channel_steps`
@@ -594,16 +822,13 @@ bookmark: PlateLocation  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/bookmark`.
+Route: `GET /api/v1/bookmark`.  
+Raises nothing.
 
 The bookmark: X and Y in plate millimeters on the selected plate, Z in micrometers.
 
 What `save_bookmark` and the GUI's Set All Bookmarks stored, in the
 frame the go-to-bookmark moves read it in.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.bring_up_record"></a>
 ### `ScopeSession.bring_up_record`
@@ -613,7 +838,8 @@ bring_up_record: BringUpRecord  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/bring_up_record`.
+Route: `GET /api/v1/bring_up_record`.  
+Raises nothing.
 
 What bring-up found, substituted and set aside, for a client that asks later.
 
@@ -625,10 +851,6 @@ to `create(outcome_listener=...)` heard these as outcomes; this is
 the same facts held, read-through from the scope and the settings
 store, for one that connects afterwards.
 
-**Raises**
-
-Nothing.
-
 <a id="ScopeSession.capped_channels"></a>
 ### `ScopeSession.capped_channels`
 
@@ -636,7 +858,8 @@ Nothing.
 capped_channels: tuple[str, ...]  # property
 ```
 
-Marks: in-process; reads (changes nothing).
+Marks: in-process; reads (changes nothing).  
+Raises nothing.
 
 This scope's channels whose stored gain, exposure or current the attached hardware cannot reach.
 
@@ -648,10 +871,6 @@ force. In the scope's channel order. A limit not known caps nothing:
 no camera, or the camera's range not read
 (`CameraAPI.setting_limits` raises), for gain and exposure; no LED
 board, for current.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.capture_still"></a>
 ### `ScopeSession.capture_still`
@@ -916,13 +1135,10 @@ control: ControlSession | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/control`.
+Route: `GET /api/v1/control`.  
+Raises nothing.
 
 The control session held now, None when none is.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.controls_lock"></a>
 ### `ScopeSession.controls_lock`
@@ -931,7 +1147,8 @@ Nothing.
 controls_lock: ControlsLock  # property
 ```
 
-Marks: in-process; reads (changes nothing).
+Marks: in-process; reads (changes nothing).  
+Raises nothing.
 
 Which of a person's controls the Session locks now, and why: its editing policy, not a refusal.
 
@@ -942,10 +1159,6 @@ whole surface also by a live manual recording. The one rule every
 lock read reads; a wire client reads it in `status`. It locks for
 the holder of a control session too: it is the GUI's editing
 policy, and the GUI is never the holder.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.create"></a>
 ### `ScopeSession.create`
@@ -1169,7 +1382,8 @@ def discard_pending_video(self) -> None
 ```
 
 Marks: enters: `guarded_write`.  
-Route: `POST /api/v1/discard_pending_video`.
+Route: `POST /api/v1/discard_pending_video`.  
+Raises nothing.
 
 Drop every video frame still queued in either drain, loudly.
 
@@ -1177,10 +1391,6 @@ The one escape from waiting on the video frames `live_work` lists
 -- a recording's file, a run's video -- for a close or any caller;
 each file is finished with what was written, and frames already on
 disk stay.
-
-**Raises**
-
-Nothing.
 
 **Refusals by REST status**
 
@@ -1229,7 +1439,8 @@ engineering_mode: bool  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/engineering_mode`.
+Route: `GET /api/v1/engineering_mode`.  
+Raises nothing.
 
 Whether the session runs in engineering mode, as `create` began it
 or `set_engineering_mode` last set it.
@@ -1238,10 +1449,6 @@ In engineering mode a saved still or run image on a scope with a
 turret names the slot it was taken at, and the system metrics are
 sampled more often unless the settings name an interval. A run reads
 it once, when it is prepared; a still, when it is asked for.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.go_to_step"></a>
 ### `ScopeSession.go_to_step`
@@ -1299,6 +1506,88 @@ work meanwhile.
 - [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
+<a id="ScopeSession.start_go_to_step"></a>
+### `ScopeSession.start_go_to_step`
+
+```python
+def start_go_to_step(self, protocol: Protocol, step_index: int) -> Operation[None]
+```
+
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `guarded_write`.  
+Route: `POST /api/v1/start_go_to_step`.
+
+Start going to step `step_index` of `protocol`, as a click on a step does.
+
+One task on the scope's IO lane: the axes are asked once whether
+they know their position; the turret turns to the step's objective
+and X, Y and Z are started towards the step together, on the
+protocol's own plate, at the targets a run computes for the step;
+the step's values go into its channel's live settings
+as any channel write puts them, the channel acquiring as the step
+does, so the channel and the step agree; its saved focus is left as
+it is, where New starts the next protocol; and the step's LED preview is
+applied -- its channel at its current when `protocol_led_on` is
+set, every channel dark when not. It returns once that task has run,
+before the stage arrives, with one `Operation` for the moves it
+started, X and Y as one request (`MotionAPI.start_move_xy`) and
+then Z: done once every one has ended, its `result()` returns None
+when all arrived and raises the first that did not, in X, Y, Z
+order, as `MotionAPI.start_move_z` says; its
+`stop()` stops the moves still under way. `go_to_step` waits on
+it. A person's click is a gesture and does not wait; a fault on the
+way is the motion monitor's to report. Only the axes this scope has
+are moved: a manual scope moves nothing, does the rest and returns
+an operation already done.
+
+A repeat of the step this session last went to (a re-click, a
+re-typed number) does everything but the preview: a channel the
+person lit or put out in between stays as they left it, and when
+another channel was shown meanwhile the step's channel is shown again,
+lit or dark as the shown channel was.
+
+Once that task has run, the step's channel's stored settings go on
+the camera before this returns, so a still asked after
+it is taken at the step's settings. It waits on the camera lane, so
+it is refused on the UI thread; a click calls it from a worker.
+
+**Args**
+
+- `protocol`: The protocol whose step is gone to.
+- `step_index`: The step gone to, counted from 0.
+
+**Raises**
+
+- `StepNotFoundError`: `step_index` is not a step of `protocol`. Nothing changes.
+- `ProtocolRunRefusedError`: `'step_position_missing'`, the step has no position on an axis the scope drives. This scope cannot put the step's objective in the light path: on a turret scope `'turret_objectives_unassigned'`, no slot carries it, or `'turret_slot_reassigned'` or `'turret_slot_ambiguous'`, the slot the step meant is no longer one slot carrying it; without a turret `'objective_not_mounted'`, it is not the selected objective. Nothing changes.
+- `ArgumentRefusedError`: `'channel_unknown'`, the step's color is not a channel. Nothing changes.
+- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no channel of the step's color. Nothing changes.
+- `ProtocolRunRefusedError`: `'values_out_of_range'`, a value the step would store in its channels is outside its channel setting's range, each named by column and bound. Nothing changes. A value past the hardware's limit is stored at the limit and told (`ValueClampedNotice`).
+- `ArgumentRefusedError`: `'gain_range_inverted'`, the step turns auto-gain on while the stored auto-gain range has its minimum gain above its maximum. Nothing changes.
+- `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved. Nothing changes.
+- `CameraSettingRejected`: `'camera_read_failed'`, the camera's gain and exposure range could not be read after its last readout change, naming the step's gain and exposure. Nothing changes.
+- `AxisStateUnknownError`: an axis the step moves does not know its position. Nothing changes.
+- `HardwareCommandRefusedError`: `'not_connected'`, this scope's motor controller or camera is not connected, or its LED controller is not and the step's preview would light; `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or a manual recording runs and the step's channel is not the shown one or its preview would light an LED not lit above 0 mA. Nothing changes.
+- `PositionOutOfRangeError`: the step lies outside an axis's travel; any move already started is stopped, nothing else changes.
+- `MoveFaultError`: `'driver_failed'`, the board did not take an axis's command, and any move already started is stopped; or the turret's move to the step's slot did not arrive; see `MotionAPI.start_move_z`.
+- `MoveStoppedError`: `'stopped'`, `'lid_open_mid_move'` or `'superseded'`, the turret's move to the step's slot was ended.
+- `CameraSettingRejected`: the camera did not take a setting of the step's channel (its `reason` says how); the moves started are stopped, and the channel and the preview are the step's.
+- `MotorStopFailedError`: a move already started could not be stopped: the board did not take the STOP, or the move did not settle after it.
+- `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread. Nothing was started.
+
+Any other raise once the moves have started (the preview's LED
+command among them) stops them first, by one STOP that withholds no
+move asked before it, and the step is not counted as gone to: going
+to it again shows its preview. Where another activity holds the
+scope by then, or no STOP can be sent, nothing is sent and the
+raise goes on as it is.
+
+**Refusals by REST status**
+
+- 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `turret_objectives_unassigned`, `turret_slot_reassigned`, `turret_slot_ambiguous`, `objective_not_mounted`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `lid_open_mid_move`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `step_position_missing`, `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_read_failed`, `camera_rejected`, `camera_no_answer`; [`MoveFaultError`](#MoveFaultError): `driver_failed`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
+
 <a id="ScopeSession.held_by_other"></a>
 ### `ScopeSession.held_by_other`
 
@@ -1307,7 +1596,8 @@ def held_by_other(self, run: Operation | None = None) -> bool
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/held_by_other`.
+Route: `GET /api/v1/held_by_other`.  
+Raises nothing.
 
 Whether the scope is held by anything but *run*, the operation a run member returned.
 
@@ -1318,10 +1608,6 @@ What a run control grays on while leaving its own run's Stop live
 
 - `run`: The operation a run member returned, whose own hold is not counted. None, the default, asks whether anything holds the scope at all.
 
-**Raises**
-
-Nothing.
-
 <a id="ScopeSession.host_reading"></a>
 ### `ScopeSession.host_reading`
 
@@ -1330,7 +1616,8 @@ host_reading: HostReading | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/host_reading`.
+Route: `GET /api/v1/host_reading`.  
+Raises nothing.
 
 This PC's resources as read over the session's startup; None until its startup motion has ended.
 
@@ -1340,10 +1627,6 @@ reported failed home, a skip, STOP). `LowSystemResourcesNotice`
 was told then when anything in it was past its line; a client that
 connected afterwards reads it here, or in `status`.
 
-**Raises**
-
-Nothing.
-
 <a id="ScopeSession.host_steady_ns"></a>
 ### `ScopeSession.host_steady_ns`
 
@@ -1351,16 +1634,13 @@ Nothing.
 def host_steady_ns(self) -> int
 ```
 
-Marks: in-process.
+Marks: in-process.  
+Raises nothing.
 
 The host's steady time now, in nanoseconds.
 
 The clock every steady stamp the scope takes is on, for an
 in-process caller setting its own "now" against them.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.labware_id"></a>
 ### `ScopeSession.labware_id`
@@ -1370,15 +1650,12 @@ labware_id: str  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/labware_id`.
+Route: `GET /api/v1/labware_id`.  
+Raises nothing.
 
 The current plate's catalog key, the one `select_labware` selected.
 
 Its record is `scope.plate(labware_id)`.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.last_run"></a>
 ### `ScopeSession.last_run`
@@ -1387,7 +1664,8 @@ Nothing.
 def last_run(self) -> Operation[RunOutcome] | None
 ```
 
-Route: `POST /api/v1/last_run`.
+Route: `POST /api/v1/last_run`.  
+Raises nothing.
 
 The last run's operation, live or ended, whoever started it; None before any run.
 
@@ -1404,10 +1682,6 @@ events stay with its starter.
 A POST, not a read: it hands out a running call. A finished job a
 client deleted answers 404 on its id.
 
-**Raises**
-
-Nothing.
-
 <a id="ScopeSession.last_save_folder"></a>
 ### `ScopeSession.last_save_folder`
 
@@ -1416,7 +1690,8 @@ last_save_folder: Path | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/last_save_folder`.
+Route: `GET /api/v1/last_save_folder`.  
+Raises nothing.
 
 The folder of the last file saved, whoever asked for the save.
 
@@ -1425,10 +1700,6 @@ build's output, including what a build that failed part way did
 write. The folder moves when the file lands, never when the work
 starts, so work that wrote nothing leaves it where it was; the last
 save to land wins. None before anything is saved.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.light_shown_channel"></a>
 ### `ScopeSession.light_shown_channel`
@@ -1540,7 +1811,8 @@ or a stale setting.
 live_work: LiveWork  # property
 ```
 
-Marks: in-process; reads (changes nothing).
+Marks: in-process; reads (changes nothing).  
+Raises nothing.
 
 Everything the session is still doing, each piece from its owner.
 
@@ -1557,10 +1829,6 @@ a build how far it has got, and a run's images the write that is
 stuck, once one is. Read lock-free, owner by owner, from any
 thread; `closing` while the close runs, `closed` once the
 session has shut down. A wire client reads it in `status`.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.load_plugins"></a>
 ### `ScopeSession.load_plugins`
@@ -1707,6 +1975,39 @@ Where the ZIP is, and the words that say where to send it.
 - [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `not_a_folder`
 - [`SupportReportNotSavedError`](#SupportReportNotSavedError): `support_report_not_saved`
 
+<a id="ScopeSession.start_make_logs_zip"></a>
+### `ScopeSession.start_make_logs_zip`
+
+```python
+def start_make_logs_zip(
+    self,
+    *,
+    output_dir: FilePath,
+    on_progress: ProgressCallback | None = None,
+) -> Operation[SupportReportSaved]
+```
+
+Route: `POST /api/v1/start_make_logs_zip`.
+
+Start `make_logs_zip` without waiting for it; returns its `Operation`.
+
+The same zip, on the diagnostics lane; the operation is done with
+what `make_logs_zip` would have returned or raised. A zip has no
+stop: once started it runs to its end.
+
+**Args**
+
+- `output_dir`: As for `make_logs_zip`.
+- `on_progress`: As for `make_logs_zip`.
+
+**Raises**
+
+- `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started. Every refusal and failure `make_logs_zip` raises, the operation raises.
+
+**Refusals by REST status**
+
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
+
 <a id="ScopeSession.make_support_report"></a>
 ### `ScopeSession.make_support_report`
 
@@ -1750,6 +2051,42 @@ Where the ZIP is, and the words that say where to send it.
 - [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `not_a_folder`
 - [`SupportReportNotSavedError`](#SupportReportNotSavedError): `support_report_not_saved`
 
+<a id="ScopeSession.start_make_support_report"></a>
+### `ScopeSession.start_make_support_report`
+
+```python
+def start_make_support_report(
+    self,
+    *,
+    output_dir: FilePath,
+    include_bandwidth_test: bool = False,
+    on_progress: ProgressCallback | None = None,
+) -> Operation[SupportReportSaved]
+```
+
+Route: `POST /api/v1/start_make_support_report`.
+
+Start `make_support_report` without waiting for it; returns its `Operation`.
+
+The same report, on the diagnostics lane, so a Stop never waits
+behind it; the operation is done with what `make_support_report`
+would have returned or raised. A report has no stop: once started it
+runs to its end, a step the hardware fails written into the ZIP.
+
+**Args**
+
+- `output_dir`: As for `make_support_report`.
+- `include_bandwidth_test`: As for `make_support_report`.
+- `on_progress`: As for `make_support_report`.
+
+**Raises**
+
+- `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started. Every refusal and failure `make_support_report` raises, the operation raises.
+
+**Refusals by REST status**
+
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
+
 <a id="ScopeSession.model_at_next_start"></a>
 ### `ScopeSession.model_at_next_start`
 
@@ -1758,7 +2095,8 @@ model_at_next_start: str | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/model_at_next_start`.
+Route: `GET /api/v1/model_at_next_start`.  
+Raises nothing.
 
 The model this scope's next start runs as, when it is not the one running, else None.
 
@@ -1769,10 +2107,6 @@ scope whose board names its model runs as the board's at every
 start (`ChannelIdentity.model_named_by_board`), so there it is
 None whatever is saved. A caller shows this rather than comparing
 the models itself.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.new_protocol"></a>
 ### `ScopeSession.new_protocol`
@@ -1928,16 +2262,13 @@ plugin_api_level: int  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/plugin_api_level`.
+Route: `GET /api/v1/plugin_api_level`.  
+Raises nothing.
 
 What this LumaViewPro does that a plugin may rely on.
 
 Each level's additions are listed in plugin-tutorial.md, "The
 plugin API level".
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.plugin_health"></a>
 ### `ScopeSession.plugin_health`
@@ -1947,15 +2278,12 @@ plugin_health: PluginHealth | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/plugin_health`.
+Route: `GET /api/v1/plugin_health`.  
+Raises nothing.
 
 The loaded plugins, the ones that did not load, and their runtime errors.
 
 None on a session whose host never asked for plugins (`load_plugins`).
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.plugin_run_in_flight"></a>
 ### `ScopeSession.plugin_run_in_flight`
@@ -1964,7 +2292,8 @@ Nothing.
 def plugin_run_in_flight(self) -> Iterator[None]
 ```
 
-Marks: in-process.
+Marks: in-process.  
+Raises nothing.
 
 Count a plugin's run as live work from entry to exit, entered and left on any threads.
 
@@ -1977,10 +2306,6 @@ it always did; this holds no claim and refuses nothing, and the
 close waits for it as for any live work, after the plugins are told
 to stop.
 
-**Raises**
-
-Nothing.
-
 <a id="ScopeSession.plugins"></a>
 ### `ScopeSession.plugins`
 
@@ -1988,15 +2313,12 @@ Nothing.
 plugins: PluginRegistry | None  # property
 ```
 
-Marks: in-process; reads (changes nothing).
+Marks: in-process; reads (changes nothing).  
+Raises nothing.
 
 The plugin contract: the namespaces a plugin registers into, as `ctx.plugins`.
 
 None until the host asks for plugins (`load_plugins`).
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.point_steps_at_turret_slot"></a>
 ### `ScopeSession.point_steps_at_turret_slot`
@@ -2042,7 +2364,8 @@ the indexes of the steps pointed, which are empty when no question names it.
 def protocol_runner(self) -> ProtocolRunner
 ```
 
-Route: `POST /api/v1/protocol_runner`.
+Route: `POST /api/v1/protocol_runner`.  
+Raises nothing.
 
 The session's one ProtocolRunner (memoized).
 
@@ -2053,10 +2376,6 @@ pair) is session composition, so there is nothing per-call to
 configure -- and nothing for a second caller's differing
 configuration to silently lose.
 
-**Raises**
-
-Nothing.
-
 <a id="ScopeSession.protocol_size_advisory"></a>
 ### `ScopeSession.protocol_size_advisory`
 
@@ -2065,7 +2384,8 @@ def protocol_size_advisory(self, protocol: Protocol) -> ProtocolSizeAdvisory | N
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/protocol_size_advisory`.
+Route: `GET /api/v1/protocol_size_advisory`.  
+Raises nothing.
 
 Ask a protocol whether it is large enough to warn the user about.
 
@@ -2079,10 +2399,6 @@ the camera is delivering now, as the run's start sizes them.
 **Args**
 
 - `protocol`: The protocol sized, a scan of it and a full run of it.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.put_live_folder_file"></a>
 ### `ScopeSession.put_live_folder_file`
@@ -2125,17 +2441,14 @@ The file written.
 def remove_outcome_listener(self, listener: Callable[[Notification], None]) -> None
 ```
 
-Marks: in-process.
+Marks: in-process.  
+Raises nothing.
 
 Stop `listener` hearing outcomes; a listener never added is a no-op.
 
 **Args**
 
 - `listener`: The callable `add_outcome_listener` (or `create`'s `outcome_listener`) registered.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.remove_run_state_listener"></a>
 ### `ScopeSession.remove_run_state_listener`
@@ -2144,17 +2457,14 @@ Nothing.
 def remove_run_state_listener(self, listener: Callable[[], None]) -> None
 ```
 
-Marks: in-process.
+Marks: in-process.  
+Raises nothing.
 
 Stop telling `listener` of run-state transitions; a listener never added is a no-op.
 
 **Args**
 
 - `listener`: The callable `add_run_state_listener` registered.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.remove_settings_listener"></a>
 ### `ScopeSession.remove_settings_listener`
@@ -2163,17 +2473,14 @@ Nothing.
 def remove_settings_listener(self, listener: Callable[[tuple[str, ...]], None]) -> None
 ```
 
-Marks: in-process.
+Marks: in-process.  
+Raises nothing.
 
 Stop telling `listener`; a listener never added is a no-op.
 
 **Args**
 
 - `listener`: The callable `add_settings_listener` registered.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.remove_shown_channel_listener"></a>
 ### `ScopeSession.remove_shown_channel_listener`
@@ -2182,17 +2489,14 @@ Nothing.
 def remove_shown_channel_listener(self, listener: Callable[[str, bool], None]) -> None
 ```
 
-Marks: in-process.
+Marks: in-process.  
+Raises nothing.
 
 Stop telling `listener`; a listener never added is a no-op.
 
 **Args**
 
 - `listener`: The callable `add_shown_channel_listener` registered.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.rename_step"></a>
 ### `ScopeSession.rename_step`
@@ -2229,7 +2533,8 @@ Give step `step_index` of `protocol` the label `name`; returns its new name.
 def renew_control(self, session_id: str) -> None
 ```
 
-Route: `POST /api/v1/renew_control`.
+Route: `POST /api/v1/renew_control`.  
+Raises nothing.
 
 Renew the control session named by its id, so it does not go silent (`take_control`).
 
@@ -2240,10 +2545,6 @@ included. An id that names no live session renews nothing.
 **Args**
 
 - `session_id`: The `id` the session was taken with.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.retire_rejected_settings"></a>
 ### `ScopeSession.retire_rejected_settings`
@@ -2397,13 +2698,10 @@ scale_bar_enabled: bool  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scale_bar_enabled`.
+Route: `GET /api/v1/scale_bar_enabled`.  
+Raises nothing.
 
 Whether captured images are drawn with the scale bar, as `set_scale_bar_enabled` set it.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.select_labware"></a>
 ### `ScopeSession.select_labware`
@@ -2531,6 +2829,46 @@ objective already active is a no-op.
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
+<a id="ScopeSession.start_select_objective"></a>
+### `ScopeSession.start_select_objective`
+
+```python
+def start_select_objective(self, objective_id: str) -> Operation[bool]
+```
+
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_submit`, `guarded_write`.  
+Route: `POST /api/v1/start_select_objective`.
+
+Start the pick `select_objective` makes, without waiting for the turret; returns its `Operation`.
+
+For a caller that must not block for a turret change -- a button.
+Every refusal `select_objective` makes is made before this
+returns. On a turret scope the operation is the turret change
+(`MotionAPI.start_move_turret`), done with True once it has
+ended, or with its raise; its `stop()` is the change's. Picking
+the objective already active, or picking on a scope with no turret,
+is done when this returns, with what `select_objective` returns.
+
+**Args**
+
+- `objective_id`: The objective's catalog key.
+
+**Returns**
+
+The pick's `Operation`: its `result()` is whether the active objective changed, or raises as `move_turret` does -- `AxisStateUnknownError`, `MoveFaultError`, `MoveStoppedError` -- the slot unknown afterwards.
+
+**Raises**
+
+- `CatalogNameRefusedError`: `'objective_not_in_catalog'`, as `select_objective`.
+- `ArgumentRefusedError`: `'objective_in_several_slots'` or `'objective_not_on_turret'`, as `select_objective`. Nothing is moved.
+- `HardwareCommandRefusedError`: A run, a diagnostic, a home or a recording holds the scope (`'exclusive_activity_running'`), nothing written or moved; or `'not_connected'` or `'axis_absent'`, as `MotionAPI.start_move_turret`.
+
+**Refusals by REST status**
+
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`CatalogNameRefusedError`](#CatalogNameRefusedError): `objective_not_in_catalog`; [`ArgumentRefusedError`](#ArgumentRefusedError): `objective_in_several_slots`, `objective_not_on_turret`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
+
 <a id="ScopeSession.selected_model"></a>
 ### `ScopeSession.selected_model`
 
@@ -2539,7 +2877,8 @@ selected_model: str  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/selected_model`.
+Route: `GET /api/v1/selected_model`.  
+Raises nothing.
 
 The saved scope model: the one `select_model` saved.
 
@@ -2549,10 +2888,6 @@ board's at every start, refuses a selection, and leaves this as it
 was saved. The running
 scope's model is `scope.channel_identity.model`; whether a start
 will change it is `model_at_next_start`.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.set_channel_settings"></a>
 ### `ScopeSession.set_channel_settings`
@@ -2711,7 +3046,8 @@ def set_protocol_capture_root(self, protocol: Protocol, root: str) -> None
 ```
 
 Marks: enters: `guarded_write`.  
-Route: `POST /api/v1/set_protocol_capture_root`.
+Route: `POST /api/v1/set_protocol_capture_root`.  
+Raises nothing.
 
 Give `protocol` the capture root that prefixes its runs' file names.
 
@@ -2719,10 +3055,6 @@ Give `protocol` the capture root that prefixes its runs' file names.
 
 - `protocol`: The protocol given the root.
 - `root`: The capture root, kept as given; a run's saved file names begin with it, made safe for a file name.
-
-**Raises**
-
-Nothing.
 
 **Refusals by REST status**
 
@@ -2933,7 +3265,8 @@ settings_are_provisional: bool  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/settings_are_provisional`.
+Route: `GET /api/v1/settings_are_provisional`.  
+Raises nothing.
 
 Is the app running on defaults nobody has agreed to keep?
 
@@ -2943,10 +3276,6 @@ memory and not saved (`SettingsNotSavedNotice`) -- resolve with
 retire_rejected_settings() after the user has chosen to start
 over.
 
-**Raises**
-
-Nothing.
-
 <a id="ScopeSession.settings_snapshot"></a>
 ### `ScopeSession.settings_snapshot`
 
@@ -2954,7 +3283,8 @@ Nothing.
 settings_snapshot: dict  # property
 ```
 
-Marks: in-process; reads (changes nothing).
+Marks: in-process; reads (changes nothing).  
+Raises nothing.
 
 A deep copy of the settings dict, taken under the lock.
 
@@ -2966,10 +3296,6 @@ reads a setting by its path, through `setting`.
 `objective_id` is the active objective, as `setting` answers
 it: on a turret scope, the slot's in the light path, or None while
 that is unknown.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.show_channel"></a>
 ### `ScopeSession.show_channel`
@@ -3023,16 +3349,13 @@ shown_channel: ShownChannel  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/shown_channel`.
+Route: `GET /api/v1/shown_channel`.  
+Raises nothing.
 
 The channel the scope shows: its channel, and whether its LED is lit.
 
 Whether it is lit is the LED store's answer at this read, whoever lit
 or darkened it.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.shutdown"></a>
 ### `ScopeSession.shutdown`
@@ -3093,13 +3416,10 @@ again.
 source_path: Path  # property
 ```
 
-Marks: in-process; reads (changes nothing).
+Marks: in-process; reads (changes nothing).  
+Raises nothing.
 
 The data folder this session runs on: its scope's, never a copy.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.start_application_session"></a>
 ### `ScopeSession.start_application_session`
@@ -3182,197 +3502,6 @@ returns an operation already done.
 
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `home_in_flight`, `exclusive_activity_running`
 
-<a id="ScopeSession.start_go_to_step"></a>
-### `ScopeSession.start_go_to_step`
-
-```python
-def start_go_to_step(self, protocol: Protocol, step_index: int) -> Operation[None]
-```
-
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `guarded_write`.  
-Route: `POST /api/v1/start_go_to_step`.
-
-Start going to step `step_index` of `protocol`, as a click on a step does.
-
-One task on the scope's IO lane: the axes are asked once whether
-they know their position; the turret turns to the step's objective
-and X, Y and Z are started towards the step together, on the
-protocol's own plate, at the targets a run computes for the step;
-the step's values go into its channel's live settings
-as any channel write puts them, the channel acquiring as the step
-does, so the channel and the step agree; its saved focus is left as
-it is, where New starts the next protocol; and the step's LED preview is
-applied -- its channel at its current when `protocol_led_on` is
-set, every channel dark when not. It returns once that task has run,
-before the stage arrives, with one `Operation` for the moves it
-started, X and Y as one request (`MotionAPI.start_move_xy`) and
-then Z: done once every one has ended, its `result()` returns None
-when all arrived and raises the first that did not, in X, Y, Z
-order, as `MotionAPI.start_move_z` says; its
-`stop()` stops the moves still under way. `go_to_step` waits on
-it. A person's click is a gesture and does not wait; a fault on the
-way is the motion monitor's to report. Only the axes this scope has
-are moved: a manual scope moves nothing, does the rest and returns
-an operation already done.
-
-A repeat of the step this session last went to (a re-click, a
-re-typed number) does everything but the preview: a channel the
-person lit or put out in between stays as they left it, and when
-another channel was shown meanwhile the step's channel is shown again,
-lit or dark as the shown channel was.
-
-Once that task has run, the step's channel's stored settings go on
-the camera before this returns, so a still asked after
-it is taken at the step's settings. It waits on the camera lane, so
-it is refused on the UI thread; a click calls it from a worker.
-
-**Args**
-
-- `protocol`: The protocol whose step is gone to.
-- `step_index`: The step gone to, counted from 0.
-
-**Raises**
-
-- `StepNotFoundError`: `step_index` is not a step of `protocol`. Nothing changes.
-- `ProtocolRunRefusedError`: `'step_position_missing'`, the step has no position on an axis the scope drives. This scope cannot put the step's objective in the light path: on a turret scope `'turret_objectives_unassigned'`, no slot carries it, or `'turret_slot_reassigned'` or `'turret_slot_ambiguous'`, the slot the step meant is no longer one slot carrying it; without a turret `'objective_not_mounted'`, it is not the selected objective. Nothing changes.
-- `ArgumentRefusedError`: `'channel_unknown'`, the step's color is not a channel. Nothing changes.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no channel of the step's color. Nothing changes.
-- `ProtocolRunRefusedError`: `'values_out_of_range'`, a value the step would store in its channels is outside its channel setting's range, each named by column and bound. Nothing changes. A value past the hardware's limit is stored at the limit and told (`ValueClampedNotice`).
-- `ArgumentRefusedError`: `'gain_range_inverted'`, the step turns auto-gain on while the stored auto-gain range has its minimum gain above its maximum. Nothing changes.
-- `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved. Nothing changes.
-- `CameraSettingRejected`: `'camera_read_failed'`, the camera's gain and exposure range could not be read after its last readout change, naming the step's gain and exposure. Nothing changes.
-- `AxisStateUnknownError`: an axis the step moves does not know its position. Nothing changes.
-- `HardwareCommandRefusedError`: `'not_connected'`, this scope's motor controller or camera is not connected, or its LED controller is not and the step's preview would light; `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or a manual recording runs and the step's channel is not the shown one or its preview would light an LED not lit above 0 mA. Nothing changes.
-- `PositionOutOfRangeError`: the step lies outside an axis's travel; any move already started is stopped, nothing else changes.
-- `MoveFaultError`: `'driver_failed'`, the board did not take an axis's command, and any move already started is stopped; or the turret's move to the step's slot did not arrive; see `MotionAPI.start_move_z`.
-- `MoveStoppedError`: `'stopped'`, `'lid_open_mid_move'` or `'superseded'`, the turret's move to the step's slot was ended.
-- `CameraSettingRejected`: the camera did not take a setting of the step's channel (its `reason` says how); the moves started are stopped, and the channel and the preview are the step's.
-- `MotorStopFailedError`: a move already started could not be stopped: the board did not take the STOP, or the move did not settle after it.
-- `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread. Nothing was started.
-
-Any other raise once the moves have started (the preview's LED
-command among them) stops them first, by one STOP that withholds no
-move asked before it, and the step is not counted as gone to: going
-to it again shows its preview. Where another activity holds the
-scope by then, or no STOP can be sent, nothing is sent and the
-raise goes on as it is.
-
-**Refusals by REST status**
-
-- 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `turret_objectives_unassigned`, `turret_slot_reassigned`, `turret_slot_ambiguous`, `objective_not_mounted`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `lid_open_mid_move`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `step_position_missing`, `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_read_failed`, `camera_rejected`, `camera_no_answer`; [`MoveFaultError`](#MoveFaultError): `driver_failed`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
-
-<a id="ScopeSession.start_make_logs_zip"></a>
-### `ScopeSession.start_make_logs_zip`
-
-```python
-def start_make_logs_zip(
-    self,
-    *,
-    output_dir: FilePath,
-    on_progress: ProgressCallback | None = None,
-) -> Operation[SupportReportSaved]
-```
-
-Route: `POST /api/v1/start_make_logs_zip`.
-
-Start `make_logs_zip` without waiting for it; returns its `Operation`.
-
-The same zip, on the diagnostics lane; the operation is done with
-what `make_logs_zip` would have returned or raised. A zip has no
-stop: once started it runs to its end.
-
-**Args**
-
-- `output_dir`: As for `make_logs_zip`.
-- `on_progress`: As for `make_logs_zip`.
-
-**Raises**
-
-- `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started. Every refusal and failure `make_logs_zip` raises, the operation raises.
-
-**Refusals by REST status**
-
-- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
-
-<a id="ScopeSession.start_make_support_report"></a>
-### `ScopeSession.start_make_support_report`
-
-```python
-def start_make_support_report(
-    self,
-    *,
-    output_dir: FilePath,
-    include_bandwidth_test: bool = False,
-    on_progress: ProgressCallback | None = None,
-) -> Operation[SupportReportSaved]
-```
-
-Route: `POST /api/v1/start_make_support_report`.
-
-Start `make_support_report` without waiting for it; returns its `Operation`.
-
-The same report, on the diagnostics lane, so a Stop never waits
-behind it; the operation is done with what `make_support_report`
-would have returned or raised. A report has no stop: once started it
-runs to its end, a step the hardware fails written into the ZIP.
-
-**Args**
-
-- `output_dir`: As for `make_support_report`.
-- `include_bandwidth_test`: As for `make_support_report`.
-- `on_progress`: As for `make_support_report`.
-
-**Raises**
-
-- `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started. Every refusal and failure `make_support_report` raises, the operation raises.
-
-**Refusals by REST status**
-
-- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
-
-<a id="ScopeSession.start_select_objective"></a>
-### `ScopeSession.start_select_objective`
-
-```python
-def start_select_objective(self, objective_id: str) -> Operation[bool]
-```
-
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_submit`, `guarded_write`.  
-Route: `POST /api/v1/start_select_objective`.
-
-Start the pick `select_objective` makes, without waiting for the turret; returns its `Operation`.
-
-For a caller that must not block for a turret change -- a button.
-Every refusal `select_objective` makes is made before this
-returns. On a turret scope the operation is the turret change
-(`MotionAPI.start_move_turret`), done with True once it has
-ended, or with its raise; its `stop()` is the change's. Picking
-the objective already active, or picking on a scope with no turret,
-is done when this returns, with what `select_objective` returns.
-
-**Args**
-
-- `objective_id`: The objective's catalog key.
-
-**Returns**
-
-The pick's `Operation`: its `result()` is whether the active objective changed, or raises as `move_turret` does -- `AxisStateUnknownError`, `MoveFaultError`, `MoveStoppedError` -- the slot unknown afterwards.
-
-**Raises**
-
-- `CatalogNameRefusedError`: `'objective_not_in_catalog'`, as `select_objective`.
-- `ArgumentRefusedError`: `'objective_in_several_slots'` or `'objective_not_on_turret'`, as `select_objective`. Nothing is moved.
-- `HardwareCommandRefusedError`: A run, a diagnostic, a home or a recording holds the scope (`'exclusive_activity_running'`), nothing written or moved; or `'not_connected'` or `'axis_absent'`, as `MotionAPI.start_move_turret`.
-
-**Refusals by REST status**
-
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`CatalogNameRefusedError`](#CatalogNameRefusedError): `objective_not_in_catalog`; [`ArgumentRefusedError`](#ArgumentRefusedError): `objective_in_several_slots`, `objective_not_on_turret`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
-
 <a id="ScopeSession.status"></a>
 ### `ScopeSession.status`
 
@@ -3404,7 +3533,8 @@ lock (`Status`); no field does serial I/O.
 def take_back_control(self) -> ControlSession | None
 ```
 
-Marks: in-process.
+Marks: in-process.  
+Raises nothing.
 
 End whatever control session is held, and stop the run or recording taken in it, as `end_control`.
 
@@ -3415,10 +3545,6 @@ off the wire: a client ends only the session whose id it was told.
 **Returns**
 
 The session ended, or None when none was held.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.take_control"></a>
 ### `ScopeSession.take_control`
@@ -3476,7 +3602,8 @@ tiling_config: TilingConfig  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/tiling_config`.
+Route: `GET /api/v1/tiling_config`.  
+Raises nothing.
 
 The tiling grids this installation offers: the scope's copy, read at bring-up.
 
@@ -3488,10 +3615,6 @@ installation's other catalogs, so a tiling.json edited while the
 program runs is seen at the next start, and every protocol is built
 against the same grids. The record is frozen: a caller cannot change
 the grids a session offers.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.turret_objective"></a>
 ### `ScopeSession.turret_objective`
@@ -3529,7 +3652,8 @@ def turret_slot_questions(self, protocol: Protocol) -> list[TurretSlotQuestion]
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/turret_slot_questions`.
+Route: `GET /api/v1/turret_slot_questions`.  
+Raises nothing.
 
 What to ask about `protocol`'s turret slots: one question per objective, or none.
 
@@ -3545,10 +3669,6 @@ and a run refuse as `turret_objectives_unassigned`.
 
 - `protocol`: The protocol whose steps are read.
 
-**Raises**
-
-Nothing.
-
 <a id="ScopeSession.unload_plugins"></a>
 ### `ScopeSession.unload_plugins`
 
@@ -3556,7 +3676,8 @@ Nothing.
 def unload_plugins(self) -> None
 ```
 
-Marks: in-process.
+Marks: in-process.  
+Raises nothing.
 
 Unload each loaded plugin, last loaded first.
 
@@ -3568,10 +3689,6 @@ the GUI's, before it stops runs and saves settings -- calls this
 first; `shutdown` calls it as its first step for every other host.
 A second call, and a call on a session with no plugins, does
 nothing. A plugin's own failure is logged and the rest unload.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.update_settings"></a>
 ### `ScopeSession.update_settings`
@@ -3696,7 +3813,8 @@ Returns the step's name after the update.
 def user_settings_file(source_path: FilePath) -> str
 ```
 
-Marks: in-process.
+Marks: in-process.  
+Raises nothing.
 
 The file the installation at `source_path` keeps its user configuration in.
 
@@ -3710,10 +3828,6 @@ first. Nothing is read or created here.
 
 - `source_path`: The installation folder, as `create` and `load_user_settings` take it.
 
-**Raises**
-
-Nothing.
-
 <a id="ManualCaptureController"></a>
 ## `lumascope.ManualCaptureController`
 
@@ -3721,15 +3835,6 @@ Reached through `session.manual_capture`; on the wire, `/api/v1/manual_capture/`
 Held in: [`ScopeSession.manual_capture`](#ScopeSession.manual_capture).
 
 One still at a time, captured on the camera lane and saved.
-
-**Args**
-
-- `scope`: The Lumascope instance.
-- `settings_snapshot`: Returns a private copy of the session's settings; one is taken per capture, when the capture is asked for.
-- `shown_channel`: Reads the session's shown channel, on the camera lane as the frame is taken: it is the still's channel when no LED is lit.
-- `engineering_mode`: Reads the session's engineering mode, once per capture, when the capture is asked for: a plugin may turn it on after the controller is built.
-- `channel_colors`: Reads every channel's color, from the Session's one read of it, once per capture, when the capture is asked for.
-- `on_saved`: Told the folder of each still once its files are on disk, on the camera lane, before the caller is answered.
 
 <a id="ManualCaptureController.start_save_still"></a>
 ### `ManualCaptureController.start_save_still`
@@ -3783,20 +3888,6 @@ Held in: [`ScopeSession.manual_recording`](#ScopeSession.manual_recording).
 
 One manual-recording flow: snapshot, record, drain, finish.
 
-**Args**
-
-- `scope`: The Lumascope instance (frame listener, camera identity, exposure, stage position).
-- `settings_snapshot`: Returns a private copy of the session's settings; called once per `start`, after its refusals, and the recording's own settings (rate, duration, format, folder, overlay) are read from that one copy, so a change made while it starts applies to the next recording, not part of this one. The objective and the plate are read once the recording holds the scope, which refuses a change to either.
-- `shown_channel`: Reads the session's shown channel, once, at `start`, once the recording holds the scope: it names the recording.
-- `channel_colors`: Reads every channel's color, from the Session's one read of it, once, at `start`.
-- `activity_claim`: The session's compare-and-claim handle; passed through to the engine so a recording and a protocol run are mutually exclusive.
-- `scheduler`: The session's scheduler; the controller arms its own periodic health check on it at `start` and disarms at finish. Required: a controller that can start a recording but has no armed health bound is the trap this parameter exists to make unconstructible.
-- `post_processing`: The session's builds; a recording's stack is built through it.
-- `on_saved`: Told the recording's folder when its saving has ended with a frame written, before the recording's operation settles.
-- `clock`: Wall-time source (seconds) for what is measured against frame timestamps: the engine's cadence, and its start on a camera without a clock mapping. Tests drive it.
-- `steady_clock`: The host's steady clock (nanoseconds) the engine reads its start on through the recording's clock mapping. Tests drive it.
-- `elapsed_clock`: Elapsed-time source (seconds) for the recording's bounds: its elapsed time, the duration backstop, the stall watch and the disk probe's interval. Monotonic, because wall time steps (an NTP correction, a host resume) and a step would end a good recording early or let one run past its backstop. Tests drive it.
-
 <a id="ManualRecordingController.elapsed_s"></a>
 ### `ManualRecordingController.elapsed_s`
 
@@ -3805,13 +3896,10 @@ elapsed_s: float  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/manual_recording/elapsed_s`.
+Route: `GET /api/v1/manual_recording/elapsed_s`.  
+Raises nothing.
 
 Seconds since the recording started; 0.0 when idle.
-
-**Raises**
-
-Nothing.
 
 <a id="ManualRecordingController.is_draining"></a>
 ### `ManualRecordingController.is_draining`
@@ -3821,13 +3909,10 @@ is_draining: bool  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/manual_recording/is_draining`.
+Route: `GET /api/v1/manual_recording/is_draining`.  
+Raises nothing.
 
 True while queued frames are still being written.
-
-**Raises**
-
-Nothing.
 
 <a id="ManualRecordingController.is_recording"></a>
 ### `ManualRecordingController.is_recording`
@@ -3837,13 +3922,10 @@ is_recording: bool  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/manual_recording/is_recording`.
+Route: `GET /api/v1/manual_recording/is_recording`.  
+Raises nothing.
 
 True while cadence selection is open.
-
-**Raises**
-
-Nothing.
 
 <a id="ManualRecordingController.pending_writes"></a>
 ### `ManualRecordingController.pending_writes`
@@ -3853,13 +3935,10 @@ pending_writes: int  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/manual_recording/pending_writes`.
+Route: `GET /api/v1/manual_recording/pending_writes`.  
+Raises nothing.
 
 Frames enqueued but not yet on disk.
-
-**Raises**
-
-Nothing.
 
 <a id="ManualRecordingController.save_folder"></a>
 ### `ManualRecordingController.save_folder`
@@ -3869,13 +3948,10 @@ save_folder: Path | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/manual_recording/save_folder`.
+Route: `GET /api/v1/manual_recording/save_folder`.  
+Raises nothing.
 
 The active (or last) recording's output folder.
-
-**Raises**
-
-Nothing.
 
 <a id="ManualRecordingController.start"></a>
 ### `ManualRecordingController.start`
@@ -3926,7 +4002,8 @@ The recording's `Operation`: done once its frames, MP4 close and any hyperstack 
 def stop(self) -> None
 ```
 
-Route: `POST /api/v1/manual_recording/stop`.
+Route: `POST /api/v1/manual_recording/stop`.  
+Raises nothing.
 
 Close selection; the drain and finish continue on their own.
 
@@ -3936,10 +4013,6 @@ Every caller of this -- the Record button, app close, a REST or SDK client
 own enders (the duration backstop, the
 disk floor, a lost camera) name their own, and no caller can write
 one of those into the manifest.
-
-**Raises**
-
-Nothing.
 
 <a id="PostProcessingAPI"></a>
 ## `lumascope.PostProcessingAPI`
@@ -4016,6 +4089,52 @@ the members one by one.
 - [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`
 - [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 - [`SessionClosingError`](#SessionClosingError): `session_closing`
+
+<a id="PostProcessingAPI.start_build"></a>
+### `PostProcessingAPI.start_build`
+
+```python
+def start_build(
+    self,
+    folder: FilePath,
+    *,
+    zproject: ZProject | None = None,
+    stitch: Stitch | None = None,
+    composite: bool = False,
+    video: Video | None = None,
+    on_progress: ProgressCallback | None = None,
+) -> Operation[BuildsResult]
+```
+
+Marks: enters: `post_processing`.  
+Route: `POST /api/v1/post_processing/start_build`.
+
+Start `build` without waiting for it; returns its `Operation`.
+
+The same builds, in the same order, as one task on the
+post-processing lane; the operation is done with what `build` would
+have returned or raised. A build has no stop: once started it runs to
+its end.
+
+**Args**
+
+- `folder`: As for `build`.
+- `zproject`: As for `build`.
+- `stitch`: As for `build`.
+- `composite`: As for `build`.
+- `video`: As for `build`.
+- `on_progress`: As for `build`.
+
+**Raises**
+
+- `PostProcessingRefusedError`: `'invalid_setting'`, no build is chosen, or a chosen build's setting is one its own member refuses; nothing was queued. Every other refusal and failure `build` raises, the operation raises.
+- `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started.
+
+**Refusals by REST status**
+
+- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `disk_space_insufficient`, `capture_location_unusable`
+- 422: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `invalid_setting`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="PostProcessingAPI.cell_count_size_scale"></a>
 ### `PostProcessingAPI.cell_count_size_scale`
@@ -4107,6 +4226,47 @@ The results table, the method file, how many images were counted, each image lef
 - [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 - [`SessionClosingError`](#SessionClosingError): `session_closing`
 
+<a id="PostProcessingAPI.start_count_cells"></a>
+### `PostProcessingAPI.start_count_cells`
+
+```python
+def start_count_cells(
+    self,
+    folder: FilePath,
+    *,
+    method: CellCountMethod,
+    channel: str | None = None,
+    on_progress: ProgressCallback | None = None,
+) -> Operation[CellCountResult]
+```
+
+Marks: enters: `post_processing`.  
+Route: `POST /api/v1/post_processing/start_count_cells`.
+
+Start `count_cells` without waiting for it; returns its `Operation`.
+
+The same count, as one task on the post-processing lane; the
+operation is done with what `count_cells` would have returned or
+raised. A count has no stop: once started it runs to its end.
+
+**Args**
+
+- `folder`: As for `count_cells`.
+- `method`: As for `count_cells`.
+- `channel`: As for `count_cells`.
+- `on_progress`: As for `count_cells`.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'channel_unknown'`, *channel* is not one of this release's channels; nothing was queued. Every other refusal and failure `count_cells` raises, the operation raises.
+- `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started.
+
+**Refusals by REST status**
+
+- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `disk_space_insufficient`, `capture_location_unusable`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
+
 <a id="PostProcessingAPI.default_cell_count_method"></a>
 ### `PostProcessingAPI.default_cell_count_method`
 
@@ -4115,14 +4275,11 @@ default_cell_count_method: CellCountMethod  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/post_processing/default_cell_count_method`.
+Route: `GET /api/v1/post_processing/default_cell_count_method`.  
+Raises nothing.
 
 The cell-count method LumaViewPro's panel starts from, for
 `count_cells(method=)`: `CellCountMethod()`.
-
-**Raises**
-
-Nothing.
 
 <a id="PostProcessingAPI.enhance"></a>
 ### `PostProcessingAPI.enhance`
@@ -4171,6 +4328,44 @@ Each derived file, the folder they are in, and the outcome in words.
 - [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`
 - [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 - [`SessionClosingError`](#SessionClosingError): `session_closing`
+
+<a id="PostProcessingAPI.start_enhance"></a>
+### `PostProcessingAPI.start_enhance`
+
+```python
+def start_enhance(
+    self,
+    target: FilePath,
+    *,
+    on_progress: ProgressCallback | None = None,
+    on_derived_image: Callable[[np.ndarray, int], None] | None = None,
+) -> Operation[EnhanceResult]
+```
+
+Marks: enters: `post_processing`.  
+Route: `POST /api/v1/post_processing/start_enhance`.
+
+Start `enhance` without waiting for it; returns its `Operation`.
+
+The same enhance, its settings read when it is asked, as one task on
+the post-processing lane; the operation is done with what `enhance`
+would have returned or raised. An enhance has no stop: once started
+it runs to its end.
+
+**Args**
+
+- `target`: As for `enhance`.
+- `on_progress`: As for `enhance`.
+- `on_derived_image`: As for `enhance`.
+
+**Raises**
+
+- `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started. Every refusal and failure `enhance` raises, the operation raises.
+
+**Refusals by REST status**
+
+- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `disk_space_insufficient`, `capture_location_unusable`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="PostProcessingAPI.graph"></a>
 ### `PostProcessingAPI.graph`
@@ -4361,131 +4556,6 @@ Written on the caller's thread, as the load is read.
 
 - 422: [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `not_a_file`, `wrong_extension`, `not_a_folder`; [`PostProcessingRefusedError`](#PostProcessingRefusedError): `method_invalid`
 
-<a id="PostProcessingAPI.start_build"></a>
-### `PostProcessingAPI.start_build`
-
-```python
-def start_build(
-    self,
-    folder: FilePath,
-    *,
-    zproject: ZProject | None = None,
-    stitch: Stitch | None = None,
-    composite: bool = False,
-    video: Video | None = None,
-    on_progress: ProgressCallback | None = None,
-) -> Operation[BuildsResult]
-```
-
-Marks: enters: `post_processing`.  
-Route: `POST /api/v1/post_processing/start_build`.
-
-Start `build` without waiting for it; returns its `Operation`.
-
-The same builds, in the same order, as one task on the
-post-processing lane; the operation is done with what `build` would
-have returned or raised. A build has no stop: once started it runs to
-its end.
-
-**Args**
-
-- `folder`: As for `build`.
-- `zproject`: As for `build`.
-- `stitch`: As for `build`.
-- `composite`: As for `build`.
-- `video`: As for `build`.
-- `on_progress`: As for `build`.
-
-**Raises**
-
-- `PostProcessingRefusedError`: `'invalid_setting'`, no build is chosen, or a chosen build's setting is one its own member refuses; nothing was queued. Every other refusal and failure `build` raises, the operation raises.
-- `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started.
-
-**Refusals by REST status**
-
-- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `disk_space_insufficient`, `capture_location_unusable`
-- 422: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `invalid_setting`
-- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
-
-<a id="PostProcessingAPI.start_count_cells"></a>
-### `PostProcessingAPI.start_count_cells`
-
-```python
-def start_count_cells(
-    self,
-    folder: FilePath,
-    *,
-    method: CellCountMethod,
-    channel: str | None = None,
-    on_progress: ProgressCallback | None = None,
-) -> Operation[CellCountResult]
-```
-
-Marks: enters: `post_processing`.  
-Route: `POST /api/v1/post_processing/start_count_cells`.
-
-Start `count_cells` without waiting for it; returns its `Operation`.
-
-The same count, as one task on the post-processing lane; the
-operation is done with what `count_cells` would have returned or
-raised. A count has no stop: once started it runs to its end.
-
-**Args**
-
-- `folder`: As for `count_cells`.
-- `method`: As for `count_cells`.
-- `channel`: As for `count_cells`.
-- `on_progress`: As for `count_cells`.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'channel_unknown'`, *channel* is not one of this release's channels; nothing was queued. Every other refusal and failure `count_cells` raises, the operation raises.
-- `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started.
-
-**Refusals by REST status**
-
-- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `disk_space_insufficient`, `capture_location_unusable`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
-- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
-
-<a id="PostProcessingAPI.start_enhance"></a>
-### `PostProcessingAPI.start_enhance`
-
-```python
-def start_enhance(
-    self,
-    target: FilePath,
-    *,
-    on_progress: ProgressCallback | None = None,
-    on_derived_image: Callable[[np.ndarray, int], None] | None = None,
-) -> Operation[EnhanceResult]
-```
-
-Marks: enters: `post_processing`.  
-Route: `POST /api/v1/post_processing/start_enhance`.
-
-Start `enhance` without waiting for it; returns its `Operation`.
-
-The same enhance, its settings read when it is asked, as one task on
-the post-processing lane; the operation is done with what `enhance`
-would have returned or raised. An enhance has no stop: once started
-it runs to its end.
-
-**Args**
-
-- `target`: As for `enhance`.
-- `on_progress`: As for `enhance`.
-- `on_derived_image`: As for `enhance`.
-
-**Raises**
-
-- `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started. Every refusal and failure `enhance` raises, the operation raises.
-
-**Refusals by REST status**
-
-- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `disk_space_insufficient`, `capture_location_unusable`
-- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
-
 <a id="Lumascope"></a>
 ## `lumascope.Lumascope`
 
@@ -4513,16 +4583,13 @@ all_labware: tuple[Labware, ...]  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/all_labware`.
+Route: `GET /api/v1/scope/all_labware`.  
+Raises nothing.
 
 Every plate of the installation, read once at bring-up, in the catalog's order.
 
 Each record is read-only and carries its `name`, the key
 `plate` takes. Slides and Petri dishes are not offered yet.
-
-**Raises**
-
-Nothing.
 
 <a id="Lumascope.all_objectives"></a>
 ### `Lumascope.all_objectives`
@@ -4532,7 +4599,8 @@ all_objectives: tuple[Objective, ...]  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/all_objectives`.
+Route: `GET /api/v1/scope/all_objectives`.  
+Raises nothing.
 
 Every objective of the installation, read once at bring-up, in the order they are offered.
 
@@ -4540,10 +4608,6 @@ Each maker's objectives are listed together, the makers in the order
 each first appears in the catalog; within a maker they rise by
 magnification. Each record is read-only and carries its `id`, the
 key `objective` takes.
-
-**Raises**
-
-Nothing.
 
 <a id="Lumascope.all_scope_models"></a>
 ### `Lumascope.all_scope_models`
@@ -4553,16 +4617,13 @@ all_scope_models: tuple[ScopeModel, ...]  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/all_scope_models`.
+Route: `GET /api/v1/scope/all_scope_models`.  
+Raises nothing.
 
 Every scope model of the installation, read once at bring-up, in the catalog's order.
 
 Each record is read-only and carries its `id`, its name in the
 catalog, the name `ScopeSession.select_model` takes.
-
-**Raises**
-
-Nothing.
 
 <a id="Lumascope.motion_expected"></a>
 ### `Lumascope.motion_expected`
@@ -4572,17 +4633,14 @@ motion_expected: bool  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/motion_expected`.
+Route: `GET /api/v1/scope/motion_expected`.  
+Raises nothing.
 
 Whether this scope's model has a motor board at all.
 
 False for a manual scope (an LS620, LS560 or LS460): it is complete
 without one, so its absence is not a disconnection. Set from the
 model's catalog entry when the scope is brought up; True before that.
-
-**Raises**
-
-Nothing.
 
 <a id="Lumascope.objective"></a>
 ### `Lumascope.objective`
@@ -4645,16 +4703,13 @@ carries the old name; the plate it now lives under is answered.
 simulation: SimulationAPI  # property
 ```
 
-Marks: reads (changes nothing).
+Marks: reads (changes nothing).  
+Raises nothing.
 
 The faults a simulated scope presents, switched on by name.
 
 On the wire as in-process, but for two members that take or hand
 out an in-process object. Every member refuses on a real scope.
-
-**Raises**
-
-Nothing.
 
 <a id="Lumascope.unconnected_parts"></a>
 ### `Lumascope.unconnected_parts`
@@ -4664,7 +4719,8 @@ unconnected_parts: tuple[Board, ...]  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/unconnected_parts`.
+Route: `GET /api/v1/scope/unconnected_parts`.  
+Raises nothing.
 
 The parts this scope needs that are not connected.
 
@@ -4680,10 +4736,6 @@ manual scope is complete without it.
 **Returns**
 
 Each of `LED`, `MOTOR` and `CAMERA` that is not connected, in that order; empty when all are. A sentence names each by its `noun`.
-
-**Raises**
-
-Nothing.
 
 <a id="CameraAPI"></a>
 ## `lumascope.CameraAPI`
@@ -4703,7 +4755,8 @@ def applied_auto_gain_for(self, stored_auto_gain: bool) -> AppliedAutoGain
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/camera/applied_auto_gain_for`.
+Route: `GET /api/v1/scope/camera/applied_auto_gain_for`.  
+Raises nothing.
 
 What a stored auto-gain preference becomes on the attached camera.
 
@@ -4715,10 +4768,6 @@ takes it again.
 **Args**
 
 - `stored_auto_gain`: Whether a channel stores auto-gain on.
-
-**Raises**
-
-Nothing.
 
 <a id="CameraAPI.applied_exposure_ms_for"></a>
 ### `CameraAPI.applied_exposure_ms_for`
@@ -4845,16 +4894,13 @@ auto_exposure: CameraAutoMode | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/camera/auto_exposure`.
+Route: `GET /api/v1/scope/camera/auto_exposure`.  
+Raises nothing.
 
 The camera's auto-exposure mode, as the camera last reported or took
 it; None when unknown. Its writers: `set_auto_exposure`; auto-gain,
 whose arm, lock and one-shot switch exposure with the gain; and a
 fresh read of the camera's mode.
-
-**Raises**
-
-Nothing.
 
 <a id="CameraAPI.auto_gain"></a>
 ### `CameraAPI.auto_gain`
@@ -4864,16 +4910,13 @@ auto_gain: CameraAutoMode | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/camera/auto_gain`.
+Route: `GET /api/v1/scope/camera/auto_gain`.  
+Raises nothing.
 
 The camera's auto-gain mode, as the camera last reported or took it;
 None when unknown. Its writers: an arm, the lock that ends it, a
 one-shot (`ONCE` until a read finds it ended), and a fresh read
 of the camera's mode.
-
-**Raises**
-
-Nothing.
 
 <a id="CameraAPI.binning"></a>
 ### `CameraAPI.binning`
@@ -4883,13 +4926,10 @@ binning: int | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/camera/binning`.
+Route: `GET /api/v1/scope/camera/binning`.  
+Raises nothing.
 
 The binning factor the camera last reported or took; None when unknown.
-
-**Raises**
-
-Nothing.
 
 <a id="CameraAPI.black_level"></a>
 ### `CameraAPI.black_level`
@@ -4899,14 +4939,11 @@ black_level: float | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/camera/black_level`.
+Route: `GET /api/v1/scope/camera/black_level`.  
+Raises nothing.
 
 The black level the camera last reported or took (see
 `read_black_level`); None when unknown or the camera reports none.
-
-**Raises**
-
-Nothing.
 
 <a id="CameraAPI.exposure_ms"></a>
 ### `CameraAPI.exposure_ms`
@@ -4916,16 +4953,13 @@ exposure_ms: float | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/camera/exposure_ms`.
+Route: `GET /api/v1/scope/camera/exposure_ms`.  
+Raises nothing.
 
 The exposure in ms the camera last reported or took; None when unknown.
 
 Under a continuous auto-gain arm the camera chooses its own exposure,
 and this is the one from before the arm.
-
-**Raises**
-
-Nothing.
 
 <a id="CameraAPI.frame_at_binning"></a>
 ### `CameraAPI.frame_at_binning`
@@ -4971,14 +5005,11 @@ frame_size: FrameSize | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/camera/frame_size`.
+Route: `GET /api/v1/scope/camera/frame_size`.  
+Raises nothing.
 
 The size of the frames the camera delivers, as it last reported or
 took it, in pixels after binning; None when unknown.
-
-**Raises**
-
-Nothing.
 
 <a id="CameraAPI.gain_db"></a>
 ### `CameraAPI.gain_db`
@@ -4988,13 +5019,10 @@ gain_db: float | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/camera/gain_db`.
+Route: `GET /api/v1/scope/camera/gain_db`.  
+Raises nothing.
 
 The gain in dB the camera last reported or took; None when unknown.
-
-**Raises**
-
-Nothing.
 
 <a id="CameraAPI.high_conversion_gain"></a>
 ### `CameraAPI.high_conversion_gain`
@@ -5004,16 +5032,13 @@ high_conversion_gain: bool | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/camera/high_conversion_gain`.
+Route: `GET /api/v1/scope/camera/high_conversion_gain`.  
+Raises nothing.
 
 Whether the camera's high conversion gain is on, as the camera last
 took it; None when unknown, as after a value the camera refused. No
 driver reads it back. A camera without the mode is at its standard
 conversion gain: False.
-
-**Raises**
-
-Nothing.
 
 <a id="CameraAPI.image_mode"></a>
 ### `CameraAPI.image_mode`
@@ -5045,15 +5070,12 @@ line_noise_reduction: bool | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/camera/line_noise_reduction`.
+Route: `GET /api/v1/scope/camera/line_noise_reduction`.  
+Raises nothing.
 
 Whether the camera's line-noise filter is on, as the camera last took
 it; None when unknown. No driver reads it back. A camera without the
 filter reads unfiltered: False.
-
-**Raises**
-
-Nothing.
 
 <a id="CameraAPI.lock_auto_gain"></a>
 ### `CameraAPI.lock_auto_gain`
@@ -5063,7 +5085,8 @@ def lock_auto_gain(self) -> AutoGainLock
 ```
 
 Marks: enters: `lane_call`.  
-Route: `POST /api/v1/scope/camera/lock_auto_gain`.
+Route: `POST /api/v1/scope/camera/lock_auto_gain`.  
+Raises nothing.
 
 Lock a standing continuous auto-gain arm and return the result.
 
@@ -5077,10 +5100,6 @@ auto-gain stores `stored_exposure_ms` / `gain_db` as the manual
 setting; when no arm stands the result's `state` is None and
 nothing was written. With no camera connected no arm can stand, and
 that is the answer.
-
-**Raises**
-
-Nothing.
 
 **Refusals by REST status**
 
@@ -5097,7 +5116,8 @@ pixel_alignment: FrameSize  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/camera/pixel_alignment`.
+Route: `GET /api/v1/scope/camera/pixel_alignment`.  
+Raises nothing.
 
 Return the camera's deliverable frame-size granularity.
 
@@ -5109,10 +5129,6 @@ dimensions (H.264): 2 by 2, the camera profile's step.
 
 FrameSize: The step each side of a delivered frame is a multiple of, in pixels.
 
-**Raises**
-
-Nothing.
-
 <a id="CameraAPI.pixel_format"></a>
 ### `CameraAPI.pixel_format`
 
@@ -5121,14 +5137,11 @@ pixel_format: str | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/camera/pixel_format`.
+Route: `GET /api/v1/scope/camera/pixel_format`.  
+Raises nothing.
 
 The pixel format the camera last reported or took (e.g. `'Mono12'`),
 chosen by `set_image_mode`; None when unknown.
-
-**Raises**
-
-Nothing.
 
 <a id="CameraAPI.read_binning"></a>
 ### `CameraAPI.read_binning`
@@ -5859,17 +5872,14 @@ led_info: LedBoardInfo  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/diagnostics/led_info`.
+Route: `GET /api/v1/scope/diagnostics/led_info`.  
+Raises nothing.
 
 The LED board's firmware and command set.
 
 **Returns**
 
 LedBoardInfo: Each field None when unknown, all of them with no board connected.
-
-**Raises**
-
-Nothing.
 
 <a id="DiagnosticsAPI.motor_info"></a>
 ### `DiagnosticsAPI.motor_info`
@@ -5879,7 +5889,8 @@ motor_info: MotorBoardInfo  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/diagnostics/motor_info`.
+Route: `GET /api/v1/scope/diagnostics/motor_info`.  
+Raises nothing.
 
 The motor board's identity.
 
@@ -5890,10 +5901,6 @@ and this is read for every saved frame's metadata.
 **Returns**
 
 MotorBoardInfo: Each field None when unknown, all of them with no board connected -- none installed, or one lost since connect, whose cached identity no longer describes a board that is there.
-
-**Raises**
-
-Nothing.
 
 <a id="DiagnosticsAPI.read_camera_link"></a>
 ### `DiagnosticsAPI.read_camera_link`
@@ -5967,7 +5974,8 @@ def read_usb_census(self) -> UsbBusCensus
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/diagnostics/read_usb_census`.
+Route: `GET /api/v1/scope/diagnostics/read_usb_census`.  
+Raises nothing.
 
 Every device of each vendor a Lumascope is built from, on this host's USB bus, read now.
 
@@ -5979,10 +5987,6 @@ read again, so a device plugged since is in it. Read without
 elevation; takes no lane: it asks the host's device list, not the
 scope. A simulated scope's is its own parts, never the host's. A
 host whose device list cannot be read answers a census that says why.
-
-**Raises**
-
-Nothing.
 
 <a id="IlluminationAPI"></a>
 ## `lumascope.IlluminationAPI`
@@ -6003,7 +6007,8 @@ def add_led_listener(
 ) -> None
 ```
 
-Marks: in-process; event: [`LedReading`](#LedReading).
+Marks: in-process; event: [`LedReading`](#LedReading).  
+Raises nothing.
 
 Register a callback for LED state changes.
 
@@ -6016,10 +6021,6 @@ UI work to their own UI thread.
 **Args**
 
 - `listener`: `callable(address: int, name: str | None, state: LedState, illumination_ma: float | None)`
-
-**Raises**
-
-Nothing.
 
 <a id="IlluminationAPI.led_off"></a>
 ### `IlluminationAPI.led_off`
@@ -6110,7 +6111,8 @@ led_states: tuple[LedReading, ...] | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/illumination/led_states`.
+Route: `GET /api/v1/scope/illumination/led_states`.  
+Raises nothing.
 
 Every LED address of the attached board, as the API holds it: no board is asked.
 
@@ -6120,10 +6122,6 @@ names it, so a lit address is never hidden by its missing name.
 **Returns**
 
 One reading per address, in address order, each named through the unit's identity. None when no LED board is installed (none came up, or after the scope's shutdown).
-
-**Raises**
-
-Nothing.
 
 <a id="IlluminationAPI.leds_off"></a>
 ### `IlluminationAPI.leds_off`
@@ -6165,17 +6163,14 @@ def remove_led_listener(
 ) -> None
 ```
 
-Marks: in-process.
+Marks: in-process.  
+Raises nothing.
 
 Unregister an LED listener.
 
 **Args**
 
 - `listener`: A callable previously passed to `add_led_listener`. Silently ignores listeners that are not currently registered.
-
-**Raises**
-
-Nothing.
 
 <a id="IlluminationAPI.restore_led_state"></a>
 ### `IlluminationAPI.restore_led_state`
@@ -6285,7 +6280,8 @@ def changes_in_force(
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/imaging/changes_in_force`.
+Route: `GET /api/v1/scope/imaging/changes_in_force`.  
+Raises nothing.
 
 Whether every change recorded is in force, so a frame arriving now counts.
 
@@ -6303,10 +6299,6 @@ never a camera command.
 
 bool: True when a frame arriving now counts for every change.
 
-**Raises**
-
-Nothing.
-
 <a id="ImagingAPI.delivered_rate"></a>
 ### `ImagingAPI.delivered_rate`
 
@@ -6315,7 +6307,8 @@ delivered_rate: DeliveredRate  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/imaging/delivered_rate`.
+Route: `GET /api/v1/scope/imaging/delivered_rate`.  
+Raises nothing.
 
 Read the rate the camera delivered frames, and their bytes on the link.
 
@@ -6329,10 +6322,6 @@ reads 0, never the last rate seen.
 
 DeliveredRate: Frames and link bytes per second; `NOT_DELIVERING` (both 0) when nothing was delivered in the last window.
 
-**Raises**
-
-Nothing.
-
 <a id="ImagingAPI.disable_streaming"></a>
 ### `ImagingAPI.disable_streaming`
 
@@ -6341,17 +6330,14 @@ def disable_streaming(self) -> None
 ```
 
 Marks: enters: `lane_call`.  
-Route: `POST /api/v1/scope/imaging/disable_streaming`.
+Route: `POST /api/v1/scope/imaging/disable_streaming`.  
+Raises nothing.
 
 Stop camera streaming, and wait.
 
 After this, `capture_still()` fails until streaming resumes.
 Satisfied with no camera connected: nothing is streaming. Dispatched
 as `enable_streaming` is.
-
-**Raises**
-
-Nothing.
 
 **Refusals by REST status**
 
@@ -6441,7 +6427,8 @@ installation's.
 def judge_frame(self, frame: Frame) -> tuple[Judgment, ...]
 ```
 
-Marks: in-process.
+Marks: in-process.  
+Raises nothing.
 
 Whether `frame` counts for each source's last change, as a capture waits on it.
 
@@ -6458,10 +6445,6 @@ axis settled.
 **Args**
 
 - `frame`: A frame the camera delivered (a frame listener's `Frame`).
-
-**Raises**
-
-Nothing.
 
 <a id="ImagingAPI.read_streaming"></a>
 ### `ImagingAPI.read_streaming`
@@ -6495,7 +6478,8 @@ one its driver declared removed.
 def recorded_changes(self) -> dict[FrameValiditySource, Change]
 ```
 
-Marks: in-process.
+Marks: in-process.  
+Raises nothing.
 
 Each source's last recorded change, settled or not, by source.
 
@@ -6504,10 +6488,6 @@ recorded, the last frame the driver had been handed then, its rule,
 and for a move when its axis settled. A change stays its source's until the
 next one replaces it.
 
-**Raises**
-
-Nothing.
-
 <a id="ImagingAPI.remove_frame_listener"></a>
 ### `ImagingAPI.remove_frame_listener`
 
@@ -6515,7 +6495,8 @@ Nothing.
 def remove_frame_listener(self, listener: Callable[[Frame], None]) -> None
 ```
 
-Marks: in-process.
+Marks: in-process.  
+Raises nothing.
 
 Remove a listener registered via `add_frame_listener`.
 
@@ -6528,10 +6509,6 @@ No-op when the listener was never registered.
 **Args**
 
 - `listener`: The listener given to `add_frame_listener`.
-
-**Raises**
-
-Nothing.
 
 <a id="ImagingAPI.significant_bits"></a>
 ### `ImagingAPI.significant_bits`
@@ -6587,7 +6564,8 @@ def add_position_listener(
 ) -> None
 ```
 
-Marks: in-process; event: [`PositionChanged`](#PositionChanged).
+Marks: in-process; event: [`PositionChanged`](#PositionChanged).  
+Raises nothing.
 
 Register a callback for position/state changes on a stage axis: X, Y or Z.
 
@@ -6604,10 +6582,6 @@ hand any UI work to their own UI thread.
 
 - `listener`: `callable(axis: StageAxis, at: AxisPosition)`
 
-**Raises**
-
-Nothing.
-
 <a id="MotionAPI.add_turret_listener"></a>
 ### `MotionAPI.add_turret_listener`
 
@@ -6615,7 +6589,8 @@ Nothing.
 def add_turret_listener(self, listener: Callable[[TurretStatus], None]) -> None
 ```
 
-Marks: in-process; event: [`TurretChanged`](#TurretChanged).
+Marks: in-process; event: [`TurretChanged`](#TurretChanged).  
+Raises nothing.
 
 Register a callback for each change of the turret's state or slot.
 
@@ -6632,10 +6607,6 @@ scope with no turret.
 
 - `listener`: `callable(at: TurretStatus)`
 
-**Raises**
-
-Nothing.
-
 <a id="MotionAPI.axes_without_position"></a>
 ### `MotionAPI.axes_without_position`
 
@@ -6644,7 +6615,8 @@ axes_without_position: dict[Axis, AxisState]  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/motion/axes_without_position`.
+Route: `GET /api/v1/scope/motion/axes_without_position`.  
+Raises nothing.
 
 Which of this scope's axes do not know their position, and why.
 
@@ -6671,10 +6643,6 @@ so nothing about it is unknown.
 **Returns**
 
 dict[Axis, AxisState]: Axis to its state (`AxisState.UNKNOWN` or `AxisState.HOMING`) for every axis whose position is not known, in the scope's axis order. Empty when every axis knows its position. Every axis, UNKNOWN, with the motor board lost.
-
-**Raises**
-
-Nothing.
 
 <a id="MotionAPI.axis_limits"></a>
 ### `MotionAPI.axis_limits`
@@ -6714,7 +6682,8 @@ axis_positions: dict[StageAxis, AxisPosition]  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/motion/axis_positions`.
+Route: `GET /api/v1/scope/motion/axis_positions`.  
+Raises nothing.
 
 Every stage axis's state and its position, or None where the position is not known.
 
@@ -6735,10 +6704,6 @@ its reverse.
 **Returns**
 
 dict[StageAxis, AxisPosition]: Stage axis to (state, position), in the scope's axis order.
-
-**Raises**
-
-Nothing.
 
 <a id="MotionAPI.home"></a>
 ### `MotionAPI.home`
@@ -6800,6 +6765,49 @@ as that activity's work and takes no claim of its own.
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+
+<a id="MotionAPI.start_home"></a>
+### `MotionAPI.start_home`
+
+```python
+def start_home(
+    self,
+    axis: HomeTarget = HomeTarget.ALL,
+    put_back: bool | None = None,
+) -> Operation[None]
+```
+
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_submit`.  
+Route: `POST /api/v1/scope/motion/start_home`.
+
+Start the home `home` runs, without waiting for it; returns its `Operation`.
+
+For a caller that must not block for the length of a home -- a
+button. The home is asked, and refused or put on the io lane, before
+this returns, so a second home asked while this one is in flight is
+refused at once rather than queued behind it. The operation is done
+once the home has released the scope, with what `home` would have
+returned or raised; its `stop()` is `stop_motion` while the home
+drives, refused `'home_not_stoppable'` on a board that cannot stop
+a home, and nothing once the home has ended.
+
+**Args**
+
+- `axis`: What to home: `'Z'`, `'T'` (the turret) or `'ALL'`, every axis the scope has.
+- `put_back`: Whether the home puts the turret and Z back, as for `home`.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'not_offered'`, `axis` is not `'Z'`, `'T'` or `'ALL'`; nothing was asked of the scope.
+- `HardwareCommandRefusedError`: `'home_in_flight'`, while a home asked earlier has not ended; or the home was refused as `home` is refused.
+- `ConfigurationDefectError`: `'scope_not_composed'`, as for `home`.
+
+**Refusals by REST status**
+
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `home_in_flight`, `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
 <a id="MotionAPI.jog_step_um"></a>
 ### `MotionAPI.jog_step_um`
@@ -6874,6 +6882,51 @@ Move X and Y to `at` on the selected plate, and return once they have arrived.
 - [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
+<a id="MotionAPI.start_move_to_plate"></a>
+### `MotionAPI.start_move_to_plate`
+
+```python
+def start_move_to_plate(self, at: PlateLocation) -> Operation[None]
+```
+
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
+Route: `POST /api/v1/scope/motion/start_move_to_plate`.
+
+Start X and Y moving to `at` on the selected plate; return the started moves.
+
+`at` is in mm from the plate's top-left, at the live stage
+offset, the number a person types into a position box. An axis that
+is None is left where it is, a move under way on it included, so a
+caller moving X alone leaves Y alone. The axes given are asked once
+whether they know their position and are started on one task of the
+IO lane, so a capture asked meanwhile never takes the new X at the
+old Y. Each is checked against the plate positions
+this stage can reach, and refused in mm, before either moves.
+
+**Args**
+
+- `at`: Where X and Y go, in mm on the selected plate; an axis that is None is left where it is.
+
+**Returns**
+
+One `Operation` for the moves started, done once every one is; its `result()` raises the first move's raise, as `start_move_xy`'s does. With no axis given nothing moves and it is done at once.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'plate_frame_axis'`, a Z given: a plate position has no Z; `'not_a_number'`, an axis given is not a finite number. Nothing was submitted.
+- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no such axis; `'lid_open_before_motion'`, the stage's lid is open; `'monitor_ended'`, the motion monitor has ended. Nothing was driven.
+- `PositionOutOfRangeError`: `'position_out_of_range'`, an axis given is outside the plate positions this stage can reach, in plate mm. Nothing was driven.
+- `AxisStateUnknownError`: An axis given does not know its position. Nothing was driven.
+- `MoveFaultError`: `'driver_failed'`, the board did not take a command; `'board_lost'`, the board is no longer connected. When it is Y's, the X already driving is stopped first, by one STOP that withholds no move asked before it, and waited on until it settles.
+- `MotorStopFailedError`: Y's command failed after X was driven, and the board did not take that STOP or X did not settle after it.
+
+**Refusals by REST status**
+
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `plate_frame_axis`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
+
 <a id="MotionAPI.move_to_plate_nearest"></a>
 ### `MotionAPI.move_to_plate_nearest`
 
@@ -6915,6 +6968,48 @@ The point on the plate the stage went to, in mm; an axis not given is None.
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
+<a id="MotionAPI.start_move_to_plate_nearest"></a>
+### `MotionAPI.start_move_to_plate_nearest`
+
+```python
+def start_move_to_plate_nearest(self, at: PlateLocation) -> Operation[PlateLocation]
+```
+
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
+Route: `POST /api/v1/scope/motion/start_move_to_plate_nearest`.
+
+Start X and Y moving to `at` on the selected plate, or as near it as the stage reaches; return the started moves.
+
+For a point a person picks on a picture of the plate, which is
+drawn wider than the stage reaches: each axis given whose target is
+outside its travel goes to the nearer travel limit instead of being
+refused, and the API log states the point asked and the point used.
+Every other refusal is `start_move_to_plate`'s. A typed position,
+a bookmark or a protocol step means that place and is refused when
+the stage cannot reach it (`start_move_to_plate`).
+
+**Args**
+
+- `at`: Where X and Y go, in mm on the selected plate; an axis that is None is left where it is.
+
+**Returns**
+
+One `Operation` for the moves started, done once every one is; its `result()` is the point on the plate the stage went to, in mm, an axis not given None, or raises the first move's raise, as `start_move_to_plate`'s does.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'plate_frame_axis'` or `'not_a_number'`, as `start_move_to_plate`.
+- `HardwareCommandRefusedError`: `'not_connected'`, `'axis_absent'`, `'lid_open_before_motion'` or `'monitor_ended'`, as `start_move_to_plate`.
+- `AxisStateUnknownError`: As `start_move_to_plate`.
+- `MoveFaultError`: As `start_move_to_plate`.
+
+**Refusals by REST status**
+
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `plate_frame_axis`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
+
 <a id="MotionAPI.move_to_well"></a>
 ### `MotionAPI.move_to_well`
 
@@ -6953,6 +7048,42 @@ Move X and Y to the center of `well` on the selected plate, and return once they
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+
+<a id="MotionAPI.start_move_to_well"></a>
+### `MotionAPI.start_move_to_well`
+
+```python
+def start_move_to_well(self, well: str) -> Operation[None]
+```
+
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
+Route: `POST /api/v1/scope/motion/start_move_to_well`.
+
+Start X and Y moving to the center of `well` on the selected plate; return the started moves.
+
+`well` is the label the plate gives it (`'A1'`, `'H12'`),
+read from the plate selected when the move is on the lane, so the
+plate the well is found on is the plate the move converts on.
+Otherwise as `start_move_to_plate` for both axes.
+
+**Args**
+
+- `well`: The well's label on the selected plate, such as `'A1'`.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'well_unknown'`, the selected plate has no well of that label (a plate with no wells has none). Nothing was driven.
+- `HardwareCommandRefusedError`: `'not_connected'`, `'axis_absent'`, `'lid_open_before_motion'` or `'monitor_ended'`, as `start_move_to_plate`.
+- `PositionOutOfRangeError`: As `start_move_to_plate`.
+- `AxisStateUnknownError`: As `start_move_to_plate`.
+- `MoveFaultError`: As `start_move_to_plate`.
+
+**Refusals by REST status**
+
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `well_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
 <a id="MotionAPI.move_turret"></a>
 ### `MotionAPI.move_turret`
@@ -6993,6 +7124,41 @@ its own.
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+
+<a id="MotionAPI.start_move_turret"></a>
+### `MotionAPI.start_move_turret`
+
+```python
+def start_move_turret(self, slot: int, restore_z: bool = True) -> Operation[None]
+```
+
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_submit`.  
+Route: `POST /api/v1/scope/motion/start_move_turret`.
+
+Start the turret change `move_turret` makes, without waiting for it; returns its `Operation`.
+
+For a caller that must not block for the three moves of a turret
+change -- a button. The change is refused, or put on the io lane,
+before this returns. The operation is done once the change has ended,
+with what `move_turret` would have returned or raised; its
+`stop()` is `stop_motion` until the change has ended, and nothing
+after: a stop asked before the change reached the lane withholds it.
+
+**Args**
+
+- `slot`: The turret slot, 1 to 4.
+- `restore_z`: As for `move_turret`.
+
+**Raises**
+
+- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no turret; or a run, a diagnostic, a home or a recording holds the scope. Nothing was driven.
+- `PositionOutOfRangeError`: The slot is not a whole number 1 to 4. Nothing was driven.
+
+**Refusals by REST status**
+
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="MotionAPI.move_xy"></a>
 ### `MotionAPI.move_xy`
@@ -7042,6 +7208,54 @@ Move X and Y to a place, in um, each that is given, and return once they have ar
 - [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
+<a id="MotionAPI.start_move_xy"></a>
+### `MotionAPI.start_move_xy`
+
+```python
+def start_move_xy(
+    self,
+    x_um: float | None = None,
+    y_um: float | None = None,
+    ignore_limits: bool = False,
+) -> Operation[None]
+```
+
+Marks: stopped by [`Operation.stop`](#Operation.stop); in-process arguments: `ignore_limits`; enters: `lane_call`.  
+Route: `POST /api/v1/scope/motion/start_move_xy`.
+
+Start X and Y moving to a place, in um, each that is given; return the started moves.
+
+One request: every axis given is refused before either drives, so
+a refusal of one moves neither. An axis that is None is left as it
+is, still, traveling or unknown, and is not read. With neither
+given nothing moves and the move is done at once.
+
+**Args**
+
+- `x_um`: Where X goes, in um on the stage; None leaves X as it is.
+- `y_um`: Where Y goes, in um on the stage; None leaves Y as it is.
+- `ignore_limits`: True to drive past the configured travel, never past the motor's safety limit. In-process only: a wire request that sends it is refused as `invalid_request`.
+
+**Returns**
+
+One `Operation` for the axes given, done once every one is; its `result()` raises the first axis's raise, as `start_move_z`'s does for Z. Its `stop()` is `stop_motion` while a move still has its axis.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'not_a_number'`, an axis given is not a finite number. Nothing was driven.
+- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no such axis; `'monitor_ended'`, the motion monitor has ended, so nothing would judge the move. Nothing was driven. `'lid_open_before_motion'`, the stage's lid is open: nothing was driven when it was open before the request; when it opened after X was commanded, the stage stopped X and Y was not driven.
+- `PositionOutOfRangeError`: `'position_out_of_range'`, an axis given is outside its configured travel and `ignore_limits` is False. Nothing was driven.
+- `AxisStateUnknownError`: An axis given does not know its position. Nothing was driven.
+- `MoveFaultError`: `'driver_failed'`, the board did not take a command; `'board_lost'`, the board is no longer connected. When it is Y's, the X already driving is stopped first, by one STOP that withholds no move asked before it, and waited on until it settles.
+- `MotorStopFailedError`: Y's command failed after X was driven, and the board did not take that STOP or X did not settle after it.
+
+**Refusals by REST status**
+
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
+
 <a id="MotionAPI.move_xy_by"></a>
 ### `MotionAPI.move_xy_by`
 
@@ -7083,6 +7297,47 @@ Move X and Y by a distance, in um, each that is given, and return once they have
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
 - [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+
+<a id="MotionAPI.start_move_xy_by"></a>
+### `MotionAPI.start_move_xy_by`
+
+```python
+def start_move_xy_by(
+    self,
+    dx_um: float | None = None,
+    dy_um: float | None = None,
+) -> Operation[None]
+```
+
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
+Route: `POST /api/v1/scope/motion/start_move_xy_by`.
+
+Start X and Y moving by a distance, in um, each that is given; return the started moves.
+
+As `start_move_xy`. Each distance is added to the axis's board
+target, so a move still under way on it is added to, and every
+target is read and refused before either axis drives.
+
+**Args**
+
+- `dx_um`: How far X moves, in um; None leaves X as it is.
+- `dy_um`: How far Y moves, in um; None leaves Y as it is.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'not_a_number'`, a distance given is not a finite number. Nothing was driven.
+- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no such axis; `'position_unread'`, the board did not report a target to add to; `'monitor_ended'`, as `start_move_xy`. Nothing was driven. `'lid_open_before_motion'`, as `start_move_xy`.
+- `PositionOutOfRangeError`: `'position_out_of_range'`, a distance is beyond the safety limit or its target is outside the axis's travel. Nothing was driven.
+- `AxisStateUnknownError`: An axis given does not know its position. Nothing was driven.
+- `MoveFaultError`: `'driver_failed'`, the board did not take a command; `'board_lost'`, the board is no longer connected. When it is Y's, the X already driving is stopped first, by one STOP that withholds no move asked before it, and waited on until it settles.
+- `MotorStopFailedError`: Y's command failed after X was driven, and the board did not take that STOP or X did not settle after it.
+
+**Refusals by REST status**
+
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
 <a id="MotionAPI.move_z"></a>
 ### `MotionAPI.move_z`
@@ -7130,6 +7385,51 @@ Move Z to a place, in um, and return once it has arrived.
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
+<a id="MotionAPI.start_move_z"></a>
+### `MotionAPI.start_move_z`
+
+```python
+def start_move_z(
+    self,
+    z_um: float,
+    overshoot_enabled: bool | None = None,
+    ignore_limits: bool = False,
+) -> Operation[None]
+```
+
+Marks: stopped by [`Operation.stop`](#Operation.stop); in-process arguments: `ignore_limits`; enters: `lane_call`.  
+Route: `POST /api/v1/scope/motion/start_move_z`.
+
+Start Z moving to a place, in um; return the started move.
+
+A move of Z to a place approaches it from below, so the backlash
+is always taken the same way.
+
+**Args**
+
+- `z_um`: Where Z goes, in um.
+- `overshoot_enabled`: None for the API's approach from below; True or False forces the approach on or off, for a bench script measuring the backlash.
+- `ignore_limits`: True to drive past Z's configured travel, never past the motor's safety limit. In-process only: a wire request that sends it is refused as `invalid_request`.
+
+**Returns**
+
+The move's `Operation`. It is done once Z has been set at rest, or given up, and the position listeners told: its `result()` returns None when Z arrived, and raises `MoveNotCompletedError` otherwise -- the monitor's fault (`'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`) or `'faulted'`, each leaving Z UNKNOWN; `MoveStoppedError` `'stopped'`, a stop the board took while it moved, or `'lid_open_mid_move'`, the lid opened while it moved; `MoveStoppedError` `'superseded'`, another move or a home took Z first. The outcome is the one the move ended with, however late it is read. Its `stop()` is `stop_motion` while this move still has Z, and nothing once it has ended; the board's STOP halts every axis.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'not_a_number'`, the position is not a finite number. Nothing was driven.
+- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no Z; `'position_unread'`, an approach from below whose start no arrival of Z's last move tells and the board did not report; `'monitor_ended'`, the motion monitor has ended, so nothing would judge the move. Nothing was driven.
+- `PositionOutOfRangeError`: `'position_out_of_range'`, the target is outside Z's configured travel and `ignore_limits` is False. Nothing was driven.
+- `AxisStateUnknownError`: Z does not know its position. Nothing was driven.
+- `MoveFaultError`: `'driver_failed'`, the board did not take the command; `'board_lost'`, the board is no longer connected.
+
+**Refusals by REST status**
+
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
+
 <a id="MotionAPI.move_z_by"></a>
 ### `MotionAPI.move_z_by`
 
@@ -7169,6 +7469,51 @@ Move Z by a distance, in um, and return once it has arrived.
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+
+<a id="MotionAPI.start_move_z_by"></a>
+### `MotionAPI.start_move_z_by`
+
+```python
+def start_move_z_by(
+    self,
+    dz_um: float,
+    overshoot_enabled: bool | None = None,
+) -> Operation[None]
+```
+
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
+Route: `POST /api/v1/scope/motion/start_move_z_by`.
+
+Start Z moving by a distance, in um; return the started move.
+
+The distance is added to Z's board target, so a move still under
+way is added to. A move by a distance takes no approach from below;
+`overshoot_enabled` is the bench script's override, as for
+`start_move_z`.
+
+**Args**
+
+- `dz_um`: How far Z moves, in um.
+- `overshoot_enabled`: None for no approach from below; True or False forces it on or off, for a bench script.
+
+**Returns**
+
+The move's `Operation`, as `start_move_z`'s.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'not_a_number'`, the distance is not a finite number. Nothing was driven.
+- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no Z; `'position_unread'`, the board did not report the target to add to (or, approaching from below, the position); `'monitor_ended'`, as `start_move_z`. Nothing was driven.
+- `PositionOutOfRangeError`: `'position_out_of_range'`, the distance is beyond the safety limit or its target is outside Z's travel. Nothing was driven.
+- `AxisStateUnknownError`: Z does not know its position. Nothing was driven.
+- `MoveFaultError`: `'driver_failed'`, the board did not take the command; `'board_lost'`, the board is no longer connected.
+
+**Refusals by REST status**
+
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
 <a id="MotionAPI.positions_to_keep"></a>
 ### `MotionAPI.positions_to_keep`
@@ -7265,17 +7610,14 @@ def remove_position_listener(
 ) -> None
 ```
 
-Marks: in-process.
+Marks: in-process.  
+Raises nothing.
 
 Unregister a position listener.
 
 **Args**
 
 - `listener`: A callable previously passed to `add_position_listener`. Silently ignores listeners that are not currently registered.
-
-**Raises**
-
-Nothing.
 
 <a id="MotionAPI.remove_turret_listener"></a>
 ### `MotionAPI.remove_turret_listener`
@@ -7284,17 +7626,14 @@ Nothing.
 def remove_turret_listener(self, listener: Callable[[TurretStatus], None]) -> None
 ```
 
-Marks: in-process.
+Marks: in-process.  
+Raises nothing.
 
 Unregister a turret listener.
 
 **Args**
 
 - `listener`: A callable previously passed to `add_turret_listener`. Silently ignores listeners that are not currently registered.
-
-**Raises**
-
-Nothing.
 
 <a id="MotionAPI.set_precision_mode"></a>
 ### `MotionAPI.set_precision_mode`
@@ -7379,49 +7718,6 @@ One `Operation` for the moves started, as `start_move_xy_by`'s.
 - 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
-<a id="MotionAPI.start_home"></a>
-### `MotionAPI.start_home`
-
-```python
-def start_home(
-    self,
-    axis: HomeTarget = HomeTarget.ALL,
-    put_back: bool | None = None,
-) -> Operation[None]
-```
-
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_submit`.  
-Route: `POST /api/v1/scope/motion/start_home`.
-
-Start the home `home` runs, without waiting for it; returns its `Operation`.
-
-For a caller that must not block for the length of a home -- a
-button. The home is asked, and refused or put on the io lane, before
-this returns, so a second home asked while this one is in flight is
-refused at once rather than queued behind it. The operation is done
-once the home has released the scope, with what `home` would have
-returned or raised; its `stop()` is `stop_motion` while the home
-drives, refused `'home_not_stoppable'` on a board that cannot stop
-a home, and nothing once the home has ended.
-
-**Args**
-
-- `axis`: What to home: `'Z'`, `'T'` (the turret) or `'ALL'`, every axis the scope has.
-- `put_back`: Whether the home puts the turret and Z back, as for `home`.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'not_offered'`, `axis` is not `'Z'`, `'T'` or `'ALL'`; nothing was asked of the scope.
-- `HardwareCommandRefusedError`: `'home_in_flight'`, while a home asked earlier has not ended; or the home was refused as `home` is refused.
-- `ConfigurationDefectError`: `'scope_not_composed'`, as for `home`.
-
-**Refusals by REST status**
-
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `home_in_flight`, `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
-
 <a id="MotionAPI.start_jog"></a>
 ### `MotionAPI.start_jog`
 
@@ -7469,343 +7765,6 @@ The move's `Operation`, as `start_move_z_by`'s.
 - 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
-<a id="MotionAPI.start_move_to_plate"></a>
-### `MotionAPI.start_move_to_plate`
-
-```python
-def start_move_to_plate(self, at: PlateLocation) -> Operation[None]
-```
-
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
-Route: `POST /api/v1/scope/motion/start_move_to_plate`.
-
-Start X and Y moving to `at` on the selected plate; return the started moves.
-
-`at` is in mm from the plate's top-left, at the live stage
-offset, the number a person types into a position box. An axis that
-is None is left where it is, a move under way on it included, so a
-caller moving X alone leaves Y alone. The axes given are asked once
-whether they know their position and are started on one task of the
-IO lane, so a capture asked meanwhile never takes the new X at the
-old Y. Each is checked against the plate positions
-this stage can reach, and refused in mm, before either moves.
-
-**Args**
-
-- `at`: Where X and Y go, in mm on the selected plate; an axis that is None is left where it is.
-
-**Returns**
-
-One `Operation` for the moves started, done once every one is; its `result()` raises the first move's raise, as `start_move_xy`'s does. With no axis given nothing moves and it is done at once.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'plate_frame_axis'`, a Z given: a plate position has no Z; `'not_a_number'`, an axis given is not a finite number. Nothing was submitted.
-- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no such axis; `'lid_open_before_motion'`, the stage's lid is open; `'monitor_ended'`, the motion monitor has ended. Nothing was driven.
-- `PositionOutOfRangeError`: `'position_out_of_range'`, an axis given is outside the plate positions this stage can reach, in plate mm. Nothing was driven.
-- `AxisStateUnknownError`: An axis given does not know its position. Nothing was driven.
-- `MoveFaultError`: `'driver_failed'`, the board did not take a command; `'board_lost'`, the board is no longer connected. When it is Y's, the X already driving is stopped first, by one STOP that withholds no move asked before it, and waited on until it settles.
-- `MotorStopFailedError`: Y's command failed after X was driven, and the board did not take that STOP or X did not settle after it.
-
-**Refusals by REST status**
-
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `plate_frame_axis`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
-
-<a id="MotionAPI.start_move_to_plate_nearest"></a>
-### `MotionAPI.start_move_to_plate_nearest`
-
-```python
-def start_move_to_plate_nearest(self, at: PlateLocation) -> Operation[PlateLocation]
-```
-
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
-Route: `POST /api/v1/scope/motion/start_move_to_plate_nearest`.
-
-Start X and Y moving to `at` on the selected plate, or as near it as the stage reaches; return the started moves.
-
-For a point a person picks on a picture of the plate, which is
-drawn wider than the stage reaches: each axis given whose target is
-outside its travel goes to the nearer travel limit instead of being
-refused, and the API log states the point asked and the point used.
-Every other refusal is `start_move_to_plate`'s. A typed position,
-a bookmark or a protocol step means that place and is refused when
-the stage cannot reach it (`start_move_to_plate`).
-
-**Args**
-
-- `at`: Where X and Y go, in mm on the selected plate; an axis that is None is left where it is.
-
-**Returns**
-
-One `Operation` for the moves started, done once every one is; its `result()` is the point on the plate the stage went to, in mm, an axis not given None, or raises the first move's raise, as `start_move_to_plate`'s does.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'plate_frame_axis'` or `'not_a_number'`, as `start_move_to_plate`.
-- `HardwareCommandRefusedError`: `'not_connected'`, `'axis_absent'`, `'lid_open_before_motion'` or `'monitor_ended'`, as `start_move_to_plate`.
-- `AxisStateUnknownError`: As `start_move_to_plate`.
-- `MoveFaultError`: As `start_move_to_plate`.
-
-**Refusals by REST status**
-
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `plate_frame_axis`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
-
-<a id="MotionAPI.start_move_to_well"></a>
-### `MotionAPI.start_move_to_well`
-
-```python
-def start_move_to_well(self, well: str) -> Operation[None]
-```
-
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
-Route: `POST /api/v1/scope/motion/start_move_to_well`.
-
-Start X and Y moving to the center of `well` on the selected plate; return the started moves.
-
-`well` is the label the plate gives it (`'A1'`, `'H12'`),
-read from the plate selected when the move is on the lane, so the
-plate the well is found on is the plate the move converts on.
-Otherwise as `start_move_to_plate` for both axes.
-
-**Args**
-
-- `well`: The well's label on the selected plate, such as `'A1'`.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'well_unknown'`, the selected plate has no well of that label (a plate with no wells has none). Nothing was driven.
-- `HardwareCommandRefusedError`: `'not_connected'`, `'axis_absent'`, `'lid_open_before_motion'` or `'monitor_ended'`, as `start_move_to_plate`.
-- `PositionOutOfRangeError`: As `start_move_to_plate`.
-- `AxisStateUnknownError`: As `start_move_to_plate`.
-- `MoveFaultError`: As `start_move_to_plate`.
-
-**Refusals by REST status**
-
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `well_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
-
-<a id="MotionAPI.start_move_turret"></a>
-### `MotionAPI.start_move_turret`
-
-```python
-def start_move_turret(self, slot: int, restore_z: bool = True) -> Operation[None]
-```
-
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_submit`.  
-Route: `POST /api/v1/scope/motion/start_move_turret`.
-
-Start the turret change `move_turret` makes, without waiting for it; returns its `Operation`.
-
-For a caller that must not block for the three moves of a turret
-change -- a button. The change is refused, or put on the io lane,
-before this returns. The operation is done once the change has ended,
-with what `move_turret` would have returned or raised; its
-`stop()` is `stop_motion` until the change has ended, and nothing
-after: a stop asked before the change reached the lane withholds it.
-
-**Args**
-
-- `slot`: The turret slot, 1 to 4.
-- `restore_z`: As for `move_turret`.
-
-**Raises**
-
-- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no turret; or a run, a diagnostic, a home or a recording holds the scope. Nothing was driven.
-- `PositionOutOfRangeError`: The slot is not a whole number 1 to 4. Nothing was driven.
-
-**Refusals by REST status**
-
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
-
-<a id="MotionAPI.start_move_xy"></a>
-### `MotionAPI.start_move_xy`
-
-```python
-def start_move_xy(
-    self,
-    x_um: float | None = None,
-    y_um: float | None = None,
-    ignore_limits: bool = False,
-) -> Operation[None]
-```
-
-Marks: stopped by [`Operation.stop`](#Operation.stop); in-process arguments: `ignore_limits`; enters: `lane_call`.  
-Route: `POST /api/v1/scope/motion/start_move_xy`.
-
-Start X and Y moving to a place, in um, each that is given; return the started moves.
-
-One request: every axis given is refused before either drives, so
-a refusal of one moves neither. An axis that is None is left as it
-is, still, traveling or unknown, and is not read. With neither
-given nothing moves and the move is done at once.
-
-**Args**
-
-- `x_um`: Where X goes, in um on the stage; None leaves X as it is.
-- `y_um`: Where Y goes, in um on the stage; None leaves Y as it is.
-- `ignore_limits`: True to drive past the configured travel, never past the motor's safety limit. In-process only: a wire request that sends it is refused as `invalid_request`.
-
-**Returns**
-
-One `Operation` for the axes given, done once every one is; its `result()` raises the first axis's raise, as `start_move_z`'s does for Z. Its `stop()` is `stop_motion` while a move still has its axis.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'not_a_number'`, an axis given is not a finite number. Nothing was driven.
-- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no such axis; `'monitor_ended'`, the motion monitor has ended, so nothing would judge the move. Nothing was driven. `'lid_open_before_motion'`, the stage's lid is open: nothing was driven when it was open before the request; when it opened after X was commanded, the stage stopped X and Y was not driven.
-- `PositionOutOfRangeError`: `'position_out_of_range'`, an axis given is outside its configured travel and `ignore_limits` is False. Nothing was driven.
-- `AxisStateUnknownError`: An axis given does not know its position. Nothing was driven.
-- `MoveFaultError`: `'driver_failed'`, the board did not take a command; `'board_lost'`, the board is no longer connected. When it is Y's, the X already driving is stopped first, by one STOP that withholds no move asked before it, and waited on until it settles.
-- `MotorStopFailedError`: Y's command failed after X was driven, and the board did not take that STOP or X did not settle after it.
-
-**Refusals by REST status**
-
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
-
-<a id="MotionAPI.start_move_xy_by"></a>
-### `MotionAPI.start_move_xy_by`
-
-```python
-def start_move_xy_by(
-    self,
-    dx_um: float | None = None,
-    dy_um: float | None = None,
-) -> Operation[None]
-```
-
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
-Route: `POST /api/v1/scope/motion/start_move_xy_by`.
-
-Start X and Y moving by a distance, in um, each that is given; return the started moves.
-
-As `start_move_xy`. Each distance is added to the axis's board
-target, so a move still under way on it is added to, and every
-target is read and refused before either axis drives.
-
-**Args**
-
-- `dx_um`: How far X moves, in um; None leaves X as it is.
-- `dy_um`: How far Y moves, in um; None leaves Y as it is.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'not_a_number'`, a distance given is not a finite number. Nothing was driven.
-- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no such axis; `'position_unread'`, the board did not report a target to add to; `'monitor_ended'`, as `start_move_xy`. Nothing was driven. `'lid_open_before_motion'`, as `start_move_xy`.
-- `PositionOutOfRangeError`: `'position_out_of_range'`, a distance is beyond the safety limit or its target is outside the axis's travel. Nothing was driven.
-- `AxisStateUnknownError`: An axis given does not know its position. Nothing was driven.
-- `MoveFaultError`: `'driver_failed'`, the board did not take a command; `'board_lost'`, the board is no longer connected. When it is Y's, the X already driving is stopped first, by one STOP that withholds no move asked before it, and waited on until it settles.
-- `MotorStopFailedError`: Y's command failed after X was driven, and the board did not take that STOP or X did not settle after it.
-
-**Refusals by REST status**
-
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
-
-<a id="MotionAPI.start_move_z"></a>
-### `MotionAPI.start_move_z`
-
-```python
-def start_move_z(
-    self,
-    z_um: float,
-    overshoot_enabled: bool | None = None,
-    ignore_limits: bool = False,
-) -> Operation[None]
-```
-
-Marks: stopped by [`Operation.stop`](#Operation.stop); in-process arguments: `ignore_limits`; enters: `lane_call`.  
-Route: `POST /api/v1/scope/motion/start_move_z`.
-
-Start Z moving to a place, in um; return the started move.
-
-A move of Z to a place approaches it from below, so the backlash
-is always taken the same way.
-
-**Args**
-
-- `z_um`: Where Z goes, in um.
-- `overshoot_enabled`: None for the API's approach from below; True or False forces the approach on or off, for a bench script measuring the backlash.
-- `ignore_limits`: True to drive past Z's configured travel, never past the motor's safety limit. In-process only: a wire request that sends it is refused as `invalid_request`.
-
-**Returns**
-
-The move's `Operation`. It is done once Z has been set at rest, or given up, and the position listeners told: its `result()` returns None when Z arrived, and raises `MoveNotCompletedError` otherwise -- the monitor's fault (`'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`) or `'faulted'`, each leaving Z UNKNOWN; `MoveStoppedError` `'stopped'`, a stop the board took while it moved, or `'lid_open_mid_move'`, the lid opened while it moved; `MoveStoppedError` `'superseded'`, another move or a home took Z first. The outcome is the one the move ended with, however late it is read. Its `stop()` is `stop_motion` while this move still has Z, and nothing once it has ended; the board's STOP halts every axis.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'not_a_number'`, the position is not a finite number. Nothing was driven.
-- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no Z; `'position_unread'`, an approach from below whose start no arrival of Z's last move tells and the board did not report; `'monitor_ended'`, the motion monitor has ended, so nothing would judge the move. Nothing was driven.
-- `PositionOutOfRangeError`: `'position_out_of_range'`, the target is outside Z's configured travel and `ignore_limits` is False. Nothing was driven.
-- `AxisStateUnknownError`: Z does not know its position. Nothing was driven.
-- `MoveFaultError`: `'driver_failed'`, the board did not take the command; `'board_lost'`, the board is no longer connected.
-
-**Refusals by REST status**
-
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
-
-<a id="MotionAPI.start_move_z_by"></a>
-### `MotionAPI.start_move_z_by`
-
-```python
-def start_move_z_by(
-    self,
-    dz_um: float,
-    overshoot_enabled: bool | None = None,
-) -> Operation[None]
-```
-
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
-Route: `POST /api/v1/scope/motion/start_move_z_by`.
-
-Start Z moving by a distance, in um; return the started move.
-
-The distance is added to Z's board target, so a move still under
-way is added to. A move by a distance takes no approach from below;
-`overshoot_enabled` is the bench script's override, as for
-`start_move_z`.
-
-**Args**
-
-- `dz_um`: How far Z moves, in um.
-- `overshoot_enabled`: None for no approach from below; True or False forces it on or off, for a bench script.
-
-**Returns**
-
-The move's `Operation`, as `start_move_z`'s.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'not_a_number'`, the distance is not a finite number. Nothing was driven.
-- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no Z; `'position_unread'`, the board did not report the target to add to (or, approaching from below, the position); `'monitor_ended'`, as `start_move_z`. Nothing was driven.
-- `PositionOutOfRangeError`: `'position_out_of_range'`, the distance is beyond the safety limit or its target is outside Z's travel. Nothing was driven.
-- `AxisStateUnknownError`: Z does not know its position. Nothing was driven.
-- `MoveFaultError`: `'driver_failed'`, the board did not take the command; `'board_lost'`, the board is no longer connected.
-
-**Refusals by REST status**
-
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
-
 <a id="MotionAPI.stop_motion"></a>
 ### `MotionAPI.stop_motion`
 
@@ -7850,7 +7809,8 @@ target_positions: dict[StageAxis, float | None]  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/motion/target_positions`.
+Route: `GET /api/v1/scope/motion/target_positions`.  
+Raises nothing.
 
 The target of every stage axis the scope has a position for (where it is commanded to go), by axis name, in um.
 
@@ -7873,10 +7833,6 @@ snapshot.
 An axis with no hardware behind it is left out, and so is the
 turret, which has a slot (`turret_status`). No serial I/O.
 
-**Raises**
-
-Nothing.
-
 <a id="MotionAPI.turret_status"></a>
 ### `MotionAPI.turret_status`
 
@@ -7885,7 +7841,8 @@ turret_status: TurretStatus | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/motion/turret_status`.
+Route: `GET /api/v1/scope/motion/turret_status`.  
+Raises nothing.
 
 The turret's state and the slot in the light path, read together; None on a scope with no turret.
 
@@ -7902,10 +7859,6 @@ whether it is homing, moving, or lost.
 A scope has a turret as `capabilities.has_turret` answers. With
 the motor board lost, or never come up, the turret is UNKNOWN with
 no slot. No serial I/O.
-
-**Raises**
-
-Nothing.
 
 <a id="MotionAPI.wait_until_finished_moving"></a>
 ### `MotionAPI.wait_until_finished_moving`
@@ -8502,10 +8455,11 @@ An operation done once the move has halted at the hold, for a caller acting on a
 **Raises**
 
 - `ArgumentRefusedError`: `'not_offered'` for `axis`; `'needs_simulated_scope'`; `'not_a_number'` or `'fault_bound'` for a fraction outside 0 to 1; `'fault_unknown'` for a scope with no motor board; `'not_injectable_on_board'` on every board but the fast motor board: the firmware's axis reaches its target whatever is injected, and the TMCM-6110's arrives too.
+- `HoldEndedError`: `'stopped'`, `'superseded'`, `'homed'` or `'released'`, the hold ended before the move reached it; the operation raises it, never the call.
 
 **Refusals by REST status**
 
-- 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 409: [`HoldEndedError`](#HoldEndedError): `stopped`, `superseded`, `homed`, `released`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`, `needs_simulated_scope`, `not_a_number`, `fault_bound`, `fault_unknown`, `not_injectable_on_board`
 
 <a id="SimulationAPI.injected"></a>
@@ -9092,13 +9046,10 @@ What bring-up found, substituted and set aside.
 missing: tuple[PartStatus, ...]  # property
 ```
 
-Marks: reads (changes nothing).
+Marks: reads (changes nothing).  
+Raises nothing.
 
 The parts this scope should have and lacks.
-
-**Raises**
-
-Nothing.
 
 <a id="BuildResult"></a>
 ## `lumascope.BuildResult`
@@ -9259,7 +9210,8 @@ frozen dataclass's own would compare the arrays elementwise and raise.
 significant_bits: int  # property
 ```
 
-Marks: in-process; reads (changes nothing).
+Marks: in-process; reads (changes nothing).  
+Raises nothing.
 
 The depth of `image`: 8 for an 8-bit array, else the bits its sum
 can reach; a single frame is its own depth.
@@ -9268,10 +9220,6 @@ The one depth rule every save, evidence and display consumer
 shares, from the frame's own record: a depth read later from the
 camera describes the camera then, not this frame. A saved still
 records the same depth (`SavedStill.significant_bits`).
-
-**Raises**
-
-Nothing.
 
 <a id="CellCountFilters"></a>
 ## `lumascope.CellCountFilters`
@@ -9567,13 +9515,10 @@ and what the API refuses it refuses whatever this says.
 controls_locked: bool  # property
 ```
 
-Marks: reads (changes nothing).
+Marks: reads (changes nothing).  
+Raises nothing.
 
 True while the whole control surface locks: the run surface is held, or a recording is live.
-
-**Raises**
-
-Nothing.
 
 <a id="ControlsLock.named"></a>
 ### `ControlsLock.named`
@@ -9582,16 +9527,13 @@ Nothing.
 named: str | None  # property
 ```
 
-Marks: reads (changes nothing).
+Marks: reads (changes nothing).  
+Raises nothing.
 
 The sentence for what locks the controls now, None while nothing does.
 
 The control session's while one is held, the holder's own run
 included; else what holds the run surface; else a live recording.
-
-**Raises**
-
-Nothing.
 
 <a id="ControlsLock.run_lockout"></a>
 ### `ControlsLock.run_lockout`
@@ -9600,17 +9542,14 @@ Nothing.
 run_lockout: bool  # property
 ```
 
-Marks: reads (changes nothing).
+Marks: reads (changes nothing).  
+Raises nothing.
 
 True while something holds the run surface: `run_named` or `control_named`.
 
 A finished run's files hold it until the last one is written,
 though the run has freed its claim: the controls stay locked until
 the queue empties.
-
-**Raises**
-
-Nothing.
 
 <a id="Credit"></a>
 ## `lumascope.Credit`
@@ -10015,16 +9954,13 @@ does not return this.
 holds: bool  # property
 ```
 
-Marks: reads (changes nothing).
+Marks: reads (changes nothing).  
+Raises nothing.
 
 Whether this taking still holds the claim.
 
 False once it is released, and stays False: a later taking of the
 same claim is a different object.
-
-**Raises**
-
-Nothing.
 
 <a id="HostReading"></a>
 ## `lumascope.HostReading`
@@ -10191,16 +10127,13 @@ The center of the well in column `i` and row `j`, in mm from the plate's top-lef
 well_size_mm: tuple[float, float]  # property
 ```
 
-Marks: in-process; reads (changes nothing).
+Marks: in-process; reads (changes nothing).  
+Raises nothing.
 
 A well's width and height in mm.
 
 Its diameter both ways, or, where the catalog states none, its
 spacing on each axis, so each well fills its place in the grid.
-
-**Raises**
-
-Nothing.
 
 <a id="LedBoardInfo"></a>
 ## `lumascope.LedBoardInfo`
@@ -10507,7 +10440,8 @@ starts one says it (`Operation[RunOutcome]` for a run,
 def add_done_callback(self, fn: Callable[[Operation], object]) -> None
 ```
 
-Marks: in-process.
+Marks: in-process.  
+Raises nothing.
 
 Run `fn(self)` on the callback thread once this operation is done.
 
@@ -10519,10 +10453,6 @@ not raised to anyone.
 
 - `fn`: Called with this operation once it is done.
 
-**Raises**
-
-Nothing.
-
 <a id="Operation.done"></a>
 ### `Operation.done`
 
@@ -10530,13 +10460,10 @@ Nothing.
 def done(self) -> bool
 ```
 
-Marks: in-process.
+Marks: in-process.  
+Raises nothing.
 
 Whether this operation is done: its outcome is set and every observer may read it.
-
-**Raises**
-
-Nothing.
 
 <a id="Operation.exception"></a>
 ### `Operation.exception`
@@ -10572,13 +10499,10 @@ What the operation raised, waiting up to `timeout` for it; None when it ended wi
 def progress(self) -> RunProgress | None
 ```
 
-Marks: reads (changes nothing).
+Marks: reads (changes nothing).  
+Raises nothing.
 
 Where this operation has got, read now; None for one that keeps no progress record.
-
-**Raises**
-
-Nothing.
 
 <a id="Operation.result"></a>
 ### `Operation.result`
@@ -10825,7 +10749,8 @@ register(spec, processor):
 def get(self, name: str) -> Callable[[str, dict, str], ProcessorResult] | None
 ```
 
-Marks: in-process.
+Marks: in-process.  
+Raises nothing.
 
 The processor a plugin registered, to call it directly.
 
@@ -10837,10 +10762,6 @@ The processor a plugin registered, to call it directly.
 
 Callable | None: The processor, or None when no plugin of that name is registered here.
 
-**Raises**
-
-Nothing.
-
 <a id="PostProcessingRegistry.names"></a>
 ### `PostProcessingRegistry.names`
 
@@ -10848,13 +10769,10 @@ Nothing.
 def names(self) -> tuple[str, ...]
 ```
 
-Marks: in-process.
+Marks: in-process.  
+Raises nothing.
 
 The names of the plugins registered here.
-
-**Raises**
-
-Nothing.
 
 <a id="PostProcessingRegistry.register"></a>
 ### `PostProcessingRegistry.register`
@@ -10934,13 +10852,10 @@ capture_root: str  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/handles/Protocol/{handle_id}/capture_root`.
+Route: `GET /api/v1/handles/Protocol/{handle_id}/capture_root`.  
+Raises nothing.
 
 The capture root as it was typed or loaded.
-
-**Raises**
-
-Nothing.
 
 <a id="Protocol.channel_settings"></a>
 ### `Protocol.channel_settings`
@@ -10950,7 +10865,8 @@ channel_settings: dict[str, ChannelSettings]  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/handles/Protocol/{handle_id}/channel_settings`.
+Route: `GET /api/v1/handles/Protocol/{handle_id}/channel_settings`.  
+Raises nothing.
 
 Each channel's Layer Settings row as its record, keyed by channel.
 
@@ -10965,10 +10881,6 @@ when the file was read; a blank cell but Acquire is None, and so is
 an inferred one its step cannot supply (see
 _channel_settings_inferred_from_steps).
 
-**Raises**
-
-Nothing.
-
 <a id="Protocol.duration_s"></a>
 ### `Protocol.duration_s`
 
@@ -10977,13 +10889,10 @@ duration_s: float | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/handles/Protocol/{handle_id}/duration_s`.
+Route: `GET /api/v1/handles/Protocol/{handle_id}/duration_s`.  
+Raises nothing.
 
 How long the protocol runs its scans, in seconds; 0 or None for one scan.
-
-**Raises**
-
-Nothing.
 
 <a id="Protocol.file_path"></a>
 ### `Protocol.file_path`
@@ -10993,13 +10902,10 @@ file_path: Path | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/handles/Protocol/{handle_id}/file_path`.
+Route: `GET /api/v1/handles/Protocol/{handle_id}/file_path`.  
+Raises nothing.
 
 The file this protocol was last loaded from or saved to; None when it has none.
-
-**Raises**
-
-Nothing.
 
 <a id="Protocol.has_unsaved_changes"></a>
 ### `Protocol.has_unsaved_changes`
@@ -11009,7 +10915,8 @@ has_unsaved_changes: bool  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/handles/Protocol/{handle_id}/has_unsaved_changes`.
+Route: `GET /api/v1/handles/Protocol/{handle_id}/has_unsaved_changes`.  
+Raises nothing.
 
 Whether the protocol has changed since it was last built, loaded or saved.
 
@@ -11019,10 +10926,6 @@ Layer Settings block, do not. True for a protocol no build, load or
 save returned, such as a run's copy. Each read writes the protocol
 out in memory, so it is asked at a decision, not polled.
 
-**Raises**
-
-Nothing.
-
 <a id="Protocol.labware_id"></a>
 ### `Protocol.labware_id`
 
@@ -11031,13 +10934,10 @@ labware_id: str  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/handles/Protocol/{handle_id}/labware_id`.
+Route: `GET /api/v1/handles/Protocol/{handle_id}/labware_id`.  
+Raises nothing.
 
 The catalog key of the plate the protocol's steps are placed on.
-
-**Raises**
-
-Nothing.
 
 <a id="Protocol.num_scans"></a>
 ### `Protocol.num_scans`
@@ -11047,7 +10947,8 @@ num_scans: int  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/handles/Protocol/{handle_id}/num_scans`.
+Route: `GET /api/v1/handles/Protocol/{handle_id}/num_scans`.  
+Raises nothing.
 
 How many scans a full run of the protocol takes: its duration over its period, whole.
 
@@ -11055,10 +10956,6 @@ A period of 0 or None is one scan, and so is a duration shorter than
 one period: a run captures its first scan before any period elapses.
 Divided as timedeltas, which is exact where float seconds drop a scan
 on some ratios.
-
-**Raises**
-
-Nothing.
 
 <a id="Protocol.num_steps"></a>
 ### `Protocol.num_steps`
@@ -11068,13 +10965,10 @@ num_steps: int  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/handles/Protocol/{handle_id}/num_steps`.
+Route: `GET /api/v1/handles/Protocol/{handle_id}/num_steps`.  
+Raises nothing.
 
 How many steps the protocol holds.
-
-**Raises**
-
-Nothing.
 
 <a id="Protocol.period_s"></a>
 ### `Protocol.period_s`
@@ -11084,13 +10978,10 @@ period_s: float | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/handles/Protocol/{handle_id}/period_s`.
+Route: `GET /api/v1/handles/Protocol/{handle_id}/period_s`.  
+Raises nothing.
 
 How often the protocol scans, in seconds; 0 or None for one scan.
-
-**Raises**
-
-Nothing.
 
 <a id="Protocol.step_records"></a>
 ### `Protocol.step_records`
@@ -11100,13 +10991,10 @@ step_records: tuple[StepRecord, ...]  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/handles/Protocol/{handle_id}/step_records`.
+Route: `GET /api/v1/handles/Protocol/{handle_id}/step_records`.  
+Raises nothing.
 
 Every step, in order, as its record: the step table in one read.
-
-**Raises**
-
-Nothing.
 
 <a id="Protocol.tiling"></a>
 ### `Protocol.tiling`
@@ -11116,7 +11004,8 @@ tiling: str | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/handles/Protocol/{handle_id}/tiling`.
+Route: `GET /api/v1/handles/Protocol/{handle_id}/tiling`.  
+Raises nothing.
 
 The tile grid this protocol's steps carry.
 
@@ -11124,10 +11013,6 @@ The no-tiling label when no step carries a tile; the grid's label
 when the steps' tiles form a grid this installation offers; None
 when they are tiled in a layout it does not offer, which only a
 hand-edited file produces, since every offered grid is square.
-
-**Raises**
-
-Nothing.
 
 <a id="ProtocolRunner"></a>
 ## `lumascope.ProtocolRunner`
@@ -11817,7 +11702,8 @@ never quietly unserved.
 def enable_stub_mode(self) -> None
 ```
 
-Marks: in-process.
+Marks: in-process.  
+Raises nothing.
 
 Opt into accepting REST registrations as stubs.
 
@@ -11829,10 +11715,6 @@ of its lifecycle.
 
 A shipped plugin does not call this: its registration is refused,
 so a route it expects to serve is never silently missing.
-
-**Raises**
-
-Nothing.
 
 <a id="RecordingFinished"></a>
 ## `lumascope.RecordingFinished`
@@ -12594,13 +12476,10 @@ A support report or logs zip that was saved, and the words that say where.
 message: str  # property
 ```
 
-Marks: reads (changes nothing).
+Marks: reads (changes nothing).  
+Raises nothing.
 
 Where the ZIP is and where to send it; the folder is the one it was written to.
-
-**Raises**
-
-Nothing.
 
 <a id="SupportReportSaved.title"></a>
 ### `SupportReportSaved.title`
@@ -12609,13 +12488,10 @@ Nothing.
 title: str  # property
 ```
 
-Marks: reads (changes nothing).
+Marks: reads (changes nothing).  
+Raises nothing.
 
 The title the saved report's notice is shown under.
-
-**Raises**
-
-Nothing.
 
 <a id="TilingConfig"></a>
 ## `lumascope.TilingConfig`
@@ -13917,7 +13793,7 @@ file name and derivation record carry the value lower-cased
 
 ## Outcomes
 
-Every outcome class: its kind, its reasons, whether the same request could succeed later (each reason's cause), and the HTTP status REST answers it with.
+Every outcome class: its kind, its reasons, whether the same request could succeed later (each reason's cause), and the HTTP status REST answers it with. A notice no member's **Raises** names is only reported: it is never an answer, so it has no status.
 
 <a id="LumascopeError"></a>
 ### `lumascope.LumascopeError`
@@ -14307,7 +14183,7 @@ camera delivered.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `binning_substituted` | -- | 409 |
+| `binning_substituted` | -- | reported, never an answer |
 
 <a id="BlockingCallRefusedError"></a>
 ### `lumascope.BlockingCallRefusedError`
@@ -14422,7 +14298,7 @@ named, the image orientation among them when it is one.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `camera_config_not_applied` | -- | 409 |
+| `camera_config_not_applied` | -- | reported, never an answer |
 
 <a id="CameraDriverRepairFailedError"></a>
 ### `lumascope.CameraDriverRepairFailedError`
@@ -14473,7 +14349,7 @@ Repair bound the Lumascope Classic to LumaViewPro's driver; the camera connects 
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `camera_driver_repaired` | -- | 409 |
+| `camera_driver_repaired` | -- | reported, never an answer |
 
 <a id="CameraFeatureAbsentNotice"></a>
 ### `lumascope.CameraFeatureAbsentNotice`
@@ -14492,7 +14368,7 @@ value's place, as a substituted binning is.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `camera_feature_absent` | -- | 409 |
+| `camera_feature_absent` | -- | reported, never an answer |
 
 <a id="CameraFirmwareMissingError"></a>
 ### `lumascope.CameraFirmwareMissingError`
@@ -14690,7 +14566,7 @@ long the stop took.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `camera_stop_stalled` | -- | 409 |
+| `camera_stop_stalled` | -- | reported, never an answer |
 
 <a id="CameraStreamStalledError"></a>
 ### `lumascope.CameraStreamStalledError`
@@ -14878,7 +14754,7 @@ A still was saved, without its well or position, because X or Y is unknown.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `position_not_recorded` | -- | 409 |
+| `position_not_recorded` | -- | reported, never an answer |
 
 <a id="CatalogNameRefusedError"></a>
 ### `lumascope.CatalogNameRefusedError`
@@ -14934,7 +14810,7 @@ image at its own scale. A person who meant 1.0 types it again.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `cell_count_scale_dropped` | -- | 409 |
+| `cell_count_scale_dropped` | -- | reported, never an answer |
 
 <a id="ChannelBlockSupersededNotice"></a>
 ### `lumascope.ChannelBlockSupersededNotice`
@@ -14948,7 +14824,7 @@ are its `Channels` block, beside its `Filterset`.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `channel_block_superseded` | -- | 409 |
+| `channel_block_superseded` | -- | reported, never an answer |
 
 <a id="ChannelBlockUnusableNotice"></a>
 ### `lumascope.ChannelBlockUnusableNotice`
@@ -14962,7 +14838,7 @@ itself is not read in part: no row can be trusted over another.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `channel_block_unusable` | -- | 409 |
+| `channel_block_unusable` | -- | reported, never an answer |
 
 <a id="ChannelRowsSkippedNotice"></a>
 ### `lumascope.ChannelRowsSkippedNotice`
@@ -14980,7 +14856,7 @@ one notice.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `channel_rows_skipped` | -- | 409 |
+| `channel_rows_skipped` | -- | reported, never an answer |
 
 <a id="ChannelSettingCappedNotice"></a>
 ### `lumascope.ChannelSettingCappedNotice`
@@ -15001,7 +14877,7 @@ at a time.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `channel_setting_capped` | -- | 409 |
+| `channel_setting_capped` | -- | reported, never an answer |
 
 <a id="ClaimStillLentError"></a>
 ### `lumascope.ClaimStillLentError`
@@ -15216,7 +15092,7 @@ refused at start until each step's file name is unique.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `duplicate_capture_filenames` | -- | 409 |
+| `duplicate_capture_filenames` | -- | reported, never an answer |
 
 <a id="ExposureAtMaximumNotice"></a>
 ### `lumascope.ExposureAtMaximumNotice`
@@ -15229,7 +15105,7 @@ The setting keeps the ceiling; the person can add light or raise it.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `exposure_at_maximum` | -- | 409 |
+| `exposure_at_maximum` | -- | reported, never an answer |
 
 <a id="ExposureAtMinimumNotice"></a>
 ### `lumascope.ExposureAtMinimumNotice`
@@ -15242,7 +15118,7 @@ The setting keeps the floor, since it cannot hold the raw value.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `exposure_at_minimum` | -- | 409 |
+| `exposure_at_minimum` | -- | reported, never an answer |
 
 <a id="FalsifyingChangeInFlightError"></a>
 ### `lumascope.FalsifyingChangeInFlightError`
@@ -15353,7 +15229,7 @@ refusal instead ('Focus Not Saved').
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `focus_kept` | -- | 409 |
+| `focus_kept` | -- | reported, never an answer |
 
 <a id="FocusNotSavedError"></a>
 ### `lumascope.FocusNotSavedError`
@@ -15459,7 +15335,7 @@ substituted binning is, so the next bring-up has nothing to refit.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `frame_refitted` | -- | 409 |
+| `frame_refitted` | -- | reported, never an answer |
 
 <a id="HardwareCommandRefusedError"></a>
 ### `lumascope.HardwareCommandRefusedError`
@@ -15687,7 +15563,7 @@ A run's hyperstacks were built: how many and where, or what was degraded.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `hyperstacks_saved` | -- | 409 |
+| `hyperstacks_saved` | -- | reported, never an answer |
 
 <a id="HyperstacksSavingNotice"></a>
 ### `lumascope.HyperstacksSavingNotice`
@@ -15698,7 +15574,7 @@ A run's hyperstacks are being built, which can take minutes.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `hyperstacks_saving` | -- | 409 |
+| `hyperstacks_saving` | -- | reported, never an answer |
 
 <a id="ImageSaveError"></a>
 ### `lumascope.ImageSaveError`
@@ -15794,8 +15670,8 @@ cannot start. Told at most once per session and reason.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `keep_awake_refused` | -- | 409 |
-| `keep_awake_unsupported` | -- | 409 |
+| `keep_awake_refused` | -- | reported, never an answer |
+| `keep_awake_unsupported` | -- | reported, never an answer |
 
 <a id="LaneCallStillRunningError"></a>
 ### `lumascope.LaneCallStillRunningError`
@@ -15973,7 +15849,7 @@ what is past; the memory and disk figures lead only when one of them is.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `low_system_resources` | -- | 409 |
+| `low_system_resources` | -- | reported, never an answer |
 
 <a id="MotionInterlockError"></a>
 ### `lumascope.MotionInterlockError`
@@ -16157,8 +16033,8 @@ with no instrument attached needs to be told once, not three times.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `no_hardware` | -- | 409 |
-| `no_hardware_driver_unavailable` | -- | 409 |
+| `no_hardware` | -- | reported, never an answer |
+| `no_hardware_driver_unavailable` | -- | reported, never an answer |
 
 <a id="NoLiveDriverError"></a>
 ### `lumascope.NoLiveDriverError`
@@ -16833,7 +16709,7 @@ are the validator's own lines, one per field.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `protocol_steps_invalid` | -- | 409 |
+| `protocol_steps_invalid` | -- | reported, never an answer |
 
 <a id="Quiet"></a>
 ### `lumascope.Quiet`
@@ -16945,7 +16821,7 @@ labware or stage offset there is no plate frame to record X and Y in.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `position_not_recorded` | -- | 409 |
+| `position_not_recorded` | -- | reported, never an answer |
 
 <a id="RecordingRefusedError"></a>
 ### `lumascope.RecordingRefusedError`
@@ -17005,7 +16881,7 @@ raiser passes the facts; the words are the type's.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `recording_saved_late` | -- | 409 |
+| `recording_saved_late` | -- | reported, never an answer |
 
 <a id="RecordingStoppedError"></a>
 ### `lumascope.RecordingStoppedError`
@@ -17141,7 +17017,7 @@ where it was pressed.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `stage_stopped` | -- | 409 |
+| `stage_stopped` | -- | reported, never an answer |
 
 <a id="RunFailedError"></a>
 ### `lumascope.RunFailedError`
@@ -17398,7 +17274,7 @@ when it is next brought up and changes nothing yet.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `scope_model_deferred` | -- | 409 |
+| `scope_model_deferred` | -- | reported, never an answer |
 
 <a id="ServerRefusedError"></a>
 ### `lumascope.ServerRefusedError`
@@ -17596,8 +17472,8 @@ that it will not be there.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `settings_provisional` | -- | 409 |
-| `settings_unmeasured` | -- | 409 |
+| `settings_provisional` | -- | reported, never an answer |
+| `settings_unmeasured` | -- | reported, never an answer |
 
 <a id="SingleScanNotice"></a>
 ### `lumascope.SingleScanNotice`
@@ -17608,7 +17484,7 @@ A timed run will perform one scan, because of its period and duration.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `single_scan` | -- | 409 |
+| `single_scan` | -- | reported, never an answer |
 
 <a id="SlowFileWritesNotice"></a>
 ### `lumascope.SlowFileWritesNotice`
@@ -17619,7 +17495,7 @@ A run spent long enough waiting on the save disk to say so at its end.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `slow_file_writes` | -- | 409 |
+| `slow_file_writes` | -- | reported, never an answer |
 
 <a id="StepEditRefusedError"></a>
 ### `lumascope.StepEditRefusedError`
@@ -17679,7 +17555,7 @@ settings the app runs on and so in the file at its next save.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `stored_setting_replaced` | -- | 409 |
+| `stored_setting_replaced` | -- | reported, never an answer |
 
 <a id="SupportReportNotSavedError"></a>
 ### `lumascope.SupportReportNotSavedError`
@@ -17736,7 +17612,7 @@ that name, and `clamped` keeps the setting.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `value_clamped` | -- | 409 |
+| `value_clamped` | -- | reported, never an answer |
 
 <a id="VideoFramesDroppedError"></a>
 ### `lumascope.VideoFramesDroppedError`

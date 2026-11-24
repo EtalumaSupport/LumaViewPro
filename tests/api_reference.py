@@ -8,7 +8,8 @@ researcher's client needs, left out of the public reference; and the
 refusals its ``Raises:`` and its doors declare with the REST status each
 answers (``_lumascope.rest.problems.declared``); every closed set a marked annotation
 names, with its values; every outcome class with its kind, reasons, causes
-and status; and the tables a reader looks things up in -- the routes, the
+and status -- a notice's only when a member's ``Raises:`` declares it, since
+no other notice is ever an answer; and the tables a reader looks things up in -- the routes, the
 events, the facts a saved file states. A fact here has its home in the
 code: the file is regenerated, never edited, and
 ``tests/guards/test_the_api_is_declared.py`` holds it equal to a fresh
@@ -37,6 +38,7 @@ from _lumascope.modules import wire_encoding
 from _lumascope.modules.api_surface import (
     API,
     IN_PROCESS,
+    RAISES_SECTION,
     _to_dict,
     admitted_by_of,
     event_of,
@@ -47,6 +49,7 @@ from _lumascope.modules.api_surface import (
     is_record,
     markdown_of,
     own_doc,
+    raises_of,
     reads_of,
     sets_of,
     stop_of,
@@ -91,7 +94,7 @@ Every member and field of the API, rendered from the source: a member is API whe
 
 Every name with a section of its own is imported from `lumascope`, as its heading says: `from lumascope import ScopeSession`.
 
-A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes. **Refusals** adds the refusals of the doors the member enters (a hardware lane, a guarded write, a post-processing build's admission); for a member on the wire they are **Refusals by REST status**, under the HTTP status each answers. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
+A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes; a member that raises nothing says so beside its marks. **Refusals** adds the refusals of the doors the member enters (a hardware lane, a guarded write, a post-processing build's admission); for a member on the wire they are **Refusals by REST status**, under the HTTP status each answers. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
 
 <a id="to_dict"></a>A **record** crosses the wire as its data. In the same process every record also answers `to_dict()`, *in-process*, for a caller that takes a dict and not a record, such as MATLAB's `struct()`:
 
@@ -248,6 +251,8 @@ class _Index:
     handed_out: frozenset[type]
     # Each record's name -> the members and fields that deliver it as an event.
     delivers: dict[str, list[str]]
+    # Every outcome class a member's ``Raises:`` names: what a member can answer.
+    answers: frozenset[str]
 
 
 def _edges(item: Marked) -> list[tuple[str, str]]:
@@ -292,8 +297,12 @@ def _index(marked: dict[str, Marked], universe: dict[str, type], aliases: dict[s
         lambda: collections.defaultdict(list)
     )
     delivers: dict[str, list[str]] = collections.defaultdict(list)
+    answers: set[str] = set()
     for item in (marked[k] for k in sorted(marked)):
         key = entry_key(item)
+        function = None if item.field else member_function(item.value)
+        if function is not None:
+            answers |= {name for name, _ in raises_of(inspect.getdoc(function) or '')}
         for edge, text in _edges(item):
             for used in sorted(_names(text) & universe.keys()):
                 if key not in named_by[used][edge]:
@@ -331,6 +340,7 @@ def _index(marked: dict[str, Marked], universe: dict[str, type], aliases: dict[s
         reached=reached,
         handed_out=handed_out,
         delivers=delivers,
+        answers=frozenset(answers),
     )
 
 
@@ -446,11 +456,16 @@ def _member(item: Marked, index: _Index) -> str:
         facts.append('Marks: ' + '; '.join(marks) + '.')
     for route in index.routes.get((item.owner, item.member), []):
         facts.append(f'Route: `{route}`.')
+    doc = inspect.getdoc(function) or ''
+    # A section that is the one line ``Nothing.`` is said with the facts, not as a heading of its own.
+    section = RAISES_SECTION.search(doc)
+    raises_nothing = section is not None and section.group(1).strip() == 'Nothing.'
+    if raises_nothing:
+        facts.append('Raises nothing.')
     if facts:
         parts.append('  \n'.join(facts))
-    doc = inspect.getdoc(function) or ''
     if doc:
-        parts.append(markdown_of(doc))
+        parts.append(markdown_of(doc, leave_out=('Raises',) if raises_nothing else ()))
     refusals = _refusals(doc, item, index)
     if refusals:
         parts.append(refusals)
@@ -506,14 +521,16 @@ def _root() -> str:
     )
 
 
-def _reasons(cls: type) -> str:
+def _reasons(cls: type, index: _Index) -> str:
+    """Each reason's row: its cause, and its REST status -- none for a notice no member's ``Raises:`` names, which is only reported."""
     # A subclass carries its parent's reasons; a kind and a subject carry none.
     causes = getattr(cls, 'causes', None)
     if not causes:
         return ''
+    reported = issubclass(cls, Notice) and cls.__name__ not in index.answers
     rows = [
         f'| `{reason}` | {cause.value if cause is not None else "--"} | '
-        f'{problems._status_of(cls, reason)} |'
+        f'{"reported, never an answer" if reported else problems._status_of(cls, reason)} |'
         for reason, cause in sorted(causes.items())
     ]
     return '| Reason | Cause | REST status |\n|---|---|---|\n' + '\n'.join(rows)
@@ -540,7 +557,7 @@ def _class(owner: _Owner, index: _Index, *, outcome: bool = False) -> str:
     doc = own_doc(cls)
     if doc:
         parts.append(markdown_of(doc, leave_out=() if outcome else ('Attributes',)))
-    for text in (_fields(owner), _reasons(cls) if outcome else ''):
+    for text in (_fields(owner), _reasons(cls, index) if outcome else ''):
         if text:
             parts.append(text)
     for item in owner.items:
@@ -629,12 +646,24 @@ def _file_facts_table() -> str:
     )
 
 
+def _beside_its_wait(key: str, marked: dict[str, Marked]) -> tuple[str, str, bool]:
+    """*key*'s place in its owner: by name, a ``start_<x>`` right after the ``<x>`` that waits on it.
+
+    A ``start_`` member with no such twin keeps its own name's place.
+    """
+    owner, _, name = key.rpartition('.')
+    waited = name.removeprefix('start_')
+    if waited != name and f'{owner}.{waited}' in marked:
+        return owner, waited, True
+    return owner, name, False
+
+
 def _owners(
     marked: dict[str, Marked], index: _Index
 ) -> tuple[list[_Owner], list[_Owner], dict[str, _Owner]]:
     """The class owners in the reference's order, the module owners, and the outcome classes' owners by name."""
     grouped: dict[int, list[Marked]] = collections.defaultdict(list)
-    for key in sorted(marked):
+    for key in sorted(marked, key=lambda k: _beside_its_wait(k, marked)):
         grouped[id(marked[key].owner)].append(marked[key])
     classes, modules, outcomes = [], [], {}
     for items in grouped.values():
@@ -701,14 +730,25 @@ def render(sections: Declared) -> str:
     """The reference's text for the declared API's *sections*."""
     index, classes, modules = sections.index, sections.classes, sections.modules
     outcome_owners, closed = sections.outcome_owners, sections.closed
-    contents = ['## Contents', '']
-    contents += [f'- [`{o.name}`](#{o.name})' for o in classes]
     functions = sorted((item for o in modules for item in o.items), key=lambda i: i.member)
-    contents += [f'- [`{i.member}`](#{i.member})' for i in functions]
-    contents += ['- [Closed sets](#closed-sets)']
-    contents += ['- [Outcomes](#outcomes)', '- [Routes](#routes)', '- [Events](#events)']
-    contents += ['- [Saved-file facts](#saved-file-facts)']
-    sections = [_PREFACE.rstrip('\n'), '\n'.join(contents)]
+    # A record is listed with the records unless a caller holds it as an API object.
+    held = index.reached.keys() | index.handed_out
+    records = [o.name for o in classes if is_record(o.owner) and o.owner not in held]
+    groups = [
+        ('**Classes**', [o.name for o in classes if o.name not in records]),
+        ('**Functions**', [i.member for i in functions]),
+        ('**Records**', records),
+        ('**[Closed sets](#closed-sets)**', [c.__name__ for c in closed]),
+        ('**[Outcomes](#outcomes)**', [LumascopeError.__name__, *sorted(index.outcomes)]),
+    ]
+    contents = ['## Contents']
+    contents += [
+        f'{label}\n\n' + '\n'.join(f'- [`{n}`](#{n})' for n in names) for label, names in groups
+    ]
+    contents += [
+        '**Tables**\n\n- [Routes](#routes)\n- [Events](#events)\n- [Saved-file facts](#saved-file-facts)'
+    ]
+    sections = [_PREFACE.rstrip('\n'), '\n\n'.join(contents)]
     sections += [_class(o, index) for o in classes]
     sections += [_member(i, index) for i in functions]
     sections.append(
@@ -717,7 +757,8 @@ def render(sections: Declared) -> str:
     sections += [_closed_set(c, index) for c in closed]
     sections.append(
         '## Outcomes\n\nEvery outcome class: its kind, its reasons, whether the same request could '
-        "succeed later (each reason's cause), and the HTTP status REST answers it with."
+        "succeed later (each reason's cause), and the HTTP status REST answers it with. A notice "
+        "no member's **Raises** names is only reported: it is never an answer, so it has no status."
     )
     sections.append(_root())
     for name, cls in sorted(index.outcomes.items()):

@@ -105,23 +105,7 @@ class SavedStill:
 
 
 class ManualCaptureController:
-    """One still at a time, captured on the camera lane and saved.
-
-    Args:
-        scope: The Lumascope instance.
-        settings_snapshot: Returns a private copy of the session's settings;
-            one is taken per capture, when the capture is asked for.
-        shown_channel: Reads the session's shown channel, on the camera
-            lane as the frame is taken: it is the still's channel when no
-            LED is lit.
-        engineering_mode: Reads the session's engineering mode, once per
-            capture, when the capture is asked for: a plugin may turn it on
-            after the controller is built.
-        channel_colors: Reads every channel's color, from the Session's one
-            read of it, once per capture, when the capture is asked for.
-        on_saved: Told the folder of each still once its files are on disk,
-            on the camera lane, before the caller is answered.
-    """
+    """One still at a time, captured on the camera lane and saved."""
 
     def __init__(
         self,
@@ -133,6 +117,23 @@ class ManualCaptureController:
         channel_colors: Callable[[], ChannelColors],
         on_saved: Callable[[pathlib.Path], None],
     ):
+        """The controller the session builds, over its scope and its reads.
+
+        Args:
+            scope: The Lumascope instance.
+            settings_snapshot: Returns a private copy of the session's settings;
+                one is taken per capture, when the capture is asked for.
+            shown_channel: Reads the session's shown channel, on the camera
+                lane as the frame is taken: it is the still's channel when no
+                LED is lit.
+            engineering_mode: Reads the session's engineering mode, once per
+                capture, when the capture is asked for: a plugin may turn it on
+                after the controller is built.
+            channel_colors: Reads every channel's color, from the Session's one
+                read of it, once per capture, when the capture is asked for.
+            on_saved: Told the folder of each still once its files are on disk,
+                on the camera lane, before the caller is answered.
+        """
         self._on_saved = on_saved
         self._scope = scope
         self._settings_snapshot = settings_snapshot
