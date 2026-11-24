@@ -342,6 +342,29 @@ def test_a_stitch_tile_cut_short_fails_its_group_once_in_the_readers_words(tmp_p
     assert 'A1_BF_T1_0000.tiff' in error and 'stitching failed' not in error, error
 
 
+def test_a_failed_group_is_one_error_the_reporters(tmp_path, caplog):
+    """The build logs each failed group at INFO; the outcome that names them
+    is the one ERROR, the reporter's."""
+    import logging
+
+    from _lumascope.modules.notification_center import NotificationCenter
+
+    folder = _z_stacks(tmp_path)
+    _truncate(folder / 'A1_BF_Z1_0000.tiff')
+
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(PostProcessingFailedError) as incomplete:
+            _zproject(folder)
+        NotificationCenter().report_outcome(
+            incomplete.value, solicited=True, category='Post-processing', log_only=True
+        )
+
+    errors = [(r.name, r.getMessage()[:60]) for r in caplog.records if r.levelno >= logging.ERROR]
+    assert [name for name, _ in errors] == ['LVP.outcomes'], errors
+    told_at_info = [r for r in caplog.records if 'A1_BF_Z1_0000.tiff' in r.getMessage()]
+    assert any(r.levelno == logging.INFO for r in told_at_info), 'the group is not in the log'
+
+
 def test_a_hyperstack_plane_the_disk_fails_to_read_during_the_write_fails_its_group(
     tmp_path, monkeypatch
 ):

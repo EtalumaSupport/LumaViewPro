@@ -792,7 +792,7 @@ class ProtocolPostProcessor(abc.ABC):
             planned_names[name] = planned_names.get(name, 0) + 1
         colliding_names = {name for name, count in planned_names.items() if count > 1}
         for name in sorted(colliding_names):
-            logger.error(
+            logger.info(
                 f'[{self._name} ] Refusing to generate {name}: more than one '
                 f'image group derives this output filename, so the artifacts '
                 f'would be indistinguishable.'
@@ -861,7 +861,7 @@ class ProtocolPostProcessor(abc.ABC):
                         'are saved.'
                     )
                     group_errors.append(f'{cut_loc_rel}: {last_error}')
-                    logger.error(f'Not generating {cut_loc_rel}: {last_error}')
+                    logger.info(f'Not generating {cut_loc_rel}: {last_error}')
                     continue
                 left_out.append(f'{subject} ({len(cut)} image(s))')
 
@@ -928,7 +928,7 @@ class ProtocolPostProcessor(abc.ABC):
             if doubled is not None:
                 last_error = doubled
                 group_errors.append(f'{output_file_loc_rel}: {doubled}')
-                logger.error(f'Not generating {output_file_loc_rel}: {doubled}')
+                logger.info(f'Not generating {output_file_loc_rel}: {doubled}')
                 continue
 
             # Built whole or not at all: a group missing a frame the run
@@ -937,7 +937,7 @@ class ProtocolPostProcessor(abc.ABC):
             if not missing.empty:
                 last_error = _missing_frames_error(missing)
                 group_errors.append(f'{output_file_loc_rel}: {last_error}')
-                logger.error(f'Not generating {output_file_loc_rel}: {last_error}')
+                logger.info(f'Not generating {output_file_loc_rel}: {last_error}')
                 continue
 
             kwargs['output_file_loc'] = output_file_loc_rel
@@ -971,7 +971,7 @@ class ProtocolPostProcessor(abc.ABC):
                 logger.info(
                     f'[PostProcPerf] {self._name} group failed after {group_ms:.1f}ms: {group_label}'
                 )
-                logger.error(f'Failed to generate {output_file_loc_rel}: {alg_results.error}')
+                logger.info(f'Failed to generate {output_file_loc_rel}: {alg_results.error}')
                 continue
 
             completed_group_ms.append(group_ms)
