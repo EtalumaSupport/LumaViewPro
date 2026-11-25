@@ -552,7 +552,7 @@ class FileFact:
     no longer states it. A structured fact names ``fields``, each its own
     pair in a file's view (``plate.well_label``), for the published facts
     table; ``keyed_by`` is what a fact holding one entry per something is
-    keyed by (``frame_validity.0.source``). Declared for the table only:
+    keyed by (``judgments.0.source``). Declared for the table only:
     the producer and the readers name the fields themselves.
     ``formerly``: every key a shipped file states this fact under other
     than its own, so a file any build wrote reads into today's record and
@@ -633,11 +633,14 @@ FILE_FACTS: dict[str, FileFact] = {
     # Each change the frame was judged against: whether it counts, how many
     # frames and milliseconds after the change it came, and who counted the
     # frames that met the change's count: one judgment per change, its fields
-    # as Judgment.fields() states them, the last only where it has one.
-    'frame_validity': FileFact(
+    # as Judgment.fields() states them, the last only where it has one. The
+    # key is FrameRecord's word; the Plane name is kept for the readers that
+    # parse the block.
+    'judgments': FileFact(
         FactKind.CAPTURE,
         'FrameValidity',
         keyed_by='judgment index',
+        formerly=(FormerKey('frame_validity', '4.0.0-beta48'),),
         fields=(
             'source',
             'counts',
@@ -2979,7 +2982,7 @@ def _readable_view(record: dict) -> list[tuple[str, str]]:
     not a remainder; only ``FILE_FACTS`` keys, since the dict a writer is
     handed also holds the save path. A structured fact's fields are joined
     to its key with ``.`` (``plate.well_label``), a list's items by index
-    (``frame_validity.0.source``); a flag is ``true``/``false``, a time ISO
+    (``judgments.0.source``); a flag is ``true``/``false``, a time ISO
     8601, and a None states nothing (``pixel_size_um`` None is no scale).
     """
     return [pair for key in FILE_FACTS if key in record for pair in _flattened(key, record[key])]

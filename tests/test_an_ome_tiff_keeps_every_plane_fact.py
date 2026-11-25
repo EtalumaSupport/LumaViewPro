@@ -59,7 +59,7 @@ def _every_plane_field() -> dict:
         'camera_timestamp_ticks': 123456789,
         'camera_timestamp_tick_hz': 1_000_000_000,
         'frame_id': 7,
-        'frame_validity': [
+        'judgments': [
             {
                 'source': 'led',
                 'counts': True,

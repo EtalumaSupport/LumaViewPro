@@ -376,7 +376,7 @@ class TestTheFrameFile:
         assert written['timestamp_source'] == 'host_arrival'
         assert (written['camera_timestamp_ticks'], written['frame_id']) == (123456789, 41)
         assert 'black_level' not in written
-        assert 'frame_validity' not in written
+        assert 'judgments' not in written
 
     def test_a_frame_without_chunks_states_no_exposure_or_gain(self, sim_scope, tmp_path):
         written = _written(sim_scope, tmp_path, _arrival(sim_scope, chunks=None))
@@ -504,7 +504,7 @@ class TestARecordingOnTheSimulator:
         assert written['pixel_size_um'] is not None
         assert written['timestamp_source'] == 'camera_frame_start', 'the simulator latches'
         assert written['illumination_timing'] == 'on_arrival'
-        assert 'frame_validity' not in written and 'black_level' not in written
+        assert 'judgments' not in written and 'black_level' not in written
 
         # The stage stood still, so every plane states the one position.
         stack = read_file_record(folder / MANUAL_HYPERSTACK_FILENAME)

@@ -277,7 +277,7 @@ def test_the_saved_file_carries_the_judgments(sim_scope, tmp_path):
 
     saved = image_utils.read_file_record(path)
 
-    assert saved['frame_validity'] == [j.fields() for j in record.judgments]
+    assert saved['judgments'] == [j.fields() for j in record.judgments]
     assert _judgment(record, 'exposure').counts
 
 
@@ -315,8 +315,8 @@ def test_a_full_depth_file_carries_the_judgments_as_plain_words(sim_scope, tmp_p
 
     saved = image_utils.read_file_record(path)
 
-    assert saved['frame_validity'] == [j.fields() for j in record.judgments]
-    assert {type(j['source']) for j in saved['frame_validity']} == {str}
+    assert saved['judgments'] == [j.fields() for j in record.judgments]
+    assert {type(j['source']) for j in saved['judgments']} == {str}
 
 
 def test_a_listeners_frame_is_judged_through_the_api(sim_scope):

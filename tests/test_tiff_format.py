@@ -1984,7 +1984,7 @@ def test_the_view_is_plain_text_and_a_plain_tiffs_is_ascii(tmp_path):
         'pixel_size_um': None,
         'channel': 'BF',
         'exposure_ms': 50.0,
-        'frame_validity': [{'source': 'led', 'counts': True}, {'source': 'gain', 'counts': False}],
+        'judgments': [{'source': 'led', 'counts': True}, {'source': 'gain', 'counts': False}],
         'plate': {'name': '96 well \u00b5plate', 'well_label': 'D6'},
         'datetime': datetime.datetime(2026, 10, 30, 9, 15, 2, 250000),
     }
@@ -2009,10 +2009,10 @@ def test_the_view_is_plain_text_and_a_plain_tiffs_is_ascii(tmp_path):
         ('objective.id', '20x Oly'),
         ('objective.magnification', '20'),
         ('exposure_ms', '50.0'),
-        ('frame_validity.0.source', 'led'),
-        ('frame_validity.0.counts', 'true'),
-        ('frame_validity.1.source', 'gain'),
-        ('frame_validity.1.counts', 'false'),
+        ('judgments.0.source', 'led'),
+        ('judgments.0.counts', 'true'),
+        ('judgments.1.source', 'gain'),
+        ('judgments.1.counts', 'false'),
         ('channel', 'BF'),
     ]
     assert shown['plain.tiff'] == [
@@ -2070,7 +2070,7 @@ def test_the_facts_table_names_every_field_a_save_states(sim_scope, tmp_path):
 
     unmeasured = {'objective': {'focus_peak_fwhm_dense_um'}}
     structured = {key: fact for key, fact in image_utils.FILE_FACTS.items() if fact.fields}
-    assert set(structured) == {'objective', 'plate_pos_mm', 'frame_validity', 'instrument', 'plate'}
+    assert set(structured) == {'objective', 'plate_pos_mm', 'judgments', 'instrument', 'plate'}
     for key, fact in structured.items():
         entries = recorded[key] if isinstance(recorded[key], list) else [recorded[key]]
         stated = set().union(*entries)

@@ -18058,7 +18058,7 @@ Every fact a saved file's record can state, by its key, in the order the writer 
 | `camera_timestamp_ticks` | capture | `TimestampCameraTicks` | -- | no | -- | `timestamp_camera_ticks` until 4.0.0-beta48, read back |
 | `camera_timestamp_tick_hz` | capture | `TimestampCameraTickHz` | -- | no | -- | `timestamp_camera_tick_hz` until 4.0.0-beta48, read back |
 | `frame_id` | capture | `FrameID` | -- | no | -- | -- |
-| `frame_validity` | capture | `FrameValidity` | -- | no | keyed by judgment index: `source`, `counts`, `frames_after`, `after_write_ms`, `skip`, `counted_by`, `after_in_force_ms` | -- |
+| `judgments` | capture | `FrameValidity` | -- | no | keyed by judgment index: `source`, `counts`, `frames_after`, `after_write_ms`, `skip`, `counted_by`, `after_in_force_ms` | `frame_validity` until 4.0.0-beta48, in the view only |
 | `saturated_fraction` | capture | `SaturatedFraction` | -- | no | -- | -- |
 | `dark` | capture | `Dark` | -- | no | -- | -- |
 | `camera_held_a_channel` | capture | `CameraHeldAChannel` | -- | no | -- | -- |

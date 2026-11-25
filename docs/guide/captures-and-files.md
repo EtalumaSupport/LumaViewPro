@@ -184,12 +184,16 @@ and `illumination_ma` the one current, with
 `illumination_by_channel_ma.<channel>` each lit channel's, where the record
 keys its currents by LED address. The channel and its light are `channel`,
 `camera_held_channel`, `illumination_ma` and `dark`. `filterset` is the scope's
-filter set, whatever channel was imaged. Every key, its unit and what a sum
-does to it is the reference's [saved-file
-facts](../api-reference.md#saved-file-facts). A fact the frame did not know is
+filter set, whatever channel was imaged. Every key, its unit, what a sum
+does to it, its name in the Plane block and every key an older file states
+it under is the reference's [saved-file
+facts](../api-reference.md#saved-file-facts). The Plane block keeps its own
+names, OME's and LumaViewPro's, for the readers that parse it, so a view key
+and its Plane name can differ in one file (`camera_timestamp_tick_hz` and
+`TimestampCameraTickHz`). A fact the frame did not know is
 absent, never a stand-in. A few values name a type of the reference.
 `illumination_timing` is a [`LightTiming`](../api-reference.md#LightTiming),
-when the currents were read. Each `frame_validity.<n>` is a
+when the currents were read. Each `judgments.<n>` (the Plane's `FrameValidity`) is a
 [`Judgment`](../api-reference.md#Judgment) of the frame against one change:
 `counts`, `frames_after`, `after_write_ms`, `after_in_force_ms`. It comes with
 its [`Change`](../api-reference.md#Change)'s `source` and `skip`, the frames it
