@@ -1534,9 +1534,7 @@ class ScopeSession:
         ``bring_up_record``.
 
         Raises:
-            RunCheckFailedError: ``'hardware_state_unknown'``, the
-                connection read behind ``run_refused`` crashed instead of
-                answering.
+            Nothing.
         """
         return self.status_at_edge()()
 
@@ -1551,9 +1549,7 @@ class ScopeSession:
         takes to stop). ``status`` makes the call at once.
 
         Raises:
-            RunCheckFailedError: ``'hardware_state_unknown'``, the
-                connection read behind ``run_refused`` crashed instead of
-                answering.
+            Nothing.
         """
         at_edge = {
             'live_work': self.live_work,

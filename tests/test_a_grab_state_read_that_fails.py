@@ -23,7 +23,7 @@ import pytest
 
 from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.drivers.simulated_camera import SimulatedCamera
-from _lumascope.modules.exceptions import CameraSettingRejected, RunCheckFailedError
+from _lumascope.modules.exceptions import CameraSettingRejected
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -112,9 +112,11 @@ def test_a_capture_whose_grab_state_read_fails_raises_the_read():
         s.shutdown()
 
 
-def test_a_run_whose_grab_state_read_fails_is_refused_as_state_unknown(tmp_path):
-    """A pin: the run's admission already answered a raise from the streaming
-    check as ``hardware_state_unknown``."""
+def test_a_run_whose_grab_state_read_fails_raises_the_read(tmp_path):
+    """The run's start check does not wrap the streaming read: a camera that
+    does not answer its grab state reaches the run's caller as the read's
+    own fault, in the camera's words, never a second sentence of the
+    check's."""
     from tests.scope_fakes import home_sim_scope
     from tests.test_a_run_needs_every_axis_position import _run, _settings
 
@@ -122,9 +124,9 @@ def test_a_run_whose_grab_state_read_fails_is_refused_as_state_unknown(tmp_path)
     try:
         home_sim_scope(s.scope)
         _grabbing_fails(s)
-        with pytest.raises(RunCheckFailedError) as refused:
+        with pytest.raises(CameraReadFailedError) as failed:
             _run(s, tmp_path)
-        assert refused.value.reason == 'hardware_state_unknown'
+        assert failed.value.reason == 'camera_read_failed'
     finally:
         s.scope._camera_driver.allow_read('grabbing')
         s.shutdown()

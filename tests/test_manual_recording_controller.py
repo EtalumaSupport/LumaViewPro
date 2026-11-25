@@ -364,6 +364,12 @@ class TestStartRefusals:
         with pytest.raises(RecordingRefusedError) as e:
             controller.start()
         assert e.value.reason == 'camera_exposure_unknown'
+        # What works today: no advice to reconnect a camera LumaViewPro sees
+        # again only after a restart.
+        assert e.value.message.endswith(
+            "Set the camera's exposure, then start the recording again; if it "
+            'happens again, restart LumaViewPro.'
+        )
 
     def test_low_disk_refused_as_a_run_is(self, tmp_path, monkeypatch):
         # One fact, one reason and one title: a recording short of disk is

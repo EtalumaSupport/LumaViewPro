@@ -182,13 +182,13 @@ def _record_reports(monkeypatch, module):
             RecordingFramesUnstampedError(12, protocol_step=False),
             'Recording Saved No Frames',
             'The camera sent 12 frame(s) without their timestamps, so the recording '
-            'saved none. Reconnect the camera before recording again.',
+            'saved none. Restart LumaViewPro before recording again.',
         ),
         (
             RecordingFramesUnstampedError(12, protocol_step=True),
             'Recording Saved No Frames',
             'The camera sent 12 frame(s) without their timestamps, so the video step '
-            'saved none. Reconnect the camera before recording again.',
+            'saved none. Restart LumaViewPro before recording again.',
         ),
         (
             HyperstackNotBuiltError('one channel only', 'builder_declined'),

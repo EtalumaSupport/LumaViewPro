@@ -187,6 +187,10 @@ class TestAtRunStart:
         )
         assert outcome.title == 'Camera Read Failed'
         assert 'simulated' not in outcome.message, 'the SDK text reached the person'
+        # What works today: a replugged camera is seen only after a restart.
+        assert outcome.message.endswith(
+            'Start the run again; if it happens again, restart LumaViewPro.'
+        ), outcome.message
         assert outcome.captures.captured == 0
         assert read_failure_told.wait(TOLD_WAIT_S), 'the run that did not begin was not told'
         assert channel_reading(scope.illumination, 'BF').state is LedState.LIT, (

@@ -11,13 +11,13 @@ import time
 
 import pytest
 
-from _lumascope.drivers.exceptions import HardwareError
+from _lumascope.drivers.exceptions import BoardNoReplyError, HardwareError
 from _lumascope.drivers.tmcm6110 import Tmcm6110Board
 from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MoveNotCompletedError,
-    RunCheckFailedError,
 )
+from _lumascope.modules.notification_center import outcome_of
 from _lumascope.modules.axes import AxisState
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 from tests.motion_moves import axis_move
@@ -207,22 +207,26 @@ def test_the_motion_monitor_outlives_a_silence_during_a_move(homed):
     assert _at(homed, 'Y') == pytest.approx(20_000, abs=0.2)
 
 
-def test_a_run_whose_lid_read_fails_is_not_checked_not_refused(homed, executor, tmp_path):
+def test_a_run_whose_lid_read_fails_raises_the_boards_fault(homed, executor, tmp_path):
     """A board that does not answer the lid read leaves the stage's state
-    unknown: the run is neither admitted nor refused, as when the camera's
-    streaming read fails. The person reads what could not be read; the
-    board's own error is chained for the log, never quoted."""
+    unknown: the run is neither admitted nor refused, and what the read
+    raised reaches the caller as itself -- the board's fault, with its title
+    and the words a person is shown for it everywhere else, none of them
+    advice to reconnect a part LumaViewPro sees again only after a
+    restart. Nothing starts."""
     homed.simulation.silence('motor')
     try:
-        with pytest.raises(RunCheckFailedError) as failed:
+        with pytest.raises(BoardNoReplyError) as failed:
             _run_and_wait(executor, _make_protocol([_BF_STEP]), tmp_path)
     finally:
         homed.simulation.unsilence('motor')
-    assert failed.value.reason == 'hardware_state_unknown'
-    assert "read the stage's interlocks" in failed.value.message
-    assert 'no reply from the TMCM-6110' in str(failed.value.__cause__)
-    assert type(failed.value.__cause__).__name__ not in failed.value.message
-    assert 'TMCM-6110' not in failed.value.message
+    shown = outcome_of(failed.value)
+    assert (failed.value.reason, shown.title) == ('board_no_reply', 'Board Did Not Answer')
+    assert shown.shown_words == (
+        "A controller board in the microscope did not answer. Check the microscope's "
+        'power and try again; if it still does not answer, restart LumaViewPro.'
+    )
+    assert not executor.run_in_progress()
 
 
 _BF_STEP = {'color': 'BF', 'x': 10.0, 'y': 20.0, 'illumination_ma': 50.0}

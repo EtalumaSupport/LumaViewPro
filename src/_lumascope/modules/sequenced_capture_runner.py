@@ -1110,23 +1110,6 @@ class SequencedCaptureRunner:
         )
 
     @staticmethod
-    def _hardware_state_unknown(what: str, ex: Exception) -> typing.NoReturn:
-        """A hardware read the gate needs crashed instead of answering.
-
-        Not a refusal: nothing was declined, the question could not be
-        asked. The crash is chained, not quoted: its traceback is logged
-        with this, and the person reads what could not be read.
-
-        Raises:
-            RunCheckFailedError: ``'hardware_state_unknown'``, naming what
-                could not be read.
-        """
-        raise RunCheckFailedError(
-            reason='hardware_state_unknown',
-            message=f'Could not {what}. Reconnect the scope and try again.',
-        ) from ex
-
-    @staticmethod
     def _refusal(
         reason: str,
         message: str,
@@ -1227,8 +1210,7 @@ class SequencedCaptureRunner:
                 reads it.
 
         Raises:
-            RunCheckFailedError: ``'hardware_state_unknown'``, the
-                connection read crashed instead of answering.
+            Nothing.
         """
         if for_this_caller:
             session = claim.refusing_control(current_taking())
@@ -1397,10 +1379,24 @@ class SequencedCaptureRunner:
                 name).
             ArgumentRefusedError: ``'not_a_number'``, an axis of
                 ``return_to_position`` is NaN.
-            RunCheckFailedError: the run's checks could not be asked:
-                ``'validation_crashed'``, the protocol's validation failed
-                inside LumaViewPro; ``'hardware_state_unknown'``, the scope's state could not
-                be read.
+            RunCheckFailedError: ``'validation_crashed'``, the protocol's
+                validation failed inside LumaViewPro.
+            CameraReadFailedError: ``'camera_read_failed'``, the camera did
+                not answer its grab state.
+            LaneCallStillRunningError: ``'call_overran'``, what was queued on
+                the camera lane ahead of the grab-state read outlasted its
+                bound.
+            HardwareCommandRefusedError: ``'scope_disconnected'``, the scope
+                shut down as the camera or the stage was asked;
+                ``'not_connected'``, the motor controller is gone.
+            BoardNoReplyError: ``'board_no_reply'``, the motor board did not
+                answer the interlocks read.
+            BoardPortFailedError: ``'board_port_failed'``, the port to the
+                motor board failed.
+            BoardReplyUnreadableError: ``'board_reply_unreadable'``, the motor
+                board's answer to the interlocks read could not be read.
+            BoardReportedError: ``'board_reported_error'``, the motor board
+                refused the interlocks read.
             ControlSessionRefusedError: ``'control_session_held'``, a
                 control session is held by someone else.
         """
@@ -1473,10 +1469,7 @@ class SequencedCaptureRunner:
         # admitted on it captures nothing and ends as a fault. Asked once the
         # camera's queued commands have run, so a frame-size change in flight
         # is not taken for a stopped feed.
-        try:
-            streaming = self._scope.imaging.read_streaming_once_settled()
-        except Exception as ex:
-            self._hardware_state_unknown('check whether the camera is streaming', ex)
+        streaming = self._scope.imaging.read_streaming_once_settled()
         if not streaming:
             self._refuse(
                 reason='camera_not_streaming',
@@ -1608,10 +1601,7 @@ class SequencedCaptureRunner:
         # unhomed scope is told to home first, and the home is refused for
         # the lid in its own words. Asked of the board directly rather than
         # queued behind a move or a home on the IO lane.
-        try:
-            open_interlocks = self._scope.motion.read_interlocks()
-        except Exception as ex:
-            self._hardware_state_unknown("read the stage's interlocks", ex)
+        open_interlocks = self._scope.motion.read_interlocks()
         if 'lid_open' in open_interlocks:
             self._refuse(
                 reason='lid_open_before_motion',
@@ -1836,7 +1826,7 @@ class SequencedCaptureRunner:
                 RunStatus.FAILED_AT_START,
                 'camera_read_failed',
                 "The camera's settings could not be read, so the run did not start. "
-                "Check the camera's USB cable, then start the run again.",
+                'Start the run again; if it happens again, restart LumaViewPro.',
             )
         except LaneCallStillRunningError as unanswered:
             logger.error(

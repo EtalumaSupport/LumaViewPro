@@ -2630,21 +2630,19 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
 class RunCheckFailedError(Fault, ProtocolError):
     """A run could not be checked before it started: a check itself crashed.
 
-    Raised by SequencedCaptureRunner.prepare() when validating the protocol,
-    reading whether the camera is streaming, or reading the stage's
-    interlocks, raised instead of answering. Not a refusal: nothing was
-    declined -- the question could not be asked, and the crash that stopped
-    it is chained as ``__cause__`` so its traceback is logged with this.
-    Nothing is committed and nothing needs unwinding, as for a refusal. Not
-    reported where it is raised: the caller that asked for the run reports
-    it where its flight ends.
+    Raised by SequencedCaptureRunner.prepare() when validating the protocol
+    raised instead of answering. Not a refusal: nothing was declined -- the
+    question could not be asked, and the crash that stopped it is chained as
+    ``__cause__`` so its traceback is logged with this. Nothing is committed
+    and nothing needs unwinding, as for a refusal. Not reported where it is
+    raised: the caller that asked for the run reports it where its flight
+    ends. A hardware read the check makes is not wrapped: what the camera or
+    the stage raises reaches the caller as itself, in that part's own words.
 
     Attributes:
         reason: Machine-readable cause. ``'validation_crashed'`` -- the
             protocol's pre-run validation raised before it produced an
-            answer. ``'hardware_state_unknown'`` -- a hardware read the
-            check needs, whether the camera is streaming or which of the
-            stage's interlocks are open, raised instead of answering.
+            answer.
         title: Short heading for the user, the reason's.
         message: The sentence a user reads; the same text as the
             exception's message.
@@ -2652,7 +2650,6 @@ class RunCheckFailedError(Fault, ProtocolError):
 
     titles: ClassVar[dict[str, str]] = {
         'validation_crashed': 'Cannot validate protocol',
-        'hardware_state_unknown': 'Cannot verify hardware state',
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles)
 
@@ -3287,7 +3284,7 @@ class RecordingFramesUnstampedError(Fault, CaptureError):
         what = 'the video step' if protocol_step else 'the recording'
         super().__init__(
             f'The camera sent {unstamped} frame(s) without their timestamps, so {what} '
-            'saved none. Reconnect the camera before recording again.',
+            'saved none. Restart LumaViewPro before recording again.',
             'frames_unstamped',
         )
         self.unstamped = unstamped

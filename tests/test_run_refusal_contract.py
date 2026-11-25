@@ -678,8 +678,8 @@ class TestStartCannotSilentlyHalfStart:
 _FUNNEL_LOOP = 'test_each_refusal_reason_is_raised_with_its_reason_and_posts_nothing'
 
 # A check that crashed is a fault, not a refusal, so it declares no cause;
-# its two reasons ride the same census and coverage map.
-_RUN_CHECK_FAILED_REASONS = frozenset({'validation_crashed', 'hardware_state_unknown'})
+# its one reason rides the same census and coverage map.
+_RUN_CHECK_FAILED_REASONS = frozenset({'validation_crashed'})
 
 # Every refusal reason the runner can raise, mapped to the test that pins
 # its raise. test_every_runner_refusal_reason_is_covered
@@ -765,10 +765,6 @@ RUNNER_REFUSAL_COVERAGE = {
     # and the error its caller shows.
     'validation_crashed': (
         'tests/test_audit_fixes.py::TestRunPreValidationFiresNotificationOnException'
-    ),
-    'hardware_state_unknown': (
-        'tests/test_the_ls720_in_the_simulator.py::'
-        'test_a_run_whose_lid_read_fails_is_not_checked_not_refused'
     ),
     'not_connected': _FUNNEL_LOOP,
     'camera_not_streaming': _FUNNEL_LOOP,

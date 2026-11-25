@@ -87,7 +87,7 @@ class BoardNoReplyError(Fault, HardwareError):
     words_for_person = False
     person_words = (
         "A controller board in the microscope did not answer. Check the microscope's "
-        'USB cable and power, then try again.'
+        'power and try again; if it still does not answer, restart LumaViewPro.'
     )
 
 

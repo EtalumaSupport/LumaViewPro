@@ -420,7 +420,8 @@ class ManualRecordingController:
             raise RecordingRefusedError(
                 reason='camera_exposure_unknown',
                 message='The camera has not reported its exposure time, so the '
-                'recording cannot be started. Reconnect the camera and try again.',
+                "recording cannot be started. Set the camera's exposure, then start the "
+                'recording again; if it happens again, restart LumaViewPro.',
             )
         video_settings = settings['video']
         max_fps = video_settings['max_fps']
