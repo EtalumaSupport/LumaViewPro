@@ -3605,12 +3605,12 @@ The session's id, told to its taker and to no one else: what a call in the sessi
 
 **Raises**
 
-- `ControlSessionRefusedError`: `'control_session_held'`, another session is held; `'exclusive_activity_running'`, a run, a recording, a home or a diagnostic holds the scope; `'write_in_flight'`, a setting or a file is being written; `'work_finishing'`, a run or recording that has ended is still finishing, or a build is on the post-processing lane, which a capture in the session would overlap. Nothing was taken.
+- `ControlSessionRefusedError`: `'control_session_held'`, another session is held; `'exclusive_activity_running'`, a run, a recording, a home or a diagnostic holds the scope; `'write_in_flight'`, a setting or a file is being written. Work still finishing after it let the scope go answers as it does elsewhere: a run still ending, or a recording closing its file, `'exclusive_activity_running'`, naming it; a finished run's images or video, `'files_writing'`, or `'files_writing_stalled'` with the writer's recovery, as a run's start is told; a build on the post-processing lane, which a capture in the session would overlap, `'post_processing_running'`. Nothing was taken.
 - `SessionClosingError`: `'session_closing'`, the session's close is running or has finished.
 
 **Refusals by REST status**
 
-- 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`, `exclusive_activity_running`, `write_in_flight`, `work_finishing`
+- 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`, `exclusive_activity_running`, `write_in_flight`, `files_writing`, `files_writing_stalled`, `post_processing_running`
 - 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.tiling_config"></a>
@@ -15128,8 +15128,9 @@ was taken or written.
 
 **Attributes**
 
-- `reason`: `'control_session_held'` -- a control session is held, and the request is not its holder's. `'write_in_flight'` -- a setting or a file is still being written, so control is not taken over it half done. `'work_finishing'` -- a run or a recording that has ended is still finishing. `'control_session_ended'` -- the request names a control session that is not the live one: it has ended, or was never issued. `'exclusive_activity_running'`, an activity holding the scope, is `ProtocolRunRefusedError`'s to explain.
+- `reason`: `'control_session_held'` -- a control session is held, and the request is not its holder's. `'write_in_flight'` -- a setting or a file is still being written, so control is not taken over it half done. `'control_session_ended'` -- the request names a control session that is not the live one: it has ended, or was never issued. `'exclusive_activity_running'` (an activity holding the scope, or a run or a recording still ending after it let the scope go, which occupies it as it did while it held it), `'files_writing'` and `'files_writing_stalled'` (a finished run's images or video still being written), and `'post_processing_running'` (a build), are `ProtocolRunRefusedError`'s to explain.
 - `title`: The heading the person reads, the reason's.
+- `remedy`: The file writer's recovery, for `'files_writing_stalled'`; else None.
 
 `holder`, `holder_trigger` and `control_session` are published.
 
@@ -15144,7 +15145,9 @@ was taken or written.
 | `control_session_ended` | request | 422 |
 | `control_session_held` | state | 409 |
 | `exclusive_activity_running` | state | 409 |
-| `work_finishing` | state | 409 |
+| `files_writing` | state | 409 |
+| `files_writing_stalled` | state | 409 |
+| `post_processing_running` | state | 409 |
 | `write_in_flight` | state | 409 |
 
 <a id="DiagnosticRefusedError"></a>

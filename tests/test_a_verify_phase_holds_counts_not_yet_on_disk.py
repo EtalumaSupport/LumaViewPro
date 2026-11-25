@@ -78,7 +78,7 @@ def test_a_hold_is_refused_while_someone_else_holds_control_and_nothing_is_held(
     claim = ActivityClaim()
     sim_scope.set_activity_claim(claim)
     with calling(Caller.REST):
-        claim.take_control('plate reader', finishing=lambda: False)
+        claim.take_control('plate reader', finishing=lambda: None)
 
     with (
         pytest.raises(ControlSessionRefusedError) as refused,

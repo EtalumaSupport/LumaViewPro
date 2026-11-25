@@ -72,6 +72,7 @@ from _lumascope.modules.exceptions import (
     CameraDriverRepairRefusedError,
     CatalogNameRefusedError,
     ConfigError,
+    ControlSessionRefusedError,
     DiagnosticRefusedError,
     FileWriterNotStuckError,
     FileWriterReplacedError,
@@ -1182,22 +1183,56 @@ class ScopeSession:
             ControlSessionRefusedError: ``'control_session_held'``, another
                 session is held; ``'exclusive_activity_running'``, a run, a
                 recording, a home or a diagnostic holds the scope;
-                ``'write_in_flight'``, a setting or a file is being written;
-                ``'work_finishing'``, a run or recording that has ended is
-                still finishing, or a build is on the post-processing lane,
-                which a capture in the session would overlap. Nothing was
-                taken.
+                ``'write_in_flight'``, a setting or a file is being written.
+                Work still finishing after it let the scope go answers as it
+                does elsewhere: a run still ending, or a recording closing
+                its file, ``'exclusive_activity_running'``, naming it; a
+                finished run's images or video, ``'files_writing'``, or
+                ``'files_writing_stalled'`` with the writer's recovery, as a
+                run's start is told; a build on the post-processing lane,
+                which a capture in the session would overlap,
+                ``'post_processing_running'``. Nothing was taken.
             SessionClosingError: ``'session_closing'``, the session's close
                 is running or has finished.
         """
-        runner = self._sequenced_capture_runner
-        controller = self._activity_claim.take_control(
-            name,
-            finishing=lambda: (
-                runner.run_live or bool(self._finishing_work()) or self.post_processing.has_work()
-            ),
-        )
+        controller = self._activity_claim.take_control(name, finishing=self._finishing_refusal)
         return controller.id
+
+    def _finishing_refusal(self) -> ControlSessionRefusedError | None:
+        """Why a control take is refused for work still finishing after it let the scope go; None when nothing is.
+
+        Each finishing work answers what it answers elsewhere. A run still
+        ending, or a recording closing its file, occupies the scope as it
+        did while it held the claim. A run's images are the drain's one
+        judgment, as a run's start and a build are told it. A build is a
+        build running. Read lock-free, as ``_finishing_work`` is, so the
+        claim can ask it under its own lock.
+        """
+        runner = self._sequenced_capture_runner
+        if runner.run_live:
+            return ControlSessionRefusedError(
+                'exclusive_activity_running', holder=WorkKind.PROTOCOL
+            )
+        for item in self._finishing_work():
+            if item.kind == live_work.WorkKind.RECORDING_FINISH:
+                return ControlSessionRefusedError(
+                    'exclusive_activity_running', holder=WorkKind.RECORDING
+                )
+            if item.kind == live_work.WorkKind.RUN_VIDEO_FINISH:
+                return ControlSessionRefusedError(
+                    'files_writing', message="A run's video is still being written. Please wait."
+                )
+            writing = runner.files_still_writing('taking control')
+            if writing is not None:
+                return ControlSessionRefusedError(
+                    writing.reason,
+                    message=writing.message,
+                    holder_trigger=writing.holder_trigger,
+                    remedy=writing.remedy,
+                )
+        if self.post_processing.has_work():
+            return ControlSessionRefusedError('post_processing_running')
+        return None
 
     @api
     def end_control(self, session_id: str) -> ControlSession:

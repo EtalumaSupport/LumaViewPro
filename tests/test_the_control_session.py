@@ -67,7 +67,7 @@ def lane(claim):
 def _take(claim, name='plate reader', caller=Caller.REST):
     """Take ``claim``'s control session; a claim on its own has no work finishing."""
     with calling(caller):
-        return claim.take_control(name, finishing=lambda: False)
+        return claim.take_control(name, finishing=lambda: None)
 
 
 def _take_on(session, name='plate reader', caller=Caller.REST):
@@ -150,10 +150,11 @@ class TestTheTake:
             claim.leave_guarded_write()
         assert _take(claim).session is claim.control, 'the take is admitted once the write returns'
 
-    def test_a_take_is_refused_while_a_run_or_recording_that_ended_is_finishing(self, claim):
+    def test_a_take_is_refused_with_what_the_finishing_work_answers(self, claim):
+        finishing = ControlSessionRefusedError('post_processing_running')
         with pytest.raises(ControlSessionRefusedError) as refused:
-            claim.take_control('plate reader', finishing=lambda: True)
-        assert refused.value.reason == 'work_finishing'
+            claim.take_control('plate reader', finishing=lambda: finishing)
+        assert refused.value is finishing
         assert claim.control is None
 
     def test_a_take_is_refused_while_the_session_closes(self, claim):
@@ -709,11 +710,14 @@ def test_taking_back_an_ended_session_leaves_the_operators_run_begun_since(run_s
 
 
 class TestATakeWaitsForWhatIsStillFinishing:
-    """A take is refused ``work_finishing`` while work that let the scope go still finishes.
+    """A take is refused while work that let the scope go still finishes, in that work's own words.
 
     Each test holds one kind of that work with the slot already free, so the
     refusal is the finishing work's and not the activity's, and the take
-    lands once the work is done.
+    lands once the work is done. A run still ending and a recording closing
+    its file occupy the scope as they did holding it; a run's images and
+    video are its files writing, as a run's start is told; a build is a
+    build running.
     """
 
     def test_a_finished_runs_images(self, tmp_path, held_saves):
@@ -728,7 +732,9 @@ class TestATakeWaitsForWhatIsStillFinishing:
 
             with pytest.raises(ControlSessionRefusedError) as refused:
                 session.take_control('plate reader')
-            assert refused.value.reason == 'work_finishing'
+            assert refused.value.reason == 'files_writing'
+            assert refused.value.title == 'Files Still Writing'
+            assert 'still writing its files' in str(refused.value)
 
             held_saves.set()
             assert run.files.result(timeout=WAIT_S) is not None
@@ -750,7 +756,8 @@ class TestATakeWaitsForWhatIsStillFinishing:
             try:
                 with pytest.raises(ControlSessionRefusedError) as refused:
                     session.take_control('plate reader')
-                assert refused.value.reason == 'work_finishing'
+                assert refused.value.reason == 'exclusive_activity_running'
+                assert refused.value.holder == 'recording'
             finally:
                 recording._engine = None
                 monkeypatch.setattr(recording, '_finishing', False)
@@ -784,7 +791,7 @@ class TestATakeWaitsForWhatIsStillFinishing:
 
                 with pytest.raises(ControlSessionRefusedError) as refused:
                     session.take_control('plate reader')
-                assert refused.value.reason == 'work_finishing'
+                assert refused.value.reason == 'post_processing_running'
 
                 release.set()
                 assert run.files.result(timeout=WAIT_S) is not None
@@ -816,7 +823,8 @@ class TestATakeWaitsForWhatIsStillFinishing:
 
             with pytest.raises(ControlSessionRefusedError) as refused:
                 sim_session.take_control('plate reader')
-            assert refused.value.reason == 'work_finishing'
+            assert refused.value.reason == 'exclusive_activity_running'
+            assert refused.value.holder == 'recording'
         finally:
             release.set()
         done.result(timeout=_HOLD_S)
@@ -832,10 +840,40 @@ class TestATakeWaitsForWhatIsStillFinishing:
 
         with pytest.raises(ControlSessionRefusedError) as refused:
             sim_session.take_control('plate reader')
-        assert refused.value.reason == 'work_finishing'
+        assert refused.value.reason == 'files_writing'
+        assert "A run's video" in str(refused.value)
 
         writer.video_busy = False
         assert sim_session.take_control('plate reader')
+
+    def test_a_finished_runs_stalled_writer(self, sim_session, monkeypatch):
+        from _lumascope.modules.exceptions import FileWriterStalledError
+        from tests.test_run_refusal_contract import _a_closed_batch_still_writing
+
+        # A stand-in by design: a closed batch whose write never runs is the
+        # simulator's only drain that stays open, here stuck past the stall.
+        stalled = _a_closed_batch_still_writing(stuck_write='frame_0001.tiff')
+        monkeypatch.setattr(sim_session._sequenced_capture_runner, '_write_batch', stalled)
+
+        with pytest.raises(ControlSessionRefusedError) as refused:
+            sim_session.take_control('plate reader')
+        assert refused.value.reason == 'files_writing_stalled'
+        assert refused.value.remedy == FileWriterStalledError.recovery(1)
+        assert 'Recover the file writer before taking control' in str(refused.value)
+
+    def test_a_run_ending_after_its_claim_is_freed(self, sim_session, monkeypatch):
+        from _lumascope.modules.protocol_state_machine import ProtocolState
+
+        # A stand-in by design: a run's end is over before a take could be
+        # asked between its claim's release and its return to IDLE, so the
+        # runner is put in that window.
+        monkeypatch.setattr(sim_session._sequenced_capture_runner, '_state', ProtocolState.RUNNING)
+        assert sim_session._activity_claim.holder is None
+
+        with pytest.raises(ControlSessionRefusedError) as refused:
+            sim_session.take_control('plate reader')
+        assert refused.value.reason == 'exclusive_activity_running'
+        assert refused.value.holder == 'protocol'
 
 
 class TestTheRestDoor:

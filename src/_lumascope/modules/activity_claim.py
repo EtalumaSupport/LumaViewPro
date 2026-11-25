@@ -698,7 +698,9 @@ class ActivityClaim:
         control = self._control
         return control[0] if control is not None else None
 
-    def take_control(self, name: str, *, finishing: Callable[[], bool]) -> ControllerTaking:
+    def take_control(
+        self, name: str, *, finishing: Callable[[], 'ControlSessionRefusedError | None']
+    ) -> ControllerTaking:
         """Take the one control session, for the caller this thread acts for.
 
         Taken only while nothing of anyone else's is under way: no other
@@ -711,12 +713,12 @@ class ActivityClaim:
 
         Args:
             name: What the person at the scope is told holds it.
-            finishing: Whether work that has let the slot go is still
-                finishing -- a run's files, video or post-run steps, a
-                recording's file. Asked under this claim's lock, after the
-                slot is read free: such work is begun before its activity
-                releases the slot, which takes the same lock, so no release
-                falls between the two reads. It must not take this claim's
+            finishing: The refusal for work that has let the slot go and is
+                still finishing -- a run ending, a run's images or video, a
+                recording's file, a build -- or None. Asked under this
+                claim's lock, after the slot is read free: such work is
+                begun before its activity releases the slot, which takes
+                the same lock, so no release falls between the two reads. It must not take this claim's
                 lock.
 
         Returns:
@@ -726,8 +728,8 @@ class ActivityClaim:
             SessionClosingError: the session's close is running or has
                 finished.
             ControlSessionRefusedError: ``'control_session_held'``,
-                ``'exclusive_activity_running'``, ``'write_in_flight'`` or
-                ``'work_finishing'``. Nothing was taken.
+                ``'exclusive_activity_running'`` or ``'write_in_flight'``, or
+                what *finishing* answers. Nothing was taken.
         """
         caller = current_caller()
         self._end_if_silent(current_taking())
@@ -744,8 +746,9 @@ class ActivityClaim:
                 )
             if self._guarded:
                 raise ControlSessionRefusedError('write_in_flight')
-            if finishing():
-                raise ControlSessionRefusedError('work_finishing')
+            finishing_refused = finishing()
+            if finishing_refused is not None:
+                raise finishing_refused
             session = ControlSession(name=name, taken_by=caller, taken_at_epoch_s=time.time())
             controller = ControllerTaking(self, session, uuid.uuid4().hex)
             self._control = (session, controller)

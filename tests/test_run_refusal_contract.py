@@ -1042,7 +1042,7 @@ class TestTheRefusalFunnel:
         run passes that gate."""
         claim = executor._activity_claim
         with calling(Caller.REST):
-            controller = claim.take_control('plate reader', finishing=lambda: False)
+            controller = claim.take_control('plate reader', finishing=lambda: None)
         try:
             with pytest.raises(ControlSessionRefusedError) as excinfo:
                 _prepare(executor, _make_single_step_protocol(), tmp_path)

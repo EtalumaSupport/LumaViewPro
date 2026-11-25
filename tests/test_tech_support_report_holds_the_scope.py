@@ -101,7 +101,7 @@ def test_under_a_held_control_session_the_board_steps_are_skipped_and_say_so(
     report goes on to save."""
     session, report, calls = report_and_calls
     with calling(Caller.REST):
-        controller = session._activity_claim.take_control('plate reader', finishing=lambda: False)
+        controller = session._activity_claim.take_control('plate reader', finishing=lambda: None)
     try:
         report._run_scope_steps(tmp_path, lambda pct, msg: None, include_bw=False)
     finally:

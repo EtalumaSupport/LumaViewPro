@@ -389,8 +389,11 @@ can take it back without the id (`take_back_control`, in-process only).
 `take_control` itself is refused while anything of anyone else's is under way:
 another session (`'control_session_held'`), work holding the scope
 (`'exclusive_activity_running'`), a setting or file being written
-(`'write_in_flight'`), or work that has ended still finishing its files
-(`'work_finishing'`). Turning the LEDs off is a write, not a stop: while a
+(`'write_in_flight'`), or work that has let the scope go still finishing, in
+that work's own words: a run still ending or a recording closing its file
+(`'exclusive_activity_running'`, naming it), a finished run's images or video
+(`'files_writing'`, or `'files_writing_stalled'` with the writer's recovery),
+or a build (`'post_processing_running'`). Turning the LEDs off is a write, not a stop: while a
 session is held, `leds_off()` from outside it is refused.
 
 ### The holders

@@ -4714,12 +4714,15 @@ class ControlSessionRefusedError(Refusal, Exception):
         reason: ``'control_session_held'`` -- a control session is held, and
             the request is not its holder's. ``'write_in_flight'`` -- a
             setting or a file is still being written, so control is not
-            taken over it half done. ``'work_finishing'`` -- a run or a
-            recording that has ended is still finishing.
-            ``'control_session_ended'`` -- the request names a control
-            session that is not the live one: it has ended, or was never
-            issued. ``'exclusive_activity_running'``, an activity holding
-            the scope, is ``ProtocolRunRefusedError``'s to explain.
+            taken over it half done. ``'control_session_ended'`` -- the
+            request names a control session that is not the live one: it
+            has ended, or was never issued. ``'exclusive_activity_running'``
+            (an activity holding the scope, or a run or a recording still
+            ending after it let the scope go, which occupies it as it did
+            while it held it), ``'files_writing'`` and
+            ``'files_writing_stalled'`` (a finished run's images or video
+            still being written), and ``'post_processing_running'`` (a
+            build), are ``ProtocolRunRefusedError``'s to explain.
         title: The heading the person reads, the reason's.
         holder: The kind of activity holding the scope, for
             ``'exclusive_activity_running'``; None otherwise.
@@ -4728,6 +4731,8 @@ class ControlSessionRefusedError(Refusal, Exception):
             None when neither is known.
         control_session: The name of the control session that holds, for
             ``'control_session_held'``; None otherwise.
+        remedy: The file writer's recovery, for
+            ``'files_writing_stalled'``; else None.
 
     ``holder``, ``holder_trigger`` and ``control_session`` are published.
     """
@@ -4742,16 +4747,20 @@ class ControlSessionRefusedError(Refusal, Exception):
         'control_session_held': RefusalCause.STATE,
         'exclusive_activity_running': RefusalCause.STATE,
         'write_in_flight': RefusalCause.STATE,
-        'work_finishing': RefusalCause.STATE,
+        'files_writing': RefusalCause.STATE,
+        'files_writing_stalled': RefusalCause.STATE,
+        'post_processing_running': RefusalCause.STATE,
         'control_session_ended': RefusalCause.REQUEST,
     }
-    same_fact_as = (HardwareCommandRefusedError,)
+    same_fact_as = (HardwareCommandRefusedError, ProtocolRunRefusedError)
 
     titles: ClassVar[dict[str, str]] = {
         'control_session_held': UNDER_CONTROL_TITLE,
         'exclusive_activity_running': 'Microscope Busy',
         'write_in_flight': 'Microscope Busy',
-        'work_finishing': 'Microscope Busy',
+        'files_writing': ProtocolRunRefusedError.titles['files_writing'],
+        'files_writing_stalled': ProtocolRunRefusedError.titles['files_writing_stalled'],
+        'post_processing_running': ProtocolRunRefusedError.titles['post_processing_running'],
         'control_session_ended': 'Control Session Ended',
     }
 
@@ -4762,12 +4771,37 @@ class ControlSessionRefusedError(Refusal, Exception):
         holder: Holder | None = None,
         holder_trigger: Caller | None = None,
         control_session: str | None = None,
+        message: str | None = None,
+        remedy: Remedy | None = None,
     ):
+        """
+        Args:
+            message: The sentence for a file-drain reason, worded by what
+                judged the drain, which alone knows the run, the stuck write
+                and the images a recovery loses; given for those two reasons
+                and for no other.
+        """
+        if (message is not None) != (reason in _CONTROL_REFUSED_IN_THE_DRAINS_WORDS):
+            raise TypeError(
+                f'a {reason!r} control refusal was given the sentence {message!r}: a '
+                "'files_writing' or 'files_writing_stalled' refusal is worded by the drain's "
+                'judgment, and no other refusal is given words'
+            )
         self.reason = reason
-        super().__init__(_control_refused_sentence(reason, holder, holder_trigger, control_session))
+        super().__init__(
+            message
+            if message is not None
+            else _control_refused_sentence(reason, holder, holder_trigger, control_session)
+        )
         self.holder = _holder(holder)
         self.holder_trigger = holder_trigger
         self.control_session = control_session
+        self.remedy = remedy
+
+
+# The control refusals worded by what judged the file drain
+# (``SequencedCaptureRunner.files_still_writing``), never here.
+_CONTROL_REFUSED_IN_THE_DRAINS_WORDS = frozenset({'files_writing', 'files_writing_stalled'})
 
 
 def _control_refused_sentence(
@@ -4779,10 +4813,8 @@ def _control_refused_sentence(
         return f'{the_activity_named(holder)} is using the microscope. Take control when it ends.'
     if reason == 'write_in_flight':
         return 'A setting or a file is being written. Take control when it finishes.'
-    if reason == 'work_finishing':
-        return (
-            'A run or a recording that has ended is still finishing. Take control when it is done.'
-        )
+    if reason == 'post_processing_running':
+        return 'A post-processing build is running. Take control when it has finished.'
     return (
         'No live control session has that id: it has ended, or was never issued. '
         'Take control again to go on.'
