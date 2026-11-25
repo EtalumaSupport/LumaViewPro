@@ -41,10 +41,10 @@ def _clamps(centre_posts):
 # that came after the geometry was written would show as a changed binning.
 _REFUSED = [
     ('gain_db', math.nan, 'not_a_number', 'gain_db'),
-    ('gain_db', -3.0, 'wrong_kind', 'gain_db'),
-    ('exposure_ms', 0.0, 'wrong_kind', 'exposure_ms'),
-    ('black_level', -1.0, 'wrong_kind', 'black_level'),
-    ('frame_size', {'width': 0, 'height': 0}, 'wrong_kind', 'width'),
+    ('gain_db', -3.0, 'out_of_range', 'gain_db'),
+    ('exposure_ms', 0.0, 'out_of_range', 'exposure_ms'),
+    ('black_level', -1.0, 'out_of_range', 'black_level'),
+    ('frame_size', {'width': 0, 'height': 0}, 'out_of_range', 'width'),
     ('frame_size', {'width': 800, 'height': math.inf}, 'not_a_number', 'height'),
 ]
 

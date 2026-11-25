@@ -4643,7 +4643,7 @@ class ScopeSession:
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
-                channel; ``'illumination_out_of_range'``, its stored current
+                channel; ``'out_of_range'``, its stored current
                 is below 0.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no ``channel``; ``'not_connected'``, naming the LED
@@ -4728,7 +4728,7 @@ class ScopeSession:
             The shown channel now.
 
         Raises:
-            ArgumentRefusedError: ``'illumination_out_of_range'``, the
+            ArgumentRefusedError: ``'out_of_range'``, the
                 channel's stored current is below 0.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no shown channel; ``'not_connected'``, naming the LED
@@ -7181,8 +7181,9 @@ class ScopeSession:
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller to take it. Nothing
                 is stored.
-            AccelerationLimitRefusedError: ``limit_pct`` is outside the range
-                the motion API accepts (a ValueError). Nothing is stored.
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``limit_pct`` is outside the range the motion API accepts
+                (``limits``). Nothing is stored.
         """
         self.scope.motion.set_acceleration_limit_pct(limit_pct=limit_pct)
 

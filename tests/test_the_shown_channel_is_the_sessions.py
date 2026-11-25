@@ -74,7 +74,7 @@ def test_a_refused_light_turns_nothing_off(session):
                 preview_on=True,
             ),
         )
-    assert refused.value.reason == 'illumination_out_of_range'
+    assert refused.value.reason == 'out_of_range'
     assert _lit(session) == {'BF'}
 
 

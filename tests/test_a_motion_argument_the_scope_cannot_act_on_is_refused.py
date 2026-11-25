@@ -139,8 +139,8 @@ def test_a_plate_target_for_z_is_refused_at_the_door(tmp_path):
 @pytest.mark.parametrize(
     'duty, reason',
     [
-        (101, 'fan_duty_out_of_range'),
-        (-1, 'fan_duty_out_of_range'),
+        (101, 'out_of_range'),
+        (-1, 'out_of_range'),
     ],
 )
 def test_a_fan_duty_off_the_percent_scale_is_refused_and_nothing_is_written(

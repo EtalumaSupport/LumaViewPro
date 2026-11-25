@@ -89,7 +89,7 @@ def test_a_negative_value_is_refused_and_nothing_moves(sim_scope):
     camera = sim_scope.camera
     with pytest.raises(ArgumentRefusedError) as refused:
         camera.set_black_level(-1.0)
-    assert refused.value.reason == 'wrong_kind'
+    assert refused.value.reason == 'out_of_range'
     assert camera.read_black_level() == 0.0
 
 

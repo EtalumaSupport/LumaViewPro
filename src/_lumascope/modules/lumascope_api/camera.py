@@ -558,11 +558,11 @@ class AppliedAutoGain:
 # that means nothing -- an exposure of no time, a negative gain -- into one
 # the caller never asked for.
 _SIGN_TAKEN: dict[str, tuple[float, bool, str]] = {
-    'gain_db': (0.0, True, 'a number of at least 0'),
-    'exposure_ms': (0.0, False, 'a number above 0'),
-    'black_level': (0.0, True, 'a number of at least 0'),
-    'width': (0.0, False, 'a number above 0'),
-    'height': (0.0, False, 'a number above 0'),
+    'gain_db': (0.0, True, 'at least 0'),
+    'exposure_ms': (0.0, False, 'above 0'),
+    'black_level': (0.0, True, 'at least 0'),
+    'width': (0.0, False, 'above 0'),
+    'height': (0.0, False, 'above 0'),
 }
 
 
@@ -581,13 +581,13 @@ def _held_to_range(
 
     Raises:
         ArgumentRefusedError: ``'not_a_number'``, the request is not a
-            finite number; ``'wrong_kind'``, it has a sign the setting cannot
-            take (``_SIGN_TAKEN``). Nothing was sent.
+            finite number; ``'out_of_range'``, it has a sign the setting
+            cannot take (``_SIGN_TAKEN``). Nothing was sent.
     """
     refuse_unless_finite_number(requested, setting)
     bound, bound_taken, takes = _SIGN_TAKEN[setting]
     if not (requested >= bound if bound_taken else requested > bound):
-        raise ArgumentRefusedError('wrong_kind', argument=setting, value=requested, takes=takes)
+        raise ArgumentRefusedError('out_of_range', argument=setting, value=requested, takes=takes)
     return cap_stored_value(float(requested), minimum, maximum)[1]
 
 
@@ -729,7 +729,7 @@ def _refuse_unless_auto_gain_settings(settings: AutoGainSettings, argument: str)
 
     Raises:
         ArgumentRefusedError: ``'not_a_number'``, naming the field's path
-            under ``argument``; ``'wrong_kind'`` for a number outside its
+            under ``argument``; ``'out_of_range'`` for a number outside its
             field's range, its words that range; ``'gain_range_inverted'``,
             a minimum gain above the maximum.
     """
@@ -743,14 +743,18 @@ def _refuse_unless_auto_gain_settings(settings: AutoGainSettings, argument: str)
             settings_paths.refuse_outside_range(f'protocol.autogain.{key}', value)
         except SettingRefusedError as e:
             raise ArgumentRefusedError(
-                'wrong_kind', argument=key_path(argument, key), value=value, takes=e.takes
+                'out_of_range',
+                argument=key_path(argument, key),
+                value=value,
+                takes=e.takes,
+                limits=e.limits,
             ) from e
     for key in ('max_exposure_ms', 'min_exposure_ms'):
         value = getattr(settings, key)
         refuse_unless_kind(value, 'number', key_path(argument, key), nullable=True)
         if value is not None and not value > 0:
             raise ArgumentRefusedError(
-                'wrong_kind', argument=key_path(argument, key), value=value, takes='above 0'
+                'out_of_range', argument=key_path(argument, key), value=value, takes='above 0'
             )
     refuse_inverted_gain_range(dataclasses.asdict(settings), argument)
 

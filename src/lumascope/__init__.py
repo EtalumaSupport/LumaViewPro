@@ -97,7 +97,6 @@ from _lumascope.modules.coord_transformations import (
     StagePosition,
 )
 from _lumascope.modules.exceptions import (
-    AccelerationLimitRefusedError,
     AlreadyStartedError,
     ArgumentRefusedError,
     ArgumentTypeRefusedError,
@@ -523,7 +522,6 @@ from _lumascope.rest.server import (
 )
 
 __all__ = [
-    'AccelerationLimitRefusedError',
     'AcquireMode',
     'AlreadyStartedError',
     'AppliedAutoGain',

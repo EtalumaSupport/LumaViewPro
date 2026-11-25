@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from _lumascope.lib.real_numbers import is_integer_number
 from _lumascope.modules.finite_number import (
     SUM_COUNT_RANGE,
     cap_stored_value,
@@ -2287,16 +2286,14 @@ class ImagingAPI:
                    Per the Sentinel-return contract: `if image is None: ...`.
 
         Raises:
-            ArgumentRefusedError: ``'wrong_kind'``, a ``stride`` that is not
-                a whole number 1 or more.
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                a ``stride`` that is not a whole number of at least 1, as
+                ``refuse_unless_count`` judges a count.
             ConfigurationDefectError: ``'scope_not_composed'``, a read with
                 no stride when no session has bound this scope, so it has
                 no scale-bar setting to read.
         """
-        if not is_integer_number(stride) or stride < 1:
-            raise ArgumentRefusedError(
-                'wrong_kind', argument='stride', value=stride, takes='a whole number, 1 or more'
-            )
+        refuse_unless_count(stride, 'stride')
         if not self._driver or not self._driver.active:
             return None, None
 

@@ -150,14 +150,14 @@ def test_a_value_no_range_makes_sense_of_is_refused_and_nothing_is_sent(
     for node in ('gain', 'exposure_t', 'set_black_level'):
         monkeypatch.setattr(driver, node, lambda v, node=node: sent.append((node, v)) or v)
     cases = (
-        ('set_exposure_ms', lambda: camera.set_exposure_ms(0.0), 'wrong_kind'),
-        ('set_exposure_ms', lambda: camera.set_exposure_ms(-5.0), 'wrong_kind'),
+        ('set_exposure_ms', lambda: camera.set_exposure_ms(0.0), 'out_of_range'),
+        ('set_exposure_ms', lambda: camera.set_exposure_ms(-5.0), 'out_of_range'),
         ('set_exposure_ms', lambda: camera.set_exposure_ms(math.nan), 'not_a_number'),
-        ('set_gain_db', lambda: camera.set_gain_db(-1.0), 'wrong_kind'),
+        ('set_gain_db', lambda: camera.set_gain_db(-1.0), 'out_of_range'),
         ('set_gain_db', lambda: camera.set_gain_db(math.inf), 'not_a_number'),
-        ('apply', lambda: camera.apply(5.0, 0.0, channel='BF'), 'wrong_kind'),
-        ('apply', lambda: camera.apply(-1.0, 20.0, channel='BF'), 'wrong_kind'),
-        ('set_black_level', lambda: camera.set_black_level(-1.0), 'wrong_kind'),
+        ('apply', lambda: camera.apply(5.0, 0.0, channel='BF'), 'out_of_range'),
+        ('apply', lambda: camera.apply(-1.0, 20.0, channel='BF'), 'out_of_range'),
+        ('set_black_level', lambda: camera.set_black_level(-1.0), 'out_of_range'),
     )
     wrong = []
     for member, write, reason in cases:

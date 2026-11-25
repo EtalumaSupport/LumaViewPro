@@ -179,7 +179,7 @@ def test_a_sum_of_fewer_than_one_frame_is_refused(sim_camera):
                 taken[name, count] = (refusal.reason, refusal.argument)
             else:
                 taken[name, count] = 'taken'
-    assert taken == dict.fromkeys(taken, ('wrong_kind', 'frames_summed'))
+    assert taken == dict.fromkeys(taken, ('out_of_range', 'frames_summed'))
     assert len(taken) == 4
 
 

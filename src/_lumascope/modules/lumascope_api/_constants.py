@@ -10,8 +10,8 @@ the sub-API files.
 import dataclasses
 
 from _lumascope.lib.real_numbers import is_integer_number
+from _lumascope.modules.finite_number import refuse_unless_finite_number
 from _lumascope.modules.exceptions import (
-    AccelerationLimitRefusedError,
     ArgumentRefusedError,
     PositionOutOfRangeError,
 )
@@ -57,17 +57,24 @@ def refuse_acceleration_pct(val_pct: object) -> None:
     session.
 
     Raises:
-        AccelerationLimitRefusedError: ``val_pct`` is not a whole number,
-            or is outside ``ACCELERATION_PCT_MIN`` to ``ACCELERATION_PCT_MAX``.
+        ArgumentRefusedError: ``'not_a_number'``, ``val_pct`` is not a
+            finite number; ``'out_of_range'``, it is not a whole number from
+            ``ACCELERATION_PCT_MIN`` to ``ACCELERATION_PCT_MAX`` (``limits``).
             A ValueError, so a caller catching a bad argument keeps working.
     """
-    # bool is excluded by name: True is an int. A fraction is refused: every
-    # board takes a whole percent.
+    refuse_unless_finite_number(val_pct, 'limit_pct')
+    # A fraction is refused: every board takes a whole percent.
     if (
         not is_integer_number(val_pct)
         or not ACCELERATION_PCT_MIN <= val_pct <= ACCELERATION_PCT_MAX
     ):
-        raise AccelerationLimitRefusedError(val_pct, ACCELERATION_PCT_MIN, ACCELERATION_PCT_MAX)
+        raise ArgumentRefusedError(
+            'out_of_range',
+            argument='limit_pct',
+            value=val_pct,
+            limits=(ACCELERATION_PCT_MIN, ACCELERATION_PCT_MAX),
+            takes=f'a whole number from {ACCELERATION_PCT_MIN} to {ACCELERATION_PCT_MAX}',
+        )
 
 
 def refuse_inverted_gain_range(settings: dict, argument: str) -> None:

@@ -19,7 +19,6 @@ import threading
 import pytest
 
 from _lumascope.modules.exceptions import (
-    AccelerationLimitRefusedError,
     ArgumentRefusedError,
     CameraSettingRejected,
     HardwareCommandRefusedError,
@@ -64,16 +63,19 @@ def test_a_leaf_with_no_shipped_value_takes_the_kind_it_holds_when_set(session):
         ('no_such_setting', 1, 'not_a_setting'),
         ('video.no_such_limit', 1, 'not_a_setting'),
         ('video', {'max_fps': 1}, 'block'),
-        ('video.max_fps', '30', 'wrong_kind'),
+        # A number setting given anything but a finite number, as an
+        # argument is refused for it.
+        ('video.max_fps', '30', 'not_a_number'),
+        ('video.max_fps', True, 'not_a_number'),
+        ('zstack.range', [1], 'not_a_number'),
+        ('zstack.range', '5', 'not_a_number'),
+        # Another kind of setting given a value of another kind.
         ('show_tooltips', 1, 'wrong_kind'),
-        ('video.max_fps', True, 'wrong_kind'),
-        ('zstack.range', [1], 'wrong_kind'),
-        ('zstack.range', '5', 'wrong_kind'),
         ('zstack.step_size', -1, 'out_of_range'),
         # NaN and an infinity are not numbers to the writer, ranged or not:
         # every range compares, and a comparison with NaN passes.
-        ('zstack.range', math.nan, 'wrong_kind'),
-        ('zstack.range', math.inf, 'wrong_kind'),
+        ('zstack.range', math.nan, 'not_a_number'),
+        ('zstack.range', math.inf, 'not_a_number'),
         ('video.max_fps', 201, 'out_of_range'),
         ('live_view_fps', 61, 'out_of_range'),
         # Whole seconds, 1 to 10: none, a fraction, and a whole number held
@@ -463,6 +465,20 @@ def test_the_scale_bar_read_and_its_setting_change_together(session):
     assert session.settings['scale_bar']['enabled'] is False
 
 
+def test_a_number_that_is_not_one_is_one_reason_at_the_member_and_the_store(session):
+    """A gain of NaN is ``'not_a_number'`` whether the camera's member or the channel's store takes it.
+
+    The two doors once answered ``'not_a_number'`` and ``'wrong_kind'`` for it.
+    A value of another Python type never reaches the member's rule: the
+    door refuses it by its type (``ArgumentTypeRefusedError``).
+    """
+    with pytest.raises(ArgumentRefusedError) as by_member:
+        session.scope.camera.set_gain_db(math.nan)
+    with pytest.raises(SettingRefusedError) as by_path:
+        session.set_channel_settings('BF', gain_db=math.nan)
+    assert (by_member.value.reason, by_path.value.reason) == ('not_a_number', 'not_a_number')
+
+
 def test_an_acceleration_out_of_range_is_refused_and_not_stored(session):
     session.set_acceleration_limit_pct(60)
     assert session.settings['motion']['acceleration_max_pct'] == 60
@@ -473,9 +489,10 @@ def test_an_acceleration_out_of_range_is_refused_and_not_stored(session):
 
 def test_an_acceleration_out_of_range_is_a_refusal_not_a_fault(session):
     """Reported as a fault it read "Operation failed ... Check the main log"."""
-    with pytest.raises(AccelerationLimitRefusedError) as refused:
+    with pytest.raises(ArgumentRefusedError) as refused:
         session.set_acceleration_limit_pct(250)
     assert isinstance(refused.value, Refusal) and isinstance(refused.value, ValueError)
+    assert (refused.value.reason, refused.value.limits) == ('out_of_range', (1, 100))
     assert '250' in str(refused.value) and '1 to 100' in str(refused.value)
 
 

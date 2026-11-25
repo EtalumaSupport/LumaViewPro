@@ -392,7 +392,7 @@ class TestBlackLevelSetterSequence:
         before = camera_plain._frame_validity.invalidation_counts
         with pytest.raises(ArgumentRefusedError) as caught:
             camera_plain.set_black_level(-1.0)
-        assert caught.value.reason == 'wrong_kind'
+        assert caught.value.reason == 'out_of_range'
         assert camera_plain._frame_validity.invalidation_counts == before
 
 

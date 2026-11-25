@@ -111,7 +111,7 @@ def _rows(session):
         (
             'set_auto_gain, a target above full scale',
             ArgumentRefusedError,
-            'wrong_kind',
+            'out_of_range',
             lambda: scope.camera.set_auto_gain(
                 CameraAutoMode.CONTINUOUS, dataclasses.replace(_AUTO_GAIN, target_brightness=5.0)
             ),
@@ -119,7 +119,7 @@ def _rows(session):
         (
             'set_auto_gain, a target of 0',
             ArgumentRefusedError,
-            'wrong_kind',
+            'out_of_range',
             lambda: scope.camera.set_auto_gain(
                 CameraAutoMode.CONTINUOUS, dataclasses.replace(_AUTO_GAIN, target_brightness=0)
             ),
@@ -127,7 +127,7 @@ def _rows(session):
         (
             'set_auto_gain, a negative minimum gain',
             ArgumentRefusedError,
-            'wrong_kind',
+            'out_of_range',
             lambda: scope.camera.set_auto_gain(
                 CameraAutoMode.CONTINUOUS, dataclasses.replace(_AUTO_GAIN, min_gain_db=-10.0)
             ),
@@ -135,7 +135,7 @@ def _rows(session):
         (
             'set_auto_gain, an exposure ceiling of 0',
             ArgumentRefusedError,
-            'wrong_kind',
+            'out_of_range',
             lambda: scope.camera.set_auto_gain(
                 CameraAutoMode.CONTINUOUS, dataclasses.replace(_AUTO_GAIN, max_exposure_ms=0)
             ),
@@ -143,7 +143,7 @@ def _rows(session):
         (
             'apply, a target above full scale',
             ArgumentRefusedError,
-            'wrong_kind',
+            'out_of_range',
             lambda: scope.camera.apply(
                 1.0,
                 5.0,

@@ -127,7 +127,7 @@ def test_a_sum_of_no_frame_is_the_members_refusal_not_a_server_fault(client):
     refused = client.post('/api/v1/still', json={'frames_summed': 0})
 
     assert refused.headers['content-type'] == 'application/problem+json'
-    assert refused.json()['reason'] == 'wrong_kind', refused.json()
+    assert refused.json()['reason'] == 'out_of_range', refused.json()
     assert refused.json()['argument'] == 'frames_summed'
 
 

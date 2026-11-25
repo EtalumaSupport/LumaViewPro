@@ -786,8 +786,8 @@ class IlluminationAPI:
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, ``illumination_ma`` is
-                not a finite number; ``'illumination_out_of_range'``, it is
-                below 0 (``limits``); ``'led_address_unknown'``, ``address``
+                not a finite number; ``'out_of_range'``, it is below 0;
+                ``'led_address_unknown'``, ``address``
                 is not on the attached board's table.
             HardwareCommandRefusedError: ``'not_connected'`` with no LED
                 controller connected; ``'not_on_this_scope'`` for an address this
@@ -852,7 +852,7 @@ class IlluminationAPI:
 
         Raises:
             ArgumentRefusedError: ``'led_address_unknown'``, ``'not_a_number'``
-                or ``'illumination_out_of_range'``, as ``_led_on_impl`` says.
+                or ``'out_of_range'``, as ``_led_on_impl`` says.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'not_on_this_scope'``, as ``_led_on_impl`` says.
         """
@@ -860,7 +860,10 @@ class IlluminationAPI:
         refuse_unless_finite_number(illumination_ma, 'illumination_ma')
         if illumination_ma < 0:
             raise ArgumentRefusedError(
-                'illumination_out_of_range', argument='illumination_ma', value=illumination_ma
+                'out_of_range',
+                argument='illumination_ma',
+                value=illumination_ma,
+                takes='at least 0 mA',
             )
         held = cap_stored_value(illumination_ma, None, self._scope.capabilities.led_max_ma)[1]
         return self._driver.commanded_ma(held)
@@ -1172,7 +1175,7 @@ class IlluminationAPI:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
                 channel of this release, refused at the door whatever the
                 scope is doing; ``'not_a_number'``, ``illumination_ma`` is
-                not a finite number; ``'illumination_out_of_range'``, it is
+                not a finite number; ``'out_of_range'``, it is
                 below 0. Nothing was sent.
             HardwareCommandRefusedError: ``'not_connected'`` with no LED
                 controller connected; ``'not_on_this_scope'`` for a channel
@@ -1266,7 +1269,7 @@ class IlluminationAPI:
         Raises:
             ArgumentRefusedError: ``'led_address_unknown'``, ``address`` is
                 not on the attached board's table, offering its addresses;
-                ``'not_a_number'`` or ``'illumination_out_of_range'``, as
+                ``'not_a_number'`` or ``'out_of_range'``, as
                 ``led_on`` says. Nothing was sent.
             HardwareCommandRefusedError: ``'not_connected'`` with no LED
                 controller connected; ``'not_on_this_scope'``
@@ -1465,7 +1468,7 @@ class IlluminationAPI:
                 ``'not_connected'``, no LED controller is connected, or
                 ``'not_on_this_scope'``, before anything is written.
             ArgumentRefusedError: ``'led_address_unknown'``,
-                ``'not_a_number'`` or ``'illumination_out_of_range'`` for a
+                ``'not_a_number'`` or ``'out_of_range'`` for a
                 light in the readings, before anything is written.
             BoardNoReplyError: the board did not answer a write; that
                 channel is unknown and the writes after it are not made.
@@ -1774,7 +1777,7 @@ class IlluminationAPI:
                 ``'not_connected'`` or ``'not_on_this_scope'``, before anything
                 is written.
             ArgumentRefusedError: ``'led_address_unknown'``,
-                ``'not_a_number'`` or ``'illumination_out_of_range'`` for a
+                ``'not_a_number'`` or ``'out_of_range'`` for a
                 target light, before anything is written.
             BoardNoReplyError: the board did not answer a write; that
                 channel is unknown and the writes after it are not made.

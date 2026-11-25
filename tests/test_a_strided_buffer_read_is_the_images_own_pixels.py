@@ -59,4 +59,4 @@ def test_a_stride_below_one_is_refused(stalled_12bit):
     session, _at_capture = stalled_12bit
     with pytest.raises(ArgumentRefusedError) as refused:
         session.scope.imaging.buffered_image(stride=0)
-    assert (refused.value.reason, refused.value.argument) == ('wrong_kind', 'stride')
+    assert (refused.value.reason, refused.value.argument) == ('out_of_range', 'stride')

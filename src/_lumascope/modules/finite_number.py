@@ -84,11 +84,14 @@ def refuse_unless_count(value: object, argument: str) -> None:
     short. A capture's sum is then held to ``SUM_COUNT_RANGE`` as well.
 
     Raises:
-        ArgumentRefusedError: ``'wrong_kind'``, naming ``argument``.
+        ArgumentRefusedError: ``'not_a_number'``, ``value`` is not a finite
+            number; ``'out_of_range'``, it is one that is not a whole number
+            of at least 1; naming ``argument``.
     """
+    refuse_unless_finite_number(value, argument)
     if not (is_integer_number(value) and value >= 1):
         raise ArgumentRefusedError(
-            'wrong_kind', argument=argument, value=value, takes='a whole number of at least 1'
+            'out_of_range', argument=argument, value=value, takes='a whole number of at least 1'
         )
 
 

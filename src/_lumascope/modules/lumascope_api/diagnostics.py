@@ -39,6 +39,9 @@ from _lumascope.modules import wall_time
 if TYPE_CHECKING:
     from _lumascope.modules.lumascope_api._lumascope import Lumascope
 
+# A fan's PWM duty, in percent, ends included.
+FAN_DUTY_PCT_RANGE = (0, 100)
+
 # Motor-board verbs that move a motor, stop one, or rewrite a position
 # register. Sent raw they change the hardware behind MotionAPI, which then
 # reports axes and a turret slot that are no longer true; each has a
@@ -1516,17 +1519,17 @@ class DiagnosticsAPI:
                 controller); ``'axis_absent'``, ``MissingPart(Part.MOTORS)`` on a
                 manual scope; or ``'not_on_this_scope'``, ``MissingPart(Part.FAN_CONTROL)``
                 for a controller without fan control. Nothing was sent.
-            ArgumentRefusedError: ``'fan_duty_out_of_range'``, ``duty_pct``
-                is outside 0..100. Asked after the hardware, before anything
-                is sent.
+            ArgumentRefusedError: ``'not_a_number'``, ``duty_pct`` is not a
+                finite number; ``'out_of_range'``, it is outside 0 to 100
+                (``limits``). Asked after the hardware, before anything is
+                sent.
             BoardNoReplyError: ``'board_no_reply'``, the board did not answer
                 the write.
             BoardReportedError: ``'board_reported_error'``, the board answered
                 the write with an error.
         """
         self._scope.motion.refuse_absent('set_motor_fan_duty')
-        if not 0 <= duty_pct <= 100:
-            raise ArgumentRefusedError('fan_duty_out_of_range', argument='duty_pct', value=duty_pct)
+        refuse_outside(duty_pct, 'duty_pct', FAN_DUTY_PCT_RANGE)
         self._scope.motion._dispatch_motion(
             self._set_motor_fan_duty_impl,
             'set_motor_fan_duty',

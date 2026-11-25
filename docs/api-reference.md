@@ -251,7 +251,6 @@ NaN stays a NaN, and a key keeps its type.
 **[Outcomes](#outcomes)**
 
 - [`LumascopeError`](#LumascopeError)
-- [`AccelerationLimitRefusedError`](#AccelerationLimitRefusedError)
 - [`AlreadyStartedError`](#AlreadyStartedError)
 - [`ArgumentRefusedError`](#ArgumentRefusedError)
 - [`ArgumentTypeRefusedError`](#ArgumentTypeRefusedError)
@@ -1734,7 +1733,7 @@ The shown channel now.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'illumination_out_of_range'`, the channel's stored current is below 0.
+- `ArgumentRefusedError`: `'out_of_range'`, the channel's stored current is below 0.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no shown channel; `'not_connected'`, naming the LED controller the light needs; or `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or `lit` is True while a manual recording runs and the channel's LED is not lit above 0 mA (a recording keeps the light it started under; nothing is changed). One lit above 0 mA is put at the stored current.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved.
 - `CameraSettingRejected`: the camera did not take a setting of the channel (its `reason` says how); its LED is already lit or dark.
@@ -1742,7 +1741,7 @@ The shown channel now.
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `illumination_out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -3331,7 +3330,7 @@ The shown channel now.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'illumination_out_of_range'`, its stored current is below 0.
+- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'out_of_range'`, its stored current is below 0.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`; `'not_connected'`, naming the LED controller the light needs, or the camera when it leaves during the call; or `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or a manual recording runs and `channel` is not the shown one, or its LED would be lit from dark or 0 mA (a recording keeps one channel and the light it started under; nothing is changed).
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved.
 - `CameraSettingRejected`: the camera did not take a setting of the channel (its `reason` says how); its LEDs are already shown.
@@ -3339,7 +3338,7 @@ The shown channel now.
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `illumination_out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -6119,7 +6118,7 @@ The commanded current in mA.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel of this release, refused at the door whatever the scope is doing; `'not_a_number'`, `illumination_ma` is not a finite number; `'illumination_out_of_range'`, it is below 0. Nothing was sent.
+- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel of this release, refused at the door whatever the scope is doing; `'not_a_number'`, `illumination_ma` is not a finite number; `'out_of_range'`, it is below 0. Nothing was sent.
 - `HardwareCommandRefusedError`: `'not_connected'` with no LED controller connected; `'not_on_this_scope'` for a channel whose LED this model does not drive; `'exclusive_activity_running'`, another activity holds the scope or the LEDs, or a manual recording runs and `illumination_ma` is above 0 mA while the LED is not lit above 0 mA (a recording keeps the light it started under; a lit LED's current may change). Nothing was sent.
 - `BoardNoReplyError`: the board did not answer; whether the LED is lit is unknown.
 - `BoardPortFailedError`: the board's port failed during the write; the LED is believed as it was before the write.
@@ -6127,7 +6126,7 @@ The commanded current in mA.
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `not_a_number`, `illumination_out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `not_a_number`, `out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`BoardPortFailedError`](#BoardPortFailedError): `board_port_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -6222,14 +6221,14 @@ the addresses they have lit at a positive current.
 **Raises**
 
 - `HardwareCommandRefusedError`: `'exclusive_activity_running'`, another activity holds the scope or the LEDs, raised at the first channel it would change; or a manual recording runs and the readings light an LED not lit above 0 mA, raised before any change. `'not_connected'`, no LED controller is connected, or `'not_on_this_scope'`, before anything is written.
-- `ArgumentRefusedError`: `'led_address_unknown'`, `'not_a_number'` or `'illumination_out_of_range'` for a light in the readings, before anything is written.
+- `ArgumentRefusedError`: `'led_address_unknown'`, `'not_a_number'` or `'out_of_range'` for a light in the readings, before anything is written.
 - `BoardNoReplyError`: the board did not answer a write; that channel is unknown and the writes after it are not made.
 - `BoardPortFailedError`: the board's port failed during a write; that channel is believed as it was, and the writes after it are not made.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`ArgumentRefusedError`](#ArgumentRefusedError): `led_address_unknown`, `not_a_number`, `illumination_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`ArgumentRefusedError`](#ArgumentRefusedError): `led_address_unknown`, `not_a_number`, `out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`BoardPortFailedError`](#BoardPortFailedError): `board_port_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -13905,35 +13904,6 @@ The root of every exception the scope raises: catch it to catch them all.
 - <a id="LumascopeError.cause"></a>`cause`: `RefusalCause | None` -- Whether the same request could succeed later: its reason's cause in its class's list; None for a fault and a notice that is only reported.
 - <a id="LumascopeError.title"></a>`title`: `str` -- The heading a person reads: its class's one title, or its reason's.
 
-<a id="AccelerationLimitRefusedError"></a>
-### `lumascope.AccelerationLimitRefusedError`
-
-A refusal; bases `Refusal`, `ValueError`.
-
-An acceleration limit no board may be given was refused; nothing was commanded or stored.
-
-A refusal, not a fault: the person typed or a caller passed a number
-outside the range, and the words tell them the range. Raised as a bare
-ValueError it was reported as an operation that failed, with a
-traceback, over "Check the main log for details". Subclasses ValueError
-so callers that catch a bad argument keep working.
-
-**Attributes**
-
-- `reason`: `'acceleration_out_of_range'`.
-- `value`: What was given, as given.
-
-`limits` is published, so a client corrects the value without reading
-the words.
-
-**Fields**
-
-- <a id="AccelerationLimitRefusedError.limits"></a>`limits`: `tuple[int, int]` -- The lowest and highest limit a board takes, in percent.
-
-| Reason | Cause | REST status |
-|---|---|---|
-| `acceleration_out_of_range` | request | 422 |
-
 <a id="AlreadyStartedError"></a>
 ### `lumascope.AlreadyStartedError`
 
@@ -13978,12 +13948,10 @@ replaces were, so a caller catching a bad argument keeps working.
   - `'not_a_number'` -- a number was needed and the value is not a finite one: NaN, an infinity, a `bool` or not a number at all. Every comparison with NaN is False, so a range check alone passes it.
   - `'plate_frame_axis'` -- a plate coordinate for an axis the plate frame does not define (`offered`: X and Y).
   - `'well_unknown'` -- a well label the selected plate (`plate`) does not have.
-  - `'out_of_range'` -- a number outside the `limits` its member takes.
-  - `'fan_duty_out_of_range'` -- a fan duty outside 0 to 100 percent.
+  - `'out_of_range'` -- a number outside the fixed rule its member holds it to (`takes`, in words: `'at least 0'`, a whole number of at least 1, `'from 0 to 100'`), with `limits` where the rule has both ends. A value past the attached hardware's limit is clamped to it and told (`ValueClampedNotice`), not refused.
   - `'channel_unknown'` -- the name is not one of this release's channels (`offered`, the catalog). Names are exact: `'bf'` is not `'BF'`. A channel this model lacks is a name, and is refused as absent hardware, not here.
   - `'no_channel_selected'` -- the member needs a channel and was given None (`offered`, the catalog).
   - `'led_address_unknown'` -- an LED address that is not one of the attached LED board's addresses (`offered`). A `bool` is not an address.
-  - `'illumination_out_of_range'` -- an LED current below 0 mA. A current above the attached LED board's maximum is lit at it (`ValueClampedNotice`), not refused.
   - `'missing_key'` -- an argument its member reads with the others given was not given, or a dictionary argument lacks a key its member reads; `argument` names it, or the key's path.
   - `'not_read'` -- an argument given where its member does not read it (`takes`: when it is read, in words).
   - `'wrong_kind'` -- an argument, or a value in a dictionary argument, is not of the kind its member reads (`takes`, in words).
@@ -14015,11 +13983,11 @@ words; the client already holds the value it sent.
 
 - <a id="ArgumentRefusedError.argument"></a>`argument`: `str` -- The name of the argument refused.
 - <a id="ArgumentRefusedError.board"></a>`board`: `str | None` -- The simulated board, in words, for `'not_injectable_on_board'`, `'argument_not_on_board'` and `'needs_simulated_firmware'`; None otherwise.
-- <a id="ArgumentRefusedError.limits"></a>`limits`: `tuple[float, float] | None` -- The lowest and highest value the argument takes, where it takes a range that depends on the scope; None otherwise.
+- <a id="ArgumentRefusedError.limits"></a>`limits`: `tuple[float, float] | None` -- The lowest and highest value the argument takes, for an `'out_of_range'` whose rule has both ends; None otherwise.
 - <a id="ArgumentRefusedError.member"></a>`member`: `str | None` -- The member to read instead, for `'has_member'`; None otherwise.
 - <a id="ArgumentRefusedError.offered"></a>`offered`: `tuple[str | int, ...] | None` -- The values the argument takes, where it takes a list; None otherwise.
 - <a id="ArgumentRefusedError.plate"></a>`plate`: `str | None` -- The name of the plate looked on, for `'well_unknown'`; None otherwise.
-- <a id="ArgumentRefusedError.takes"></a>`takes`: `str | None` -- The value the argument takes, in words, for `'wrong_kind'`, `'fault_bound'` and `'argument_not_on_board'`, and when it is read, for `'not_read'`; None otherwise.
+- <a id="ArgumentRefusedError.takes"></a>`takes`: `str | None` -- The value the argument takes, in words, for `'out_of_range'`, `'wrong_kind'`, `'fault_bound'` and `'argument_not_on_board'`, and when it is read, for `'not_read'`; None otherwise.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -14027,12 +13995,10 @@ words; the client already holds the value it sent.
 | `binning_size_invalid` | request | 422 |
 | `channel_unknown` | request | 422 |
 | `exposure_not_recorded` | request | 422 |
-| `fan_duty_out_of_range` | request | 422 |
 | `fault_bound` | request | 422 |
 | `fault_unknown` | request | 422 |
 | `gain_range_inverted` | request | 422 |
 | `has_member` | request | 422 |
-| `illumination_out_of_range` | request | 422 |
 | `led_address_unknown` | request | 422 |
 | `missing_key` | request | 422 |
 | `needs_simulated_camera` | request | 422 |
@@ -17489,7 +17455,7 @@ responses branches on `reason`; a person reads the message.
 
 **Attributes**
 
-- `reason`: `'has_member'` -- the setting is changed by its own member, named in `member` by its path from the session (the camera's as `scope.camera.<name>`). `'host_only'` -- that member is in-process: only the application hosting the scope changes the setting, and a REST client reads it. `'not_a_setting'` -- no setting has this path. `'block'` -- the path names a block of settings, which is written one setting at a time. `'installation_only'` -- the setting is read only from the installation's settings file. `'wrong_kind'` -- the value is not the kind the setting holds. `'out_of_range'` -- the value is outside the setting's range. `'model_named_by_board'` -- the scope model was chosen on a scope whose board names its own, which it runs as at every start (`ScopeSession.select_model`). `'not_offered'` -- the setting holds a closed set (a `StrEnum`, such as `image_mode`'s `ImageMode`) and the value is not one of its values.
+- `reason`: `'has_member'` -- the setting is changed by its own member, named in `member` by its path from the session (the camera's as `scope.camera.<name>`). `'host_only'` -- that member is in-process: only the application hosting the scope changes the setting, and a REST client reads it. `'not_a_setting'` -- no setting has this path. `'block'` -- the path names a block of settings, which is written one setting at a time. `'installation_only'` -- the setting is read only from the installation's settings file. `'not_a_number'` -- the setting holds a number and the value is not a finite one: a string, a `bool`, NaN or an infinity, as an argument is refused for it (`ArgumentRefusedError`). `'wrong_kind'` -- the value is not the other kind the setting holds. `'out_of_range'` -- the value is outside the setting's range. `'model_named_by_board'` -- the scope model was chosen on a scope whose board names its own, which it runs as at every start (`ScopeSession.select_model`). `'not_offered'` -- the setting holds a closed set (a `StrEnum`, such as `image_mode`'s `ImageMode`) and the value is not one of its values.
 - `detail`: Why, as a clause about the value (`'it must be above 0, not 0'`), for a caller that names the setting its own way: a protocol step's column.
 - `takes`: The range the value is outside, as a clause (`'at least 0'`, `'above 0 and at most 1'`), for an `'out_of_range'` refused by a range's bound; otherwise None. A caller judging an argument by a setting's rule says it in the argument's own words.
 
@@ -17510,6 +17476,7 @@ beside the words.
 | `host_only` | request | 422 |
 | `installation_only` | request | 422 |
 | `model_named_by_board` | request | 422 |
+| `not_a_number` | request | 422 |
 | `not_a_setting` | request | 422 |
 | `not_offered` | request | 422 |
 | `out_of_range` | request | 422 |

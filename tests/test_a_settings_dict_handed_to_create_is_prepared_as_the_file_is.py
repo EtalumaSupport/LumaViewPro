@@ -74,10 +74,13 @@ def test_a_hand_dict_comes_up_with_every_template_key_and_is_told_nothing(tmp_pa
     [
         ('jpg_quality', 500, 'out_of_range'),
         ('motion.acceleration_max_pct', ACCELERATION_PCT_MAX + 400, 'out_of_range'),
-        ('motion.acceleration_max_pct', '50', 'wrong_kind'),
-        ('motion.acceleration_max_pct', None, 'wrong_kind'),
-        ('zstack.range', 10**400, 'wrong_kind'),
-        ('BF.focus', 'abc', 'wrong_kind'),
+        # A number setting given anything but a finite number.
+        ('motion.acceleration_max_pct', '50', 'not_a_number'),
+        ('motion.acceleration_max_pct', None, 'not_a_number'),
+        ('zstack.range', 10**400, 'not_a_number'),
+        ('BF.focus', 'abc', 'not_a_number'),
+        # Another kind of setting given a value of another kind.
+        ('show_tooltips', 'yes', 'wrong_kind'),
         # A closed set's leaf: a value outside the set is not one it offers.
         ('image_mode', '16bit', 'not_offered'),
     ],

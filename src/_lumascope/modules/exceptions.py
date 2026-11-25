@@ -2025,8 +2025,11 @@ class SettingRefusedError(Refusal, ConfigError):
             setting has this path. ``'block'`` -- the path names a block of
             settings, which is written one setting at a time.
             ``'installation_only'`` -- the setting is read only from the
-            installation's settings file. ``'wrong_kind'`` -- the value is
-            not the kind the setting holds.
+            installation's settings file. ``'not_a_number'`` -- the setting
+            holds a number and the value is not a finite one: a string, a
+            ``bool``, NaN or an infinity, as an argument is refused for it
+            (``ArgumentRefusedError``). ``'wrong_kind'`` -- the value is
+            not the other kind the setting holds.
             ``'out_of_range'`` -- the value is outside the setting's range.
             ``'model_named_by_board'`` -- the scope model was chosen on a
             scope whose board names its own, which it runs as at every
@@ -2059,6 +2062,7 @@ class SettingRefusedError(Refusal, ConfigError):
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
         (
             'out_of_range',
+            'not_a_number',
             'wrong_kind',
             'not_offered',
             'not_a_setting',
@@ -4857,10 +4861,12 @@ class ArgumentRefusedError(Refusal, ValueError):
               plate frame does not define (``offered``: X and Y).
             - ``'well_unknown'`` -- a well label the selected plate
               (``plate``) does not have.
-            - ``'out_of_range'`` -- a number outside the ``limits`` its
-              member takes.
-            - ``'fan_duty_out_of_range'`` -- a fan duty outside 0 to 100
-              percent.
+            - ``'out_of_range'`` -- a number outside the fixed rule its
+              member holds it to (``takes``, in words: ``'at least 0'``, a
+              whole number of at least 1, ``'from 0 to 100'``), with
+              ``limits`` where the rule has both ends. A value past the
+              attached hardware's limit is clamped to it and told
+              (``ValueClampedNotice``), not refused.
             - ``'channel_unknown'`` -- the name is not one of this release's
               channels (``offered``, the catalog). Names are exact:
               ``'bf'`` is not ``'BF'``. A channel this model lacks is a
@@ -4870,9 +4876,6 @@ class ArgumentRefusedError(Refusal, ValueError):
             - ``'led_address_unknown'`` -- an LED address that is not one of
               the attached LED board's addresses (``offered``). A ``bool`` is
               not an address.
-            - ``'illumination_out_of_range'`` -- an LED current below 0 mA.
-              A current above the attached LED board's maximum is lit at
-              it (``ValueClampedNotice``), not refused.
             - ``'missing_key'`` -- an argument its member reads with the
               others given was not given, or a dictionary argument lacks a
               key its member reads; ``argument`` names it, or the key's path.
@@ -4938,10 +4941,10 @@ class ArgumentRefusedError(Refusal, ValueError):
         value: What was given, as given.
         offered: The values the argument takes, where it takes a list;
             None otherwise.
-        limits: The lowest and highest value the argument takes, where it
-            takes a range that depends on the scope; None otherwise.
+        limits: The lowest and highest value the argument takes, for an
+            ``'out_of_range'`` whose rule has both ends; None otherwise.
         takes: The value the argument takes, in words, for
-            ``'wrong_kind'``, ``'fault_bound'`` and
+            ``'out_of_range'``, ``'wrong_kind'``, ``'fault_bound'`` and
             ``'argument_not_on_board'``, and when it is read, for
             ``'not_read'``; None otherwise.
         board: The simulated board, in words, for
@@ -4983,11 +4986,7 @@ class ArgumentRefusedError(Refusal, ValueError):
         ),
         'out_of_range': (
             'Value Out of Range',
-            '{argument} must be from {low:g} to {high:g}; {value!r} is outside it.',
-        ),
-        'fan_duty_out_of_range': (
-            'Fan Duty Not Changed',
-            '{argument} is a percentage from 0 to 100; {value!r} is outside it.',
+            '{argument} must be {takes}; {value!r} is outside it.',
         ),
         'channel_unknown': (
             'Not a Channel',
@@ -5000,10 +4999,6 @@ class ArgumentRefusedError(Refusal, ValueError):
         'led_address_unknown': (
             'Not an LED Address',
             "{argument} must be one of the LED board's addresses, {offered}; {value!r} is not one.",
-        ),
-        'illumination_out_of_range': (
-            'LED Current Not Set',
-            '{argument} must be at least 0 mA; {value!r} is below it.',
         ),
         'missing_key': (
             'Value Missing',
@@ -5118,13 +5113,16 @@ class ArgumentRefusedError(Refusal, ValueError):
     ):
         self.reason = reason
         _, words = self._WORDS[reason]
+        if reason == 'out_of_range' and takes is None and limits is not None:
+            # A rule with two ends is said by them.
+            takes = f'from {limits[0]:g} to {limits[1]:g}'
         if ('{offered}' in words) != (offered is not None):
             raise TypeError(
                 f'ArgumentRefusedError({reason!r}) takes offered values exactly when its words name them'
             )
-        if ('{low' in words) != (limits is not None):
+        if limits is not None and reason != 'out_of_range':
             raise TypeError(
-                f'ArgumentRefusedError({reason!r}) takes limits exactly when its words name them'
+                f"ArgumentRefusedError({reason!r}) takes no limits: only 'out_of_range' has them"
             )
         for name, given in (('takes', takes), ('board', board), ('plate', plate)):
             if ('{' + name + '}' in words) != (given is not None):
@@ -5135,7 +5133,6 @@ class ArgumentRefusedError(Refusal, ValueError):
             raise TypeError(
                 f'ArgumentRefusedError({reason!r}) takes a member exactly when its words name it'
             )
-        low, high = limits or (None, None)
         super().__init__(
             words.format(
                 argument=argument,
@@ -5143,8 +5140,6 @@ class ArgumentRefusedError(Refusal, ValueError):
                 # writes it; its repr is the class's, not the caller's.
                 value=str(value) if isinstance(value, StrEnum) else value,
                 offered=_offered_words(offered or ()),
-                low=low,
-                high=high,
                 takes=takes,
                 board=board,
                 plate=plate,
@@ -5197,40 +5192,6 @@ class ArgumentTypeRefusedError(Refusal, TypeError):
         self.argument = argument
         self.declared = declared
         self.value = value
-
-
-@api_fields('limits')
-class AccelerationLimitRefusedError(Refusal, ValueError):
-    """An acceleration limit no board may be given was refused; nothing was commanded or stored.
-
-    A refusal, not a fault: the person typed or a caller passed a number
-    outside the range, and the words tell them the range. Raised as a bare
-    ValueError it was reported as an operation that failed, with a
-    traceback, over "Check the main log for details". Subclasses ValueError
-    so callers that catch a bad argument keep working.
-
-    Attributes:
-        reason: ``'acceleration_out_of_range'``.
-        value: What was given, as given.
-        limits: The lowest and highest limit a board takes, in percent.
-
-    ``limits`` is published, so a client corrects the value without reading
-    the words.
-    """
-
-    limits: tuple[int, int]
-
-    causes: ClassVar[dict[str, RefusalCause | None]] = {
-        'acceleration_out_of_range': RefusalCause.REQUEST
-    }
-    title = 'Acceleration Limit Not Changed'
-
-    def __init__(self, value: object, low: int, high: int):
-        super().__init__(
-            f'An acceleration limit of {value!r}% cannot be set: it is a whole number from {low} to {high}.'
-        )
-        self.value = value
-        self.limits = (low, high)
 
 
 @api_fields('axis', 'limits')

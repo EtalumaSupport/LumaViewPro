@@ -27,7 +27,7 @@ answers the current commanded ([Intent and what was delivered](concepts.md#inten
 below one of the board's steps is raised to one step, and one above the board's
 ceiling, `scope.capabilities.led_max_ma`, is lit at the ceiling and reported
 (`ValueClampedNotice`). One below zero is refused
-(`'illumination_out_of_range'`). A channel this scope lacks, or one with no LED
+(`'out_of_range'`). A channel this scope lacks, or one with no LED
 (`Lumi`), is refused `'not_on_this_scope'`. One the release does not know is
 refused `'channel_unknown'`. A write the LED board does not answer raises
 `BoardNoReplyError`, and the LED then reads `LedState.UNKNOWN` until it is
@@ -111,8 +111,8 @@ gain = scope.camera.set_gain_db(999.0)      # past the range: set at its end, an
 assert gain == scope.camera.setting_limits.gain_max_db
 ```
 
-```python raises=ArgumentRefusedError:wrong_kind
-scope.camera.set_exposure_ms(0.0)           # wrong_kind: an exposure takes a number above 0
+```python raises=ArgumentRefusedError:out_of_range
+scope.camera.set_exposure_ms(0.0)           # out_of_range: an exposure takes a number above 0
 ```
 
 Over REST a camera setter is a `PUT` on its read's URL
@@ -173,7 +173,7 @@ delivers, 2 x 2 on every camera) is set at that limit and reported
 (`'value_clamped'`). So is a side above the largest frame at the binning in
 effect (`camera_limits.frame_max`, the unbinned maximum, divided by the
 binning). The frame is floored to even sides, and a side of 0 or below is
-refused `'wrong_kind'`.
+refused `'out_of_range'`.
 `frame_at_binning(size)` answers the `FrameSize` `set_binning(size)` will ask
 for, without applying it. `set_image_mode(mode)` chooses the
 `ImageMode`: 8-bit, or 12-bit scientific, scaled or false-color. A camera that

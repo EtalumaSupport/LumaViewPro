@@ -96,7 +96,7 @@ class TestTheFrameWriter:
         with pytest.raises(ArgumentRefusedError) as refused:
             camera.set_frame_size(width, 800)
 
-        assert (refused.value.reason, refused.value.argument) == ('wrong_kind', 'width')
+        assert (refused.value.reason, refused.value.argument) == ('out_of_range', 'width')
         assert writes == []
         assert session.settings['frame'] == before
         assert camera.frame_size.to_dict() == delivered_before

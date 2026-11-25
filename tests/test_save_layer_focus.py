@@ -72,7 +72,7 @@ def test_a_z_that_is_not_a_number_is_refused_as_one_and_nothing_written(session,
     with pytest.raises(SettingRefusedError) as refused:
         session.set_channel_settings('BF', focus_z_um=z)
 
-    assert (refused.value.reason, refused.value.path) == ('wrong_kind', 'BF.focus')
+    assert (refused.value.reason, refused.value.path) == ('not_a_number', 'BF.focus')
     assert session.settings['BF']['focus'] == before
 
 

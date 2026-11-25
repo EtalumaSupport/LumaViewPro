@@ -24,7 +24,6 @@ import _lumascope.lib.log_helpers  # noqa: F401
 import _lumascope.modules.binning as binning
 import _lumascope.modules.common_utils as common_utils
 from _lumascope.modules.exceptions import (
-    AccelerationLimitRefusedError,
     ArgumentRefusedError,
     SettingRefusedError,
     StoredSettingReplacedNotice,
@@ -388,7 +387,7 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     'motion.acceleration_max_pct': functools.partial(
         _judged,
         refuse_acceleration_pct,
-        AccelerationLimitRefusedError,
+        ArgumentRefusedError,
         limits=(ACCELERATION_PCT_MIN, ACCELERATION_PCT_MAX),
     ),
     'protocol.period': functools.partial(
@@ -509,7 +508,7 @@ def refused_channel_values(
 
     Returns:
         A ``SettingRefusedError`` for each refused value, in ``values``'
-        order: ``'wrong_kind'`` for one that is not a finite number,
+        order: ``'not_a_number'`` for one that is not a finite number,
         ``'out_of_range'`` for one outside its range. Empty when every value
         is in range.
     """
@@ -520,7 +519,9 @@ def refused_channel_values(
         value = python_values(value)
         try:
             if _kind(value) != 'number':
-                raise SettingRefusedError('wrong_kind', path, f'it must be a number, not {value!r}')
+                raise SettingRefusedError(
+                    'not_a_number', path, f'it must be a finite number, not {value!r}'
+                )
             _RANGES[f'*.{key}'](path, value)
         except SettingRefusedError as e:
             refused.append(e)
@@ -648,13 +649,25 @@ def _refuse_kind_or_range(shipped: object, path: str, value: object) -> None:
         if got != 'null' and got not in kinds:
             held = ' or '.join(f'a {kind}' for kind in kinds)
             raise SettingRefusedError(
-                'wrong_kind', path, f'it holds {held + " or " if held else ""}null, not {value!r}'
+                _not_its_kind(kinds),
+                path,
+                f'it holds {held + " or " if held else ""}null, not {value!r}',
             )
     elif got != want:
-        raise SettingRefusedError('wrong_kind', path, f'it holds a {want}, not {value!r}')
+        raise SettingRefusedError(_not_its_kind((want,)), path, f'it holds a {want}, not {value!r}')
     rule = _range_for(path)
     if rule is not None:
         rule(path, value)
+
+
+def _not_its_kind(kinds: tuple[str, ...]) -> str:
+    """The reason a value not of a setting's ``kinds`` is refused for.
+
+    A number setting given anything but a finite number says
+    ``'not_a_number'``, as an argument does for it; any other kind,
+    ``'wrong_kind'``.
+    """
+    return 'not_a_number' if kinds == ('number',) else 'wrong_kind'
 
 
 def _leaf_paths(block: dict, prefix: str = '') -> typing.Iterator[tuple[str, object]]:

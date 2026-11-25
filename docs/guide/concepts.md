@@ -212,7 +212,9 @@ entered, so no member lists them:
 
 A number that is not finite -- NaN or an infinity -- is refused by the member
 that takes it, `ArgumentRefusedError` (`'not_a_number'`; a setting written by
-path, `'wrong_kind'`), and its `Raises:` lists it. Over REST it is refused
+path, `SettingRefusedError` with the same reason), and its `Raises:` lists it.
+A number outside its fixed rule is `'out_of_range'` at either door, with
+`limits` when the rule has both ends. Over REST it is refused
 before the member runs (`'invalid_request'`).
 
 ```python raises=ArgumentTypeRefusedError:wrong_argument_type
@@ -511,7 +513,7 @@ member also applies it: `binning` is the camera's (`scope.camera.set_binning`),
 `microscope` the session's `select_model`. Writing or reading it by path is
 refused `'has_member'`, its `member` naming the member to call. The reasons a path write is refused
 -- `'has_member'`, `'host_only'`, `'installation_only'`, `'not_a_setting'`,
-`'block'`, `'wrong_kind'`, `'out_of_range'`, `'not_offered'` -- are
+`'block'`, `'not_a_number'`, `'wrong_kind'`, `'out_of_range'`, `'not_offered'` -- are
 [`SettingRefusedError`'s](../api-reference.md#SettingRefusedError).
 
 ```python raises=SettingRefusedError:has_member

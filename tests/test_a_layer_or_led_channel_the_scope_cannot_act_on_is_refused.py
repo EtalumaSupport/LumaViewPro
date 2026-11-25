@@ -139,11 +139,9 @@ def test_a_current_below_zero_is_refused_naming_its_floor_alone(session):
     """The board's maximum is not a limit of the refusal: a current above
     it is lit at it, so the words name only the floor and the refusal
     carries no ``limits``."""
-    refusal = _refused(
-        lambda: session.scope.illumination.led_on('BF', -1), 'illumination_out_of_range'
-    )
+    refusal = _refused(lambda: session.scope.illumination.led_on('BF', -1), 'out_of_range')
     assert (refusal.argument, refusal.limits) == ('illumination_ma', None)
-    assert str(refusal) == 'illumination_ma must be at least 0 mA; -1.0 is below it.'
+    assert str(refusal) == 'illumination_ma must be at least 0 mA; -1.0 is outside it.'
     assert _lit(session) == []
 
 

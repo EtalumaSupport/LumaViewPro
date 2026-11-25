@@ -294,7 +294,7 @@ class TestMultipleErrors:
         assert errors == [
             f'Step 1 ({name}): Video Config duration: it must be above 0 and at most 3600, not 0',
             f'Step 2 ({name}): Video Config duration: it must be above 0 and at most 3600, not 0.0',
-            f'Step 3 ({name}): Video Config duration: it must be a number, not False',
+            f'Step 3 ({name}): Video Config duration: it must be a finite number, not False',
             f"Step 4 ({name}): Color 'Bad' is not valid. Must be one of: {colors}",
             f'Step 4 ({name}): Gain: it must be at least 0, not -1.0',
         ]
