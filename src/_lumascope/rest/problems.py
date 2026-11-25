@@ -123,7 +123,7 @@ _SERVER_STATUS = {
     'body_too_slow': 408,
     'handle_shared': 422,
     'overloaded': 503,
-    'server_closing': 503,
+    'session_closing': 503,
     'no_frame_yet': 503,
     'not_cancelable': 409,
     'idempotency_key_reused': 422,
@@ -288,10 +288,10 @@ def overloaded(detail: str, retry_after_s: float) -> ServerRefusedError:
     return ServerRefusedError('overloaded', detail, retry_after_s=retry_after_s)
 
 
-def server_closing() -> ServerRefusedError:
-    """A member asked while the server closes: it will not be answered again."""
+def session_closing() -> ServerRefusedError:
+    """A member asked while the server closes, its session's close's first step: it will not be answered again."""
     return ServerRefusedError(
-        'server_closing',
+        'session_closing',
         'The server is closing: it finishes what is under way, then exits.',
     )
 

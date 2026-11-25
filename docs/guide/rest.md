@@ -32,7 +32,7 @@ home, the plugins -- and serves where `rest_api` says (shipped
 it will not start while LumaViewPro or another server runs on this computer,
 simulated or not ([One session per scope](concepts.md#one-session-per-scope)). A failed startup home is
 reported and the server still serves, so a client can home again. Ctrl-C or
-SIGTERM closes it: new calls are refused (`'server_closing'`), the session
+SIGTERM closes it: new calls are refused (`'session_closing'`), the session
 shuts down with the event stream open, and the stream's last event is
 `closing`. It exits `0`, or `1` when it could not take the lock or serve
 (printing why), stopped before it served, or the session did not close cleanly
@@ -302,7 +302,7 @@ refusal's. Every reason and its status is in the reference's
 | `500` | A fault: the call failed. |
 | `404` | No such route, handle, job or file. |
 | `405` / `408` / `413` / `415` | The wrong method; a body that did not arrive in time (`'body_too_slow'`; the connection is closed); a body larger than its route takes (`'body_too_large'`), both in [Limits](#limits); a body that is not JSON. |
-| `503` | With `Retry-After`, try again later (`'overloaded'`, `'no_frame_yet'`). Without it, nothing succeeds until the application restarts (`'not_connected'`, `'session_closing'`, `'server_closing'`, and every other restart cause). |
+| `503` | With `Retry-After`, try again later (`'overloaded'`, `'no_frame_yet'`). Without it, nothing succeeds until the application restarts (`'not_connected'`, `'session_closing'`, and every other restart cause). |
 
 ## The event stream
 

@@ -116,7 +116,7 @@ class EventStream:
         self._reader = SequentialIOExecutor(
             name='EVENT_STREAM_READS',
             lane=False,
-            closed_answer=lambda member: problems.server_closing(),
+            closed_answer=lambda member: problems.session_closing(),
         )
         self._reader.start()
         for owner, member_name, name, record in _listened(self._session):

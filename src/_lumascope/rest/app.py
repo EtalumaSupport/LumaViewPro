@@ -127,7 +127,7 @@ class Closing:
     """The server's close, as the application takes part in it (``_lumascope.rest.server``).
 
     Once it has begun, a member asked, or a live view asked for, is refused
-    ``server_closing``; jobs, handles, files and the stream are still
+    ``session_closing``; jobs, handles, files and the stream are still
     served, so a client can read what the close finishes, and a live view
     already open keeps showing frames until the close finishes.
     """
@@ -400,7 +400,7 @@ def _add_upload_route(
         """
         _refuse_query(request)
         if closing.begun:
-            raise problems.server_closing()
+            raise problems.session_closing()
         place = jobs.take_upload()
         try:
             data = await _body_of(request, UPLOAD_CEILING_BYTES)
@@ -497,7 +497,7 @@ def _add_still_route(
         """
         _refuse_query(request)
         if closing.begun:
-            raise problems.server_closing()
+            raise problems.session_closing()
         jobs.admit(returns_job=False)
         sent = asked.model_dump(include=asked.model_fields_set) if asked is not None else {}
         request_id = request.state.request_id
@@ -696,7 +696,7 @@ def _add_live_routes(app: fastapi.FastAPI, live: live_view.LiveView, closing: Cl
         """
         max_width = _max_width(request)
         if closing.begun:
-            raise problems.server_closing()
+            raise problems.session_closing()
         try:
             await live.watch()
         except Exception as e:
@@ -712,14 +712,14 @@ def _add_live_routes(app: fastapi.FastAPI, live: live_view.LiveView, closing: Cl
         """
         max_width = _max_width(request)
         if closing.begun:
-            raise problems.server_closing()
+            raise problems.session_closing()
         try:
             shown = await live.snapshot(max_width)
         except Exception as e:
             return problems.answered_by_member(e, request.state.request_id).response()
         if shown is None:
             if closing.begun:
-                raise problems.server_closing()
+                raise problems.session_closing()
             raise problems.no_frame_yet(live_view.RETRY_AFTER_S)
         frame, jpeg = shown
         return fastapi.Response(
@@ -1171,7 +1171,7 @@ def _add(
         if route.query is None:
             _refuse_query(request)
         if closing.begun:
-            raise problems.server_closing()
+            raise problems.session_closing()
         if member.hands_out:
             registry.admit()
         jobs.admit(returns_job=member.returns_job)

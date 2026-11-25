@@ -1589,9 +1589,10 @@ class ServerRefusedError(Refusal, Exception):
             and the connection is closed. ``'handle_shared'`` -- the handle
             asked to be forgotten is one every client shares, and it is kept.
             ``'overloaded'`` -- the server holds as many handles, jobs or
-            uploads as it keeps; asking again later may succeed. ``'server_closing'`` --
-            the server is closing: it finishes what is under way, answers
-            nothing new, and exits. ``'no_frame_yet'`` -- the live view has
+            uploads as it keeps; asking again later may succeed.
+            ``'session_closing'`` -- the session is closing, and the server
+            first: it finishes what is under way, answers nothing new, and
+            exits; ``SessionClosingError`` is the same fact at the session. ``'no_frame_yet'`` -- the live view has
             no frame to show, because the camera sent none in time; asking
             again later may succeed. ``'not_cancelable'`` -- the job is a
             call held as a job when it outlived its wait, and holds no
@@ -1624,7 +1625,7 @@ class ServerRefusedError(Refusal, Exception):
         'body_too_slow': RefusalCause.STATE,
         'handle_shared': RefusalCause.REQUEST,
         'overloaded': RefusalCause.STATE,
-        'server_closing': RefusalCause.RESTART,
+        'session_closing': RefusalCause.RESTART,
         'no_frame_yet': RefusalCause.STATE,
         'not_cancelable': RefusalCause.STATE,
         'idempotency_key_reused': RefusalCause.REQUEST,
@@ -1642,7 +1643,7 @@ class ServerRefusedError(Refusal, Exception):
         'body_too_slow': 'Body Too Slow',
         'handle_shared': 'Handle Shared',
         'overloaded': 'Overloaded',
-        'server_closing': 'Server Closing',
+        'session_closing': 'Closing',
         'no_frame_yet': 'No Frame Yet',
         'not_cancelable': 'Not Cancelable',
         'idempotency_key_reused': 'Idempotency Key Reused',
@@ -4676,8 +4677,9 @@ class SessionClosingError(Refusal, Exception):
     """
 
     # A closing session never takes the scope again.
-    title = 'Closing'
+    title = ServerRefusedError.titles['session_closing']
     causes: ClassVar[dict[str, RefusalCause | None]] = {'session_closing': RefusalCause.RESTART}
+    same_fact_as = (ServerRefusedError,)
 
     def __init__(self, activity: str | None, *, work: str | None = None):
         if (activity is None) == (work is None):

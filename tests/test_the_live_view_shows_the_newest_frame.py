@@ -290,7 +290,7 @@ def test_the_close_refuses_a_new_watch_and_ends_the_open_ones(session):
         let_go = app.state.live.wait_unwatched(_LET_GO_S)
 
     assert let_go, 'never let go of the listener'
-    assert [(r.status_code, r.json()['reason']) for r in refused] == [(503, 'server_closing')] * 2
+    assert [(r.status_code, r.json()['reason']) for r in refused] == [(503, 'session_closing')] * 2
 
 
 def test_a_client_gone_before_its_first_byte_leaves_no_watcher(session):

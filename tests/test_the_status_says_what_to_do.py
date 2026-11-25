@@ -39,18 +39,18 @@ def test_each_reason_answers_the_status_its_cause_says():
     }
     server = {
         'handle_shared': (ServerRefusedError('handle_shared', 'x'), 422),
-        'server_closing': (problems.server_closing(), 503),
+        'session_closing': (problems.session_closing(), 503),
         'not_cancelable': (ServerRefusedError('not_cancelable', 'x'), 409),
     }
 
-    answered = {}
-    for reason, (refusal, _) in members.items():
-        answer = answered_by_member(refusal, _ID)
-        answered[reason] = (answer.status, answer.body['reason'], 'Retry-After' in answer.headers)
-    for reason, (refusal, _) in server.items():
-        answer = refused_by_server(refusal, _ID)
-        answered[reason] = (answer.status, answer.body['reason'], 'Retry-After' in answer.headers)
+    # A reason both doors carry ('session_closing') is asked at each.
+    answered, expected = [], []
+    for door, refusals in ((answered_by_member, members), (refused_by_server, server)):
+        for reason, (refusal, status) in refusals.items():
+            answer = door(refusal, _ID)
+            answered.append(
+                (reason, answer.status, answer.body['reason'], 'Retry-After' in answer.headers)
+            )
+            expected.append((reason, status, reason, False))
 
-    assert answered == {
-        reason: (status, reason, False) for reason, (_, status) in {**members, **server}.items()
-    }
+    assert answered == expected

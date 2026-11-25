@@ -7,7 +7,7 @@ connection, which an event stream never ends. ``Server`` closes in the
 session's order instead, on SIGINT or SIGTERM or its host's ``close()``:
 
 1. the listening sockets close, so a new connection is refused, and a
-   member asked on an open connection is refused ``server_closing``; jobs,
+   member asked on an open connection is refused ``session_closing``; jobs,
    handles, files and the stream are still served;
 2. the host's shutdown -- ``session.shutdown`` headless, the GUI's own
    in the GUI -- runs on a thread while the stream stays open, so it
@@ -196,7 +196,7 @@ class Server(uvicorn.Server):
                 self._state = _Serving.SERVING
 
     def refuse_calls(self) -> None:
-        """Refuse every member asked from now on (``server_closing``); the host's close follows.
+        """Refuse every member asked from now on (``session_closing``); the host's close follows.
 
         A host that acts before its close begins -- the GUI takes back
         control first -- calls this before it does, so no client's call

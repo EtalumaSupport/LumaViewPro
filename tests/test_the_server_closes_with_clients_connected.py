@@ -2,7 +2,7 @@
 """The server closes the session with its clients connected (``_lumascope.rest.server``).
 
 On SIGINT or SIGTERM, or its host's ``close()``, a new connection is
-refused and a member asked on an open one is refused ``server_closing``,
+refused and a member asked on an open one is refused ``session_closing``,
 while jobs and the stream are still served; the host's shutdown closes the
 session while the stream carries what the close reports; then ``closing``
 ends every stream, a client still waiting on a job is answered what the job
@@ -141,7 +141,10 @@ def test_a_signal_closes_the_session_with_its_clients_connected(session):
         finally:
             release.set()
 
-    assert (refused.status_code, refused.json()['reason']) == (503, 'server_closing')
+    assert (refused.status_code, refused.json()['reason']) == (503, 'session_closing')
+    assert refused.json()['title'] == 'Closing', (
+        'the session closing, whichever door it reaches first'
+    )
     assert jobs.status_code == 200
     # The close's own report reached the stream before closing: the LED it turned off.
     assert {'address': 0, 'name': LED0, 'state': 'dark', 'illumination_ma': None} in [

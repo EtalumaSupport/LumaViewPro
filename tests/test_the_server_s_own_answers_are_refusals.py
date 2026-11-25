@@ -27,7 +27,7 @@ REQUEST, STATE, RESTART = RefusalCause.REQUEST, RefusalCause.STATE, RefusalCause
         (problems.body_too_large(1), 413, REQUEST),
         (problems.body_too_slow(1, 0), 408, STATE),
         (problems.overloaded('x', 1), 503, STATE),
-        (problems.server_closing(), 503, RESTART),
+        (problems.session_closing(), 503, RESTART),
         (problems.no_frame_yet(1), 503, STATE),
     ],
     ids=lambda v: v.reason if isinstance(v, ServerRefusedError) else None,
@@ -53,7 +53,7 @@ def test_each_reason_s_status_and_title_are_the_type_s():
         'body_too_slow': (408, 'Body Too Slow'),
         'handle_shared': (422, 'Handle Shared'),
         'overloaded': (503, 'Overloaded'),
-        'server_closing': (503, 'Server Closing'),
+        'session_closing': (503, 'Closing'),
         'no_frame_yet': (503, 'No Frame Yet'),
         'not_cancelable': (409, 'Not Cancelable'),
         'idempotency_key_reused': (422, 'Idempotency Key Reused'),
@@ -79,7 +79,7 @@ def test_a_wait_travels_on_the_refusal_and_is_sent_as_retry_after():
     waited = problems.overloaded('x', 0.2)
     assert waited.retry_after_s == 0.2
     assert problems.refused_by_server(waited, 'id').headers == {'Retry-After': '1'}
-    closing = problems.server_closing()
+    closing = problems.session_closing()
     assert closing.retry_after_s is None
     assert problems.refused_by_server(closing, 'id').headers == {}
 
