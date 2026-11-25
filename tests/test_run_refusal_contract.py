@@ -698,7 +698,7 @@ RUNNER_REFUSAL_COVERAGE = {
     'autofocus_running': _FUNNEL_LOOP,
     'empty_protocol': _FUNNEL_LOOP,
     'turret_objectives_unassigned': _FUNNEL_LOOP,
-    'channel_not_on_scope': _FUNNEL_LOOP,
+    'not_on_this_scope': _FUNNEL_LOOP,
     'channel_unknown': (
         'tests/test_an_old_protocol_runs_the_leds_it_was_made_with.py::'
         'test_on_a_unit_without_the_led_an_old_name_is_its_stock_key'
@@ -927,7 +927,7 @@ class TestTheRefusalFunnel:
             mp.setattr(scope.runtime_state, 'turret_config', lambda: {1: '10x Oly'})
             return _make_two_objective_protocol()
 
-        def channel_not_on_scope(mp):
+        def not_on_this_scope(mp):
             # The suite's scope has no Lumi layer.
             return _build_real_protocol(
                 [{**_make_single_step_protocol().step_row(step_index=0), 'channel': 'Lumi'}]
@@ -945,7 +945,7 @@ class TestTheRefusalFunnel:
             ('camera_not_streaming', camera_not_streaming),
             ('camera_not_delivering', camera_not_delivering),
             ('position_unknown', position_unknown),
-            ('channel_not_on_scope', channel_not_on_scope),
+            ('not_on_this_scope', not_on_this_scope),
             ('lid_open_before_motion', lid_open),
         ]
 

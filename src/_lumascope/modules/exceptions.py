@@ -2344,7 +2344,7 @@ class RunWaitExpiredError(ProtocolError, Quiet, TimeoutError):
         self.operation = operation
 
 
-@api_fields('holder', 'holder_trigger', 'unconnected_parts', 'axes_without_position')
+@api_fields('holder', 'holder_trigger', 'unconnected_parts', 'axes_without_position', 'missing')
 class ProtocolRunRefusedError(Refusal, ProtocolError):
     """A sequenced run, or the protocol it would run, was refused before any state was committed.
 
@@ -2444,9 +2444,10 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             work needs motion on an axis this scope has no motor for.
             ``'step_position_missing'`` -- steps have no position on an axis
             this scope moves, having been recorded on a scope without it.
-            ``'channel_not_on_scope'`` -- steps take a channel this scope
-            does not have, or this scope's channels could not be
-            resolved. ``'channel_unknown'`` -- steps name a channel no
+            ``'not_on_this_scope'`` -- steps take a channel this scope
+            does not have, as ``HardwareCommandRefusedError`` explains it
+            (``missing``: the first such channel's part; the words name
+            every one, and the steps). ``'channel_unknown'`` -- steps name a channel no
             release has, a typo or a hand edit.
             ``'objectives_require_turret'`` -- the protocol
             changes objective between steps, and this scope has no turret
@@ -2479,17 +2480,21 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             ``MotionAPI.axes_without_position`` answers it, for
             ``'position_unknown'`` and ``'step_position_unknown'``, which
             always name at least one; empty for every other reason.
+        missing: The part the protocol needs and the scope does not have,
+            for ``'not_on_this_scope'``, as a hardware command names it;
+            None for every other reason.
 
-    ``holder``, ``holder_trigger``, ``unconnected_parts`` and
-    ``axes_without_position`` are published, so a REST problem carries who
-    holds the scope, which boards are missing and which axes have no
-    position, beside the words.
+    ``holder``, ``holder_trigger``, ``unconnected_parts``,
+    ``axes_without_position`` and ``missing`` are published, so a REST
+    problem carries who holds the scope, which boards are missing, which
+    axes have no position and which part the scope lacks, beside the words.
     """
 
     holder: Holder | None
     holder_trigger: Caller | None
     unconnected_parts: tuple[Board, ...]
     axes_without_position: dict[Axis, AxisState]
+    missing: 'MissingPart | None'
 
     # What a protocol holds is the request's, whoever made it: a client
     # changes the protocol, and the scope's state never makes it runnable.
@@ -2535,7 +2540,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'camera_range_unread': RefusalCause.STATE,
         'positions_unreachable': RefusalCause.REQUEST,
         'step_position_missing': RefusalCause.REQUEST,
-        'channel_not_on_scope': RefusalCause.REQUEST,
+        'not_on_this_scope': RefusalCause.REQUEST,
         'channel_unknown': RefusalCause.REQUEST,
         'objectives_require_turret': RefusalCause.REQUEST,
         'objective_not_given': RefusalCause.REQUEST,
@@ -2590,7 +2595,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'camera_range_unread': 'Camera Range Not Read',
         'positions_unreachable': 'Position Not Reachable',
         'step_position_missing': 'Step Has No Position',
-        'channel_not_on_scope': 'Channel Not on This Scope',
+        'not_on_this_scope': 'Not on This Microscope',
         'channel_unknown': 'Channel Not Known',
         'objectives_require_turret': 'One Objective At A Time',
         'objective_not_given': 'No Objective Given',
@@ -2609,8 +2614,15 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         remedy: Remedy | None = None,
         unconnected_parts: tuple[Board, ...] = (),
         axes_without_position: dict[Axis, AxisState] | None = None,
+        missing: 'MissingPart | None' = None,
     ):
         super().__init__(message)
+        if (missing is None) != (reason != 'not_on_this_scope'):
+            raise TypeError(
+                f"a {reason!r} refusal was given the part {missing!r}: a 'not_on_this_scope' "
+                'refusal names the part the scope lacks, and no other refusal names one'
+            )
+        self.missing = missing
         self.reason = reason
         self.message = message
         self.holder = _holder(holder)
@@ -3752,9 +3764,7 @@ class RunFailedError(Fault, CaptureError):
             row of a video step, so the run stopped, since its later steps
             write there too.
             ``'video_writer_died'`` -- the writer of a video step failed.
-            ``'led_channel_unavailable'`` -- steps of the run take an LED
-            channel this scope does not have, and their captures kept
-            failing. ``'camera_failure'`` -- the camera failed too many steps
+            ``'camera_failure'`` -- the camera failed too many steps
             in a row. ``'autofocus_failed'`` -- a single-autofocus run's
             autofocus did not find focus. ``'autofocus_not_started'`` -- a
             single-autofocus run's autofocus was refused before the stage
@@ -4427,7 +4437,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
         'camera_not_streaming': CAMERA_NOT_STREAMING_TITLE,
         'monitor_ended': 'Motion Monitor Stopped',
         'axis_absent': 'Not on This Microscope',
-        'not_on_this_scope': 'Not on This Microscope',
+        'not_on_this_scope': ProtocolRunRefusedError.titles['not_on_this_scope'],
         'position_unread': 'Motor Controller Not Responding',
         'lid_open_before_motion': INTERLOCK_TITLES['lid_open'],
         'stage_unpowered_before_motion': INTERLOCK_TITLES['stage_unpowered'],

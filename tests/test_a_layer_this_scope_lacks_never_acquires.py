@@ -22,6 +22,7 @@ import pytest
 from _lumascope.modules import config_helpers, scope_session
 from _lumascope.modules.exceptions import (
     ConfigError,
+    ConfigurationDefectError,
     HardwareCommandRefusedError,
     MissingPart,
     ProtocolRunRefusedError,
@@ -40,7 +41,7 @@ from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
 )
 from tests.stock_channels import LED0
 
-ABSENT = 'channel_not_on_scope'
+ABSENT = 'not_on_this_scope'
 
 
 def _session(tmp_path, microscope, **acquiring):
@@ -128,6 +129,8 @@ def test_a_file_with_a_step_on_a_layer_this_scope_lacks_is_refused_at_load(ls850
         ls850.load_protocol(path)
 
     assert refused.value.reason == ABSENT
+    assert refused.value.missing == MissingPart(Part.CHANNEL, channel='Lumi')
+    assert refused.value.title == 'Not on This Microscope'
     words = str(refused.value)
     assert 'Lumi' in words
     assert protocol.step_row(step_index=1)['Name'] in words
@@ -162,8 +165,9 @@ def test_a_scope_whose_layers_could_not_be_resolved_says_so(ls850, monkeypatch):
     ls850.add_step(protocol)
     monkeypatch.setattr(ls850.scope, 'channel_identity', UNRESOLVED)
 
-    with pytest.raises(ProtocolRunRefusedError) as refused:
+    with pytest.raises(ConfigurationDefectError) as refused:
         ls850.scope.protocols.refuse_absent_channels(protocol)
+    assert refused.value.reason == 'channels_unresolved'
     assert 'could not be resolved' in str(refused.value)
     assert 'has no BF' not in str(refused.value)
 

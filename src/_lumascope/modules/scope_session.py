@@ -2729,11 +2729,13 @@ class ScopeSession:
             ProtocolRunRefusedError: ``'objective_not_mounted'``,
                 ``'objectives_require_turret'``,
                 ``'turret_objectives_unassigned'`` or
-                ``'channel_not_on_scope'``: the file holds a step this scope
+                ``'not_on_this_scope'``: the file holds a step this scope
                 cannot perform; ``'channel_unknown'``, a step names a
                 channel no release has; ``'values_out_of_range'``, its Layer
                 Settings hold a value no channel setting takes; each the
                 reason a run would give for the same file.
+            ConfigurationDefectError: ``'channels_unresolved'``, this
+                scope's channels could not be resolved, so no step can run.
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 as ``select_labware``; the scope stays on the plate it had.
         """
@@ -5543,10 +5545,12 @@ class ScopeSession:
             ProtocolRunRefusedError: ``'objective_not_mounted'``,
                 ``'objectives_require_turret'``,
                 ``'turret_objectives_unassigned'`` or
-                ``'channel_not_on_scope'``: the file holds a step this scope
+                ``'not_on_this_scope'``: the file holds a step this scope
                 cannot perform, a step naming a channel no release has
                 (``'channel_unknown'``), or Layer Settings no channel setting
                 takes (``'values_out_of_range'``), as ``load_protocol``.
+            ConfigurationDefectError: ``'channels_unresolved'``, as
+                ``load_protocol``.
             ConfigError: As ``load_protocol`` and ``apply_channel_settings``.
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 as ``load_protocol`` and ``apply_channel_settings``.

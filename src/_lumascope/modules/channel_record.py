@@ -1006,6 +1006,10 @@ def _record(
         return f'has malformed led_channel {raw_addresses!r}'
     if len(led_addresses) > 1:
         return f'drives multiple LED addresses {led_addresses}; a channel on several LEDs is not supported yet'
+    # A channel lit by an LED images nothing without one: luminescence alone
+    # is the specimen's own light.
+    if not led_addresses and release.modality != Modality.LUMINESCENCE:
+        return 'has no led_channel'
     raw_nm = row.get('excitation_nm')
     if raw_nm is None:
         excitation: float | None = None

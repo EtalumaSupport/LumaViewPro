@@ -42,12 +42,15 @@ from _lumascope.modules.coord_transformations import AxisLimits, PlateLocation, 
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     CameraReadFailedError,
+    ConfigurationDefectError,
+    MissingPart,
     PositionOutOfRangeError,
     ProtocolRunRefusedError,
     ProtocolStepsInvalidNotice,
     unknown_positions_sentence,
 )
 from _lumascope.modules.axes import Axis, AxisState, StageAxis
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.zstack_config import ZStackReference
 from _lumascope.modules.lumascope_api.runtime_state import slots_holding
 from _lumascope.modules.api_surface import api_fields
@@ -1034,8 +1037,12 @@ class ProtocolsAPI:
 
         Raises:
             ProtocolRunRefusedError: reason ``channel_unknown``, naming the
-                channels and the steps; else ``channel_not_on_scope``, naming
-                the absent channels and the steps.
+                channels and the steps; else ``not_on_this_scope``, naming
+                the absent channels and the steps, ``missing`` the first's
+                part, as the identity's rule refuses a command for one
+                (``ChannelIdentity.refuse_unless_on_scope``).
+            ConfigurationDefectError: ``'channels_unresolved'``, this
+                scope's channels could not be resolved, so no step can run.
         """
         identity = self._scope.channel_identity
         present = {record.key_name for record in identity.channels}
@@ -1054,19 +1061,23 @@ class ProtocolsAPI:
         absent = steps.loc[~steps['channel'].isin(present)]
         if absent.empty:
             return
+        names = common_utils.first_few(list(absent['Name']), separator=', ')
+        if not identity.channels:
+            raise ConfigurationDefectError(
+                'channels_unresolved',
+                f"this scope's channels could not be resolved (model {identity.model}), "
+                f'so {len(absent)} step(s) cannot be run: {names}',
+            )
         missing = sorted(set(absent['channel']))
         channels = ', '.join(missing) + (' channels' if len(missing) > 1 else ' channel')
-        names = common_utils.first_few(list(absent['Name']), separator=', ')
-        if identity.channels:
-            scope = f'This scope ({identity.model}) has no {channels}'
-        else:
-            scope = f"This scope's channels could not be resolved (model {identity.model})"
         self._refuse(
-            reason='channel_not_on_scope',
+            reason='not_on_this_scope',
             message=(
-                f'{scope}, so {len(absent)} step(s) cannot be run: {names}. '
-                f'Delete those steps, or open the protocol on a scope that has the channel.'
+                f'This scope ({identity.model}) has no {channels}, so {len(absent)} step(s) '
+                f'cannot be run: {names}. Delete those steps, or open the protocol on a scope '
+                'that has the channel.'
             ),
+            missing=MissingPart(Part.CHANNEL, channel=missing[0]),
         )
 
     def refuse_unaddressable_objectives(self, objective_ids: Iterable[str]) -> None:
@@ -1630,6 +1641,7 @@ class ProtocolsAPI:
         message: str,
         *,
         axes_without_position: dict[Axis, AxisState] | None = None,
+        missing: MissingPart | None = None,
     ) -> typing.NoReturn:
         """Raise the typed refusal.
 
@@ -1643,5 +1655,8 @@ class ProtocolsAPI:
         a reason ships with no coverage.
         """
         raise ProtocolRunRefusedError(
-            reason=reason, message=message, axes_without_position=axes_without_position
+            reason=reason,
+            message=message,
+            axes_without_position=axes_without_position,
+            missing=missing,
         )

@@ -1271,43 +1271,15 @@ class ProtocolImageWriter:
         # means the capture_failed row below is cancelled where
         # it previously waited for a slot -- accepted.
         if aborting:
-            step_color = step.get('channel', '')
-            # led_connected term: with the LED controller gone
-            # the failures are the disconnect's, not a missing
-            # channel, and keep the camera wording.
-            undrivable = (
-                step_color in common_utils.get_channels_with_led()
-                and self._scope.led_connected
-                and self._scope.illumination.led_address_of(step_color) is None
+            self._abort_run_fatal(
+                RunEnding(
+                    RunStatus.FAILED,
+                    'camera_failure',
+                    f'The camera failed {self._consecutive_capture_failures} steps in a row; '
+                    f'the last: {cause}',
+                ),
+                'Protocol',
             )
-            if undrivable:
-                # The failures were guaranteed by the scope's
-                # channel set, not by the camera -- blaming the
-                # camera here misnames the cause the user can
-                # actually act on.
-                self._abort_run_fatal(
-                    RunEnding(
-                        RunStatus.FAILED,
-                        'led_channel_unavailable',
-                        f"This microscope has no '{step_color}' LED "
-                        f'channel, so its steps cannot capture here. '
-                        f'The protocol was stopped after '
-                        f'{self._consecutive_capture_failures} failed '
-                        f"captures. Remove the '{step_color}' steps to "
-                        'run this protocol on this microscope.',
-                    ),
-                    'Protocol',
-                )
-            else:
-                self._abort_run_fatal(
-                    RunEnding(
-                        RunStatus.FAILED,
-                        'camera_failure',
-                        f'The camera failed {self._consecutive_capture_failures} steps in a row; '
-                        f'the last: {cause}',
-                    ),
-                    'Protocol',
-                )
 
     def _submit_write(
         self,

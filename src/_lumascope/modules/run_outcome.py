@@ -154,7 +154,6 @@ class RunEndReason(enum.StrEnum):
     WRITE_FAILED = 'write_failed', 'Recording Stopped', EndingKind.FAILURE
     FILE_WRITER_STALLED = 'file_writer_stalled', 'File Writer Stalled', EndingKind.FAILURE
     VIDEO_WRITER_DIED = 'video_writer_died', 'Recording Failed', EndingKind.FAILURE
-    LED_CHANNEL_UNAVAILABLE = 'led_channel_unavailable', 'Channel not available', EndingKind.FAILURE
     CAMERA_FAILURE = 'camera_failure', 'Camera Failure', EndingKind.FAILURE
     AUTOFOCUS_FAILED = 'autofocus_failed', 'Autofocus Failed', EndingKind.FAILURE
     AUTOFOCUS_NOT_STARTED = 'autofocus_not_started', 'Autofocus Not Started', EndingKind.FAILURE

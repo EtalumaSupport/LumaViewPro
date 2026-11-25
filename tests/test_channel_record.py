@@ -407,6 +407,12 @@ class TestRowParsing:
                 id='a row with an undeclared key',
             ),
             pytest.param(_rows(row(LED1, None, 1, None)), 'no excitation_nm', id='no excitation'),
+            # A channel lit by an LED images nothing without one; Lumi alone
+            # carries none.
+            pytest.param(_rows(row('BF', 'BF', None)), 'no led_channel', id='a lit layer, no LED'),
+            pytest.param(
+                _rows(row(LED1, None, None, 488)), 'no led_channel', id='a fluorescence, no LED'
+            ),
             pytest.param(
                 _rows(row(LED1, None, 1, float('inf'))),
                 'malformed excitation_nm',

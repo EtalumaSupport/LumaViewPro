@@ -179,5 +179,5 @@ def test_on_a_unit_without_the_led_an_old_name_is_its_stock_key(tmp_path, monkey
 
     assert step['channel'] == 'Ex488'
     assert lit == [1]
-    assert absent.value.reason == 'channel_not_on_scope'
+    assert absent.value.reason == 'not_on_this_scope'
     assert (unknown.value.reason, 'Bleu' in str(unknown.value)) == ('channel_unknown', True)
