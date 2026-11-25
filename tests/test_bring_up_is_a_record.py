@@ -382,6 +382,13 @@ class TestAClassicRefusedItsDriver:
             assert _status(record, Board.CAMERA).cause == 'camera_driver_unusable'
             assert _status(record, Board.LED).cause == 'fx2_failed'
             assert [n.reason for n in centre_posts] == ['camera_driver_unusable']
+            # Which driver, and Windows' own sentence for its code, never the log.
+            said = centre_posts[0].message
+            assert (
+                "Windows has the Lumascope Classic on LumaViewPro's driver, which Windows did "
+                'not start (This device is not working properly because Windows cannot load'
+            ) in said, said
+            assert 'log' not in said, said
         finally:
             s.shutdown()
 
