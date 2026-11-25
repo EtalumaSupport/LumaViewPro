@@ -3440,7 +3440,7 @@ class ScopeSession:
             AxisMovingError: ``'axis_moving'``, with no ``at``, an axis is
                 moving, so the live position is a place it is passing
                 through. Nothing is added.
-            ProtocolRunRefusedError: ``'step_position_unknown'``, an axis does
+            ProtocolRunRefusedError: ``'position_unknown'``, an axis does
                 not know its position; ``'no_acquiring_channel'``, no channel
                 acquires; ``'positions_outside_travel'``, ``at`` lies outside
                 the stage's travel. With ``use_zstacking``, also
@@ -3535,7 +3535,7 @@ class ScopeSession:
                 unknown, as ``add_step`` raises it (``'slot_unassigned'``, the
                 turret's current slot has no objective). The step is
                 unchanged.
-            ProtocolRunRefusedError: ``'step_position_unknown'``, an axis
+            ProtocolRunRefusedError: ``'position_unknown'``, an axis
                 does not know its position; ``'no_acquiring_channel'``,
                 ``channel`` is not set to acquire; ``'channel_already_in_add'``,
                 another step of the same add already takes that channel. The

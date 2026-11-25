@@ -2411,7 +2411,7 @@ class MotionAPI:
 
         The read for an in-process path that states the live position in
         something whose owner judges an unknown position after the read: a
-        step's ``step_position_unknown``, a run's ``prepare``. While an
+        step's ``position_unknown``, a run's ``prepare``. While an
         axis is MOVING its cached number is the motion monitor's last
         poll, behind the board by up to a poll, so keeping it would keep a
         place the axis was passing through. The states and the numbers

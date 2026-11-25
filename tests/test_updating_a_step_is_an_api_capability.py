@@ -100,8 +100,8 @@ class TestTheApiRefuses:
             _update(scope, protocol)
 
         assert (excinfo.value.reason, excinfo.value.title) == (
-            'step_position_unknown',
-            'Step Not Saved',
+            'position_unknown',
+            'Scope Not Homed',
         )
         assert excinfo.value.message == (
             'Cannot update the step. The X position is unknown. '
@@ -223,8 +223,8 @@ class TestAScriptUpdatesAStepThroughTheSession:
             session.update_step(protocol, 0, channel='BF')
 
         assert (excinfo.value.reason, excinfo.value.title) == (
-            'step_position_unknown',
-            'Step Not Saved',
+            'position_unknown',
+            'Scope Not Homed',
         )
         assert list(captured) == []
         assert _step(protocol) == before

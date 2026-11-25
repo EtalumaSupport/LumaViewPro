@@ -556,7 +556,7 @@ class ProtocolsAPI:
 
         Raises:
             ProtocolRunRefusedError: an axis does not know its position
-                (``'step_position_unknown'``), or the channel the step takes is
+                (``'position_unknown'``), or the channel the step takes is
                 not set to acquire (``'no_acquiring_channel'``, as an add), or
                 another step of the same add already takes that channel
                 (``'channel_already_in_add'``). The step is unchanged.
@@ -937,7 +937,7 @@ class ProtocolsAPI:
         it is looking through, and either can be unknown.
 
         Raises:
-            ProtocolRunRefusedError: ``'step_position_unknown'``.
+            ProtocolRunRefusedError: ``'position_unknown'``.
             ObjectiveUnknownError: the active objective is unknown, as
                 ``runtime_state.resolve_current_objective`` says why.
         """
@@ -952,7 +952,7 @@ class ProtocolsAPI:
         unknown_axes = self._scope.motion.axes_without_position
         if unknown_axes:
             self._refuse(
-                reason='step_position_unknown',
+                reason='position_unknown',
                 message=(
                     f'Cannot {verb} the step. '
                     + unknown_positions_sentence(unknown_axes, then=f'{verb} the step')

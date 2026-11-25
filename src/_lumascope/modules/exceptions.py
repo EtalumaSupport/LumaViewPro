@@ -95,10 +95,6 @@ def system_words(error: 'OSError | FFmpegError') -> str:
     return error.strerror or str(error)
 
 
-# The run refusals that name the axes without a position, and only they.
-_AXES_WITHOUT_POSITION_REASONS = frozenset({'position_unknown', 'step_position_unknown'})
-
-
 class RemedyName(StrEnum):
     """The remedies a refusal can name, each one the Session applies (``ScopeSession.apply_remedy``)."""
 
@@ -2392,7 +2388,8 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             ``'capture_location_unusable'`` -- the run's save location
             cannot hold the run folder, or its free space cannot be read.
             ``'position_unknown'`` -- an axis this scope has does not know
-            its position, so the scope has to be homed first; the axes are
+            its position, so the scope has to be homed first, before a run
+            starts or a step is added or updated; the axes are
             ``axes_without_position``. ``'lid_open_before_motion'`` -- the stage's lid is
             open, so the stage refuses to move.
             ``'no_acquiring_channel'`` -- no channel, or not the step's, is
@@ -2407,9 +2404,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             ``'turret_slot_ambiguous'`` -- a step recorded no turret slot,
             and its objective is assigned to two or more.
             ``'turret_slot_reassigned'`` -- the turret slot a step recorded
-            now holds another objective. ``'step_position_unknown'`` -- a
-            step cannot be added or updated while an axis does not know its
-            position; the axes are ``axes_without_position``.
+            now holds another objective.
             ``'turret_objectives_unassigned'`` -- the protocol
             uses an objective no turret slot is assigned.
             ``'objective_not_mounted'`` -- on a scope with no turret, the
@@ -2478,8 +2473,8 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         axes_without_position: Each axis that does not know its position,
             mapped to its ``AxisState``, in the scope's axis order, as
             ``MotionAPI.axes_without_position`` answers it, for
-            ``'position_unknown'`` and ``'step_position_unknown'``, which
-            always name at least one; empty for every other reason.
+            ``'position_unknown'``, which always names at least one; empty
+            for every other reason.
         missing: The part the protocol needs and the scope does not have,
             for ``'not_on_this_scope'``, as a hardware command names it;
             None for every other reason.
@@ -2522,7 +2517,6 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'composite_video_channel': RefusalCause.REQUEST,
         'turret_slot_ambiguous': RefusalCause.STATE,
         'turret_slot_reassigned': RefusalCause.STATE,
-        'step_position_unknown': RefusalCause.STATE,
         'turret_objectives_unassigned': RefusalCause.STATE,
         'objective_not_mounted': RefusalCause.STATE,
         'sequence_name_invalid': RefusalCause.REQUEST,
@@ -2577,7 +2571,6 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'composite_video_channel': 'No Video in a Composite',
         'turret_slot_ambiguous': 'Turret Slot Not Chosen',
         'turret_slot_reassigned': 'Turret Slot Reassigned',
-        'step_position_unknown': 'Step Not Saved',
         'turret_objectives_unassigned': 'Turret Configuration Required',
         'objective_not_mounted': 'Objective Not Mounted',
         'sequence_name_invalid': 'Run Name Not Valid',
@@ -2636,10 +2629,10 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
                 'refusal names any'
             )
         self.axes_without_position = axis_states(axes_without_position)
-        if bool(self.axes_without_position) != (reason in _AXES_WITHOUT_POSITION_REASONS):
+        if bool(self.axes_without_position) != (reason == 'position_unknown'):
             raise TypeError(
                 f'a {reason!r} refusal was given the axes {self.axes_without_position!r}: '
-                "a 'position_unknown' or 'step_position_unknown' refusal names the axes "
+                "a 'position_unknown' refusal names the axes "
                 'without a position, and no other refusal names any'
             )
 

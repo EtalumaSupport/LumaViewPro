@@ -214,6 +214,6 @@ def test_a_wire_client_is_told_which_axes_have_no_position(tmp_path):
     unknown = {'X': 'unknown', 'Y': 'unknown', 'Z': 'unknown'}
     assert (moved['reason'], moved.get('axes_without_position')) == ('position_unknown', unknown)
     assert (added['reason'], added.get('axes_without_position')) == (
-        'step_position_unknown',
+        'position_unknown',
         unknown,
     )

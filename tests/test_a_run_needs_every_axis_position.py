@@ -150,13 +150,12 @@ class TestTheQuestion:
 def test_only_a_position_refusal_names_axes():
     """A run or a step refused for an unknown position says which axes; no other refusal names one."""
     lost = {'Z': AxisState.HOMING}
-    for reason in ('position_unknown', 'step_position_unknown'):
-        assert (
-            ProtocolRunRefusedError(
-                reason, 'Z is still homing.', axes_without_position=lost
-            ).axes_without_position
-            == lost
-        )
+    assert (
+        ProtocolRunRefusedError(
+            'position_unknown', 'Z is still homing.', axes_without_position=lost
+        ).axes_without_position
+        == lost
+    )
     for wrong in (
         lambda: ProtocolRunRefusedError('position_unknown', 'A position is unknown.'),
         lambda: ProtocolRunRefusedError(

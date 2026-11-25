@@ -258,8 +258,8 @@ refused `ObjectiveUnknownError` (`'none_selected'`). `create` does **not** move
 anything. The scope's position is unknown until it is homed. A move or a run
 before that is refused (`'position_unknown'`), naming each axis with its state
 as data in `axes_without_position`:
-`{"X": "unknown", "Y": "unknown", "Z": "unknown"}` over REST. A step saved then is refused the same way
-(`'step_position_unknown'`), and a run that loses a position ends
+`{"X": "unknown", "Y": "unknown", "Z": "unknown"}` over REST. A step saved then is refused the same way,
+`'position_unknown'`, and a run that loses a position ends
 `'position_lost'` with the axes in its `RunOutcome`. `run_application_session()` is the
 startup motion LumaViewPro itself runs at launch: every axis homed, then the
 turret moved to slot 1. `start_application_session()` starts the same motion

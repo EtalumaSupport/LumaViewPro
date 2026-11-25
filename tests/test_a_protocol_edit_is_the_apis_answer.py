@@ -107,13 +107,13 @@ class TestAddStep:
 
     def test_a_refused_step_is_shown_once_and_not_navigated_to(self, ctx, centre_posts):
         # Unhomed, the scope does not know where its axes stand, so the
-        # Session refuses the step (step_position_unknown).
+        # Session refuses the step (position_unknown).
         protocol = ctx.session.create_empty_protocol()
         panel = _Panel(protocol)
 
         panel.insert_step(after_current_step=True)
 
-        assert _titles(centre_posts) == ['Step Not Saved']
+        assert _titles(centre_posts) == ['Scope Not Homed']
         assert protocol.num_steps == 0
         assert panel.moves == [], 'a refused step has nowhere to go'
         assert panel.curr_step == 0

@@ -818,9 +818,6 @@ RUNNER_REFUSAL_COVERAGE = {
         'tests/test_a_tile_grid_is_the_protocols_to_refuse.py::'
         'test_a_step_with_an_unknown_objective_is_refused_not_tiled_at_nan'
     ),
-    'step_position_unknown': (
-        'tests/test_adding_a_step_is_an_api_capability.py::TestTheApiRefuses'
-    ),
     'capture_location_unusable': (
         'tests/test_a_run_cannot_start_where_it_cannot_save.py::TestTheEngineRefuses'
     ),

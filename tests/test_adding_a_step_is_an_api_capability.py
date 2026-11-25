@@ -115,8 +115,8 @@ class TestTheApiRefuses:
             _add(scope, protocol, _layer_configs(BF='image'), before_step_index=0)
 
         assert (excinfo.value.reason, excinfo.value.title) == (
-            'step_position_unknown',
-            'Step Not Saved',
+            'position_unknown',
+            'Scope Not Homed',
         )
         assert excinfo.value.axes_without_position == {
             'Y': AxisState.UNKNOWN,
