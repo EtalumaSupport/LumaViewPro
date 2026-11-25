@@ -108,7 +108,7 @@ from _lumascope.modules.lumascope_api._constants import (
     refuse_unless_turret_slot,
 )
 from _lumascope.modules.objectives_loader import OBJECTIVE_CONFIRMED_ON_A_TURRET
-from _lumascope.modules.lumascope_api.bring_up import CONFIGURING, PartStatus, report_step
+from _lumascope.modules.lumascope_api.bring_up import CONFIGURING, report_step
 from _lumascope.modules.lumascope_api.illumination import (
     LedState,
     LedTransition,
@@ -502,7 +502,6 @@ class ControlsLock:
     'run_refused',
     'axes',
     'turret',
-    'parts',
     'camera_streaming',
     'host_reading',
     'slow_camera_stop',
@@ -539,8 +538,6 @@ class Status:
         turret: The turret's state and slot (``MotionAPI.turret_status``),
             None on a scope with no turret; ``moving`` or ``homing`` while
             it turns.
-        parts: Which parts came up at bring-up, and why each that did not
-            (``ScopeSession.bring_up_record``).
         camera_streaming: Whether the camera is grabbing frames, asked of
             the camera itself (``ImagingAPI.read_streaming``); None when the
             camera did not answer, the failure reported in the log at each ask.
@@ -560,7 +557,6 @@ class Status:
     run_refused: ProtocolRunRefusedError | None
     axes: dict[StageAxis, AxisPosition]
     turret: TurretStatus | None
-    parts: tuple[PartStatus, ...]
     camera_streaming: bool | None
     host_reading: HostReading | None
     slow_camera_stop: SlowCameraStop | None
@@ -1529,11 +1525,13 @@ class ScopeSession:
     @api
     @property
     def status(self) -> Status:
-        """What the scope is doing: its work, its axes, its parts and its camera, in one read.
+        """What the scope is doing: its work, its axes and its camera, in one read.
 
         The read a client makes first and polls as its health check. Each
         field comes from its owner, one after another rather than under one
-        lock (``Status``); no field does serial I/O.
+        lock (``Status``); no field does serial I/O. The parts not connected
+        now are ``Lumascope.unconnected_parts``; what bring-up found of each,
+        ``bring_up_record``.
 
         Raises:
             RunCheckFailedError: ``'hardware_state_unknown'``, the
@@ -1565,7 +1563,6 @@ class ScopeSession:
             'run_refused': self._sequenced_capture_runner.state_refusal(self._activity_claim),
             'axes': self.scope.motion.axis_positions,
             'turret': self.scope.motion.turret_status,
-            'parts': self.scope.bring_up_record.parts,
             'host_reading': self._host_reading,
             'slow_camera_stop': self.scope.imaging.slow_camera_stop,
         }

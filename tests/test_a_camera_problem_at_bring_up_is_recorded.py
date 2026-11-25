@@ -101,7 +101,6 @@ def test_a_bf_setting_the_camera_does_not_take_is_recorded_and_the_scope_comes_u
         assert session.scope.camera_connected
         assert (camera.up, camera.cause) == (True, 'settings_not_applied')
         assert words in camera.detail.lower()
-        assert session.status.parts == session.bring_up_record.parts
         (notice,) = _told(heard, reason)
         assert notice.solicited is False
     finally:

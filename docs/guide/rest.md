@@ -390,7 +390,7 @@ test suite.
 ```bash
 API=http://127.0.0.1:8000/api/v1
 
-curl -s $API/status                                         # 200: the scope's work, axes, parts and camera
+curl -s $API/status                                         # 200: the scope's work, axes and camera
 curl -s "$API/scope/motion/axis_limits?axis=W"          # 422 not_offered: offered X, Y, Z, T
 MOVE=$(curl -s --json '{"z_um": 4000.0}' $API/scope/motion/start_move_z | jq -r .id)   # 202
 curl -s -H 'Prefer: wait=60' $API/jobs/$MOVE               # 200: "status": "completed"

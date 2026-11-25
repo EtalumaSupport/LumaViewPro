@@ -48,7 +48,6 @@ def test_an_idle_session_answers_each_field_from_its_owner(sim_session):
     assert status.live_work == sim_session.live_work
     assert status.axes == sim_session.scope.motion.axis_positions
     assert all(axis.state == AxisState.IDLE for axis in status.axes.values())
-    assert status.parts == sim_session.bring_up_record.parts
     assert status.camera_streaming is True
     assert status.lock == sim_session.controls_lock
     assert (status.lock.run_named, status.lock.recording) == (None, False)

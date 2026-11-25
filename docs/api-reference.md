@@ -3547,11 +3547,13 @@ status: Status  # property
 Marks: reads (changes nothing).  
 Route: `GET /api/v1/status`.
 
-What the scope is doing: its work, its axes, its parts and its camera, in one read.
+What the scope is doing: its work, its axes and its camera, in one read.
 
 The read a client makes first and polls as its health check. Each
 field comes from its owner, one after another rather than under one
-lock (`Status`); no field does serial I/O.
+lock (`Status`); no field does serial I/O. The parts not connected
+now are `Lumascope.unconnected_parts`; what bring-up found of each,
+`bring_up_record`.
 
 **Raises**
 
@@ -10648,7 +10650,7 @@ What an exception's type says it is, read once for every host that answers it.
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
 Returned by: [`BringUpRecord.missing`](#BringUpRecord.missing).  
-Held in: [`BringUpRecord.parts`](#BringUpRecord.parts), [`Status.parts`](#Status.parts).
+Held in: [`BringUpRecord.parts`](#BringUpRecord.parts).
 
 One part of the scope at bring-up.
 
@@ -12410,7 +12412,6 @@ axis can read HOMING in `axes` a moment before the home appears in
 - <a id="Status.host_reading"></a>`host_reading`: `HostReading | None` -- This PC's resources as read over the session's startup (`ScopeSession.host_reading`); None until the startup motion has ended.
 - <a id="Status.live_work"></a>`live_work`: `LiveWork` -- Everything the session is still doing (`ScopeSession.live_work`).
 - <a id="Status.lock"></a>`lock`: `ControlsLock` -- Which of a person's controls the Session locks, and why (`ScopeSession.controls_lock`): its editing policy, not a refusal.
-- <a id="Status.parts"></a>`parts`: `tuple[PartStatus, ...]` -- Which parts came up at bring-up, and why each that did not (`ScopeSession.bring_up_record`).
 - <a id="Status.run_refused"></a>`run_refused`: `ProtocolRunRefusedError | None` -- The refusal a run's start would give now for the scope's state alone, None when the state refuses none. None does not promise a run starts: the protocol, an axis's position, the camera feed and the interlocks are judged when the run is asked.
 - <a id="Status.slow_camera_stop"></a>`slow_camera_stop`: `SlowCameraStop | None` -- The camera's slow stop (`SlowCameraStop`): the first stop this session that outlasted the camera's maximum exposure by 5 s, told then as `CameraStopStalledNotice`. None until one is told.
 - <a id="Status.something_to_stop"></a>`something_to_stop`: `bool` -- Whether a press of STOP has anything to stop (`ScopeSession.something_to_stop`); as of the last run-state edge, as `axes` is, so a client watching moves reads them from its position and turret events.
