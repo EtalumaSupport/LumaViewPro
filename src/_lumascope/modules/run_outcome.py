@@ -564,8 +564,9 @@ class RunOutcome:
             protocol's steps changed during it (reported once, as 'Focus
             Not Saved'); the standalone autofocus chose no Z, or its save
             was refused (reported once, as the refusal).
-        focus_failures: Each step whose autofocus did not focus, a flat
-            curve included, once however many scans it did not focus in, in
+        focus_failures: Each step whose autofocus did not focus (no usable
+            focus score, a window past Z's travel, a sweep that raised), once
+            however many scans it did not focus in, in
             the order of the scan it first did not, then of the step: a
             capture protocol captured it at its fallback focus, an autofocus
             scan left its focus as it was. A scan run again that focuses the

@@ -184,8 +184,9 @@ class TestClearResultIsUnconditional:
 @contextlib.contextmanager
 def _session_over_a_focus_target(tmp_path, *, in_focus=True):
     """A headless session, Z mid-travel; with *in_focus*, a sample whose focus
-    lies inside the sweep's window, off its start; without, a featureless
-    frame, which has no peak, so the sweep chooses none."""
+    lies inside the sweep's window, off its start; without, a white field,
+    every frame scoring zero, so the sweep has no usable score and chooses
+    none."""
     from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
@@ -194,10 +195,12 @@ def _session_over_a_focus_target(tmp_path, *, in_focus=True):
         # Mid-travel, so the sweep's window fits inside Z's travel.
         mid = (limits.min_um + limits.max_um) / 2.0
         motion.move_z(mid)
+        camera = session.scope._camera_driver
         if in_focus:
-            camera = session.scope._camera_driver
             camera.set_test_pattern(enabled=True, pattern='focus_target')
             camera.set_focal_z(mid + 30.0)
+        else:
+            camera.set_test_pattern(enabled=True, pattern='white')
         yield session, runner
 
 

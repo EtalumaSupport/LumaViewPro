@@ -61,34 +61,21 @@ _af_log = logging.getLogger('LVP.autofocus')
 AF_DATA_WRITE_WAIT_S = 5.0
 
 
-class FocusPick(NamedTuple):
-    """Where a pass's curve puts the focus, and why it is not trusted when it is not.
-
-    ``untrusted`` is None when the curve has a peak -- a Gaussian fit it
-    trusts, or a curve with contrast (a point below half its maximum) whose
-    raw maximum is the focus -- and otherwise says why ``position`` is the
-    raw maximum of a curve with no peak, a curve with every score within
-    ``NO_FOCUS_SPREAD`` of its maximum among them. A raw
-    maximum stands in while the passes narrow the window; on the final
-    pass it is no focus.
-    """
-
-    position: float
-    untrusted: str | None
-
-
 # The final pass sweeps this many of its steps either side of the earlier
 # passes' best: 7 points, enough for the four-parameter fit that places the
 # focus. Whether each objective needs that many is a parameter to tune on
 # real images, not a property of the step table.
 FINAL_PASS_STEPS_EACH_SIDE = 3
 
-# A curve whose every score lies within this fraction of its peak has no
-# focus, whatever a fit on it says. Recorded empty fields spread 1.5-3.2%
-# (one at 24%) and real samples, a faint one on a bright floor among them,
-# 35.6% and more: this sits at the conservative end of that gap. Where in
-# the gap the line belongs is a parameter to set on real images.
-NO_FOCUS_SPREAD = 0.05
+
+def _is_usable(score: float) -> bool:
+    """Whether a focus score says anything about where the focus is.
+
+    A NaN is a frame with nothing in it; a zero is a frame with no
+    detail at all. Neither can aim a pass, and a final pass with only
+    those has no focus to give.
+    """
+    return bool(np.isfinite(score)) and score > 0
 
 
 class SweepPass(NamedTuple):
@@ -377,11 +364,15 @@ class AutofocusRunner:
                 halt.
 
         Returns:
-            best_focus_position (float): the focus the sweep chose.
+            best_focus_position (float): the focus the sweep chose, where the
+                final pass's own points put it; the earlier passes only aim
+                that pass. A field with nothing to focus on focuses where its
+                final pass scored highest: no curve's shape is refused.
 
         Raises:
-            AutofocusFailedError: the sweep chose no focus -- a flat or
-                invalid curve ('flat_focus_curve'), a window past Z's travel
+            AutofocusFailedError: the sweep chose no focus -- no usable focus
+                score, none at a pass's end so far or none in the final pass
+                ('no_focus_scores'), a window past Z's travel
                 after the stage moved ('travel_exhausted'), or an unexpected
                 error ('unexpected_error', its cause chained).
             AutofocusStopped: abort_event was set during the run.
@@ -992,12 +983,18 @@ class AutofocusRunner:
         # step at a time, until two points lie past it: the fit needs
         # both sides of the peak. Nothing extends downward: the sample
         # lies on the glass, and below the glass there is no sample to find.
+        # The pass holds one point per target, so a point's place in it is
+        # its target: the peak is placed by its target, never by its place
+        # among the finite scores, which NaN frames shorten.
         if next_index >= self._params['targets'] and len(self._af_data_pass) >= 3:
-            pass_scores = [d['score'] for d in self._af_data_pass if np.isfinite(d['score'])]
-            if pass_scores:
-                pass_max = max(pass_scores)
-                peak_idx = pass_scores.index(pass_max)
-                if peak_idx >= len(pass_scores) - 2 and pass_max > 0:
+            finite = [
+                (target, d['score'])
+                for target, d in enumerate(self._af_data_pass)
+                if np.isfinite(d['score'])
+            ]
+            if finite:
+                peak_target, pass_max = max(finite, key=lambda point: point[1])
+                if peak_target >= self._params['targets'] - 2 and pass_max > 0:
                     if self._past_travel(
                         self._params['z_min'],
                         next_target,
@@ -1036,27 +1033,17 @@ class AutofocusRunner:
         self._af_data_full.extend(self._af_data_pass)
         self._af_data_pass = []
 
-        df = pd.DataFrame(self._af_data_full)
-
-        # Detect degenerate focus curve (all zeros, all NaN, or flat)
-        scores = df['score']
-        if scores.max() == 0 or scores.isna().all():
-            _af_log.warning('--- AF ABORT: degenerate curve (all scores zero/NaN) ---')
-            # A failure like every other: run()'s failure path reports it
-            # once and takes the stage back to where the sweep started.
-            raise AutofocusFailedError('flat_focus_curve')
-
-        best_focus_position, untrusted = self._find_best(df=df)
-
         if last_pass:
-            # The final pass is the dense one: a curve that still gives no
-            # peak the fit trusts has no focus, and its raw maximum is a
-            # made-up one. Before the final approach moves the stage.
-            if untrusted is not None:
-                _af_log.warning(f'--- AF ABORT: no peak the fit trusts ({untrusted}) ---')
-                raise AutofocusFailedError('flat_focus_curve')
-            # Whether the curve has a peak is every point's question; where
-            # the peak is, the final pass's alone.
+            # The focus is the final pass's alone: the coarse passes only
+            # aimed it, their points taken while Z may still move, and no
+            # shape a curve has tells reliably that it has no focus. A final
+            # pass with no usable score of its own has none to give, whatever
+            # the earlier passes scored. A failure like every other: run()'s
+            # failure path reports it once and takes the stage back to where
+            # the sweep started.
+            if not any(_is_usable(d['score']) for d in final_pass_points):
+                _af_log.warning('--- AF ABORT: the final pass has no usable focus score ---')
+                raise AutofocusFailedError('no_focus_scores')
             best_focus_position = focus_of_the_final_pass(
                 [d['position'] for d in final_pass_points],
                 [d['score'] for d in final_pass_points],
@@ -1104,6 +1091,19 @@ class AutofocusRunner:
             # round-trip.
             self._best_focus_position = float(best_focus_position)
             return
+
+        # The next window is centred on the highest usable score so far, a
+        # tie going to the earliest point swept. A pass that ends with no
+        # usable score anywhere has nothing to aim the next one with.
+        usable = [d for d in self._af_data_full if _is_usable(d['score'])]
+        if not usable:
+            _af_log.warning('--- AF ABORT: no usable focus score to aim the next pass ---')
+            raise AutofocusFailedError('no_focus_scores')
+        best_focus_position = float(max(usable, key=lambda d: d['score'])['position'])
+        _af_log.info(
+            f'  NEXT WINDOW: centered on {best_focus_position:.2f}um, '
+            f'the raw maximum of the usable points so far'
+        )
 
         following = self._passes[self._af_pass_num]
         if self._past_travel(
@@ -1250,90 +1250,6 @@ class AutofocusRunner:
         finally:
             fig.clear()
             del fig
-
-    @staticmethod
-    def _find_best(df: pd.DataFrame) -> FocusPick:
-        """The focus the curve gives, and whether its peak is trusted (``FocusPick``)."""
-        # Drop NaN/infinite scores before finding best
-        valid = df[df['score'].apply(lambda x: np.isfinite(x))]
-        if valid.empty:
-            logger.warning(
-                'Autofocus: all focus scores are NaN/infinite -- returning first position'
-            )
-            return FocusPick(float(df['position'].iloc[0]), 'no finite score')
-        max_score_idx = valid['score'].idxmax()
-        raw_best = float(valid['position'].loc[max_score_idx])
-
-        # Gaussian peak fitting for sub-step interpolation.
-        # Fit ln(score) = a*z^2 + b*z + c to points above 50% of peak.
-        # Peak of the Gaussian is at z = -b/(2a), giving sub-step resolution.
-        try:
-            z_vals = valid['position'].values.astype(float)
-            scores = valid['score'].values.astype(float)
-            peak_score = scores.max()
-            if peak_score <= 0:
-                return FocusPick(raw_best, 'no positive peak')
-            if scores.min() >= peak_score * (1.0 - NO_FOCUS_SPREAD):
-                # A curve this flat has nothing to fit or to call sharp: its
-                # shape is the noise's, so a fit that passes on it, or a few
-                # finite points left among dark frames, is no focus.
-                return FocusPick(raw_best, f'every score within {NO_FOCUS_SPREAD:.0%} of the peak')
-
-            threshold = peak_score * 0.5
-            mask = scores > threshold
-            # What tells a curve from no curve is contrast: an empty field's
-            # scores all sit near their maximum, and a peak's fall below half
-            # of it. A fit the checks below do not trust leaves a curve with
-            # contrast its raw maximum as the focus (a flat-topped peak fits
-            # no Gaussian); only a curve with none is left with no focus. A
-            # curve with none whose fit passes is trusted only past the
-            # NO_FOCUS_SPREAD floor above.
-            no_contrast = bool(np.all(mask))
-
-            def untrusted(reason: str) -> FocusPick:
-                return FocusPick(raw_best, reason if no_contrast else None)
-
-            if np.sum(mask) < 5:
-                # A peak narrower than the fit needs: a flat curve has
-                # nearly every point above half its maximum, so few points
-                # there is a sharp peak, and its raw maximum is the focus.
-                return FocusPick(raw_best, None)
-            z_fit = z_vals[mask]
-            s_fit = scores[mask]
-            s_fit_safe = np.clip(s_fit, 1.0, None)
-            log_s = np.log(s_fit_safe)
-            coeffs = np.polyfit(z_fit, log_s, 2)
-            a, b, _c = coeffs
-            if a >= 0:  # only concave-down (a < 0) is a Gaussian peak
-                _af_log.info('  FIT: not concave, using raw max')
-                return untrusted('fit not concave')
-            fit_z = -b / (2 * a)
-            # Sanity: fit peak must be within the measured range
-            z_min, z_max = z_vals.min(), z_vals.max()
-            if not z_min <= fit_z <= z_max:
-                _af_log.info(
-                    f'  FIT: {fit_z:.2f}um outside range [{z_min:.2f}, {z_max:.2f}], using raw max'
-                )
-                return untrusted('fit peak outside the measured range')
-            shift = abs(fit_z - raw_best)
-            # Sanity: fit shift must be less than the step
-            # spacing between measured points. A larger shift
-            # means the fit is extrapolating beyond the data
-            # -- likely an asymmetric curve fooling the Gaussian.
-            z_diffs = np.diff(np.sort(z_vals))
-            max_shift = np.median(z_diffs) * 2 if len(z_diffs) > 0 else float('inf')
-            if shift > max_shift:
-                _af_log.info(
-                    f'  FIT: {fit_z:.2f}um shift {shift:.2f}um '
-                    f'exceeds max {max_shift:.2f}um, using raw max'
-                )
-                return untrusted('fit shifted past twice the step spacing')
-            _af_log.info(f'  FIT: {fit_z:.2f}um (raw max: {raw_best:.2f}, shift: {shift:.2f}um)')
-            return FocusPick(float(fit_z), None)
-        except Exception as ex:
-            # Before the contrast is known, or with it: no fit is no peak.
-            _af_log.info(f'  FIT: failed ({ex}), using raw max')
-            return FocusPick(raw_best, f'fit failed ({ex})')
 
     def _reset_state(self):
         self._objective = None

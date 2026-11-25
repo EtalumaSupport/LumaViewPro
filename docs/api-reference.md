@@ -11894,7 +11894,7 @@ shape for every run kind.
 - <a id="RunOutcome.axes_without_position"></a>`axes_without_position`: `dict[Axis, AxisState]` -- The axes found without a position when the run ended `'position_lost'`, each mapped to its `AxisState`; empty for every other reason.
 - <a id="RunOutcome.captures"></a>`captures`: `CaptureTally | None` -- What the run captured of what it was asked for. None only for a run settled before its cleanup counted -- a run torn down by a shutdown before it ended.
 - <a id="RunOutcome.cleanup_failures"></a>`cleanup_failures`: `tuple[str, ...] | None` -- The steps putting the scope back after the run that did not finish ('Restore LED states', 'Return to position', ...); empty when every one did, so the LEDs, camera settings and stage are as the run found them. None only for a run settled before its cleanup ran. A host's own display work at the run's end is its `run_ended` handler's, never a step here.
-- <a id="RunOutcome.focus_failures"></a>`focus_failures`: `tuple[FocusFailure, ...]` -- Each step whose autofocus did not focus, a flat curve included, once however many scans it did not focus in, in the order of the scan it first did not, then of the step: a capture protocol captured it at its fallback focus, an autofocus scan left its focus as it was. A scan run again that focuses the step clears that scan's failure. Empty when every autofocus focused, and for a run with none.
+- <a id="RunOutcome.focus_failures"></a>`focus_failures`: `tuple[FocusFailure, ...]` -- Each step whose autofocus did not focus (no usable focus score, a window past Z's travel, a sweep that raised), once however many scans it did not focus in, in the order of the scan it first did not, then of the step: a capture protocol captured it at its fallback focus, an autofocus scan left its focus as it was. A scan run again that focuses the step clears that scan's failure. Empty when every autofocus focused, and for a run with none.
 - <a id="RunOutcome.focus_written"></a>`focus_written`: `bool | None` -- Whether the focus the run found was saved where it was asked to save it: an autofocus scan's into the protocol the caller named, a standalone autofocus's as the focus of the channel it focused. None for a run asked to save no focus, which includes a standalone autofocus lent a diagnostic's claim. False when it was asked and saved none, and the protocol or the channel's focus is unchanged: the scan focused no step, or the protocol's steps changed during it (reported once, as 'Focus Not Saved'); the standalone autofocus chose no Z, or its save was refused (reported once, as the refusal).
 - <a id="RunOutcome.merge_failure"></a>`merge_failure`: `str | None` -- The reason of the outcome the merge failed with (`'write_batch_timeout'`, ...), its own class's word, for `MERGE_ERROR` when it had one; None otherwise.
 - <a id="RunOutcome.merge_reason"></a>`merge_reason`: `MergeReason | None` -- Why the MERGE produced no file. None on success and on every run that has no merge, so a caller can branch on merged and still log one field.
@@ -14082,11 +14082,11 @@ An autofocus sweep chose no focus; the stage goes back to where it started.
 
 **Attributes**
 
-- `reason`: `'flat_focus_curve'` -- the final pass's curve has no peak: every score zero or invalid, every score within 5% of the peak, a fit that cannot be made, or a curve with no contrast (every point above half its maximum) whose fit is not concave, peaks outside the measured range, or shifts past twice the step spacing. `'travel_exhausted'` -- a window the sweep reached after it moved the stage reaches past Z's travel; refused before the stage moves there. `'unexpected_error'` -- the sweep raised; its cause is chained.
+- `reason`: `'no_focus_scores'` -- the sweep got no usable focus score (one finite and above zero): none at the end of a pass so far, so nothing aims the next one, or none in the final pass, whose points alone place the focus. A curve's shape is never refused. `'travel_exhausted'` -- a window the sweep reached after it moved the stage reaches past Z's travel; refused before the stage moves there. `'unexpected_error'` -- the sweep raised; its cause is chained.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `flat_focus_curve` | -- | 500 |
+| `no_focus_scores` | -- | 500 |
 | `travel_exhausted` | -- | 500 |
 | `unexpected_error` | -- | 500 |
 

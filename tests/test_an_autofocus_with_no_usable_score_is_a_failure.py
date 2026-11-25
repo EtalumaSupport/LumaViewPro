@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A flat or all-zero focus curve is a FAILURE, and reports like one.
+"""An autofocus with no usable focus score is a FAILURE, and reports like one.
 
 The degenerate exit once assigned the PRE-AUTOFOCUS Z into the result and
 set the completion event, so a curve that found nothing reported a float
@@ -8,16 +8,14 @@ ended. Later it reported its own failure and returned None, a second exit
 beside ``run()``'s failure path, and a single-autofocus run read that None
 as a run that completed.
 
-Now the flat curve raises ``AutofocusFailedError('flat_focus_curve')`` and
+A sweep whose every frame scores zero has no usable score (one finite and
+above zero) and raises ``AutofocusFailedError('no_focus_scores')``. It
 leaves through ``run()``'s one failure path, like every other failure: it
 is reported once, the stage returns to where the sweep started,
 ``complete()`` is False, and the channel LED is handed back rather than
 held, since the capture that follows is not the failed sweep's to light.
-
-What is NOT changed here: the detector itself. It tests
-``scores.max() == 0 or scores.isna().all()``, so a genuinely FLAT non-zero
-curve is not detected at all, despite the words saying "flat". Widening it
-is separate work.
+A curve with usable scores is never refused for its shape
+(``tests/test_autofocus_focuses_where_its_final_pass_peaks.py``).
 """
 
 from __future__ import annotations
@@ -42,54 +40,54 @@ def _lit(scope):
     return [r.name for r in scope.illumination.led_states if r.state is LedState.LIT]
 
 
-def _sweep_flat(runner, scope, **overrides):
-    """Sweep a field with nothing in it; every frame scores zero, and it raises the flat-curve failure."""
+def _sweep_blank(runner, scope, **overrides):
+    """Sweep a field with nothing in it; every frame scores zero, and it raises the no-usable-score failure."""
     with pytest.raises(AutofocusFailedError) as raised:
         sweep(runner, scope, **overrides)
-    assert raised.value.reason == 'flat_focus_curve'
+    assert raised.value.reason == 'no_focus_scores'
 
 
 @pytest.fixture
-def flat(sim_scope):
+def blank(sim_scope):
     """A runner over a white field, and its scope."""
     return af_runner_on(sim_scope, pattern='white'), sim_scope
 
 
-class TestDegenerateCurveReportsFailure:
-    def test_it_raises_and_is_reported_once(self, flat, centre_posts):
+class TestNoUsableScoreReportsFailure:
+    def test_it_raises_and_is_reported_once(self, blank, centre_posts):
         """The failure is raised, told once as 'Autofocus Failed' in the
-        flat curve's words, and no focus is stored."""
-        runner, scope = flat
+        no-usable-score words, and no focus is stored."""
+        runner, scope = blank
 
-        _sweep_flat(runner, scope)
+        _sweep_blank(runner, scope)
 
         errors = [(n.title, n.message) for n in centre_posts if n.severity is Severity.ERROR]
-        assert errors == [('Autofocus Failed', str(AutofocusFailedError('flat_focus_curve')))], (
-            f'a flat curve must be told once, as itself; got {errors}'
+        assert errors == [('Autofocus Failed', str(AutofocusFailedError('no_focus_scores')))], (
+            f'a sweep with no usable score must be told once, as itself; got {errors}'
         )
-        assert runner.best_focus_position() is None, 'a flat curve chose no focus'
+        assert runner.best_focus_position() is None, 'a sweep with no usable score chose no focus'
 
-    def test_complete_is_false(self, flat):
+    def test_complete_is_false(self, blank):
         """Nothing completed, so complete() must not say it did.
 
         This is also what re-points the Z readout: the step runner
         suppresses its own Z push only while complete() is True.
         """
-        runner, scope = flat
+        runner, scope = blank
 
-        _sweep_flat(runner, scope)
+        _sweep_blank(runner, scope)
 
         assert runner.complete() is False, (
             'a degenerate curve completed nothing; complete() must be False'
         )
 
-    def test_the_stage_returns_to_the_pre_autofocus_z(self, flat, monkeypatch):
+    def test_the_stage_returns_to_the_pre_autofocus_z(self, blank, monkeypatch):
         """The whole point: a failed autofocus is a no-op in position, so
         a protocol step never captures at the sweep's end."""
-        runner, scope = flat
+        runner, scope = blank
         asked = z_asked(scope, monkeypatch)
 
-        _sweep_flat(runner, scope)
+        _sweep_blank(runner, scope)
 
         assert asked, 'the sweep must have moved the stage at all'
         assert asked[-1] == PARKED_Z_UM, (
@@ -98,28 +96,30 @@ class TestDegenerateCurveReportsFailure:
         )
         assert settled_z(scope) == pytest.approx(PARKED_Z_UM, abs=0.01)
 
-    def test_a_sweep_centred_away_from_the_stage_returns_it_where_it_stood(self, flat, monkeypatch):
+    def test_a_sweep_centred_away_from_the_stage_returns_it_where_it_stood(
+        self, blank, monkeypatch
+    ):
         """A z-stack's sweep starts at its first slice, centred on its reference
         slice; a failure puts the stage back at the slice, not at the centre."""
-        runner, scope = flat
+        runner, scope = blank
         asked = z_asked(scope, monkeypatch)
 
-        _sweep_flat(runner, scope, center_um=PARKED_Z_UM + 100.0)
+        _sweep_blank(runner, scope, center_um=PARKED_Z_UM + 100.0)
 
         assert asked[-1] == PARKED_Z_UM, (
             f'a failed sweep centred at {PARKED_Z_UM + 100.0} must restore the Z '
             f'it found, {PARKED_Z_UM}; got {asked[-1]} (all: {asked})'
         )
 
-    def test_the_channel_led_is_handed_back_not_held(self, flat):
+    def test_the_channel_led_is_handed_back_not_held(self, blank):
         """A failure, like every failure, restores the pre-autofocus LED
         state even when the step asked to keep the channel lit: the
         capture that follows is not the failed sweep's to light for, and
         re-lights its own channel."""
-        runner, scope = flat
+        runner, scope = blank
         assert _lit(scope) == [], 'precondition: nothing lit before the sweep'
 
-        _sweep_flat(runner, scope, keep_led_on=True)
+        _sweep_blank(runner, scope, keep_led_on=True)
 
         assert _lit(scope) == [], (
             f'a degenerate curve must not hold the channel; lit: {_lit(scope)}'

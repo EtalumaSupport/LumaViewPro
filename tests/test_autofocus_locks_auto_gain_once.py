@@ -95,7 +95,7 @@ def test_restore_re_arms_on_every_exit_of_the_bracket(sim_scope):
     )
     with pytest.raises(AutofocusFailedError) as failed:
         sweep(runner, sim_scope)
-    assert failed.value.reason == 'flat_focus_curve'
+    assert failed.value.reason == 'no_focus_scores'
     assert sim_scope.camera.auto_gain is CameraAutoMode.CONTINUOUS, (
         'a failed sweep must put the live-view arm it locked back'
     )

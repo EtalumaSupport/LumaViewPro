@@ -54,6 +54,19 @@ def _ending_of_a_failed_autofocus(failed: BaseException) -> RunEnding:
     return RunEnding(RunStatus.FAILED, 'autofocus_failed', str(failed))
 
 
+def _what_a_failed_autofocus_leaves(p: SequencedCaptureRunner) -> str:
+    """What the run does at a step whose autofocus did not focus, for its log line.
+
+    The Z the run holds for the step is the last focus a scan found there,
+    or else the Z the protocol saved.
+    """
+    if p._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS:
+        return 'the run ends: its autofocus did not focus'
+    if p._disable_saving_artifacts:
+        return "keeping the step's last found focus, else its saved Z, and continuing"
+    return "capturing at the step's last found focus, else its saved Z, and continuing"
+
+
 class ProtocolStepRunner:
     """Executes individual protocol steps within a scan.
 
@@ -160,7 +173,7 @@ class ProtocolStepRunner:
                 logger.warning(
                     f'[PROTOCOL] Autofocus failed at step {p._curr_step + 1} '
                     f'(well {_af_well}) ({type(_af_exc).__name__}: {_af_exc}) -- '
-                    f'capturing at fallback Z and continuing'
+                    f'{_what_a_failed_autofocus_leaves(p)}'
                 )
                 # A run whose only job was this autofocus ends on its failure:
                 # it did not focus. Recorded, not told -- the autofocus told it

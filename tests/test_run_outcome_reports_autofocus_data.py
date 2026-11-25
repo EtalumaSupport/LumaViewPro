@@ -600,7 +600,7 @@ class TestTheOutcomeSaysWhetherAutofocusFoundFocus:
             'autofocus_failed',
             'Autofocus Failed',
         ), outcome
-        assert outcome.message == str(AutofocusFailedError('flat_focus_curve'))
+        assert outcome.message == str(AutofocusFailedError('no_focus_scores'))
         assert outcome.af_focus_z_um is None
         assert [type(told) for told in reported] == [AutofocusFailedError], (
             'autofocus tells its failure once, and the run ending does not tell it again'

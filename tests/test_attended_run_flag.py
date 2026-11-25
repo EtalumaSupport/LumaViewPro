@@ -251,7 +251,7 @@ def test_suppression_names_its_reason_in_the_log(caplog):
     nc.open_run_scope(attended=False)
 
     with caplog.at_level(logging.INFO, logger='LVP.notifications'):
-        nc.error('Autofocus', 'Autofocus Failed', 'Focus curve is flat or invalid')
+        nc.error('Autofocus', 'Autofocus Failed', 'Autofocus got no usable focus scores')
 
     assert any('unattended_run' in r.message for r in caplog.records), (
         'a suppressed notification left no record of WHY it was suppressed; '

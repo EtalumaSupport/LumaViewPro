@@ -498,10 +498,11 @@ def _af_warnings(caplog) -> list[str]:
 
 class TestAutofocusFailureDoesNotHaltProtocol:
     """An autofocus failure mid-protocol must not stop the run or pop a modal --
-    an unattended scan keeps capturing at the fallback Z. The autofocus thread is
-    the sole owner of recording the fault with a traceback; the step runner adds
-    exactly one step-correlated warning so a possibly-out-of-focus fallback-Z
-    capture is traceable back to its step and well. That single line is
+    an unattended scan keeps capturing at the Z the run holds for the step (its
+    last found focus, else its saved Z). The autofocus thread is the sole owner
+    of recording the fault with a traceback; the step runner adds exactly one
+    step-correlated warning so a possibly-out-of-focus capture is traceable back
+    to its step and well. That single line is
     complementary to the AF thread's traceback (which it does not repeat) and the
     one-shot latch keeps it from flooding once per settle poll.
     """
@@ -539,7 +540,9 @@ class TestAutofocusFailureDoesNotHaltProtocol:
         assert 'RuntimeError' in w and 'camera fault during AF' in w, (
             f'warning is missing the AF exception type/message: {w!r}'
         )
-        assert 'fallback Z' in w, f'warning must say capture continues at fallback Z: {w!r}'
+        assert "capturing at the step's last found focus, else its saved Z" in w, (
+            f'warning must say the capture goes on at the Z the run holds: {w!r}'
+        )
 
     def test_af_failure_consumed_once_no_log_flood(self, executor, scope, monkeypatch, caplog):
         """Drive scan_iterate directly while the stage stays in motion -- the
@@ -557,6 +560,8 @@ class TestAutofocusFailureDoesNotHaltProtocol:
 
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
         executor._protocol = protocol
+        # The run's fields start() carries from its plan: a capturing run.
+        executor._disable_saving_artifacts = False
         executor._aborted = _threading.Event()
         executor._scan_in_progress.set()
         executor._set_state(ProtocolState.RUNNING)

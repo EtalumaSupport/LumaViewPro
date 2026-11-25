@@ -219,7 +219,7 @@ class TestExceptionPropagation:
         thread = AutofocusThread(afe=afe)
         thread.start()
         try:
-            for raised in (AutofocusFailedError('flat_focus_curve'), RuntimeError('not reported')):
+            for raised in (AutofocusFailedError('no_focus_scores'), RuntimeError('not reported')):
                 afe._raise_exception = raised
                 future = thread.run_autofocus(run=run_identity(), objective_id='4x')
                 with pytest.raises(type(raised)):

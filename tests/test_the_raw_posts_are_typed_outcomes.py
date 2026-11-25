@@ -64,7 +64,7 @@ _NOTICES = [
 
 _FAULTS = [
     (exc.AutoGainNotSettledError(), 'auto_gain_not_settled', False),
-    (exc.AutofocusFailedError('flat_focus_curve'), 'flat_focus_curve', False),
+    (exc.AutofocusFailedError('no_focus_scores'), 'no_focus_scores', False),
     (exc.AutofocusFailedError('unexpected_error'), 'unexpected_error', False),
     (exc.AutofocusZNotRestoredError(), 'z_left_at_search_position', False),
     (

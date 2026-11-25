@@ -32,8 +32,6 @@ from tests.test_composite_run_e2e import headless_settings, open_composite_sessi
 WAIT_S = 120.0
 SAVED_Z_UM = 5000.0  # the step's Z, as _step writes it
 FOCAL_Z_UM = 5050.0  # inside the 10x sweep around SAVED_Z_UM
-# Far outside that sweep: every frame of it is equally blurred, so the curve is flat.
-OUT_OF_REACH_Z_UM = 9000.0
 
 
 def _two_intervals():
@@ -51,11 +49,12 @@ def _two_intervals():
     )
 
 
-def _run_two_intervals(tmp_path, *, first_focal_z_um):
+def _run_two_intervals(tmp_path, *, first_pattern='focus_target'):
     """Run the protocol; return it, the lowest Z each interval's sweep stood at, and each frame's Z.
 
-    The sample's focal plane is at ``first_focal_z_um`` for interval 1 and
-    at FOCAL_Z_UM for interval 2. The stage starts at the saved Z, so the
+    Interval 1 shows ``first_pattern`` (``'white'``, a field every frame of
+    which scores zero, finds no focus); interval 2 shows the focus target.
+    The sample's focal plane is at FOCAL_Z_UM. The stage starts at the saved Z, so the
     lowest Z an interval that focuses stands at is its sweep's first
     window's low edge, a fixed distance below the Z the step started from.
     A sweep that finds no focus goes on lower. Only positions reported at
@@ -68,14 +67,14 @@ def _run_two_intervals(tmp_path, *, first_focal_z_um):
 
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
         camera = session.scope._camera_driver
-        camera.set_test_pattern(True, 'focus_target')
+        camera.set_test_pattern(True, first_pattern)
         session.scope.imaging.enable_streaming()
-        camera.set_focal_z(first_focal_z_um)
+        camera.set_focal_z(FOCAL_Z_UM)
         session.scope.motion.move_z(SAVED_Z_UM)
 
         def on_scan_started(scan_index, *_):
             if scan_index == 1:
-                camera.set_focal_z(FOCAL_Z_UM)
+                camera.set_test_pattern(True, 'focus_target')
             lowest[scan_index] = float('inf')
 
         def on_position(axis, at):
@@ -100,9 +99,7 @@ def _run_two_intervals(tmp_path, *, first_focal_z_um):
 
 @pytest.mark.slow
 def test_the_next_interval_sweeps_around_the_focus_the_last_one_found(tmp_path):
-    protocol, (low_1, low_2), (found_1, _) = _run_two_intervals(
-        tmp_path, first_focal_z_um=FOCAL_Z_UM
-    )
+    protocol, (low_1, low_2), (found_1, _) = _run_two_intervals(tmp_path)
 
     assert found_1 != SAVED_Z_UM, 'interval 1 found no focus, so it proves nothing'
     # Interval 1 swept from the saved Z; interval 2's window sits the same
@@ -118,9 +115,7 @@ def test_the_next_interval_sweeps_around_the_focus_the_last_one_found(tmp_path):
 
 @pytest.mark.slow
 def test_an_interval_that_found_no_focus_leaves_the_next_to_focus(tmp_path):
-    protocol, _, (found_1, found_2) = _run_two_intervals(
-        tmp_path, first_focal_z_um=OUT_OF_REACH_Z_UM
-    )
+    protocol, _, (found_1, found_2) = _run_two_intervals(tmp_path, first_pattern='white')
 
     # A failed sweep puts the stage back and the step captures there.
     assert found_1 == SAVED_Z_UM, 'interval 1 found a focus, so it proves nothing'

@@ -3848,12 +3848,11 @@ class AutofocusFailedError(Fault, CaptureError):
     """An autofocus sweep chose no focus; the stage goes back to where it started.
 
     Attributes:
-        reason: ``'flat_focus_curve'`` -- the final pass's curve has no peak:
-            every score zero or invalid, every score within 5% of the
-            peak, a fit that cannot be made, or a curve with no contrast
-            (every point above half its maximum) whose fit is not concave,
-            peaks outside the measured range, or shifts past twice the step
-            spacing. ``'travel_exhausted'`` -- a
+        reason: ``'no_focus_scores'`` -- the sweep got no usable focus
+            score (one finite and above zero): none at the end of a pass
+            so far, so nothing aims the next one, or none in the final
+            pass, whose points alone place the focus. A curve's shape is
+            never refused. ``'travel_exhausted'`` -- a
             window the sweep reached after it moved the stage reaches past
             Z's travel; refused before the stage moves there.
             ``'unexpected_error'`` -- the sweep raised; its cause is
@@ -3862,7 +3861,10 @@ class AutofocusFailedError(Fault, CaptureError):
 
     title = ENDING_TITLES['autofocus_failed']
     _WORDS: ClassVar[dict[str, str]] = {
-        'flat_focus_curve': 'Focus curve is flat or invalid -- check sample and illumination',
+        'no_focus_scores': (
+            'Autofocus got no usable focus scores -- check the light, the exposure '
+            'and that a sample is in view.'
+        ),
         'travel_exhausted': (
             'Autofocus would search past the end of Z travel -- start it further from the '
             "travel limit, or narrow the objective's autofocus range."

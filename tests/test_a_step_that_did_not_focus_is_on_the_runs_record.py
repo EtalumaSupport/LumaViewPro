@@ -23,12 +23,12 @@ from tests.test_a_run_reports_what_it_captured import _run
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 from tests.test_run_outcome_reports_autofocus_data import COMPLETION_TIMEOUT, _AfRig
 
-FLAT = str(AutofocusFailedError('flat_focus_curve'))
+NO_SCORES = str(AutofocusFailedError('no_focus_scores'))
 
 
 @pytest.fixture
 def every_score_zero(monkeypatch):
-    """Every frame scores zero: every autofocus sweep's curve is flat."""
+    """Every frame scores zero: no autofocus sweep has a usable score."""
     monkeypatch.setattr(autofocus_functions, 'autofocus_score', lambda **kwargs: 0.0)
 
 
@@ -49,7 +49,7 @@ def test_an_autofocus_scan_names_the_step_whose_focus_was_not_updated(tmp_path, 
     assert [
         (f.step_index, f.step_name, f.count, f.first_scan_index, f.cause)
         for f in outcome.focus_failures
-    ] == [(0, 'AF_test', 1, 0, FLAT)]
+    ] == [(0, 'AF_test', 1, 0, NO_SCORES)]
 
 
 def test_a_capture_protocol_captures_the_step_at_its_fallback_and_names_it(
@@ -69,7 +69,7 @@ def test_a_capture_protocol_captures_the_step_at_its_fallback_and_names_it(
         'fallback focus.'
     )
     assert [(f.step_index, f.step_name, f.cause) for f in outcome.focus_failures] == [
-        (0, 'C0', FLAT)
+        (0, 'C0', NO_SCORES)
     ]
 
 
@@ -110,7 +110,7 @@ def test_a_step_that_did_not_focus_in_every_scan_is_one_step(tmp_path, every_sco
     assert [
         (f.step_index, f.step_name, f.count, f.first_scan_index, f.cause)
         for f in outcome.focus_failures
-    ] == [(0, 'C0', 2, 0, FLAT)]
+    ] == [(0, 'C0', 2, 0, NO_SCORES)]
 
 
 def test_a_file_taken_at_its_fallback_focus_says_so(tmp_path, every_score_zero):
@@ -129,7 +129,7 @@ def test_a_file_taken_at_its_fallback_focus_says_so(tmp_path, every_score_zero):
         [path] = [p for p in runs.rglob('*.tiff') if name in p.name]
         return read_file_record(path)
 
-    assert _saved('C0')['fallback_focus'] == FLAT
+    assert _saved('C0')['fallback_focus'] == NO_SCORES
     assert 'fallback_focus' not in _saved('C1')
 
 
@@ -155,7 +155,7 @@ def test_a_recorded_frame_taken_at_its_fallback_focus_says_so(tmp_path, every_sc
         assert frames, f'step {name} wrote no frame files'
         return [read_file_record(path) for path in frames]
 
-    assert {written.get('fallback_focus') for written in _frames('V0')} == {FLAT}
+    assert {written.get('fallback_focus') for written in _frames('V0')} == {NO_SCORES}
     assert all('fallback_focus' not in written for written in _frames('V1'))
 
 
@@ -177,3 +177,42 @@ def test_every_settle_path_carries_the_focus_failures():
         pending.record_focus_failures(failures)
         assert settle(pending) is True
         assert pending.wait(timeout_s=1.0).focus_failures == failures
+
+
+def _the_failure_lines(caplog) -> list[str]:
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelname == 'WARNING' and '[PROTOCOL] Autofocus failed' in r.getMessage()
+    ]
+
+
+def test_the_failure_line_says_what_each_kind_of_run_does_next(tmp_path, every_score_zero, caplog):
+    """The log line of a step whose autofocus did not focus says what the
+    run does: a run that captures captures at the Z it holds for the step,
+    the single autofocus ends, and Autofocus All Steps keeps that Z."""
+    import logging
+
+    caplog.set_level(logging.WARNING)
+    with open_composite_session(headless_settings(tmp_path)) as (session, runner):
+        _run(runner, tmp_path / 'runs', [_step('C0', 0, x=20.0, gain=1.0, autofocus=True)])
+        [captured] = _the_failure_lines(caplog)
+        caplog.clear()
+
+        runner.start_autofocus(channel='BF').result(timeout=COMPLETION_TIMEOUT)
+        [single] = _the_failure_lines(caplog)
+        caplog.clear()
+
+        protocol = session.new_protocol()
+        runner.start_autofocus_all_steps(protocol).result(timeout=COMPLETION_TIMEOUT)
+        all_steps = _the_failure_lines(caplog)
+
+    assert captured.endswith(
+        "capturing at the step's last found focus, else its saved Z, and continuing"
+    ), captured
+    assert single.endswith('the run ends: its autofocus did not focus'), single
+    # One line for each step of the session's new protocol.
+    assert all_steps and all(
+        line.endswith("keeping the step's last found focus, else its saved Z, and continuing")
+        for line in all_steps
+    ), all_steps
