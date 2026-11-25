@@ -156,7 +156,6 @@ class CatalogChannel:
 
 @api_fields(
     'background',
-    'display_color',
     'display_name',
     'excitation_nm',
     'key_name',
@@ -193,7 +192,10 @@ class ChannelRecord:
         background: Whether the channel's field of view is bright or dark,
             from its catalog record.
         display_color: The unit's color for the channel, ``'#rrggbb'``: its
-            board block row's, else the catalog record's.
+            board block row's, else the catalog record's. Not on the wire:
+            it is an input to the color a channel is shown in, which a
+            user's override can replace, and that color is
+            ``ScopeSession.channel_colors``.
         label: What the channel is called wherever it is shown or written:
             a fluorescence channel's excitation (``'405 nm'``), any other
             channel's ``display_name``.

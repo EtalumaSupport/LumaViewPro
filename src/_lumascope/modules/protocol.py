@@ -1058,7 +1058,7 @@ class ChannelSettings:
     Read from the session (``ScopeSession.channel_settings``), every field
     is the channel's stored value; None is that value where the setting
     takes None (``acquire`` nothing, ``focus_z_um`` never saved,
-    ``display_color`` the catalog's color), and None for a setting the
+    ``display_color`` no override), and None for a setting the
     channel does not carry (stimulation is a fluorescence channel's; the
     composite threshold a fluorescence or luminescence channel's).
 
@@ -1077,8 +1077,9 @@ class ChannelSettings:
         frames_summed: How many frames a capture sums.
         focus_z_um: The Z saved as the channel's focus, in micrometers.
         autofocus: A step of the channel autofocuses.
-        display_color: The channel's color as ``'#rrggbb'``; None, the
-            catalog's.
+        display_color: The user's override of the channel's color, as
+            ``'#rrggbb'``; None, no override, so the channel is shown in the
+            unit's color, else the release's (``ScopeSession.channel_colors``).
         composite_brightness_threshold_pct: The brightness, as a percentage of
             full scale, below which the channel's pixels add nothing to a
             composite.

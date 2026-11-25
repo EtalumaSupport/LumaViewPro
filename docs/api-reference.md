@@ -9425,7 +9425,6 @@ Identity of one channel on one unit.
 **Fields**
 
 - <a id="ChannelRecord.background"></a>`background`: `Background` -- Whether the channel's field of view is bright or dark, from its catalog record.
-- <a id="ChannelRecord.display_color"></a>`display_color`: `str` -- The unit's color for the channel, `'#rrggbb'`: its board block row's, else the catalog record's.
 - <a id="ChannelRecord.display_name"></a>`display_name`: `str | None` -- The unit's name for the channel, free to change: a rename touches this field and nothing stored. None for a fluorescence channel a board's Channels block names by its excitation alone.
 - <a id="ChannelRecord.excitation_nm"></a>`excitation_nm`: `float | None` -- The excitation wavelength, in nm, and the number a fluorescence key names (`Ex<nm>`). None for broadband transmitted light and for a channel with no LED.
 - <a id="ChannelRecord.key_name"></a>`key_name`: `str` -- The stable name the channel is stored under (settings block keys, the protocol TSV's `Color`, file name tokens, the metadata's `channel`); it never changes when a channel is renamed.
@@ -9444,7 +9443,7 @@ One channel's settings, each typed: as the session holds them, or as a protocol'
 Read from the session (`ScopeSession.channel_settings`), every field
 is the channel's stored value; None is that value where the setting
 takes None (`acquire` nothing, `focus_z_um` never saved,
-`display_color` the catalog's color), and None for a setting the
+`display_color` no override), and None for a setting the
 channel does not carry (stimulation is a fluorescence channel's; the
 composite threshold a fluorescence or luminescence channel's).
 
@@ -9459,7 +9458,7 @@ step cannot supply it, and for every field the row has no column for
 - <a id="ChannelSettings.auto_gain"></a>`auto_gain`: `bool | None` -- The camera's auto-gain is on.
 - <a id="ChannelSettings.autofocus"></a>`autofocus`: `bool | None` -- A step of the channel autofocuses.
 - <a id="ChannelSettings.composite_brightness_threshold_pct"></a>`composite_brightness_threshold_pct`: `float | None` -- The brightness, as a percentage of full scale, below which the channel's pixels add nothing to a composite.
-- <a id="ChannelSettings.display_color"></a>`display_color`: `str | None` -- The channel's color as `'#rrggbb'`; None, the catalog's.
+- <a id="ChannelSettings.display_color"></a>`display_color`: `str | None` -- The user's override of the channel's color, as `'#rrggbb'`; None, no override, so the channel is shown in the unit's color, else the release's (`ScopeSession.channel_colors`).
 - <a id="ChannelSettings.exposure_ms"></a>`exposure_ms`: `float | None` -- The camera exposure, in ms.
 - <a id="ChannelSettings.false_color"></a>`false_color`: `bool | None` -- The channel's image is false-colored.
 - <a id="ChannelSettings.focus_z_um"></a>`focus_z_um`: `float | None` -- The Z saved as the channel's focus, in micrometers.

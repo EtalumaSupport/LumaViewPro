@@ -926,7 +926,6 @@ OPEN_STRINGS: dict[str, str] = {
     'CellCountResult.message field': _PROSE,
     'ChannelIdentity.filterset field': _FILTERSET,
     'ChannelIdentity.model field': _MODEL,
-    'ChannelRecord.display_color field': _COLOUR,
     'ChannelRecord.display_name field': _PROSE,
     'ChannelRecord.key_name field': _CHANNEL,
     'ChannelRecord.label field': _PROSE,
