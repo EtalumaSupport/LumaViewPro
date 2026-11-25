@@ -139,7 +139,11 @@ def test_a_defect_is_500_in_the_generic_words_and_its_own_are_logged_under_the_r
 def test_a_hardware_fault_answers_500_naming_which_fault_it_was(client, session, monkeypatch):
     """Each fault a driver raises answers its own reason and title, never one shared by all."""
     import _lumascope.drivers.exceptions as driver_exceptions
-    from _lumascope.drivers.exceptions import HardwareError, MotionInterlockError
+    from _lumascope.drivers.exceptions import (
+        CameraUsbDriverUnusableError,
+        HardwareError,
+        MotionInterlockError,
+    )
 
     faults = [
         cls
@@ -150,11 +154,13 @@ def test_a_hardware_fault_answers_500_naming_which_fault_it_was(client, session,
         and cls not in (HardwareError, MotionInterlockError)
     ]
     assert len(faults) >= 10, 'the discovery drifted'
+    # A fault that carries more than its message is built with what it carries.
+    carries = {CameraUsbDriverUnusableError: {'refused_words': 'Windows has it on no driver'}}
     wrong = {}
     for cls in faults:
 
         def fails(cls=cls):
-            raise cls('the driver said so')
+            raise cls('the driver said so', **carries.get(cls, {}))
 
         monkeypatch.setattr(session.scope.illumination, 'leds_off', fails)
         body = client.post('/api/v1/scope/illumination/leds_off').json()
