@@ -358,8 +358,7 @@ class ManualRecordingController:
                 ``'other_led_lit'``, an LED other than the shown channel's is
                 lit; ``'camera_holds_another_channel'``, the camera holds
                 another channel's settings than the shown one's;
-                ``'camera_exposure_unknown'``, the camera has no known
-                exposure; ``'changes_not_in_force'``, a change the scope
+                ``'changes_not_in_force'``, a change the scope
                 recorded did not come into force within a capture's limit,
                 whether the feed is dead or the change never settles;
                 ``'capture_location_unusable'``, the save
@@ -411,17 +410,6 @@ class ManualRecordingController:
 
         scope.camera.refuse_camera_not_connected('start')
 
-        exposure = scope.camera.exposure_ms
-        # A camera whose exposure is unknown (never reported, or lost to a
-        # failed auto read-back) answers None here; the dead-feed bound
-        # derives from it, so refuse loudly instead of fabricating one.
-        if exposure is None or exposure <= 0:
-            raise RecordingRefusedError(
-                reason='camera_exposure_unknown',
-                message='The camera has not reported its exposure time, so the '
-                "recording cannot be started. Set the camera's exposure, then start the "
-                'recording again; if it happens again, restart LumaViewPro.',
-            )
         video_settings = settings['video']
         max_fps = video_settings['max_fps']
         # Manual recording asks for no rate of its own: it records every
@@ -664,7 +652,7 @@ class ManualRecordingController:
                 self._recording = recording
                 self._start_ts = self._elapsed_clock()
                 self._effective_fps = effective_fps
-                self._stall_watch = StallWatch(self._stall_threshold_now(effective_fps, exposure))
+                self._stall_watch = StallWatch(self._stall_threshold_now(effective_fps))
                 self._mapping = claimed['mapping']
                 self._frames_delivered = 0
                 self._operation = operation
@@ -841,9 +829,14 @@ class ManualRecordingController:
         if stall_watch.stalled(self._frames_delivered, self._elapsed_clock()):
             self._stop_for_camera_loss(reason=RecordingEndReason.CAMERA_STALLED)
 
-    def _stall_threshold_now(self, effective_fps: float | None, floor_ms: float = 0.0) -> float:
-        """The feed-death bound for the longest exposure the camera may be using now."""
-        exposure_ms = max(floor_ms, self._scope.camera.longest_exposure_ms or 0.0)
+    def _stall_threshold_now(self, effective_fps: float | None) -> float:
+        """The feed-death bound for the longest exposure the camera may be using now.
+
+        A camera whose exposure is unknown is bounded by its sensor's
+        maximum (``longest_exposure_ms``), and one whose range is unknown
+        too by the floor ``stall_threshold_s`` keeps.
+        """
+        exposure_ms = self._scope.camera.longest_exposure_ms or 0.0
         return stall_threshold_s(effective_fps, exposure_ms / 1000.0)
 
     def _disarm_health_check(self) -> None:

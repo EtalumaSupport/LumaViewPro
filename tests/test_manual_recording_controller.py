@@ -358,18 +358,17 @@ def finish(controller, timeout=15.0):
 
 
 class TestStartRefusals:
-    def test_unknown_exposure_refused(self, tmp_path):
-        controller, scope, _ = make_controller(tmp_path)
-        scope.camera.exposure_ms = 0.0
-        with pytest.raises(RecordingRefusedError) as e:
-            controller.start()
-        assert e.value.reason == 'camera_exposure_unknown'
-        # What works today: no advice to reconnect a camera LumaViewPro sees
-        # again only after a restart.
-        assert e.value.message.endswith(
-            "Set the camera's exposure, then start the recording again; if it "
-            'happens again, restart LumaViewPro.'
-        )
+    def test_a_recording_starts_with_its_exposure_unknown(self, tmp_path):
+        # Its dead-feed bound is the longest exposure the camera may be
+        # using, else the floor: an exposure the camera has not reported
+        # refuses nothing.
+        controller, scope, clock = make_controller(tmp_path)
+        scope.camera.exposure_ms = None
+        controller.start()
+        assert controller.is_recording
+        feed_frames(scope, clock, 3)
+        controller.stop()
+        finish(controller)
 
     def test_low_disk_refused_as_a_run_is(self, tmp_path, monkeypatch):
         # One fact, one reason and one title: a recording short of disk is
@@ -394,12 +393,12 @@ class TestStartRefusals:
         assert e.value.reason == 'capture_location_unusable'
         assert not controller.is_recording
 
-    def test_refusal_commits_nothing(self, tmp_path):
+    def test_refusal_commits_nothing(self, tmp_path, monkeypatch):
         controller, scope, _ = make_controller(tmp_path)
-        scope.camera.exposure_ms = 0.0
+        free_space_is(monkeypatch, 100.0)
         with pytest.raises(RecordingRefusedError) as e:
             controller.start()
-        assert e.value.reason == 'camera_exposure_unknown'
+        assert e.value.reason == 'disk_space_insufficient'
         assert scope.imaging.listener is None
         assert not controller.is_recording and not controller.is_draining
 

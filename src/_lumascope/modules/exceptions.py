@@ -2707,9 +2707,7 @@ class RecordingRefusedError(Refusal, CaptureError):
             reason it shares with another refusal is explained there: with
             ``ProtocolRunRefusedError``, and ``'capture_location_unusable'``
             and ``'names_exhausted'`` with ``CaptureLocationError``. Its
-            own: ``'camera_exposure_unknown'`` -- the camera has not
-            reported its exposure time, from which the recording's
-            dead-feed bound derives. ``'falsifying_change_in_flight'`` -- an objective,
+            own: ``'falsifying_change_in_flight'`` -- an objective,
             camera frame or LED-lighting change is under way, which a
             recording would capture through. ``'other_led_lit'`` -- an LED other than
             the shown channel's is lit, and the recording is named for the
@@ -2738,7 +2736,6 @@ class RecordingRefusedError(Refusal, CaptureError):
         'recording_active': ProtocolRunRefusedError.titles['recording_active'],
         'exclusive_activity_running': ProtocolRunRefusedError.titles['exclusive_activity_running'],
         'post_processing_running': POST_PROCESSING_RUNNING_TITLE,
-        'camera_exposure_unknown': 'Camera Exposure Unavailable',
         'capture_location_unusable': 'Cannot Save Recording',
         'names_exhausted': 'Cannot Save Recording',
         'disk_space_insufficient': ProtocolRunRefusedError.titles['disk_space_insufficient'],
