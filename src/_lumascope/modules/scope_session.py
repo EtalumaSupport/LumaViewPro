@@ -968,6 +968,9 @@ class ScopeSession:
             post_processing=self.post_processing,
             on_saved=self._saved,
         )
+        # A press of STOP, from any client, ends a manual recording, as the
+        # run engine's own listener ends the live run.
+        scope.motion.add_stop_press_listener(self.manual_recording.stop)
         # Manual stills: one at a time, on the camera lane, which already
         # refuses them while a run holds the camera. No activity claim -- a
         # still must not refuse Record, a run or a reconnect.

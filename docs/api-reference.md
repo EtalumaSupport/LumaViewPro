@@ -7788,8 +7788,9 @@ homes (the LS720's); on any other, a Stop while the home drives is
 refused and the home runs to its end.
 
 A press -- taken, failed or refused -- withholds every move asked
-before it that has not yet driven, from any client and any queue,
-and ends the live run (its press listeners are told first).
+before it that has not yet driven, from any client and any queue.
+It ends the live run and a manual recording, even when the STOP
+itself is refused or fails: its press listeners are told first.
 
 **Raises**
 

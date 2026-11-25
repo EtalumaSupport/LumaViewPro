@@ -834,6 +834,19 @@ class TestEndReason:
         assert engine.wait_for_drain(timeout=5)
         assert engine.result().end_reason == 'frame_budget_filled'
 
+    def test_a_stop_says_whether_it_closed_selection(self, tmp_path):
+        # The caller names who stopped a recording only for the stop that
+        # ended it: a later stop, or one before any recording, closed nothing.
+        engine, _writer, clock, _ = make_engine(tmp_path)
+        assert engine.stop('stopped') is False
+        engine.start(lambda: (make_config(tmp_path, fps=5, duration_s=2), None))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=20, duration_s=1)
+
+        assert engine.stop('stopped') is True
+        assert engine.stop('stopped') is False
+        assert engine.wait_for_drain(timeout=5)
+        assert engine.stop('stopped') is False
+
 
 class _QueueThatFailsToRead:
     """A lane queue whose read raises: an escape outside the per-frame try."""

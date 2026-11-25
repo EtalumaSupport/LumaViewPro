@@ -975,9 +975,10 @@ class VideoRecordingEngine:
                 must not stop a recording begun after it.
 
         Returns:
-            Whether this stop closed selection, or found it closed: False
-            only when ``taken_for`` names a session this recording was not
-            taken for, and then nothing changed.
+            Whether this stop closed selection. False when it found
+            selection already closed, or no recording started, or when
+            ``taken_for`` names a session this recording was not taken
+            for; then nothing changed.
 
         Raises:
             ValueError: ``reason`` is not one of ``RecordingEndReason``;
@@ -990,8 +991,9 @@ class VideoRecordingEngine:
                 held = None if take is None else take.held_claim
                 if held is None or held.control is not taken_for:
                     return False
-            if take is not None:
-                self._close_selection_locked(take, reason)
+            if take is None or take.selection_closed.is_set():
+                return False
+            self._close_selection_locked(take, reason)
             return True
 
     def wait_for_drain(self, timeout: float | None = None) -> bool:

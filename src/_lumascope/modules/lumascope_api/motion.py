@@ -1089,8 +1089,9 @@ class MotionAPI:
         refused and the home runs to its end.
 
         A press -- taken, failed or refused -- withholds every move asked
-        before it that has not yet driven, from any client and any queue,
-        and ends the live run (its press listeners are told first).
+        before it that has not yet driven, from any client and any queue.
+        It ends the live run and a manual recording, even when the STOP
+        itself is refused or fails: its press listeners are told first.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` or
@@ -1149,14 +1150,17 @@ class MotionAPI:
         it: True for a stop someone asked for, False for the scope's own
         ``halt``. Required, so no caller leaves it unsaid.
         """
-        self.refuse_absent('stop_motion')
         if pressed:
             # A press of STOP is told before the STOP is sent, so no work a
             # listener ends starts during the exchange; outside _stop_lock,
             # which a listener's own stop of a run must not wait behind.
+            # Before the refusal of an absent controller too: a run or a
+            # recording still going when the board is lost ends on the
+            # press, and only the STOP it could not send is refused.
             with self._stop_press_listeners_lock:
                 listeners = list(self._stop_press_listeners)
             notifications.tell_listeners(listeners, category='Motion')
+        self.refuse_absent('stop_motion')
         with self._stop_lock:
             if not live():
                 return
