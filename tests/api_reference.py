@@ -55,7 +55,7 @@ from _lumascope.modules.api_surface import (
     stop_of,
 )
 from _lumascope.modules.exceptions import Notice, Quiet, Refusal
-from _lumascope.modules.image_utils import FILE_FACTS
+from _lumascope.modules.image_utils import _LEGACY_FRAME_KEYS, FILE_FACTS
 from _lumascope.modules.run_events import RunEvents
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest import problems
@@ -636,10 +636,24 @@ def _fact_fields(fact) -> str:
     return f'keyed by {fact.keyed_by}' + (f': {fields}' if fields else '')
 
 
+def _fact_formerly(fact) -> str:
+    """The keys a shipped file states a fact under other than its own, each
+    with the build that stopped writing it and whether LumaViewPro reads it."""
+    return (
+        '; '.join(
+            f'`{former.key}` until {former.until}, '
+            + ('read back' if former.key in _LEGACY_FRAME_KEYS else 'in the view only')
+            for former in fact.formerly
+        )
+        or '--'
+    )
+
+
 def _file_facts_table() -> str:
     lines = [
         f'| `{key}` | {fact.kind.value} | {f"`{fact.plane}`" if fact.plane else "--"} | '
-        f'{fact.unit or "--"} | {"yes" if fact.dropped_by_a_sum else "no"} | {_fact_fields(fact)} |'
+        f'{fact.unit or "--"} | {"yes" if fact.dropped_by_a_sum else "no"} | {_fact_fields(fact)} | '
+        f'{_fact_formerly(fact)} |'
         for key, fact in FILE_FACTS.items()
     ]
     return (
@@ -647,11 +661,15 @@ def _file_facts_table() -> str:
         'in the order the writer writes them: what it describes (a derived file states a `capture` '
         "fact never, a `channel` fact only on its inputs' channel, a `shared` fact as all its inputs "
         "state it), its key in the file's Plane block, the unit written beside it, whether a "
-        'sum of frames drops it, and the fields of a structured fact. A file states a field only '
+        'sum of frames drops it, the fields of a structured fact, and every other key a shipped '
+        'file states it under. A file states a field only '
         'when it has a value, and shows a person each field as its own `key.field` pair '
-        '(`plate.well_label`; an entry of a keyed fact `key.<key>.field`).\n\n'
-        '| Key | Kind | Plane key | Unit | Dropped by a sum | Fields |\n'
-        '|---|---|---|---|---|---|\n' + '\n'.join(lines)
+        '(`plate.well_label`; an entry of a keyed fact `key.<key>.field`). A former key is '
+        'either read back, from a recorded frame an older build wrote, into the record under '
+        "today's key, or appears only in the file's view, the pairs a person reads, and is "
+        "read by a person's own reader as the same fact.\n\n"
+        '| Key | Kind | Plane key | Unit | Dropped by a sum | Fields | Formerly |\n'
+        '|---|---|---|---|---|---|---|\n' + '\n'.join(lines)
     )
 
 

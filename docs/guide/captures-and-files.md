@@ -237,3 +237,17 @@ and a run's (`RunOutcome.video_save_wait_s`). A wait over 10 s is reported once
 saving finishes. A recording's frames are built into a hyperstack of their
 channel when `video_recording_format` is hyperstack, whatever the run format.
 The run format stacks only stills.
+
+**A manifest's former words.** A manifest an older build wrote may carry a
+word today's does not. Its `manifest_version` does not tell them apart, so a
+reader of older manifests reads each word below as the one beside it. Each
+row is the word, the key it was a value of (or *key* for a key), the builds
+that wrote it and the commit that changed it, and the word that replaced it.
+
+| Word | Of | Written | Now |
+|---|---|---|---|
+| `camera` | `timestamp_grade` | through 4.0.0-beta38, to `b7d925a45` | `camera_frame_start` |
+| `host` | `timestamp_grade` | through 4.0.0-beta38, to `b7d925a45` | `host_arrival` |
+| `user_stop` | `end_reason` | 4.0.0-beta29 through beta47, to `a1f4a6793` | `stopped` |
+| `disk_floor` | `end_reason` | 4.0.0-beta29 through beta47, to `33c0f3b77` | `disk_space_critical` |
+| `short_delivery` | *key* | 4.0.0-beta29 and beta30, to `d869046bc` | removed |

@@ -18038,41 +18038,41 @@ The events the event stream sends of its own, which no member delivers.
 
 ## Saved-file facts
 
-Every fact a saved file's record can state, by its key, in the order the writer writes them: what it describes (a derived file states a `capture` fact never, a `channel` fact only on its inputs' channel, a `shared` fact as all its inputs state it), its key in the file's Plane block, the unit written beside it, whether a sum of frames drops it, and the fields of a structured fact. A file states a field only when it has a value, and shows a person each field as its own `key.field` pair (`plate.well_label`; an entry of a keyed fact `key.<key>.field`).
+Every fact a saved file's record can state, by its key, in the order the writer writes them: what it describes (a derived file states a `capture` fact never, a `channel` fact only on its inputs' channel, a `shared` fact as all its inputs state it), its key in the file's Plane block, the unit written beside it, whether a sum of frames drops it, the fields of a structured fact, and every other key a shipped file states it under. A file states a field only when it has a value, and shows a person each field as its own `key.field` pair (`plate.well_label`; an entry of a keyed fact `key.<key>.field`). A former key is either read back, from a recorded frame an older build wrote, into the record under today's key, or appears only in the file's view, the pairs a person reads, and is read by a person's own reader as the same fact.
 
-| Key | Kind | Plane key | Unit | Dropped by a sum | Fields |
-|---|---|---|---|---|---|
-| `objective` | shared | `Objective` | -- | no | `id`, `description`, `manufacturer`, `short_name`, `magnification`, `focal_length_mm`, `numerical_aperture`, `depth_of_field_um`, `working_distance_mm`, `autofocus_step_min_um`, `autofocus_step_max_um`, `autofocus_half_range_um`, `jog_z_fine_um`, `jog_z_coarse_um`, `jog_xy_fine_um`, `jog_xy_coarse_um`, `focus_peak_fwhm_dense_um` |
-| `plate_pos_mm` | shared | -- | -- | no | `x`, `y` |
-| `z_pos_um` | shared | `PositionZ` | um | no | -- |
-| `illumination_ma` | channel | `Illumination` | mA | no | -- |
-| `illumination_by_channel_ma` | channel | `IlluminationByChannel` | mA | no | keyed by channel name |
-| `illumination_timing` | channel | `IlluminationTiming` | -- | no | -- |
-| `exposure_time_ms` | channel | `ExposureTime` | ms | no | -- |
-| `gain_db` | channel | `Gain` | dB | no | -- |
-| `black_level` | channel | `BlackLevel` | -- | no | -- |
-| `frames_summed` | channel | `FramesSummed` | -- | yes | -- |
-| `binning_size` | shared | `Binning` | -- | no | -- |
-| `timestamp_iso` | capture | `Timestamp` | -- | no | -- |
-| `timestamp_source` | capture | `TimestampSource` | -- | no | -- |
-| `timestamp_camera_ticks` | capture | `TimestampCameraTicks` | -- | no | -- |
-| `timestamp_camera_tick_hz` | capture | `TimestampCameraTickHz` | -- | no | -- |
-| `frame_id` | capture | `FrameID` | -- | no | -- |
-| `frame_validity` | capture | `FrameValidity` | -- | no | keyed by judgment index: `source`, `counts`, `frames_after`, `after_write_ms`, `skip`, `counted_by`, `after_in_force_ms` |
-| `saturated_fraction` | capture | `SaturatedFraction` | -- | no | -- |
-| `dark` | capture | `Dark` | -- | no | -- |
-| `camera_held_a_channel` | capture | `CameraHeldAChannel` | -- | no | -- |
-| `camera_held_channel` | capture | `CameraHeldChannel` | -- | no | -- |
-| `fallback_focus` | capture | `FallbackFocus` | -- | no | -- |
-| `recording_frame` | capture | `RecordingFrame` | -- | no | -- |
-| `stage_moving` | capture | `StageMoving` | -- | no | -- |
-| `channel` | file | -- | -- | no | -- |
-| `channel_display` | channel | -- | -- | no | -- |
-| `excitation_nm` | channel | -- | -- | no | -- |
-| `filterset` | shared | -- | -- | no | -- |
-| `pixel_size_um` | shared | -- | -- | no | -- |
-| `instrument` | shared | -- | -- | no | `manufacturer`, `model`, `serial_number`, `camera_model` |
-| `plate` | shared | -- | -- | no | `name`, `rows`, `columns`, `standard`, `well_label` |
-| `datetime` | file | -- | -- | no | -- |
-| `significant_bits` | file | -- | -- | no | -- |
-| `algorithm` | file | -- | -- | no | -- |
+| Key | Kind | Plane key | Unit | Dropped by a sum | Fields | Formerly |
+|---|---|---|---|---|---|---|
+| `objective` | shared | `Objective` | -- | no | `id`, `description`, `manufacturer`, `short_name`, `magnification`, `focal_length_mm`, `numerical_aperture`, `depth_of_field_um`, `working_distance_mm`, `autofocus_step_min_um`, `autofocus_step_max_um`, `autofocus_half_range_um`, `jog_z_fine_um`, `jog_z_coarse_um`, `jog_xy_fine_um`, `jog_xy_coarse_um`, `focus_peak_fwhm_dense_um` | -- |
+| `plate_pos_mm` | shared | -- | -- | no | `x`, `y` | -- |
+| `z_pos_um` | shared | `PositionZ` | um | no | -- | -- |
+| `illumination_ma` | channel | `Illumination` | mA | no | -- | -- |
+| `illumination_by_channel_ma` | channel | `IlluminationByChannel` | mA | no | keyed by channel name | -- |
+| `illumination_timing` | channel | `IlluminationTiming` | -- | no | -- | -- |
+| `exposure_time_ms` | channel | `ExposureTime` | ms | no | -- | -- |
+| `gain_db` | channel | `Gain` | dB | no | -- | -- |
+| `black_level` | channel | `BlackLevel` | -- | no | -- | -- |
+| `frames_summed` | channel | `FramesSummed` | -- | yes | -- | -- |
+| `binning_size` | shared | `Binning` | -- | no | -- | -- |
+| `timestamp_iso` | capture | `Timestamp` | -- | no | -- | -- |
+| `timestamp_source` | capture | `TimestampSource` | -- | no | -- | -- |
+| `timestamp_camera_ticks` | capture | `TimestampCameraTicks` | -- | no | -- | -- |
+| `timestamp_camera_tick_hz` | capture | `TimestampCameraTickHz` | -- | no | -- | -- |
+| `frame_id` | capture | `FrameID` | -- | no | -- | -- |
+| `frame_validity` | capture | `FrameValidity` | -- | no | keyed by judgment index: `source`, `counts`, `frames_after`, `after_write_ms`, `skip`, `counted_by`, `after_in_force_ms` | -- |
+| `saturated_fraction` | capture | `SaturatedFraction` | -- | no | -- | -- |
+| `dark` | capture | `Dark` | -- | no | -- | -- |
+| `camera_held_a_channel` | capture | `CameraHeldAChannel` | -- | no | -- | -- |
+| `camera_held_channel` | capture | `CameraHeldChannel` | -- | no | -- | -- |
+| `fallback_focus` | capture | `FallbackFocus` | -- | no | -- | -- |
+| `recording_frame` | capture | `RecordingFrame` | -- | no | -- | `frame_num` until 4.0.0-beta38 (beae9fcdb), read back |
+| `stage_moving` | capture | `StageMoving` | -- | no | -- | -- |
+| `channel` | file | -- | -- | no | -- | -- |
+| `channel_display` | channel | -- | -- | no | -- | -- |
+| `excitation_nm` | channel | -- | -- | no | -- | -- |
+| `filterset` | shared | -- | -- | no | -- | -- |
+| `pixel_size_um` | shared | -- | -- | no | -- | -- |
+| `instrument` | shared | -- | -- | no | `manufacturer`, `model`, `serial_number`, `camera_model` | -- |
+| `plate` | shared | -- | -- | no | `name`, `rows`, `columns`, `standard`, `well_label` | -- |
+| `datetime` | file | -- | -- | no | -- | -- |
+| `significant_bits` | file | -- | -- | no | -- | -- |
+| `algorithm` | file | -- | -- | no | -- | -- |

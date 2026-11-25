@@ -37,6 +37,9 @@ from tests.video_engine_harness import (
 )
 from tests.protocol_drives import run_identity
 from tests.log_capture import records_of
+from tests.ast_seams import REPO_ROOT
+
+_GUIDE = REPO_ROOT / 'docs' / 'guide' / 'captures-and-files.md'
 
 # Every recording manifest must carry at least these keys; downstream
 # consumers (support bundles, char tooling, the end-of-run report) key
@@ -470,6 +473,40 @@ class TestManifestTruth:
         manifest = json.loads(manifest_path.read_text())
         missing = REQUIRED_MANIFEST_KEYS - set(manifest)
         assert not missing, f'manifest missing keys: {sorted(missing)}'
+
+    def test_every_former_word_the_guide_names_is_gone_and_its_successor_written(self, tmp_path):
+        """The guide's table of a manifest's former words tells a reader of an
+        older manifest what each word now is: a former word the engine still
+        writes, or a successor it never writes, sends that reader down the
+        wrong branch. A value's words are held to its closed set, a key's to
+        a manifest the engine writes."""
+        engine, _writer, clock, _ = make_engine(tmp_path)
+        engine.start(lambda: (make_config(tmp_path, fps=5, duration_s=2), None))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=20, duration_s=2)
+        engine.stop('stopped')
+        assert engine.wait_for_drain(timeout=5)
+        written = set(json.loads(engine.result().manifest_path.read_text()))
+        values_of = {
+            'end_reason': {reason.value for reason in video_recording_module.RecordingEndReason},
+            'timestamp_grade': {source.value for source in TimestampSource},
+        }
+        rows = [
+            [cell.strip().strip('`') for cell in line.strip('|').split('|')]
+            for line in _GUIDE.read_text(encoding='utf-8')
+            .split("**A manifest's former words.**")[1]
+            .split('\n\n')[1]
+            .splitlines()[2:]
+        ]
+
+        wrong = []
+        for word, of, _written_by, now in rows:
+            if of == '*key*':
+                if word in written or (now != 'removed' and now not in written):
+                    wrong.append(word)
+            elif of not in values_of or word in values_of[of] or now not in values_of[of]:
+                wrong.append(word)
+        assert 'user_stop' in [row[0] for row in rows]
+        assert wrong == []
 
 
 class TestManifestNamesTheArtifactItDescribes:

@@ -534,6 +534,15 @@ class FactKind(enum.Enum):
 
 
 @dataclasses.dataclass(frozen=True)
+class FormerKey:
+    """A key a shipped build wrote a fact's record under before its own, and
+    the build that stopped writing it."""
+
+    key: str
+    until: str
+
+
+@dataclasses.dataclass(frozen=True)
 class FileFact:
     """One fact a saved file's record can state.
 
@@ -545,6 +554,9 @@ class FileFact:
     table; ``keyed_by`` is what a fact holding one entry per something is
     keyed by (``frame_validity.0.source``). Declared for the table only:
     the producer and the readers name the fields themselves.
+    ``formerly``: every key a shipped file states this fact under other
+    than its own, so a file any build wrote reads into today's record and
+    the published table names each word a person's own reader meets.
     """
 
     kind: FactKind
@@ -553,6 +565,7 @@ class FileFact:
     dropped_by_a_sum: bool = False
     fields: tuple[str, ...] = ()
     keyed_by: str | None = None
+    formerly: tuple[FormerKey, ...] = ()
 
 
 # Every fact a saved file's record can state, by its key in the record: the
@@ -632,7 +645,11 @@ FILE_FACTS: dict[str, FileFact] = {
     # A recorded frame's number in its recording, and whether an axis was
     # moving or homing as it arrived: delivery follows the exposure, so this
     # is the state at delivery.
-    'recording_frame': FileFact(FactKind.CAPTURE, 'RecordingFrame'),
+    'recording_frame': FileFact(
+        FactKind.CAPTURE,
+        'RecordingFrame',
+        formerly=(FormerKey('frame_num', '4.0.0-beta38 (beae9fcdb)'),),
+    ),
     'stage_moving': FileFact(FactKind.CAPTURE, 'StageMoving'),
     'channel': FileFact(FactKind.FILE),
     'channel_display': FileFact(FactKind.CHANNEL),
@@ -1436,15 +1453,41 @@ def _structured_record(structured: dict) -> dict | None:
 # A recorded frame's flat dict before a recorded frame was written as a still
 # is: v2.3 and v3.0.0 wrote ``timestamp`` (with microseconds) and
 # ``frame_num``; v4.0.0-beta29 and beta30 added ``timestamp_iso``, the scale
-# and the camera's ticks and frame id. Each key as the record names it.
-_LEGACY_FRAME_KEYS = {
-    'frame_num': 'recording_frame',
-    'timestamp_iso': 'timestamp_iso',
-    'timestamp_camera_ticks': 'timestamp_camera_ticks',
-    'timestamp_camera_tick_hz': 'timestamp_camera_tick_hz',
-    'frame_id': 'frame_id',
-}
+# and the camera's ticks and frame id. Each key as it was written then, a
+# fact's key or one of its ``formerly``. Its ``datetime`` is left out: it is
+# the TIFF tag's text, and the record takes its time from the tag.
+_LEGACY_FRAME_KEYS = (
+    'frame_num',
+    'timestamp_iso',
+    'timestamp_camera_ticks',
+    'timestamp_camera_tick_hz',
+    'frame_id',
+)
 _LEGACY_FRAME_TIMESTAMP = '%Y:%m:%d %H:%M:%S.%f'
+
+
+def _spellings(facts: dict[str, FileFact], read_back: Iterable[str]) -> dict[str, str]:
+    """Each key a record has been written under, today's or a former one, to
+    the key of the fact it states.
+
+    Raises:
+        ValueError: a spelling two facts claim, which would read one file's
+            key as either; or a key read back from a shipped container that
+            names no fact, which would be read as nothing.
+    """
+    spelled: dict[str, str] = {}
+    for key, fact in facts.items():
+        for spelling in (key, *(former.key for former in fact.formerly)):
+            if spelling in spelled:
+                raise ValueError(f'{spelling!r} spells both {spelled[spelling]!r} and {key!r}')
+            spelled[spelling] = key
+    unknown = [key for key in read_back if key not in spelled]
+    if unknown:
+        raise ValueError(f'{unknown} are read back but name no fact')
+    return spelled
+
+
+_FACT_SPELLED = _spellings(FILE_FACTS, _LEGACY_FRAME_KEYS)
 
 
 def _legacy_frame_record(flat: dict) -> dict | None:
@@ -1452,9 +1495,9 @@ def _legacy_frame_record(flat: dict) -> dict | None:
     when the flat dict is no recorded frame's (a bare tifffile.imwrite's
     ``{'shape': ...}``)."""
     record = {
-        key: flat[legacy]
-        for legacy, key in _LEGACY_FRAME_KEYS.items()
-        if flat.get(legacy) is not None
+        _FACT_SPELLED[written]: flat[written]
+        for written in _LEGACY_FRAME_KEYS
+        if flat.get(written) is not None
     }
     if 'timestamp_iso' not in record and flat.get('timestamp'):
         record['timestamp_iso'] = datetime.datetime.strptime(

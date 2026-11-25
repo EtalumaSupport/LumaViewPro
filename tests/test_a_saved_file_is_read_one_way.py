@@ -346,8 +346,11 @@ def _legacy_frame(path, description, *, datetime_tag) -> pathlib.Path:
 
 def test_a_recorded_frame_of_every_shipped_shape_reads_its_scale_and_time(tmp_path):
     """v2.3 and v3.0.0 wrote ``timestamp`` and ``frame_num``; v4.0.0-beta29
-    and beta30 added ``timestamp_iso`` and the scale. Each reads back its
-    time and its number, and its scale where it states one."""
+    and beta30 added ``timestamp_iso``, the scale and the camera's ticks,
+    tick rate and frame id. Each reads back its time and its number under
+    today's keys, and its scale and camera facts where it states them; its
+    ``datetime``, the tag's text in the flat dict, reads as the time the tag
+    states."""
     v2 = _legacy_frame(
         tmp_path / 'v2.tiff',
         {
@@ -366,6 +369,7 @@ def test_a_recorded_frame_of_every_shipped_shape_reads_its_scale_and_time(tmp_pa
             'frame_num': 4,
             'pixel_size_um': 0.65,
             'timestamp_camera_ticks': 123,
+            'timestamp_camera_tick_hz': 1_000_000_000,
             'frame_id': 9,
         },
         datetime_tag=_A_TIME.strftime('%Y:%m:%d %H:%M:%S'),
@@ -377,7 +381,47 @@ def test_a_recorded_frame_of_every_shipped_shape_reads_its_scale_and_time(tmp_pa
 
     assert {name: r['pixel_size_um'] for name, r in read.items()} == {'v2': None, 'b30': 0.65}
     assert {name: r['recording_frame'] for name, r in read.items()} == {'v2': 3, 'b30': 4}
+    assert {
+        key: read['b30'][key]
+        for key in ('timestamp_camera_ticks', 'timestamp_camera_tick_hz', 'frame_id')
+    } == {'timestamp_camera_ticks': 123, 'timestamp_camera_tick_hz': 1_000_000_000, 'frame_id': 9}
+    assert {name: r['datetime'] for name, r in read.items()} == {
+        name: _A_TIME.replace(microsecond=0) for name in read
+    }
     assert [image_utils.load_pixels_with_timestamp(p)[3] for p in (v2, beta30)] == [_A_TIME] * 2
+
+
+def test_every_key_a_shipped_file_states_spells_one_fact():
+    """A former key is one fact's alone, never a fact's own key or another's
+    former key, and every key read back from a shipped recorded frame names
+    a fact: either break reads a file's key as the wrong fact or as none,
+    and the table is refused where it is built."""
+    planted = {
+        'reused': {
+            'recording_frame': image_utils.FILE_FACTS['recording_frame'],
+            'frame_num': image_utils.FILE_FACTS['frame_id'],
+        },
+        'claimed twice': {
+            'recording_frame': image_utils.FILE_FACTS['recording_frame'],
+            'frame_id': image_utils.FileFact(
+                image_utils.FactKind.CAPTURE,
+                formerly=(image_utils.FormerKey('frame_num', 'a build'),),
+            ),
+        },
+    }
+    refused = {}
+    for name, facts in planted.items():
+        with pytest.raises(ValueError) as caught:
+            image_utils._spellings(facts, ())
+        refused[name] = str(caught.value)
+    with pytest.raises(ValueError) as unread:
+        image_utils._spellings(image_utils.FILE_FACTS, ('frame_no',))
+
+    assert refused == {
+        'reused': "'frame_num' spells both 'recording_frame' and 'frame_num'",
+        'claimed twice': "'frame_num' spells both 'recording_frame' and 'frame_id'",
+    }
+    assert str(unread.value) == "['frame_no'] are read back but name no fact"
 
 
 def test_an_unreadable_file_is_refused_and_a_file_with_no_record_answers_none(tmp_path):
