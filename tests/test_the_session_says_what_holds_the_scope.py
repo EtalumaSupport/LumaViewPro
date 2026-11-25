@@ -9,7 +9,7 @@ neither its lend nor its return told anyone.
 
 A run control needs one more answer: is the scope held by something other
 than the run this control started? Its own run leaves it live as that run's
-Stop; anything else holding the scope greys it.
+Stop; anything else holding the scope, a control session included, greys it.
 """
 
 import pytest
@@ -91,6 +91,18 @@ class TestHeldByOther:
             assert session.held_by_other() is True
         finally:
             held.release()
+
+    def test_a_control_session_holds_the_scope_for_every_caller_until_it_ends(self):
+        # A GUI run control greys under a REST client's control session, as
+        # every other control does: the answer is the scope's, the holder's
+        # own read included, and it frees when the session ends.
+        session = session_on_a_simulated_scope()
+        session_id = session.take_control('plate reader')
+        assert session.held_by_other(None) is True
+        with session.acting_in_control(session_id):
+            assert session.held_by_other(None) is True
+        session.end_control(session_id)
+        assert session.held_by_other(None) is False
 
     def test_the_session_answers_the_engines_answer(self, monkeypatch):
         session = session_on_a_simulated_scope()

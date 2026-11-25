@@ -2745,12 +2745,21 @@ class SequencedCaptureRunner:
         """Whether the scope is held by anything but *run* -- the operation a start() returned.
 
         What a run control grays on: anything else holding the scope --
-        another run, a recording, a diagnostic, a home -- grays it, and its own run
-        leaves it live as that run's Stop. None asks whether anything holds
-        it at all. Decided in one read under the run lock, so the
-        answer never pairs one run's liveness with another's hold.
+        another run, a recording, a diagnostic, a home, a control session --
+        grays it, and its own run leaves it live as that run's Stop. None
+        asks whether anything holds it at all. Decided in one read under the
+        run lock, so the answer never pairs one run's liveness with another's
+        hold.
+
+        A control session holds the scope whoever asks, its holder's own
+        runs included, as the controls lock reads it: the answer is the
+        scope's, never the caller's. A GUI run control's own run is never
+        live under one, since a session is taken only while nothing holds
+        the claim and the GUI never holds a session.
         """
         with self._run_lock:
+            if self._activity_claim.control is not None:
+                return True
             if self._activity_claim.holder is None:
                 return False
             live = self._run_handle

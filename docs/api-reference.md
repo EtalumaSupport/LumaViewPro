@@ -1604,7 +1604,9 @@ Raises nothing.
 Whether the scope is held by anything but *run*, the operation a run member returned.
 
 What a run control grays on while leaving its own run's Stop live
-(`live_work` names what holds the scope).
+(`live_work` names what holds the scope). A held control session
+holds it for every caller, its holder included, as `controls_lock`
+counts one (`control` names it).
 
 **Args**
 
