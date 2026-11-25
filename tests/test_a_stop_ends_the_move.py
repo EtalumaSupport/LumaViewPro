@@ -193,13 +193,24 @@ def test_a_moves_stop_once_another_move_has_its_axis_leaves_that_move_driving(se
     """A move's ``stop()`` stops the board only while its move still has
     the axis. The window: the superseded move is over, but its operation
     is not yet done while the new move's MOVING is told to the listeners --
-    a stop sent there withheld the new move's drive."""
+    a stop sent there withheld the new move's drive.
+
+    The monitor tells MOVING at each poll of the first move too, and a stop
+    there is a Stop of a move that still has its axis, which rightly
+    withholds the second; the second's tell is the one in which X's target
+    is no longer the first move's."""
     motion = session.scope.motion
-    first = motion.start_move_xy(x_um=60000.0)
+    first_target_um = 60000.0
+    first = motion.start_move_xy(x_um=first_target_um)
     retargeting = threading.Event()
 
     def stop_the_first_as_the_second_is_told(axis, at):
-        if axis == 'X' and at.state == AxisState.MOVING and retargeting.is_set():
+        if (
+            axis == 'X'
+            and at.state == AxisState.MOVING
+            and retargeting.is_set()
+            and motion.target_positions[axis] != first_target_um
+        ):
             retargeting.clear()
             first.stop()
 
