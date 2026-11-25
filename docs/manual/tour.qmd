@@ -96,7 +96,7 @@ The toolbar buttons are icons (@fig-tour-toolbar). From left to right:
 | Record | Records the live image as a video until you press it again or the time limit is reached ([Video Time Limit (s)]{.guilabel} in [Advanced Settings]{.guilabel}, 300 seconds unless you change it). |
 | Fit | Fits the whole live image to the window. |
 | 1:1 | Shows the live image at one camera pixel to one screen pixel. |
-| [STOP]{.guilabel} | Stops every motor at once and ends a running protocol. Only on a Lumascope with motors. |
+| [STOP]{.guilabel} | Stops every motor at once and ends a running protocol or recording. Greyed out when nothing is moving or running. Only on a Lumascope with motors. |
 
 : The toolbar's buttons {#tbl-toolbar tbl-colwidths="[22,78]"}
 
