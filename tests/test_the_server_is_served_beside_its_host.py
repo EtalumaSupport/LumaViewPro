@@ -17,6 +17,7 @@ import httpx
 import pytest
 
 from _lumascope.modules.exceptions import RestServerNotStartedError, system_words
+from _lumascope.modules.live_work import SessionLifecycle
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest.server import serve_beside
 from tests.settings_fixtures import complete_settings
@@ -89,7 +90,7 @@ def test_the_server_serves_the_hosts_session_and_closes_through_its_shutdown(ses
 
     assert status.status_code == 200
     assert (closed, shut) == (True, [1])
-    assert session.live_work.closed
+    assert session.live_work.lifecycle == SessionLifecycle.CLOSED
 
 
 def test_the_servers_own_lines_reach_the_log_at_their_own_level(session, monkeypatch):

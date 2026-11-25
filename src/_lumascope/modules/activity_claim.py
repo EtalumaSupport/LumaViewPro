@@ -13,7 +13,7 @@ from _lumascope.drivers import host_clock
 from _lumascope.lvp_logger import logger
 from _lumascope.modules.api_surface import api, api_fields
 from _lumascope.modules.caller import Caller, current_caller
-from _lumascope.modules.live_work import SCOPE_HOLDERS, WorkKind
+from _lumascope.modules.live_work import SCOPE_HOLDERS, SessionLifecycle, WorkKind
 from _lumascope.modules.exceptions import (
     ControlSessionRefusedError,
     HardwareCommandRefusedError,
@@ -594,15 +594,14 @@ class ActivityClaim:
         # task on it -- and under this lock, so a recording and such a
         # write can never both be admitted.
         self._falsifying = 0
-        # Set by the session's close for as long as it runs, under this
-        # lock: every new taking is refused meanwhile, while work lent by an
-        # activity already under way is still admitted.
-        self._closing = False
-        # Set when the close finished, and never cleared: a start that
-        # passed its own checks while the scope was still connected takes
-        # the claim last, so the claim is what refuses it once the session
-        # has let go of the scope.
-        self._closed = False
+        # Where the session stands in its close, written under this lock.
+        # While CLOSING every new taking is refused, while work lent by an
+        # activity already under way is still admitted. CLOSED is the
+        # end, since the session's shutdown() begins no close once it reads
+        # it: a start that passed its own checks while the scope was still
+        # connected takes the claim last, so the claim is what refuses it
+        # once the session has let go of the scope.
+        self._lifecycle = SessionLifecycle.OPEN
         # The control session and its holder's taking, above the activity
         # slot: while set, only the holder's work is admitted, and the slot
         # keeps meaning what is running.
@@ -613,9 +612,13 @@ class ActivityClaim:
         self._guarded = 0
 
     @property
-    def closing(self) -> bool:
-        """True while the session's close runs."""
-        return self._closing
+    def lifecycle(self) -> SessionLifecycle:
+        """Where the session stands in its close.
+
+        One attribute read of an immutable value, so every read stays
+        lock-free.
+        """
+        return self._lifecycle
 
     def begin_closing(self) -> None:
         """Refuse every new taking for the session's close: until ``end_closing``,
@@ -630,7 +633,7 @@ class ActivityClaim:
         hears the close begin.
         """
         with self._lock:
-            self._closing = True
+            self._lifecycle = SessionLifecycle.CLOSING
             self._control = None
         self.announce()
 
@@ -646,8 +649,7 @@ class ActivityClaim:
         Announced, so a listener hears the close end.
         """
         with self._lock:
-            self._closing = False
-            self._closed = self._closed or closed
+            self._lifecycle = SessionLifecycle.CLOSED if closed else SessionLifecycle.OPEN
         self.announce()
 
     @property
@@ -730,7 +732,7 @@ class ActivityClaim:
         caller = current_caller()
         self._end_if_silent(current_taking())
         with self._lock:
-            if self._closing or self._closed:
+            if self._lifecycle != SessionLifecycle.OPEN:
                 raise SessionClosingError('control')
             if self._control is not None:
                 raise control_refused(self._control[0])
@@ -905,7 +907,7 @@ class ActivityClaim:
         taking = current_taking()
         self._end_if_silent(taking)
         with self._lock:
-            if self._closing or self._closed:
+            if self._lifecycle != SessionLifecycle.OPEN:
                 raise SessionClosingError(owner)
             session = self._control_refusing(taking)
             if session is not None:

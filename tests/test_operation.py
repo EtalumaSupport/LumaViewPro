@@ -28,6 +28,7 @@ import pytest
 
 from _lumascope.modules import ui_queue
 from _lumascope.modules.exceptions import BlockingCallRefusedError, OperationWaitExpiredError
+from _lumascope.modules.live_work import SessionLifecycle
 from _lumascope.modules.notification_center import OutcomeKind, notifications, outcome_of
 from _lumascope.modules.operation import Operation, settling
 from _lumascope.modules.scope_session import ScopeSession
@@ -368,7 +369,7 @@ class TestTheSessionsClose:
 
         def _close_too(_op):
             # Asked once the close has begun, so this call waits on that close.
-            while not session._activity_claim.closing:
+            while session.live_work.lifecycle != SessionLifecycle.CLOSING:
                 threading.Event().wait(0.01)
             session.shutdown()
             callback_returned.set()

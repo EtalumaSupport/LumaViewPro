@@ -16,7 +16,7 @@ import pytest
 import _lumascope.modules.app_context as _app_ctx
 import ui.ui_helpers as ui_helpers
 from _lumascope.modules import live_work
-from _lumascope.modules.live_work import LiveWork, WorkItem
+from _lumascope.modules.live_work import LiveWork, SessionLifecycle, WorkItem
 from _lumascope.modules.scope_session import ControlsLock
 
 
@@ -40,7 +40,7 @@ def scene(monkeypatch):
 
 def _draw(scene):
     ui_helpers.draw_shared_run_displays(
-        scene.lock, LiveWork(work=tuple(scene.work), closing=False, closed=False)
+        scene.lock, LiveWork(work=tuple(scene.work), lifecycle=SessionLifecycle.OPEN)
     )
 
 

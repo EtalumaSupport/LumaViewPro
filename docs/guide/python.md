@@ -164,8 +164,10 @@ disconnects the scope. From its first step, new work that would take the scope
 behind a slow disk can end. A second call during the close waits for it.
 
 ```python
+from lumascope import SessionLifecycle
+
 session.shutdown()
-assert session.live_work.closed
+assert session.live_work.lifecycle == SessionLifecycle.CLOSED
 ```
 
 ## Hearing outcomes

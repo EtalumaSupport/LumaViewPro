@@ -27,6 +27,7 @@ import httpx
 import pytest
 import uvicorn
 
+from _lumascope.modules.live_work import SessionLifecycle
 import _lumascope.rest.app
 import _lumascope.rest.jobs
 import _lumascope.rest.server
@@ -149,7 +150,7 @@ def test_a_signal_closes_the_session_with_its_clients_connected(session):
     assert after == []
     assert not server.force_exit
     assert server.close_failed is None
-    assert session.live_work.closed
+    assert session.live_work.lifecycle == SessionLifecycle.CLOSED
 
 
 def test_the_close_names_a_call_still_running_and_joins_it_once_it_ends(session, monkeypatch):
@@ -281,7 +282,7 @@ def test_the_hosts_close_closes_the_session_through_the_server_with_its_clients_
     ]
     assert after == []
     assert not server.serving
-    assert session.live_work.closed
+    assert session.live_work.lifecycle == SessionLifecycle.CLOSED
 
 
 def test_the_close_asked_from_two_threads_at_once_runs_once(session):

@@ -1836,7 +1836,7 @@ class LumaViewProApp(TooltipMixin, App):
         # A bring-up still running is waited for: a platform quit during
         # bring-up closes the session it brings up, once it exists.
         session = self._bring_up.result()
-        if not session.live_work.closed:
+        if session.live_work.lifecycle != live_work.SessionLifecycle.CLOSED:
             # Reached without the window's close -- a platform quit -- or
             # after a close that raised part-way: the close runs here, on
             # this thread, and nothing draws while it waits. A close still

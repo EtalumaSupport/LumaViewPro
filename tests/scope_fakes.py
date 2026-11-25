@@ -198,9 +198,15 @@ def shut_down_when_the_test_ends(session):
     released, a run's writes it planted and never settled -- would hang the
     worker there, so that work is given a short while to end, and if it has
     not, the test fails naming it and the close is not called.
+
+    A test that begins a close by hand (``begin_closing``) and leaves it
+    running makes this shutdown a no-op, so the session's threads outlive
+    the test; the session must read closed after it, or the test fails.
     """
 
     def stop() -> None:
+        from _lumascope.modules.live_work import SessionLifecycle
+
         deadline = time.monotonic() + _LEFT_WORK_WAIT_S
         while session.live_work.work and time.monotonic() < deadline:
             time.sleep(0.02)
@@ -208,6 +214,12 @@ def shut_down_when_the_test_ends(session):
         if left:
             raise AssertionError(f'the test left work live, so its session cannot close: {left}')
         session.shutdown()
+        lifecycle = session.live_work.lifecycle
+        if lifecycle != SessionLifecycle.CLOSED:
+            raise AssertionError(
+                f'the session reads {lifecycle} after its shutdown: the test began a close '
+                'and left it running, so the session was not closed'
+            )
 
     _TEARDOWNS.append(stop)
 

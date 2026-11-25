@@ -28,7 +28,7 @@ from _lumascope.lib.log_helpers import VERBOSE
 from _lumascope.lib.lumascope_error import Fault
 from _lumascope.modules.finite_number import cap_stored_value, refuse_unless_finite_number
 from _lumascope.modules.activity_claim import ActivityHolder, acts_for_the_holder, current_taking
-from _lumascope.modules.live_work import WorkKind
+from _lumascope.modules.live_work import SessionLifecycle, WorkKind
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     HardwareCommandRefusedError,
@@ -1864,7 +1864,8 @@ class IlluminationAPI:
         (the scope's own off asks presence first).
 
         Admitted only to a caller acting under the activity holding the
-        scope, or while the session's close runs (``ActivityClaim.closing``):
+        scope, or while the session's close runs (``ActivityClaim.lifecycle``
+        ``CLOSING``):
         an off past every lease and lane belongs to the activity whose
         sample it darkens. Anyone else turns the LEDs off with ``leds_off``,
         which the holder's lane admits or refuses.
@@ -1884,7 +1885,8 @@ class IlluminationAPI:
             believed as it was (``_write_leds_off``).
         """
         claim = self._scope._activity_claim
-        if not (acts_for_the_holder(claim) or (claim is not None and claim.closing)):
+        closing = claim is not None and claim.lifecycle == SessionLifecycle.CLOSING
+        if not (acts_for_the_holder(claim) or closing):
             raise HardwareCommandRefusedError('not_the_activity', 'force_off')
         held = self.led_lease_purpose
         if held is not None:

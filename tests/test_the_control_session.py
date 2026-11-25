@@ -28,6 +28,7 @@ from _lumascope.modules.activity_claim import (
     control_refused,
     guarded_write,
 )
+from _lumascope.modules.live_work import SessionLifecycle
 from _lumascope.modules.operation import Operation
 from tests.scope_fakes import home_sim_scope
 from _lumascope.modules.caller import Caller, calling
@@ -584,7 +585,7 @@ class TestTheSessionsMembers:
         _take_on(sim_session)
         sim_session.shutdown()
         assert sim_session.control is None
-        assert sim_session.live_work.closed
+        assert sim_session.live_work.lifecycle == SessionLifecycle.CLOSED
 
 
 class TestTheTakeBackPress:

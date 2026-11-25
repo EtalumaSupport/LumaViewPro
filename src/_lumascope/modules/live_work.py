@@ -51,6 +51,19 @@ SCOPE_HOLDERS = frozenset(
 )
 
 
+class SessionLifecycle(enum.StrEnum):
+    """Where a session stands in its close.
+
+    ``OPEN`` until the close begins, and again after a close that raised
+    part-way, which can be called again; ``CLOSING`` while it runs, when
+    nothing new takes the scope; ``CLOSED`` once it finished, for good.
+    """
+
+    OPEN = 'open'
+    CLOSING = 'closing'
+    CLOSED = 'closed'
+
+
 @api_fields(
     'kind', 'name', 'left', 'progress_pct', 'elapsed_s', 'total_s', 'discardable', 'stuck_write'
 )
@@ -88,7 +101,7 @@ class WorkItem:
     stuck_write: str | None = None
 
 
-@api_fields('work', 'closing', 'closed')
+@api_fields('work', 'lifecycle')
 @dataclasses.dataclass(frozen=True)
 class LiveWork:
     """Everything a session is still doing, read once.
@@ -100,14 +113,13 @@ class LiveWork:
     Attributes:
         work: The work still under way, in the order the session asked:
             what holds the scope first, then what finishes after.
-        closing: True while the session's close runs: nothing new takes
-            the scope, and the close waits for this work.
-        closed: True once the session has shut down.
+        lifecycle: Where the session stands in its close: ``CLOSING``
+            while it runs, when nothing new takes the scope and the close
+            waits for this work; ``CLOSED`` once the session has shut down.
     """
 
     work: tuple[WorkItem, ...]
-    closing: bool
-    closed: bool
+    lifecycle: SessionLifecycle
 
     def has(self, kind: WorkKind) -> bool:
         """Whether any item of the work is of ``kind``.

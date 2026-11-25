@@ -234,6 +234,7 @@ NaN stays a NaN, and a key keeps its type.
 - [`RemedyName`](#RemedyName)
 - [`RunEndReason`](#RunEndReason)
 - [`RunStatus`](#RunStatus)
+- [`SessionLifecycle`](#SessionLifecycle)
 - [`SettingSource`](#SettingSource)
 - [`Slide`](#Slide)
 - [`StageAxis`](#StageAxis)
@@ -1831,8 +1832,9 @@ being taken and saved (`manual_capture`'s), a sum with the frames
 it still has to take. Each item says how much it has left,
 a build how far it has got, and a run's images the write that is
 stuck, once one is. Read lock-free, owner by owner, from any
-thread; `closing` while the close runs, `closed` once the
-session has shut down. A wire client reads it in `status`.
+thread; its `lifecycle` is `CLOSING` while the close runs and
+`CLOSED` once the session has shut down, read once from the claim.
+A wire client reads it in `status`.
 
 <a id="ScopeSession.load_plugins"></a>
 ### `ScopeSession.load_plugins`
@@ -10296,8 +10298,7 @@ slightly different moments; the close waits until a read finds none.
 
 **Fields**
 
-- <a id="LiveWork.closed"></a>`closed`: `bool` -- True once the session has shut down.
-- <a id="LiveWork.closing"></a>`closing`: `bool` -- True while the session's close runs: nothing new takes the scope, and the close waits for this work.
+- <a id="LiveWork.lifecycle"></a>`lifecycle`: `SessionLifecycle` -- Where the session stands in its close: `CLOSING` while it runs, when nothing new takes the scope and the close waits for this work; `CLOSED` once the session has shut down.
 - <a id="LiveWork.work"></a>`work`: `tuple[WorkItem, ...]` -- The work still under way, in the order the session asked: what holds the scope first, then what finishes after.
 
 <a id="MissingPart"></a>
@@ -13663,6 +13664,21 @@ committed.
 - `aborted`
 - `failed`
 - `failed_at_start`
+
+<a id="SessionLifecycle"></a>
+### `lumascope.SessionLifecycle`
+
+Held in: [`LiveWork.lifecycle`](#LiveWork.lifecycle).
+
+Where a session stands in its close.
+
+`OPEN` until the close begins, and again after a close that raised
+part-way, which can be called again; `CLOSING` while it runs, when
+nothing new takes the scope; `CLOSED` once it finished, for good.
+
+- `open`
+- `closing`
+- `closed`
 
 <a id="SettingSource"></a>
 ### `lumascope.SettingSource`

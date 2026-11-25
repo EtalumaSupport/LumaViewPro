@@ -20,6 +20,7 @@ import pytest
 
 from _lumascope.modules import live_work
 from _lumascope.modules.exceptions import ArgumentRefusedError, PostProcessingOperation
+from _lumascope.modules.live_work import SessionLifecycle
 from _lumascope.modules.post_processing_api import BuildResult
 from _lumascope.modules.sequential_io_executor import IOTask
 
@@ -53,11 +54,11 @@ def _item(session, kind):
 
 def test_an_idle_session_is_doing_nothing_and_says_closed_once_shut_down(sim_session):
     assert sim_session.live_work.work == ()
-    assert sim_session.live_work.closed is False
+    assert sim_session.live_work.lifecycle == SessionLifecycle.OPEN
 
     sim_session.shutdown()
 
-    assert sim_session.live_work.closed is True
+    assert sim_session.live_work.lifecycle == SessionLifecycle.CLOSED
 
 
 def test_what_holds_the_scope_is_named(sim_session):
@@ -76,6 +77,13 @@ def test_a_work_item_is_of_a_kind_of_the_set():
     with pytest.raises(ArgumentRefusedError) as refused:
         live_work.WorkItem('nap', 'A nap')
     assert (refused.value.reason, refused.value.argument) == ('not_offered', 'WorkItem.kind')
+
+
+def test_the_records_lifecycle_is_of_the_set():
+    """The close state is one of three: no record holds a state outside them."""
+    with pytest.raises(ArgumentRefusedError) as refused:
+        live_work.LiveWork(work=(), lifecycle='nap')
+    assert (refused.value.reason, refused.value.argument) == ('not_offered', 'LiveWork.lifecycle')
 
 
 def test_a_run_lent_a_diagnostics_claim_is_named_beside_it(sim_session):

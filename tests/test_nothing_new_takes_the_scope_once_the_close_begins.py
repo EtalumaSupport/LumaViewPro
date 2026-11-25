@@ -17,6 +17,7 @@ import pathlib
 import pytest
 
 from _lumascope.modules.exceptions import PostProcessingOperation, SessionClosingError
+from _lumascope.modules.live_work import SessionLifecycle
 from tests.protocol_drives import run_identity
 
 
@@ -46,27 +47,32 @@ def test_a_run_a_recording_a_home_and_a_diagnostic_are_each_refused(sim_session,
     from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
 
     sim_session._activity_claim.begin_closing()
-    assert sim_session.live_work.closing is True
+    try:
+        assert sim_session.live_work.lifecycle == SessionLifecycle.CLOSING
 
-    runner = sim_session.protocol_runner()
-    protocol = _build_real_protocol([_make_single_step_protocol().step_row(step_index=0)])
-    _refused(
-        lambda: runner.start_single_scan(
-            protocol=protocol, sequence_name='closing', parent_dir=str(tmp_path)
-        ),
-        'protocol',
-    )
-    _refused(lambda: sim_session.manual_recording.start(), 'recording')
-    _refused(lambda: sim_session.scope.motion.home('Z'), 'home')
+        runner = sim_session.protocol_runner()
+        protocol = _build_real_protocol([_make_single_step_protocol().step_row(step_index=0)])
+        _refused(
+            lambda: runner.start_single_scan(
+                protocol=protocol, sequence_name='closing', parent_dir=str(tmp_path)
+            ),
+            'protocol',
+        )
+        _refused(lambda: sim_session.manual_recording.start(), 'recording')
+        _refused(lambda: sim_session.scope.motion.home('Z'), 'home')
 
-    def a_diagnostic():
-        with sim_session.diagnostic_claim():
-            pass
+        def a_diagnostic():
+            with sim_session.diagnostic_claim():
+                pass
 
-    _refused(a_diagnostic, 'diagnostic')
+        _refused(a_diagnostic, 'diagnostic')
 
-    assert sim_session._activity_claim.holder is None, 'nothing was taken'
-    assert sim_session.live_work.work == ()
+        assert sim_session._activity_claim.holder is None, 'nothing was taken'
+        assert sim_session.live_work.work == ()
+    finally:
+        # The close begun by hand ends as one that did not finish, so the
+        # teardown's real close runs.
+        sim_session._activity_claim.end_closing(closed=False)
 
 
 def test_the_refusal_says_what_was_not_started_and_why():
@@ -90,6 +96,7 @@ def test_work_lent_by_an_activity_already_under_way_is_still_admitted(sim_sessio
         borrowed.release()
     finally:
         held.release()
+        sim_session._activity_claim.end_closing(closed=False)
 
 
 def _built(message, folder):
@@ -107,40 +114,40 @@ def _built(message, folder):
 
 def test_a_post_processing_build_is_not_refused(sim_session, tmp_path):
     sim_session._activity_claim.begin_closing()
+    try:
+        built = _built('built', tmp_path)
 
-    built = _built('built', tmp_path)
+        def build(folder, *, on_progress):
+            return built
 
-    def build(folder, *, on_progress):
-        return built
-
-    assert (
-        sim_session.post_processing._run(
-            build,
-            'stitch',
-            tmp_path,
-            operation=PostProcessingOperation.STITCH,
-            writes_beside=False,
-            saved_in=lambda result: None,
+        assert (
+            sim_session.post_processing._run(
+                build,
+                'stitch',
+                tmp_path,
+                operation=PostProcessingOperation.STITCH,
+                writes_beside=False,
+                saved_in=lambda result: None,
+            )
+            is built
         )
-        is built
-    )
+    finally:
+        sim_session._activity_claim.end_closing(closed=False)
 
 
 def test_a_run_state_listener_hears_the_close_begin_and_end(tmp_path):
     """The close's start and end are told as every claim edge is, so a client
-    that subscribes -- the LiveWork event over REST, a GUI of its own -- can
+    that subscribes -- the status event over REST, a GUI of its own -- can
     stop its listeners when the close begins, not after the scope has gone."""
     from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
     session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
     heard = []
-    session.add_status_listener(
-        lambda: heard.append((session.live_work.closing, session.live_work.closed))
-    )
+    session.add_status_listener(lambda: heard.append(session.live_work.lifecycle))
     heard.clear()
 
     session.shutdown()
 
-    assert (True, False) in heard, heard
-    assert heard[-1] == (False, True), heard
+    assert SessionLifecycle.CLOSING in heard, heard
+    assert heard[-1] == SessionLifecycle.CLOSED, heard

@@ -25,6 +25,7 @@ from _lumascope.modules.exceptions import (
     PostProcessingOperation,
     SessionClosingError,
 )
+from _lumascope.modules.live_work import SessionLifecycle
 from _lumascope.modules.post_processing_api import BuildResult
 
 SETTLE_S = 30.0
@@ -143,7 +144,7 @@ def test_two_closes_at_once_tear_down_once(tmp_path):
     def closer():
         go.wait()
         session.shutdown()
-        returned.append(session.live_work.closed)
+        returned.append(session.live_work.lifecycle == SessionLifecycle.CLOSED)
 
     threads = [threading.Thread(target=closer) for _ in range(2)]
     for thread in threads:
@@ -294,8 +295,7 @@ def test_after_the_close_nothing_new_takes_the_scope_for_good(tmp_path):
     session = _session(tmp_path)
     session.shutdown()
 
-    assert session.live_work.closing is False
-    assert session.live_work.closed is True
+    assert session.live_work.lifecycle == SessionLifecycle.CLOSED
     with pytest.raises(SessionClosingError) as refused:
         session.scope.motion.home('Z')
     assert (refused.value.reason, refused.value.activity) == ('session_closing', 'home')
@@ -396,7 +396,7 @@ def test_a_close_from_run_ended_with_no_dispatcher_completes(tmp_path):
 
     assert closed.wait(SETTLE_S), 'the close from run_ended did not return'
     assert failed == [], failed
-    assert session.live_work.closed is True
+    assert session.live_work.lifecycle == SessionLifecycle.CLOSED
     assert took[0] < 2.0, f'the close from run_ended took {took[0]:.1f} s'
     ran_on[0].join(SETTLE_S)
     assert not ran_on[0].is_alive(), 'the thread the close ran on never ended'

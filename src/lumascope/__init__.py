@@ -274,6 +274,7 @@ from _lumascope.modules.labware import (
 )
 from _lumascope.modules.live_work import (
     LiveWork,
+    SessionLifecycle,
     WorkItem,
     WorkKind,
 )
@@ -837,6 +838,7 @@ __all__ = [
     'SensorExposure',
     'ServerRefusedError',
     'SessionClosingError',
+    'SessionLifecycle',
     'SettingRefusedError',
     'SettingSource',
     'SettingsChanged',

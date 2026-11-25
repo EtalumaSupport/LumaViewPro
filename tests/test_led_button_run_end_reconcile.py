@@ -61,7 +61,7 @@ _real_base_module('kivy.uix.scrollview', ScrollView=_StubWidget)
 _real_base_module('kivy.uix.widget', Widget=_StubWidget)
 
 import _lumascope.modules.app_context as _app_ctx
-from _lumascope.modules.live_work import LiveWork
+from _lumascope.modules.live_work import LiveWork, SessionLifecycle
 from _lumascope.modules.scope_session import ControlsLock
 import ui.protocol_settings as ps_module
 import ui.ui_helpers as ui_helpers
@@ -149,7 +149,7 @@ def test_run_end_reconciles_stale_toggle_to_driver_truth(monkeypatch, sim_scope)
     # The idle edge: nothing holds the scope, nothing is still writing.
     ui_helpers.draw_shared_run_displays(
         ControlsLock(run_named=None, control_named=None, recording=False),
-        LiveWork(work=(), closing=False, closed=False),
+        LiveWork(work=(), lifecycle=SessionLifecycle.OPEN),
     )
 
     assert channels['BF'].ids['enable_led_btn'].state == 'normal', (

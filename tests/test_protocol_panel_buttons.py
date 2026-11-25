@@ -57,7 +57,7 @@ from _lumascope.modules import common_utils, live_work
 from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.caller import Caller, current_caller
 from _lumascope.modules.exceptions import ProtocolRunRefusedError
-from _lumascope.modules.live_work import LiveWork, WorkItem
+from _lumascope.modules.live_work import LiveWork, SessionLifecycle, WorkItem
 from _lumascope.modules.run_outcome import PendingRunOutcome
 from _lumascope.modules.protocol_image_writer import RunWriteBatch
 from _lumascope.modules.sequenced_capture_runner import EngineRun, RunProgress
@@ -144,7 +144,7 @@ class _Session(SimpleNamespace):
             if self.files_draining
             else ()
         )
-        return LiveWork(work=files, closing=False, closed=False)
+        return LiveWork(work=files, lifecycle=SessionLifecycle.OPEN)
 
 
 @pytest.fixture

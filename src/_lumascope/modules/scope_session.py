@@ -100,7 +100,7 @@ from _lumascope.modules.host_resources import DrawingGpu, HostReading
 from _lumascope.modules.scope_parts import Board, Part
 from _lumascope.modules.ui_queue import UiDispatcher
 from _lumascope.modules.keep_awake import KeepAwake
-from _lumascope.modules.live_work import LiveWork, WorkItem, WorkKind
+from _lumascope.modules.live_work import LiveWork, SessionLifecycle, WorkItem, WorkKind
 from _lumascope.modules.lumascope_api import AxisPosition, TurretStatus
 from _lumascope.modules.lumascope_api.imaging import SlowCameraStop
 from _lumascope.modules.lumascope_api._constants import (
@@ -810,11 +810,6 @@ class ScopeSession:
         # thread in the GUI): a threaded host must serialize
         # enable_metrics / disable_metrics itself.
         self._metrics_started = False
-        # Whether a shutdown() pass has COMPLETED. Written True as the last
-        # statement of that pass, so a pass that raised part-way leaves a
-        # retry possible; read at entry to make the second call a logged
-        # no-op. Host-serialized like the metrics flag.
-        self._shut_down = False
         # The host's read at create's entry, until the startup motion's end
         # takes it for the session's one reading; the reading once taken.
         self._host_opened: host_resources.HostSnapshot | None = None
@@ -830,9 +825,9 @@ class ScopeSession:
         # Held for the whole of a close, so a close asked on another thread
         # meanwhile waits for it and then finds it done; re-entrant, so a
         # close asked from inside the close (a listener it calls) returns
-        # rather than waiting on itself.
+        # rather than waiting on itself. Whether a close runs or has finished
+        # is the claim's lifecycle, its one store.
         self._close_lock = threading.RLock()
-        self._close_running = False
         # Support reports, logs zips and plugin runs in flight, by kind: each
         # runs on its caller's thread -- the GUI's diagnostics lane, a
         # script's own, a plugin's -- so the members count them, and the
@@ -1423,8 +1418,9 @@ class ScopeSession:
         it still has to take. Each item says how much it has left,
         a build how far it has got, and a run's images the write that is
         stuck, once one is. Read lock-free, owner by owner, from any
-        thread; ``closing`` while the close runs, ``closed`` once the
-        session has shut down. A wire client reads it in ``status``.
+        thread; its ``lifecycle`` is ``CLOSING`` while the close runs and
+        ``CLOSED`` once the session has shut down, read once from the claim.
+        A wire client reads it in ``status``.
 
         Raises:
             Nothing.
@@ -1451,9 +1447,7 @@ class ScopeSession:
                 work.append(WorkItem(kind, _COUNTED_WORK_NAMES[kind], left=count))
         if self.manual_capture.in_flight:
             work.append(self._still_work(self.manual_capture.sum_progress))
-        return LiveWork(
-            work=tuple(work), closing=self._activity_claim.closing, closed=self._shut_down
-        )
+        return LiveWork(work=tuple(work), lifecycle=self._activity_claim.lifecycle)
 
     @staticmethod
     def _still_work(progress: SumProgress | None) -> WorkItem:
@@ -7315,17 +7309,17 @@ class ScopeSession:
                 call completes.
         """
         with self._close_lock:
-            if self._shut_down or self._close_running:
+            if self._activity_claim.lifecycle != SessionLifecycle.OPEN:
                 logger.info('[Session  ] shutdown() called again -- nothing to do')
                 return
-            self._close_running = True
+            finished = False
             try:
                 self._finish_live_work()
                 self._save_at_close()
                 self._tear_down()
+                finished = True
             finally:
-                self._close_running = False
-                self._activity_claim.end_closing(closed=self._shut_down)
+                self._activity_claim.end_closing(closed=finished)
 
     _CLOSE_WAIT_LOG_S = 5.0
 
@@ -7473,7 +7467,6 @@ class ScopeSession:
         # Last, so a listener hears what the teardown itself reported.
         for listener in list(self._outcome_listeners):
             self.remove_outcome_listener(listener)
-        self._shut_down = True
 
     @api(in_process=True, stop='Operation.stop')
     def start_application_session(
@@ -7663,8 +7656,7 @@ class ScopeSession:
             isinstance(exception, LaneCallStillRunningError) and exception.reason == 'lane_closed'
         ):
             return True
-        live = self.live_work
-        return live.closing or live.closed
+        return self.live_work.lifecycle != SessionLifecycle.OPEN
 
     @api(in_process=True)
     def run_application_session(

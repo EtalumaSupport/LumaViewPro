@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from _lumascope.modules.live_work import SessionLifecycle
 import _lumascope.modules.scope_session as scope_session_module
 from _lumascope.modules.exceptions import ScopeDisconnectError
 from _lumascope.modules.scope_session import ScopeSession
@@ -128,10 +129,12 @@ class TestAFactoryBuiltScopeIsTornDown:
             with pytest.raises(ScopeDisconnectError) as excinfo:
                 session.shutdown()
             assert isinstance(excinfo.value.__cause__, RuntimeError)
-            assert session._shut_down is False, 'a pass that raised is not a completed pass'
+            assert session.live_work.lifecycle == SessionLifecycle.OPEN, (
+                'a pass that raised is not a completed pass'
+            )
             monkeypatch.setattr(scope.motion, '_stop', MagicMock())
             session.shutdown()
-            assert session._shut_down is True
+            assert session.live_work.lifecycle == SessionLifecycle.CLOSED
             assert scope.motor_connected is False
             assert not any('called again' in m for m in messages(session_log()))
         finally:

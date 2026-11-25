@@ -16,6 +16,7 @@ import logging
 import pytest
 
 from _lumascope.drivers.host_power import AwakeNotHeld
+from _lumascope.modules.live_work import SessionLifecycle
 from _lumascope.modules.lumascope_api.bring_up import CONFIGURING
 from _lumascope.modules.scope_session import ScopeSession
 from tests.host_power_stub import HOLDS, host
@@ -143,4 +144,4 @@ def test_a_release_the_host_refuses_leaves_the_close_complete(tmp_path, heard):
 
     session.shutdown()
 
-    assert session.live_work.closed
+    assert session.live_work.lifecycle == SessionLifecycle.CLOSED

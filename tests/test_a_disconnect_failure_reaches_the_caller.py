@@ -23,6 +23,7 @@ from _lumascope.modules.exceptions import (
     MotorStopFailedError,
     ScopeDisconnectError,
 )
+from _lumascope.modules.live_work import SessionLifecycle
 from _lumascope.modules.lumascope_api import Lumascope
 from _lumascope.modules.notification_center import outcome_of
 from _lumascope.modules.scope_parts import Board
@@ -202,9 +203,9 @@ def test_session_shutdown_raises_it_and_a_second_call_completes(tmp_path):
     assert [(f.board, f.step) for f in excinfo.value.failures] == [
         (Board.MOTOR, DisconnectStep.DISCONNECT)
     ]
-    assert session._shut_down is False
+    assert session.live_work.lifecycle == SessionLifecycle.OPEN
     session.shutdown()
-    assert session._shut_down is True
+    assert session.live_work.lifecycle == SessionLifecycle.CLOSED
 
 
 def _disconnect_then_fail(monkeypatch):
