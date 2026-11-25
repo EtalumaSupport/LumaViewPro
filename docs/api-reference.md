@@ -18026,6 +18026,14 @@ Each event, the member or `RunEvents` field that delivers it, its record (whose 
 | `turret` | [`MotionAPI.add_turret_listener`](#MotionAPI.add_turret_listener) | [`TurretChanged`](#TurretChanged) | event stream |
 | `video_progress` | [`RunEvents.video_progress`](#RunEvents.video_progress) | [`VideoProgress`](#VideoProgress) | event stream |
 
+The events the event stream sends of its own, which no member delivers.
+
+| Event | What it says |
+|---|---|
+| `closing` | The server is closing; the read ends. |
+| `job_ended` | A job, as `GET /jobs/<id>` reads it once it has ended. |
+| `reset` | The buffer has moved past a reconnecting reader's `Last-Event-ID`; `status` follows. |
+
 ## Saved-file facts
 
 Every fact a saved file's record can state, by its key, in the order the writer writes them: what it describes (a derived file states a `capture` fact never, a `channel` fact only on its inputs' channel, a `shared` fact as all its inputs state it), its key in the file's Plane block, the unit written beside it, whether a sum of frames drops it, and the fields of a structured fact. A file states a field only when it has a value, and shows a person each field as its own `key.field` pair (`plate.well_label`; an entry of a keyed fact `key.<key>.field`).

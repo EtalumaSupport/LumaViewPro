@@ -407,6 +407,19 @@ def _reached(member_routes: list[rest_routes.Route], records: dict[str, type]) -
     return found
 
 
+def test_every_event_the_stream_sends_has_its_row_in_the_reference(built):
+    # A client learns the stream's events from the reference's Events table;
+    # an event sent with no row there is one it never knows to listen for.
+    from tests.api_reference import REFERENCE
+
+    _, _, published, _ = built
+    events = REFERENCE.read_text(encoding='utf-8').split('\n## Events\n', 1)[1].split('\n## ')[0]
+    rows = set(re.findall(r'^\| `([a-z_]+)` \|', events, flags=re.MULTILINE))
+    assert set(published) - rows == set(), (
+        f'sent by the event stream with no row in its Events table: {sorted(set(published) - rows)}'
+    )
+
+
 def test_no_two_classes_on_the_wire_share_a_name(built):
     described, member_routes, events, records = built
     reached = _reached(member_routes, records)

@@ -60,7 +60,7 @@ from _lumascope.modules.run_events import RunEvents
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest import problems
 from _lumascope.rest.app import PREFIX, served
-from _lumascope.rest.events import _LIVE_VIEW, _event_name
+from _lumascope.rest.events import _LIVE_VIEW, STREAM_EVENTS, _event_name
 from _lumascope.rest.routes import routes
 from tests.ast_seams import REPO_ROOT
 from tests.marked_set import Marked
@@ -617,10 +617,14 @@ def _events_table(index: _Index) -> str:
         f'| `{name}` | [`{key}`](#{key}) | [`{record}`](#{record}) | {stream} |'
         for name, key, record, stream in sorted(rows)
     ]
+    own = [f'| `{name}` | {words} |' for name, words in sorted(STREAM_EVENTS.items())]
     return (
         'Each event, the member or `RunEvents` field that delivers it, its record (whose fields are '
         "the callback's arguments, in order), and what carries it to a REST client.\n\n"
-        '| Event | Delivered by | Record | Over REST |\n|---|---|---|---|\n' + '\n'.join(lines)
+        '| Event | Delivered by | Record | Over REST |\n|---|---|---|---|\n'
+        + '\n'.join(lines)
+        + '\n\nThe events the event stream sends of its own, which no member delivers.\n\n'
+        '| Event | What it says |\n|---|---|\n' + '\n'.join(own)
     )
 
 

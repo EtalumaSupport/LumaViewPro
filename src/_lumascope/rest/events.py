@@ -417,6 +417,16 @@ def records(session: ScopeSession) -> dict[str, type]:
     return {**found, **_run_events()}
 
 
+# The events the stream sends of its own, which no listener member delivers,
+# and what each says. The reference's Events table names them beside the
+# members' events, so every event the stream sends has its row.
+STREAM_EVENTS: typing.Final[dict[str, str]] = {
+    'job_ended': 'A job, as `GET /jobs/<id>` reads it once it has ended.',
+    'reset': "The buffer has moved past a reconnecting reader's `Last-Event-ID`; `status` follows.",
+    'closing': 'The server is closing; the read ends.',
+}
+
+
 def published(
     session: ScopeSession, handed_out: frozenset[type]
 ) -> dict[str, type[pydantic.BaseModel]]:
