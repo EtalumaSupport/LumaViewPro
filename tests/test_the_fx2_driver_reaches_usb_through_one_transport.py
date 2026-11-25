@@ -121,6 +121,7 @@ class _IsoHandle:
             setIsochronous=lambda *a, **kw: None,
             submit=lambda: self._events.append(('iso', 'submit')),
             cancel=cancel,
+            isSubmitted=lambda: not self.drained,
         )
 
     def controlWrite(self, request_type, request, value, index, data, timeout=None):

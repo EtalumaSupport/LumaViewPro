@@ -756,6 +756,11 @@ ISO_MAX_PACKET_SIZE = 3072  # 3 x 1024 bytes per microframe
 # alone, as a 4-byte packet.
 ISO_TRANSACTION_SIZE = 1024
 
+# Each stream whose stop left a transfer in flight, as (context, handle,
+# transfers), kept until the process exits: the operating system may still
+# write into those transfers' buffers (``_LibusbTransport._abandon``).
+_ABANDONED_STREAMS: list[tuple[Any, Any, list]] = []
+
 
 # ---------------------------------------------------------------------------
 # Intel HEX parser
@@ -1346,6 +1351,11 @@ class _PyusbTransport:
 class _LibusbTransport(_PyusbTransport):
     """The ISO stream, and control while it runs, through python-libusb1, on every host."""
 
+    # How long a stop waits for its canceled transfers. The slowest return
+    # recorded is 29 ms (Windows, 2026-11-25) and 10 ms (macOS); a transfer
+    # not back by then was not back 7 minutes later.
+    TRANSFERS_BACK_WITHIN_S = 1.0
+
     def __init__(self):
         super().__init__()
         self._ctx = None
@@ -1429,29 +1439,31 @@ class _LibusbTransport(_PyusbTransport):
     def stop_stream(self) -> None:
         """Stop the ISO stream and give control back to a reopened pyusb handle.
 
-        Matches the LVC reference: cancel transfers, drain events for ~2s,
-        join the event thread, send STOP, close the handle. Also undoes a
-        start that raised part way, so each step runs only on what was opened.
+        The event thread is joined, every transfer canceled, and events
+        handled until each transfer is back or ``TRANSFERS_BACK_WITHIN_S``
+        passes; then STOP is sent and the handle and context are closed.
+        A transfer still out at the bound never comes back -- Windows keeps
+        one from a Classic unplugged mid-stream and refuses its cancel -- and
+        python-libusb1's close waits on it without end, so that stream's
+        chain is abandoned instead (``_abandon``). Also undoes a start that
+        raised part way, so each step runs only on what was opened.
         """
         self._streaming = False
-        for xfer in self._transfers:
-            try:
-                xfer.cancel()
-            except Exception:
-                pass
-
-        # Drain cancelled transfers.
-        if self._ctx is not None:
-            deadline = time.monotonic() + 2.0
-            while time.monotonic() < deadline:
-                try:
-                    self._ctx.handleEventsTimeout(tv=0.1)
-                except Exception:
-                    break
-
+        # Joined before the cancels: a callback already past its streaming
+        # check would resubmit a transfer the loop below had canceled.
         if self._event_thread is not None:
             self._event_thread.join(timeout=3.0)
             self._event_thread = None
+
+        refused = Counter()
+        for xfer in self._transfers:
+            try:
+                xfer.cancel()
+            except usb1.USBError as e:
+                # Windows refuses every one (LIBUSB_ERROR_NOT_FOUND), and
+                # most come back all the same, completing with their error.
+                refused[type(e).__name__] += 1
+        still_out = self._transfers_still_out()
 
         if self._handle is not None:
             try:
@@ -1468,23 +1480,78 @@ class _LibusbTransport(_PyusbTransport):
                 self._handle.releaseInterface(0)
             except Exception:
                 pass
-            try:
-                self._handle.close()
-            except Exception:
-                pass
+        refusals = ', '.join(f'{count} {name}' for name, count in refused.items()) or 'none'
+        if still_out:
+            self._abandon(still_out, refusals)
+        else:
+            if refused:
+                logger.debug(
+                    '[FX2 Conn  ] every USB transfer came back; cancels refused: %s', refusals
+                )
+            if self._handle is not None:
+                try:
+                    self._handle.close()
+                except Exception:
+                    pass
+            # Paired with the explicit open() at stream start: dropping the
+            # reference without close() leaks the libusb context until GC.
+            # Every transfer is back and the handle closed above, so close()
+            # is safe here.
+            if self._ctx is not None:
+                self._ctx.close()
         self._transfers = []
-        # Paired with the explicit open() at stream start: dropping the
-        # reference without close() leaks the libusb context until GC. The
-        # transfers are cancelled and the handle closed above, so close()
-        # is safe here.
-        if self._ctx is not None:
-            self._ctx.close()
         self._ctx = None
         self._handle = None
         self._stream = None
         self._on_gone = None
 
         self._reopen_idle()
+
+    def _transfers_still_out(self) -> list:
+        """Handle events until every transfer is back or the bound passes; those still out.
+
+        Called with the event thread joined, so a transfer's ``isSubmitted()``
+        is python-libusb1's own record of it in flight.
+        """
+        deadline = time.monotonic() + self.TRANSFERS_BACK_WITHIN_S
+        while True:
+            out = [xfer for xfer in self._transfers if xfer.isSubmitted()]
+            if not out or time.monotonic() >= deadline:
+                return out
+            try:
+                self._ctx.handleEventsTimeout(tv=0.05)
+            except usb1.USBError:
+                # No event can be handled, so no transfer can come back.
+                return out
+
+    def _abandon(self, still_out: list, refusals: str) -> None:
+        """Leave this stream's python-libusb1 chain open: closing it waits on ``still_out`` forever.
+
+        Every close on the chain waits for its transfers, at the call, at
+        collection, and at interpreter exit, so each finalizer is detached:
+        the transfers', the handle's, the device's and the context's. A
+        detached one still listed by a live parent fails that parent's own
+        assertion, so none is left out. The objects are kept for the life of
+        the process, since the operating system may still own the transfers'
+        buffers; it frees them at exit. The transfers' finalizers are reached
+        through the handle's table and the context's under its mangled name:
+        python-libusb1's internals at the ``libusb1==3.4.0`` pin, which
+        ``tests/test_an_unplugged_fx2_closes_at_once.py`` runs on.
+        """
+        handle, ctx = self._handle, self._ctx
+        for finalizer in list(handle._finalizer_dict.values()):
+            finalizer.detach()
+        handle.close.detach()
+        handle.getDevice().close.detach()
+        ctx._USBContext__close.detach()
+        _ABANDONED_STREAMS.append((ctx, handle, list(self._transfers)))
+        logger.error(
+            '[FX2 Conn  ] the stream stopped with %d of %d USB transfers never back '
+            '(cancels refused: %s); its USB resources stay open until LumaViewPro exits',
+            len(still_out),
+            len(self._transfers),
+            refusals,
+        )
 
     def _iso_callback(self, transfer):
         """libusb1 callback -- called when an ISO transfer completes.
@@ -2671,12 +2738,14 @@ class FX2Camera(Camera):
             h = self._height
             layout = frame_layout(w, h)
 
+            # Recorded before the idle pass returns: a failed transfer carries
+            # no bytes, so an unplug's failures come in a pass with none.
             counts = stream.take_counts()
+            stats.record_counts(counts)
             frames = stream.take_frames()
             if not frames and not counts.arrived:
                 time.sleep(0.005)
                 continue
-            stats.record_counts(counts)
 
             for frame_data, damaged, handed_over in frames:
                 # Only a frame of exactly its window's length, with nothing

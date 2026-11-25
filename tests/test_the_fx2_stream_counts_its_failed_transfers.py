@@ -7,12 +7,15 @@ on every stream that runs the count was 0 whatever happened: the ISO
 callback resubmitted a failed transfer, and skipped a failed packet inside a
 completed one, without a record. A failed packet is bytes missing from the
 stream, the cause of a partial frame, so a count of zero beside partial
-frames told a reader the link was clean when it was not.
+frames told a reader the link was clean when it was not. A failed transfer
+carries no bytes, and the grab loop's pass that took one with no bytes and
+no frame dropped it, so an unplug's stop line said 0 USB errors.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from types import SimpleNamespace
 
 from _lumascope.drivers import fx2driver
@@ -118,5 +121,36 @@ def test_the_stop_line_counts_each_cause(caplog):
             '3 USB errors (ISO packet failed, USBD status 0xC0000011 x2; '
             'ISO read failed, Windows error 31 x1)'
         ) in stopped[0]
+    finally:
+        session.shutdown()
+
+
+def test_the_stop_line_counts_the_failures_of_an_unplug(caplog):
+    caplog.set_level(logging.INFO, logger='LVP')
+    settings = complete_settings()
+    settings['microscope'] = 'LS620'
+    settings['simulator_tier'] = 'fast'
+    session = ScopeSession.create(settings, simulate=True)
+    try:
+        session.scope.imaging.enable_streaming()
+        connection = session.scope._led_driver._fx2
+        # The macOS bench's unplug (2026-11-13): transfers failed and were
+        # resubmitted, then the bytes stopped; the silence removes the device.
+        session.scope.simulation.unplug('led')
+        # Failed after the last bytes were taken: a failed transfer carries none.
+        while connection.stream.seconds_since_arrival(time.monotonic()) < 0.2:
+            time.sleep(0.02)
+        for _ in range(3):
+            connection.stream.fail('ISO transfer failed, libusb status 1')
+
+        # The removal's teardown, on its own thread, stops the stream; it
+        # gives no signal of its end but the camera it releases.
+        deadline = time.monotonic() + 6.0
+        while session.scope._camera_driver.active is not None and time.monotonic() < deadline:
+            time.sleep(0.05)
+
+        stopped = [m for m in messages(records_of(caplog, fx2driver)) if 'streaming stopped' in m]
+        assert len(stopped) == 1, stopped
+        assert '3 USB errors' in stopped[0], stopped[0]
     finally:
         session.shutdown()
