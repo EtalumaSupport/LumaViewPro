@@ -108,6 +108,8 @@ def test_the_guis_start_refuses_it_where_the_start_is(tmp_path):
         session.shutdown()
     assert refused.value.reason == 'rest_server_not_started'
     assert 'rest_api.port' in str(refused.value)
+    # The window's label says it in these few words: the setting it cannot use.
+    assert refused.value.brief == 'rest_api.port cannot be used'
 
 
 def _installation_with(rest_api: dict):

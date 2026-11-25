@@ -162,6 +162,11 @@ class TestARunWithFailedCapturesEndsIncomplete:
         assert [failed.step_name for failed in outcome.captures.failed] == ['C1', 'C2']
         assert seen == ['incomplete'], 'run_ended told its subscribers a different ending'
         assert len(reported) == 1, reported
+        # The cause is said once, with the steps it cost, and nothing is left to the log.
+        said = str(reported[0])
+        cause = outcome.captures.failed[0].cause.rstrip('.')
+        assert f'{cause} (2: C1, C2)' in said and said.count(cause) == 1, said
+        assert 'log' not in said, said
 
     def test_a_success_between_failures_does_not_hide_them(self, tmp_path):
         # A success resets the three-in-a-row abort, so a run failing every

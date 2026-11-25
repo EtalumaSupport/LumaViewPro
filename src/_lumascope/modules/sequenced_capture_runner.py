@@ -1512,7 +1512,7 @@ class SequencedCaptureRunner:
                 logger.warning(f'[PROTOCOL] Validation: {err}')
             err_summary = '\n'.join(f'  - {err}' for err in validation_errors[:5])
             if len(validation_errors) > 5:
-                err_summary += f'\n  ... and {len(validation_errors) - 5} more (see log)'
+                err_summary += f'\n  ... and {len(validation_errors) - 5} more'
             self._refuse(
                 reason='validation_failed',
                 message=(
@@ -2530,7 +2530,7 @@ class SequencedCaptureRunner:
         incomplete = RunIncompleteError(
             asked=tally.asked,
             captured=tally.captured,
-            failed_steps=[failed.step_name for failed in tally.failed],
+            failed=[(failed.step_name, failed.cause) for failed in tally.failed],
         )
         if self._run_mode is not SequencedCaptureRunMode.SINGLE_COMPOSITE:
             from _lumascope.modules.notification_center import notifications
@@ -2871,7 +2871,7 @@ class SequencedCaptureRunner:
             incomplete = RunIncompleteError(
                 asked=tally.asked,
                 captured=tally.captured,
-                failed_steps=[failed.step_name for failed in tally.failed],
+                failed=[(failed.step_name, failed.cause) for failed in tally.failed],
             )
 
         def _settle(

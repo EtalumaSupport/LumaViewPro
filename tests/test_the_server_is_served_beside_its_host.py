@@ -16,7 +16,7 @@ import threading
 import httpx
 import pytest
 
-from _lumascope.modules.exceptions import RestServerNotStartedError
+from _lumascope.modules.exceptions import RestServerNotStartedError, system_words
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest.server import serve_beside
 from tests.settings_fixtures import complete_settings
@@ -66,6 +66,8 @@ def test_a_port_already_taken_is_raised_at_the_start_and_nothing_serves(tmp_path
     assert raised.value.reason == 'rest_server_not_started'
     assert f'{HOST}:{port}' in str(raised.value)
     assert isinstance(raised.value.__cause__, OSError)
+    # The window's label says it in these few words: the system's own reason.
+    assert raised.value.brief == system_words(raised.value.__cause__)
     assert threads_after <= threads_before
     assert shut == []
 

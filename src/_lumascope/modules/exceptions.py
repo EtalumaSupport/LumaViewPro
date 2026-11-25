@@ -1502,6 +1502,10 @@ class RestServerNotStartedError(Fault, Exception):
     reason -- another program on the port, or an address that is not this
     computer's (an unplugged cable withdraws its address). The GUI runs on
     without a server; the headless server exits.
+
+    Attributes:
+        brief: Why, in a few words: the operating system's reason, or the
+            settings that cannot be used.
     """
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'rest_server_not_started': None}
@@ -1514,6 +1518,7 @@ class RestServerNotStartedError(Fault, Exception):
     ) -> None:
         if isinstance(cause, OSError):
             reason = system_words(cause)
+            brief = reason
             if cause.errno in _ADDRESS_NOT_HERE:
                 advice = (
                     'rest_api.address must be an address of this computer, on a network that is '
@@ -1526,11 +1531,13 @@ class RestServerNotStartedError(Fault, Exception):
         else:
             # Each refused setting as its path and why.
             refused = '; '.join(f'{path}: {why}' for path, why in cause)
+            brief = ', '.join(path for path, _ in cause) + ' cannot be used'
             words = (
                 f'The REST server was not started: its settings cannot be used ({refused}). '
                 'Correct rest_api in the settings file while LumaViewPro is closed.'
             )
         super().__init__(words)
+        self.brief = brief
 
 
 @api_fields('loc', 'msg', 'type')
@@ -3535,11 +3542,22 @@ class RecordIncompleteError(Fault, CaptureError):
     title = 'Protocol Record Incomplete'
     causes: ClassVar[dict[str, RefusalCause | None]] = {'record_incomplete': None}
 
-    def __init__(self, *, missing: int, attempted: int, record_name: str):
+    def __init__(
+        self,
+        *,
+        missing: int,
+        attempted: int,
+        record_name: str,
+        lost: 'Sequence[tuple[str, str]]',
+    ):
+        """*lost* is each row the record knows it lost, as (step name, why)."""
+        from _lumascope.modules.common_utils import causes_in_words
+
+        why = f': {causes_in_words(lost)}' if lost else ''
         super().__init__(
             f'{missing} of {attempted} captures were not written to the protocol '
-            f'record ({record_name}). Those images, if saved, will be missing from '
-            'stitching and video builds. Check the log for the cause.',
+            f'record ({record_name}){why}. Those images, if saved, will be missing from '
+            'stitching and video builds.',
             'record_incomplete',
         )
         self.missing = missing
@@ -3615,25 +3633,24 @@ class RunIncompleteError(Fault, CaptureError):
     title = ENDING_TITLES['captures_failed']
     causes: ClassVar[dict[str, RefusalCause | None]] = {'captures_failed': None}
     same_fact_as = (_RunStartError,)
-    _NAMED_AT_MOST = 5
 
-    def __init__(self, *, asked: int, captured: int, failed_steps: list[str]):
+    def __init__(self, *, asked: int, captured: int, failed: 'Sequence[tuple[str, str]]'):
+        """*failed* is each failed capture's (step name, cause), in the order they failed."""
+        from _lumascope.modules.common_utils import causes_in_words
+
+        failed = tuple(failed)
         missing = asked - captured
         message = f'{missing} of the {asked} captures this run was asked for produced no image'
-        if failed_steps:
-            names = failed_steps[: self._NAMED_AT_MOST]
-            more = len(failed_steps) - len(names)
-            message += (
-                ' (failed: ' + ', '.join(names) + (f', and {more} more' if more else '') + ')'
-            )
-        never_reached = missing - len(failed_steps)
+        if failed:
+            message += f': {causes_in_words(failed)}'
+        never_reached = missing - len(failed)
         if never_reached:
             message += f'; {never_reached} were never reached'
-        message += '. The images that were captured are saved; check the log for each failure.'
+        message += '. The images that were captured are saved.'
         super().__init__(message, 'captures_failed')
         self.asked = asked
         self.captured = captured
-        self.failed_steps = list(failed_steps)
+        self.failed_steps = [step for step, _ in failed]
 
 
 class RunFailedError(Fault, CaptureError):

@@ -8,6 +8,7 @@ import pandas as pd
 
 from _lumascope.lvp_logger import logger
 from _lumascope.modules.exceptions import RecordIncompleteError
+from _lumascope.modules.notification_center import cause_in_words
 
 
 class ProtocolExecutionRecord:
@@ -66,6 +67,8 @@ class ProtocolExecutionRecord:
         # invisible hole in the record that post-processing silently skips.
         self._capture_attempts = 0
         self._rows_written = 0
+        # Each row a write lost, as (step name, why), so the shortfall says why.
+        self._lost_rows: list[tuple[str, str]] = []
         # Latched (never reset) when the save target is declared dead -- a
         # wedged file writer. Every add_step after that point would block the
         # calling thread against a filesystem that has already stopped
@@ -130,6 +133,7 @@ class ProtocolExecutionRecord:
                     missing=missing,
                     attempted=self._capture_attempts,
                     record_name=self._outfile.name,
+                    lost=self._lost_rows,
                 )
 
     def _close_outfile(self):
@@ -156,6 +160,7 @@ class ProtocolExecutionRecord:
                 f'ProtocolExecutionRecord: not writing step {step_name} -- the '
                 f'record target was declared unresponsive; the row is lost'
             )
+            self._lost_rows.append((step_name, 'the save drive stopped responding'))
             return
 
         try:
@@ -177,6 +182,7 @@ class ProtocolExecutionRecord:
             self._rows_written += 1
         except Exception as e:
             logger.error(f'ProtocolExecutionRecord: Failed to write step {step_name}: {e}')
+            self._lost_rows.append((step_name, cause_in_words(e)))
 
     @staticmethod
     def read_timestamp(stated: str) -> datetime.datetime:

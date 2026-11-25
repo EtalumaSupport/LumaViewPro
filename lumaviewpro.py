@@ -667,6 +667,8 @@ class LumaViewProApp(TooltipMixin, App):
     # None while none has been started; every close ends the session
     # through it.
     _rest_server = None
+    # Why the server was not started (``RestServerNotStartedError``), or None.
+    _rest_refused = None
 
     # The fit's 1 Hz labware and XY-readout schedules, each the one handle
     # that stops it; the close stops both before the scope is torn down.
@@ -1770,12 +1772,18 @@ class LumaViewProApp(TooltipMixin, App):
         """
         if ctx.session.setting('rest_api.enabled') is False:
             return
+        from _lumascope.modules.exceptions import RestServerNotStartedError
         from _lumascope.rest.server import serve_beside
 
         session = ctx.session
-        self._rest_server = serve_beside(
-            session, shut_down=lambda: self._shut_the_session_down(session)
-        )
+        try:
+            self._rest_server = serve_beside(
+                session, shut_down=lambda: self._shut_the_session_down(session)
+            )
+        except RestServerNotStartedError as refused:
+            # Kept for the window's label; reported where the start's raise stops.
+            self._rest_refused = refused
+            raise
         logger.info(f'[LVP Main  ] REST server serving {self._rest_server.reach}')
 
     def rest_reach(self) -> str:
@@ -1785,7 +1793,9 @@ class LumaViewProApp(TooltipMixin, App):
         if ctx.session.setting('rest_api.enabled') is False:
             return 'Off'
         # Its start was refused, and reported then.
-        return 'Not started: see the log'
+        if self._rest_refused is not None:
+            return f'Not started ({self._rest_refused.brief})'
+        return 'Not started'
 
     def _end_the_session(self, session: 'ScopeSession') -> None:
         """The session's close: inside the REST server's close while one serves, else directly.

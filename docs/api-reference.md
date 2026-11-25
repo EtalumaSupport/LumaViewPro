@@ -16991,6 +16991,10 @@ reason -- another program on the port, or an address that is not this
 computer's (an unplugged cable withdraws its address). The GUI runs on
 without a server; the headless server exits.
 
+**Attributes**
+
+- `brief`: Why, in a few words: the operating system's reason, or the settings that cannot be used.
+
 | Reason | Cause | REST status |
 |---|---|---|
 | `rest_server_not_started` | -- | 500 |

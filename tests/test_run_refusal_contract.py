@@ -1085,7 +1085,7 @@ class TestARunThatFailsValidationIsRefusedWithItsErrors:
         )
         assert not runner.run_in_progress(), 'run must not start'
 
-    def test_its_words_list_five_errors_and_point_to_the_log_for_the_rest(self):
+    def test_its_words_list_five_errors_and_count_the_rest(self):
         errors = [f'error number {i}' for i in range(1, 8)]
         _, _, refusal = self._refused_with(errors)
         body = refusal.message
@@ -1094,8 +1094,8 @@ class TestARunThatFailsValidationIsRefusedWithItsErrors:
         assert 'error number 6' not in body and 'error number 7' not in body, (
             f'errors past the fifth must be truncated from the words; got: {body}'
         )
-        assert 'and 2 more (see log)' in body, (
-            f'overflow must point the user to the log for full details; got: {body}'
+        assert body.endswith('... and 2 more'), (
+            f'the errors past the fifth are counted, never sent to the log; got: {body}'
         )
 
 

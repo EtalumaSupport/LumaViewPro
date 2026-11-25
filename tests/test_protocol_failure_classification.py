@@ -35,6 +35,7 @@ from __future__ import annotations
 
 from _lumascope.drivers.exceptions import BoardPortFailedError
 from _lumascope.modules.exceptions import INTERNAL_FAULT_SENTENCE
+from _lumascope.modules.notification_center import cause_in_words
 from _lumascope.modules.scope_parts import Board
 
 
@@ -115,6 +116,10 @@ class TestRunLoopInnerClassifiesByConnection:
         ((ending, domain),) = [c.args for c in runner._image_writer._end_run_failed.call_args_list]
         assert (ending.reason, domain) == ('consecutive_scan_failures', 'Protocol')
         assert '3 times' in ending.message and 'in a row' in ending.message, ending.message
+        # The last scan's cause, as a person reads it; nothing is left to the log.
+        last = cause_in_words(BoardPortFailedError('serial dropped mid-step')).rstrip('.')
+        assert f'the last: {last}.' in ending.message, ending.message
+        assert 'log' not in ending.message, ending.message
         assert runner._image_writer._abort_run_fatal.call_args_list == [], (
             'the strike ceiling stops a run the instrument could not complete; '
             'it must not force-darken the sample the way a fault does'

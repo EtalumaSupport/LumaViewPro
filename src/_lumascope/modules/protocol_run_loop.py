@@ -18,6 +18,7 @@ from _lumascope.lvp_logger import logger
 
 from _lumascope.modules.common_utils import room_to_write
 from _lumascope.modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
+from _lumascope.modules.notification_center import cause_in_words
 from _lumascope.modules.protocol_state_machine import ProtocolState
 from _lumascope.modules.exceptions import (
     INTERLOCK_REASONS,
@@ -450,9 +451,9 @@ class ProtocolRunLoop:
                 if consecutive_scan_failures >= MAX_CONSECUTIVE_SCAN_FAILURES:
                     message = (
                         f'The scan failed {consecutive_scan_failures} times '
-                        'in a row. Check the USB cable and power connections '
-                        'and the log for the cause, save the protocol, then '
-                        'restart LumaViewPro and the protocol.'
+                        f'in a row; the last: {cause_in_words(ex).rstrip(".")}. '
+                        'Check the USB cable and power connections, save the '
+                        'protocol, then restart LumaViewPro and the protocol.'
                     )
                     ending = RunEnding(RunStatus.FAILED, 'consecutive_scan_failures', message)
                     p.end_run_failed(ending)
