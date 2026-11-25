@@ -1299,7 +1299,7 @@ class LumaViewProApp(TooltipMixin, App):
         )
         ctx.ui_listener_bridge.register_all()
 
-        ctx.session.add_run_state_listener(self._on_run_state)
+        ctx.session.add_status_listener(self._on_run_state)
 
         # Slow idle refresh (1Hz) for display elements that may change without motion
         # (e.g., labware selection, stage offset changes)
@@ -1738,7 +1738,7 @@ class LumaViewProApp(TooltipMixin, App):
         # schedule redraws that read a scope that is going. Here and not in
         # on_stop, which a crash skips.
         ctx.ui_listener_bridge.unregister_all()
-        ctx.session.remove_run_state_listener(self._on_run_state)
+        ctx.session.remove_status_listener(self._on_run_state)
         self._labware_tick.cancel()
         self._xy_readout_tick.cancel()
 

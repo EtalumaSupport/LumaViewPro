@@ -258,14 +258,14 @@ def test_each_run_state_edge_sends_the_status_in_the_order_heard(client, session
         events = stream.until('job_ended')
 
         def last_state():
-            return [e for e in events if e.get('event') == 'run_state'][-1]['data']
+            return [e for e in events if e.get('event') == 'status'][-1]['data']
 
         # The run lets go before its job ends, but a file write can hold the
         # controls a moment longer; its release is an edge of its own.
         while last_state()['lock']['run_lockout']:
             events.append(stream.next())
 
-    states = [e['data'] for e in events if e['event'] == 'run_state']
+    states = [e['data'] for e in events if e['event'] == 'status']
     assert {
         'live_work',
         'lock',
@@ -312,7 +312,7 @@ def test_a_status_read_waiting_on_the_camera_does_not_hold_the_edge(client, sess
                 pass
         finally:
             released.set()
-        events = stream.until('run_state')
+        events = stream.until('status')
 
     # The grant and the release are made on this thread; the camera is never
     # asked on it, and the grant's event still says what held the scope.

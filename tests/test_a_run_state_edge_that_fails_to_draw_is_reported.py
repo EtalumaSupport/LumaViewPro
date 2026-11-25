@@ -63,7 +63,7 @@ def test_the_apps_run_state_listener_draws_through_run_unasked():
         for node in ast.walk(fit)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
-        and node.func.attr == 'add_run_state_listener'
+        and node.func.attr == 'add_status_listener'
     ]
     assert len(listeners) == 1, 'the App registers one run-state listener'
     registered = ast.unparse(listeners[0])

@@ -172,13 +172,13 @@ def test_at_the_live_edge_the_session_reads_the_recording_live(tmp_path):
         heard.append((session._activity_claim.owner, session.controls_lock.recording))
 
     try:
-        session.add_run_state_listener(on_edge)
+        session.add_status_listener(on_edge)
         operation = session.manual_recording.start()
         at_start = list(heard)
         operation.stop()
         operation.result(timeout=30)
     finally:
-        session.remove_run_state_listener(on_edge)
+        session.remove_status_listener(on_edge)
         session.shutdown()
 
     assert ('recording', True) in at_start, at_start

@@ -505,30 +505,6 @@ per process. `shutdown()` removes the listener.
 
 - `listener`: Called as `listener(notification)` once per delivery, on the thread that reported it, so it must return promptly and must not wait on the scope.
 
-<a id="ScopeSession.add_run_state_listener"></a>
-### `ScopeSession.add_run_state_listener`
-
-```python
-def add_run_state_listener(self, listener: Callable[[], None]) -> None
-```
-
-Marks: in-process; event: [`Status`](#Status).  
-Raises nothing.
-
-Register a run-state transition listener and level-sync it.
-
-The immediate call is the level republish: transitions are
-edges, and a listener registered after a grant would otherwise
-never see it. A wire client is sent the session's `status` at
-each edge, in the order the edges happen: every field read at the
-edge but the camera's, which is asked just after; a field that
-changes with no edge (an axis, a part, the camera) is as of that
-edge.
-
-**Args**
-
-- `listener`: Called with no arguments at each run-state transition, and once now; it re-reads whatever state it shows.
-
 <a id="ScopeSession.add_settings_listener"></a>
 ### `ScopeSession.add_settings_listener`
 
@@ -569,6 +545,30 @@ LED write, a run's light, its end policy -- is an `led` event
 **Args**
 
 - `listener`: Called as `listener(channel, lit)`, the channel now shown and whether its LED is lit, on the thread that changed it, so a GUI listener schedules its drawing.
+
+<a id="ScopeSession.add_status_listener"></a>
+### `ScopeSession.add_status_listener`
+
+```python
+def add_status_listener(self, listener: Callable[[], None]) -> None
+```
+
+Marks: in-process; event: [`Status`](#Status).  
+Raises nothing.
+
+Register a listener told at each run-state edge, the edges `status` changes at, and level-sync it.
+
+The immediate call is the level republish: transitions are
+edges, and a listener registered after a grant would otherwise
+never see it. A wire client is sent the session's `status` at
+each edge, in the order the edges happen: every field read at the
+edge but the camera's, which is asked just after; a field that
+changes with no edge (an axis, a part, the camera) is as of that
+edge.
+
+**Args**
+
+- `listener`: Called with no arguments at each run-state transition, and once now; it re-reads whatever state it shows.
 
 <a id="ScopeSession.add_step"></a>
 ### `ScopeSession.add_step`
@@ -2458,22 +2458,6 @@ Stop `listener` hearing outcomes; a listener never added is a no-op.
 
 - `listener`: The callable `add_outcome_listener` (or `create`'s `outcome_listener`) registered.
 
-<a id="ScopeSession.remove_run_state_listener"></a>
-### `ScopeSession.remove_run_state_listener`
-
-```python
-def remove_run_state_listener(self, listener: Callable[[], None]) -> None
-```
-
-Marks: in-process.  
-Raises nothing.
-
-Stop telling `listener` of run-state transitions; a listener never added is a no-op.
-
-**Args**
-
-- `listener`: The callable `add_run_state_listener` registered.
-
 <a id="ScopeSession.remove_settings_listener"></a>
 ### `ScopeSession.remove_settings_listener`
 
@@ -2505,6 +2489,22 @@ Stop telling `listener`; a listener never added is a no-op.
 **Args**
 
 - `listener`: The callable `add_shown_channel_listener` registered.
+
+<a id="ScopeSession.remove_status_listener"></a>
+### `ScopeSession.remove_status_listener`
+
+```python
+def remove_status_listener(self, listener: Callable[[], None]) -> None
+```
+
+Marks: in-process.  
+Raises nothing.
+
+Stop telling `listener` of run-state transitions; a listener never added is a no-op.
+
+**Args**
+
+- `listener`: The callable `add_status_listener` registered.
 
 <a id="ScopeSession.rename_step"></a>
 ### `ScopeSession.rename_step`
@@ -12393,7 +12393,7 @@ A stage X/Y position, in um.
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
 Returned by: [`ScopeSession.status`](#ScopeSession.status).  
-Delivered by: [`ScopeSession.add_run_state_listener`](#ScopeSession.add_run_state_listener).
+Delivered by: [`ScopeSession.add_status_listener`](#ScopeSession.add_status_listener).
 
 What the scope is doing, in one read, for a client that has just connected.
 
@@ -18017,11 +18017,11 @@ Each event, the member or `RunEvents` field that delivers it, its record (whose 
 | `outcome` | [`ScopeSession.add_outcome_listener`](#ScopeSession.add_outcome_listener) | [`Notification`](#Notification) | event stream |
 | `position` | [`MotionAPI.add_position_listener`](#MotionAPI.add_position_listener) | [`PositionChanged`](#PositionChanged) | event stream |
 | `run_ended` | [`RunEvents.run_ended`](#RunEvents.run_ended) | [`RunEnded`](#RunEnded) | event stream |
-| `run_state` | [`ScopeSession.add_run_state_listener`](#ScopeSession.add_run_state_listener) | [`Status`](#Status) | event stream |
 | `scan_ended` | [`RunEvents.scan_ended`](#RunEvents.scan_ended) | [`ScanEnded`](#ScanEnded) | event stream |
 | `scan_started` | [`RunEvents.scan_started`](#RunEvents.scan_started) | [`ScanStarted`](#ScanStarted) | event stream |
 | `settings` | [`ScopeSession.add_settings_listener`](#ScopeSession.add_settings_listener) | [`SettingsChanged`](#SettingsChanged) | event stream |
 | `shown_channel` | [`ScopeSession.add_shown_channel_listener`](#ScopeSession.add_shown_channel_listener) | [`ShownChannel`](#ShownChannel) | event stream |
+| `status` | [`ScopeSession.add_status_listener`](#ScopeSession.add_status_listener) | [`Status`](#Status) | event stream |
 | `step_started` | [`RunEvents.step_started`](#RunEvents.step_started) | [`StepStarted`](#StepStarted) | event stream |
 | `turret` | [`MotionAPI.add_turret_listener`](#MotionAPI.add_turret_listener) | [`TurretChanged`](#TurretChanged) | event stream |
 | `video_progress` | [`RunEvents.video_progress`](#RunEvents.video_progress) | [`VideoProgress`](#VideoProgress) | event stream |

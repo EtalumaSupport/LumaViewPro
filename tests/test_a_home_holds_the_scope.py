@@ -79,7 +79,7 @@ def _refused_by_the_home(ask):
 def test_a_home_holds_the_scope_until_it_ends(session, monkeypatch):
     scope = session.scope
     edges = []
-    session.add_run_state_listener(lambda: edges.append(session.controls_lock.controls_locked))
+    session.add_status_listener(lambda: edges.append(session.controls_lock.controls_locked))
     held = _HeldHome(scope, monkeypatch)
 
     home = scope.motion.start_home('ALL')

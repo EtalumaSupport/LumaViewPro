@@ -63,7 +63,7 @@ def test_the_sessions_listeners_hear_a_run_return_to_idle(tmp_path):
     )
     try:
         heard = []
-        session.add_run_state_listener(lambda: heard.append(True))
+        session.add_status_listener(lambda: heard.append(True))
         heard.clear()  # the level republish on registering
 
         session._sequenced_capture_runner._on_run_idle()

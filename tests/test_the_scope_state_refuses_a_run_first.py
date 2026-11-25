@@ -76,14 +76,14 @@ def test_a_run_between_taking_the_scope_and_starting_is_already_running(make_ses
             refusal = runner.state_refusal(session._activity_claim)
             heard.append(refusal.reason if refusal is not None else None)
 
-    session.add_run_state_listener(on_edge)
+    session.add_status_listener(on_edge)
     try:
         run = session.protocol_runner().start_single_scan(
             _one_step_protocol(session), parent_dir=str(tmp_path)
         )
         run.result(timeout=RUN_WAIT_S)
     finally:
-        session.remove_run_state_listener(on_edge)
+        session.remove_status_listener(on_edge)
 
     assert heard, 'no run-state edge was heard while the run held the scope'
     assert set(heard) == {'already_running'}, heard

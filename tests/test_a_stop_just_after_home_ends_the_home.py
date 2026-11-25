@@ -185,7 +185,7 @@ def _stop_as_the_scope_is_let_go(session, started):
         return real(command, *args, **kwargs)
 
     driver.exchange_command = recorded
-    session.add_run_state_listener(stop_when_free)
+    session.add_status_listener(stop_when_free)
     return sent, asked
 
 

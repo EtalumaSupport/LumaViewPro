@@ -146,7 +146,7 @@ class TestTransitionNotification:
         # must still see current truth, so registration republishes.
         session = session_on_a_simulated_scope()
         fired = []
-        session.add_run_state_listener(lambda: fired.append(True))
+        session.add_status_listener(lambda: fired.append(True))
         assert fired, 'registration must invoke the listener once (level sync)'
 
     def test_the_write_batchs_completion_is_one_run_state_edge(self):

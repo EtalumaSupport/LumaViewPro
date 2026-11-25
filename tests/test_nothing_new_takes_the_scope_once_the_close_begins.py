@@ -135,7 +135,7 @@ def test_a_run_state_listener_hears_the_close_begin_and_end(tmp_path):
 
     session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
     heard = []
-    session.add_run_state_listener(
+    session.add_status_listener(
         lambda: heard.append((session.live_work.closing, session.live_work.closed))
     )
     heard.clear()

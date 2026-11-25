@@ -369,7 +369,7 @@ def register(ctx):
 
 The host does not lock a mounted widget while a run or a diagnostic
 holds the scope. A plugin grays its own controls from
-`ctx.add_run_state_listener` and `ctx.controls_lock.controls_locked`,
+`ctx.add_status_listener` and `ctx.controls_lock.controls_locked`,
 as the built-in regions do, so a control that must stay live during a
 run, such as its own Stop, stays live.
 

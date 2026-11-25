@@ -1732,8 +1732,8 @@ class ScopeSession:
         return still
 
     @api(in_process=True, event=Status)
-    def add_run_state_listener(self, listener: Callable[[], None]) -> None:
-        """Register a run-state transition listener and level-sync it.
+    def add_status_listener(self, listener: Callable[[], None]) -> None:
+        """Register a listener told at each run-state edge, the edges ``status`` changes at, and level-sync it.
 
         The immediate call is the level republish: transitions are
         edges, and a listener registered after a grant would otherwise
@@ -1754,11 +1754,11 @@ class ScopeSession:
         listener()
 
     @api(in_process=True)
-    def remove_run_state_listener(self, listener: Callable[[], None]) -> None:
+    def remove_status_listener(self, listener: Callable[[], None]) -> None:
         """Stop telling ``listener`` of run-state transitions; a listener never added is a no-op.
 
         Args:
-            listener: The callable ``add_run_state_listener`` registered.
+            listener: The callable ``add_status_listener`` registered.
 
         Raises:
             Nothing.

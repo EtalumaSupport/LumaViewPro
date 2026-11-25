@@ -43,7 +43,7 @@ class TestALentRun:
     def test_the_lend_and_the_return_are_each_announced(self):
         session = session_on_a_simulated_scope()
         heard = []
-        session.add_run_state_listener(
+        session.add_status_listener(
             lambda: heard.append(session.live_work.has(live_work.WorkKind.PROTOCOL))
         )
         heard.clear()

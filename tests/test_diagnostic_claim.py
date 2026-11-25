@@ -81,7 +81,7 @@ class TestTheDiagnosticHoldsTheScope:
     def test_the_controls_lock_while_it_holds_and_listeners_see_both_edges(self):
         session = session_on_a_simulated_scope()
         seen = []
-        session.add_run_state_listener(lambda: seen.append(session.controls_lock.controls_locked))
+        session.add_status_listener(lambda: seen.append(session.controls_lock.controls_locked))
         seen.clear()
         with session.diagnostic_claim():
             assert session.controls_lock.run_lockout is True

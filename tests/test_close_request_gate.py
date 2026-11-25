@@ -335,8 +335,8 @@ def test_the_close_stops_the_window_listening_before_the_scope_goes():
         assert len(handed) == 1, f'{method.name} calls {member} {len(handed)} times'
         return handed[0]
 
-    assert listener_handed_to(prepare, 'remove_run_state_listener') == listener_handed_to(
-        _method(class_node, '_fit'), 'add_run_state_listener'
+    assert listener_handed_to(prepare, 'remove_status_listener') == listener_handed_to(
+        _method(class_node, '_fit'), 'add_status_listener'
     ), 'the close removes a different run-state listener from the one the window added'
 
 

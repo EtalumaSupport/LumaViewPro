@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A run-state listener can be removed, so a client that leaves stops being told.
 
-Before, ``add_run_state_listener`` had no remove: the REST stream, which
+Before, ``add_status_listener`` had no remove: the REST stream, which
 adds one listener per member each time the app opens, removes each through
 ``remove_<name>_listener`` when it closes, found none for run state, and
 left its listener behind on every app lifespan. A removed listener is not
@@ -31,17 +31,17 @@ def test_a_removed_listener_is_not_told_again(session):
     def listener():
         told.append(1)
 
-    session.add_run_state_listener(listener)
+    session.add_status_listener(listener)
     told.clear()
 
-    session.remove_run_state_listener(listener)
+    session.remove_status_listener(listener)
     session.notify_run_state()
 
     assert told == []
 
 
 def test_removing_a_listener_never_added_is_a_no_op(session):
-    session.remove_run_state_listener(lambda: None)
+    session.remove_status_listener(lambda: None)
 
 
 def test_three_app_lifespans_leave_no_run_state_listener_behind(session):

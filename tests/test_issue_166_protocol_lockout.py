@@ -25,4 +25,4 @@ def test_mirror_is_listener_published_not_caller_pushed():
     assert 'def publish_protocol_running' not in helpers
     app_src = _read('lumaviewpro.py')
     assert 'def publish_run_state' in app_src
-    assert 'add_run_state_listener' in app_src
+    assert 'add_status_listener' in app_src
