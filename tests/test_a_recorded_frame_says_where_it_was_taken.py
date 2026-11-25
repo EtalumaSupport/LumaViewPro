@@ -368,7 +368,7 @@ class TestTheFrameFile:
         assert written['plate']['name'] == plate().name
         assert written['timestamp_iso'] == A_TIME.at.isoformat(timespec='microseconds')
         assert written['timestamp_source'] == 'host_arrival'
-        assert (written['timestamp_camera_ticks'], written['frame_id']) == (123456789, 41)
+        assert (written['camera_timestamp_ticks'], written['frame_id']) == (123456789, 41)
         assert 'black_level' not in written
         assert 'frame_validity' not in written
 

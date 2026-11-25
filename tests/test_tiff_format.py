@@ -737,8 +737,8 @@ class TestTimestampMetadata:
     def test_camera_ticks_emitted_when_provided(self, img_8bit, metadata):
         metadata['timestamp_iso'] = '2026-05-09T14:23:01.123456'
         metadata['timestamp_source'] = 'camera_frame_start'
-        metadata['timestamp_camera_ticks'] = 1234567890123
-        metadata['timestamp_camera_tick_hz'] = 1_000_000_000
+        metadata['camera_timestamp_ticks'] = 1234567890123
+        metadata['camera_timestamp_tick_hz'] = 1_000_000_000
         result = image_utils.generate_tiff_data(
             data=img_8bit,
             metadata=metadata,

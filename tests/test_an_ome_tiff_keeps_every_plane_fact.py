@@ -56,8 +56,8 @@ def _every_plane_field() -> dict:
         'illumination_timing': 'on_arrival',
         'recording_frame': 3,
         'stage_moving': True,
-        'timestamp_camera_ticks': 123456789,
-        'timestamp_camera_tick_hz': 1_000_000_000,
+        'camera_timestamp_ticks': 123456789,
+        'camera_timestamp_tick_hz': 1_000_000_000,
         'frame_id': 7,
         'frame_validity': [
             {

@@ -18055,8 +18055,8 @@ Every fact a saved file's record can state, by its key, in the order the writer 
 | `binning_size` | shared | `Binning` | -- | no | -- | -- |
 | `timestamp_iso` | capture | `Timestamp` | -- | no | -- | -- |
 | `timestamp_source` | capture | `TimestampSource` | -- | no | -- | -- |
-| `timestamp_camera_ticks` | capture | `TimestampCameraTicks` | -- | no | -- | -- |
-| `timestamp_camera_tick_hz` | capture | `TimestampCameraTickHz` | -- | no | -- | -- |
+| `camera_timestamp_ticks` | capture | `TimestampCameraTicks` | -- | no | -- | `timestamp_camera_ticks` until 4.0.0-beta48, read back |
+| `camera_timestamp_tick_hz` | capture | `TimestampCameraTickHz` | -- | no | -- | `timestamp_camera_tick_hz` until 4.0.0-beta48, read back |
 | `frame_id` | capture | `FrameID` | -- | no | -- | -- |
 | `frame_validity` | capture | `FrameValidity` | -- | no | keyed by judgment index: `source`, `counts`, `frames_after`, `after_write_ms`, `skip`, `counted_by`, `after_in_force_ms` | -- |
 | `saturated_fraction` | capture | `SaturatedFraction` | -- | no | -- | -- |

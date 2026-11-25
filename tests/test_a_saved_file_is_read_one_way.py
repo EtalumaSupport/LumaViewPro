@@ -383,8 +383,8 @@ def test_a_recorded_frame_of_every_shipped_shape_reads_its_scale_and_time(tmp_pa
     assert {name: r['recording_frame'] for name, r in read.items()} == {'v2': 3, 'b30': 4}
     assert {
         key: read['b30'][key]
-        for key in ('timestamp_camera_ticks', 'timestamp_camera_tick_hz', 'frame_id')
-    } == {'timestamp_camera_ticks': 123, 'timestamp_camera_tick_hz': 1_000_000_000, 'frame_id': 9}
+        for key in ('camera_timestamp_ticks', 'camera_timestamp_tick_hz', 'frame_id')
+    } == {'camera_timestamp_ticks': 123, 'camera_timestamp_tick_hz': 1_000_000_000, 'frame_id': 9}
     assert {name: r['datetime'] for name, r in read.items()} == {
         name: _A_TIME.replace(microsecond=0) for name in read
     }

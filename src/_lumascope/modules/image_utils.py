@@ -609,9 +609,19 @@ FILE_FACTS: dict[str, FileFact] = {
     'timestamp_source': FileFact(FactKind.CAPTURE, 'TimestampSource'),
     # The camera-side ChunkTimestamp, and its tick frequency for converting
     # ticks to seconds (1 GHz on Basler USB3, GevTimestampTickFrequency on
-    # GigE); the ChunkFrameID / Framecounter integer.
-    'timestamp_camera_ticks': FileFact(FactKind.CAPTURE, 'TimestampCameraTicks'),
-    'timestamp_camera_tick_hz': FileFact(FactKind.CAPTURE, 'TimestampCameraTickHz'),
+    # GigE); the ChunkFrameID / Framecounter integer. Their keys are the
+    # capabilities' and FrameRecord's words; the Plane names are kept for the
+    # readers that parse the block.
+    'camera_timestamp_ticks': FileFact(
+        FactKind.CAPTURE,
+        'TimestampCameraTicks',
+        formerly=(FormerKey('timestamp_camera_ticks', '4.0.0-beta48'),),
+    ),
+    'camera_timestamp_tick_hz': FileFact(
+        FactKind.CAPTURE,
+        'TimestampCameraTickHz',
+        formerly=(FormerKey('timestamp_camera_tick_hz', '4.0.0-beta48'),),
+    ),
     'frame_id': FileFact(FactKind.CAPTURE, 'FrameID'),
     # Each change the frame was judged against: whether it counts, how many
     # frames and milliseconds after the change it came, and who counted the
