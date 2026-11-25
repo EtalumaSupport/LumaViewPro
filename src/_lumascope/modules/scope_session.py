@@ -6085,7 +6085,7 @@ class ScopeSession:
         """The user's settings file set aside and why, or None while it is in use.
 
         Read from settings_init, its one store, each time: the person's
-        choice to start over (``retire_rejected_settings``) clears it.
+        choice to start over (``retire_set_aside_settings``) clears it.
         """
         from _lumascope.modules.lumascope_api.bring_up import SettingsSetAside
 
@@ -6433,24 +6433,14 @@ class ScopeSession:
         return self.scope.host_steady_ns()
 
     @api
-    @property
-    def settings_are_provisional(self) -> bool:
-        """Is the app running on defaults nobody has agreed to keep?
+    def retire_set_aside_settings(self) -> pathlib.Path | None:
+        """Resolve the provisional-settings state: retire the file set aside.
 
-        True while the user's current.json could not be used and no one
-        has decided its fate. While it holds, accepted writes are kept in
-        memory and not saved (``SettingsNotSavedNotice``) -- resolve with
-        retire_rejected_settings() after the user has chosen to start
-        over.
-
-        Raises:
-            Nothing.
-        """
-        return settings_init.settings_are_provisional()
-
-    @api
-    def retire_rejected_settings(self) -> pathlib.Path | None:
-        """Resolve the provisional-settings state: retire the rejected file.
+        The settings are provisional while
+        ``bring_up_record.settings_set_aside`` is not None: the user's
+        current.json could not be used and no one has decided its fate, so
+        accepted writes are kept in memory and not saved
+        (``SettingsNotSavedNotice``).
 
         Moves the unusable current.json aside (renamed, never deleted --
         it is the user's only copy) so a fresh one can take its place,
@@ -6545,7 +6535,7 @@ class ScopeSession:
         if self.scope.no_hardware:
             logger.info('[Session  ] objective question withheld -- no hardware this session')
             return None
-        if self.settings_are_provisional:
+        if settings_init.settings_are_provisional():
             logger.info(
                 '[Session  ] objective question deferred -- settings are provisional and '
                 'the answer could not be kept'
@@ -6588,7 +6578,7 @@ class ScopeSession:
         A hold or provisional settings refuse nothing here: the answer's own
         write refuses a change under a hold, and a write while settings are
         provisional is kept in memory like any other setting's, and not
-        saved (``settings_are_provisional``).
+        saved (``bring_up_record.settings_set_aside``).
 
         Raises:
             ObjectiveUnknownError: ``'slot_unknown'``, the slot in the light

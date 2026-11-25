@@ -429,7 +429,7 @@ class VerticalControl(BoxLayout):
         def _ask():
             question = _app_ctx.ctx.session.objective_question
             if question is None:
-                if not _app_ctx.ctx.session.settings_are_provisional:
+                if _app_ctx.ctx.session.bring_up_record.settings_set_aside is None:
                     self._resolve_objective(on_resolved)
                 return
             self._render_objective_question(question, on_resolved=on_resolved)

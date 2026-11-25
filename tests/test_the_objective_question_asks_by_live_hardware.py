@@ -161,7 +161,6 @@ class TestTheQuestionUsesIt:
             'turret_status',
             property(lambda self: TurretStatus(AxisState.IDLE, 1)),
         )
-        monkeypatch.setattr(type(session), 'settings_are_provisional', property(lambda self: False))
         monkeypatch.setattr(type(session.scope), 'no_hardware', property(lambda self: False))
 
         question = session.objective_question
@@ -174,7 +173,6 @@ class TestTheQuestionUsesIt:
     @pytest.mark.parametrize('session', [{'objective_confirmed': False}], indirect=True)
     def test_no_slot_is_named_when_the_board_reports_no_turret(self, session, monkeypatch):
         _board(session, has_turret=False)
-        monkeypatch.setattr(type(session), 'settings_are_provisional', property(lambda self: False))
         monkeypatch.setattr(type(session.scope), 'no_hardware', property(lambda self: False))
 
         question = session.objective_question

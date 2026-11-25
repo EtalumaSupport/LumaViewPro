@@ -863,10 +863,11 @@ class LumaViewProApp(TooltipMixin, App):
         mean running with saves silently disabled -- the user changes settings
         all session and loses every one of them at exit, with nothing said.
         """
-        if not ctx.session.settings_are_provisional:
+        set_aside = ctx.session.bring_up_record.settings_set_aside
+        if set_aside is None:
             return
 
-        reason = ctx.session.bring_up_record.settings_set_aside.reason
+        reason = set_aside.reason
 
         def _after_revert():
             # The retire is a file rename that can fail under a Windows
@@ -875,13 +876,13 @@ class LumaViewProApp(TooltipMixin, App):
             # resolved. Otherwise settings can be kept again, so the
             # objective question suppressed while they were provisional is
             # asked now.
-            if ctx.session.settings_are_provisional:
+            if ctx.session.bring_up_record.settings_set_aside is not None:
                 self._ask_about_rejected_settings()
             else:
                 self._prompt_objective_if_needed()
 
         def _revert():
-            run_reported(ctx.session.retire_rejected_settings, _after_revert, 'USE_DEFAULTS')
+            run_reported(ctx.session.retire_set_aside_settings, _after_revert, 'USE_DEFAULTS')
 
         def _quit():
             logger.warning('[LVP Main  ] user chose to repair settings; exiting without saving')

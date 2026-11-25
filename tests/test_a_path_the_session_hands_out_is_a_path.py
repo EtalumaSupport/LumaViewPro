@@ -43,6 +43,6 @@ def test_the_settings_file_set_aside_and_its_retired_name_are_paths(session, mon
     assert set_aside.path == current
     assert isinstance(set_aside.path, pathlib.Path)
 
-    retired = session.retire_rejected_settings()
+    retired = session.retire_set_aside_settings()
     assert isinstance(retired, pathlib.Path)
     assert retired.is_file() and retired.parent == tmp_path

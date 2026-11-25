@@ -134,7 +134,7 @@ class TestTheContinuationRunsOnEveryOutcome:
     def test_it_is_withheld_while_settings_are_provisional(self):
         """The one None that must NOT resolve: the host re-asks later."""
         src = self._prompt_source()
-        assert 'settings_are_provisional' in src, (
+        assert 'settings_set_aside' in src, (
             'the continuation runs even while settings are provisional, where '
             'the question is owed but its answer could not be kept'
         )

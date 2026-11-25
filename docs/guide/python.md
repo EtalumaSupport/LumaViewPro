@@ -82,9 +82,9 @@ own ([Bringing a session up](concepts.md#bringing-a-session-up)).
 
 Given `settings_file`, the session saves every accepted write
 itself, within a second and at shutdown, once the scope is up. While the
-settings are provisional (`session.settings_are_provisional`), or when the
-scope found no hardware at bring-up, writes are kept unsaved and the session
-says so once (`SettingsNotSavedNotice`). Without `settings_file` nothing is
+settings are provisional (`session.bring_up_record.settings_set_aside` is
+not None), or when the scope found no hardware at bring-up, writes are kept
+unsaved and the session says so once (`SettingsNotSavedNotice`). Without `settings_file` nothing is
 saved, which is what a test or a one-off script usually wants.
 
 ### Logging

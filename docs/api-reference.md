@@ -1292,7 +1292,7 @@ default before.
 A hold or provisional settings refuse nothing here: the answer's own
 write refuses a change under a hold, and a write while settings are
 provisional is kept in memory like any other setting's, and not
-saved (`settings_are_provisional`).
+saved (`bring_up_record.settings_set_aside`).
 
 **Raises**
 
@@ -2554,16 +2554,22 @@ included. An id that names no live session renews nothing.
 
 - `session_id`: The `id` the session was taken with.
 
-<a id="ScopeSession.retire_rejected_settings"></a>
-### `ScopeSession.retire_rejected_settings`
+<a id="ScopeSession.retire_set_aside_settings"></a>
+### `ScopeSession.retire_set_aside_settings`
 
 ```python
-def retire_rejected_settings(self) -> Path | None
+def retire_set_aside_settings(self) -> Path | None
 ```
 
-Route: `POST /api/v1/retire_rejected_settings`.
+Route: `POST /api/v1/retire_set_aside_settings`.
 
-Resolve the provisional-settings state: retire the rejected file.
+Resolve the provisional-settings state: retire the file set aside.
+
+The settings are provisional while
+`bring_up_record.settings_set_aside` is not None: the user's
+current.json could not be used and no one has decided its fate, so
+accepted writes are kept in memory and not saved
+(`SettingsNotSavedNotice`).
 
 Moves the unusable current.json aside (renamed, never deleted --
 it is the user's only copy) so a fresh one can take its place,
@@ -3267,25 +3273,6 @@ read here.
 **Refusals by REST status**
 
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_setting`, `has_member`
-
-<a id="ScopeSession.settings_are_provisional"></a>
-### `ScopeSession.settings_are_provisional`
-
-```python
-settings_are_provisional: bool  # property
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/settings_are_provisional`.  
-Raises nothing.
-
-Is the app running on defaults nobody has agreed to keep?
-
-True while the user's current.json could not be used and no one
-has decided its fate. While it holds, accepted writes are kept in
-memory and not saved (`SettingsNotSavedNotice`) -- resolve with
-retire_rejected_settings() after the user has chosen to start
-over.
 
 <a id="ScopeSession.settings_snapshot"></a>
 ### `ScopeSession.settings_snapshot`
@@ -17865,7 +17852,7 @@ reads what the person was shown.
 | `GET` | `/api/v1/protocol_size_advisory` | [`ScopeSession.protocol_size_advisory`](#ScopeSession.protocol_size_advisory) |
 | `POST` | `/api/v1/rename_step` | [`ScopeSession.rename_step`](#ScopeSession.rename_step) |
 | `POST` | `/api/v1/renew_control` | [`ScopeSession.renew_control`](#ScopeSession.renew_control) |
-| `POST` | `/api/v1/retire_rejected_settings` | [`ScopeSession.retire_rejected_settings`](#ScopeSession.retire_rejected_settings) |
+| `POST` | `/api/v1/retire_set_aside_settings` | [`ScopeSession.retire_set_aside_settings`](#ScopeSession.retire_set_aside_settings) |
 | `POST` | `/api/v1/save_bookmark` | [`ScopeSession.save_bookmark`](#ScopeSession.save_bookmark) |
 | `POST` | `/api/v1/save_protocol` | [`ScopeSession.save_protocol`](#ScopeSession.save_protocol) |
 | `GET` | `/api/v1/scale_bar_enabled` | [`ScopeSession.scale_bar_enabled`](#ScopeSession.scale_bar_enabled) |
@@ -17991,7 +17978,6 @@ reads what the person was shown.
 | `POST` | `/api/v1/set_protocol_schedule` | [`ScopeSession.set_protocol_schedule`](#ScopeSession.set_protocol_schedule) |
 | `POST` | `/api/v1/set_step_autofocus` | [`ScopeSession.set_step_autofocus`](#ScopeSession.set_step_autofocus) |
 | `GET` | `/api/v1/setting` | [`ScopeSession.setting`](#ScopeSession.setting) |
-| `GET` | `/api/v1/settings_are_provisional` | [`ScopeSession.settings_are_provisional`](#ScopeSession.settings_are_provisional) |
 | `POST` | `/api/v1/show_channel` | [`ScopeSession.show_channel`](#ScopeSession.show_channel) |
 | `GET` | `/api/v1/shown_channel` | [`ScopeSession.shown_channel`](#ScopeSession.shown_channel) |
 | `POST` | `/api/v1/start_go_to_step` | [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step) |

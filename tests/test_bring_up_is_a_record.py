@@ -784,7 +784,7 @@ class TestTheSettingsFileSetAside:
             assert session.scope.bring_up_record.settings_set_aside == set_aside
             assert session.scope.bring_up_record == session.bring_up_record
 
-            session.retire_rejected_settings()
+            session.retire_set_aside_settings()
 
             assert session.scope.bring_up_record.settings_set_aside is None
             assert session.bring_up_record.settings_set_aside is None
@@ -801,7 +801,8 @@ class TestTheSettingsFileSetAside:
     def test_the_host_s_question_reads_the_reason_from_the_record(self):
         fn = find_def('lumaviewpro.py', '_ask_about_rejected_settings', class_name='LumaViewProApp')
         source = ast.unparse(fn)
-        assert 'bring_up_record.settings_set_aside.reason' in source
+        assert 'set_aside = ctx.session.bring_up_record.settings_set_aside' in source
+        assert 'reason = set_aside.reason' in source
         assert 'rejected_current_json' not in source
 
 

@@ -48,11 +48,12 @@ class _ScriptedSession:
         return self.question
 
     @property
-    def settings_are_provisional(self):
-        # The renderer asks this before running a startup continuation on a
-        # question that is not owed: while settings are provisional the host
-        # re-asks later, so nothing may be hung on this pass.
-        return self.provisional
+    def bring_up_record(self):
+        # The renderer asks whether a settings file is set aside before
+        # running a startup continuation on a question that is not owed:
+        # while settings are provisional the host re-asks later, so nothing
+        # may be hung on this pass.
+        return SimpleNamespace(settings_set_aside=object() if self.provisional else None)
 
     def confirm_objective(self, objective_id, slot=None):
         if isinstance(self.changed, Exception):
@@ -470,9 +471,6 @@ class TestAnUnknownSlotSaysWhatHappensNext:
         )
         try:
             # Bring-up alone leaves the slot unknown, and nothing is confirmed.
-            monkeypatch.setattr(
-                type(session), 'settings_are_provisional', property(lambda self: False)
-            )
             monkeypatch.setattr(type(session.scope), 'no_hardware', property(lambda self: False))
             h = _Harness(monkeypatch, session)
             h.prompt()
