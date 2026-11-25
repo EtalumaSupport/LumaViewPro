@@ -105,5 +105,5 @@ def test_a_run_a_fault_ended_is_torn_down_once(executor, scope, tmp_path, monkey
 
     outcome = _ended(executor, run)
 
-    assert (outcome.status, outcome.reason) == ('failed', 'hardware_disconnected')
+    assert (outcome.status, outcome.reason) == ('failed', 'camera_disconnected')
     assert len(teardowns) == 1

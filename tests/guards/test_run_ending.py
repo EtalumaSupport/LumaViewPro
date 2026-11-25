@@ -21,7 +21,13 @@ from unittest.mock import MagicMock
 
 from _lumascope.modules.exceptions import INTERNAL_FAULT_SENTENCE
 from _lumascope.modules.run_events import RunEvents
-from _lumascope.modules.run_outcome import ENDING_TITLES, EndingLatch, PendingRunOutcome, RunEnding
+from _lumascope.modules.run_outcome import (
+    ENDING_TITLES,
+    EndingLatch,
+    PendingRunOutcome,
+    RunEnding,
+    RunStatus,
+)
 from tests.ast_seams import REPO_ROOT, tracked_files
 from tests.protocol_drives import run_identity
 
@@ -563,16 +569,31 @@ def _plain_scan_protocol(session):
 
 
 def test_only_a_disconnect_ending_names_boards():
-    """A run that lost its hardware names each board it lost; no other ending names a board."""
-    from _lumascope.modules.run_outcome import hardware_disconnected_ending
+    """A run that lost its hardware names each board it lost; no other ending names a board.
+
+    The camera alone is ``'camera_disconnected'``, as a recording's ending is;
+    any other board, or several, is ``'hardware_disconnected'``.
+    """
+    from _lumascope.modules.run_outcome import disconnected_ending
     from _lumascope.modules.scope_parts import Board
 
-    assert hardware_disconnected_ending((Board.LED, Board.CAMERA)).unconnected_parts == (
-        Board.LED,
-        Board.CAMERA,
+    both = disconnected_ending((Board.LED, Board.CAMERA), RunStatus.FAILED)
+    assert (both.reason, both.unconnected_parts) == (
+        'hardware_disconnected',
+        (Board.LED, Board.CAMERA),
+    )
+    camera = disconnected_ending((Board.CAMERA,), RunStatus.FAILED_AT_START)
+    assert (camera.status, camera.reason, camera.title) == (
+        'failed_at_start',
+        'camera_disconnected',
+        'Camera Disconnected',
     )
     for wrong in (
         lambda: RunEnding('failed', 'hardware_disconnected', 'Something disconnected.'),
+        lambda: RunEnding(
+            'failed', 'hardware_disconnected', 'M', unconnected_parts=(Board.CAMERA,)
+        ),
+        lambda: RunEnding('failed', 'camera_disconnected', 'M', unconnected_parts=(Board.LED,)),
         lambda: RunEnding('failed', 'position_lost', 'Z lost.', unconnected_parts=(Board.MOTOR,)),
     ):
         with pytest.raises(TypeError):

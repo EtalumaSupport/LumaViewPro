@@ -28,7 +28,7 @@ from _lumascope.modules.exceptions import (
     describe_unknown_positions,
 )
 from _lumascope.modules.run_events import deliver
-from _lumascope.modules.run_outcome import RunEnding, RunStatus, hardware_disconnected_ending
+from _lumascope.modules.run_outcome import RunEnding, RunStatus, disconnected_ending
 
 if TYPE_CHECKING:
     from _lumascope.modules.sequenced_capture_runner import EngineRun, SequencedCaptureRunner
@@ -209,7 +209,7 @@ class ProtocolRunLoop:
                         logger.error(
                             '[PROTOCOL] Hardware disconnected during run -- aborting protocol'
                         )
-                        ending = hardware_disconnected_ending(gone)
+                        ending = disconnected_ending(gone, RunStatus.FAILED)
                         p.end_run_fatally(ending)
                         return ending
 
@@ -376,7 +376,7 @@ class ProtocolRunLoop:
                         f'[Protocol] Hardware disconnect during scan: {ex}',
                         exc_info=True,
                     )
-                    ending = hardware_disconnected_ending(gone)
+                    ending = disconnected_ending(gone, RunStatus.FAILED)
                     p.end_run_fatally(ending)
                     return ending
 

@@ -209,6 +209,6 @@ class TestAtRunStart:
 
         assert (outcome.status, outcome.reason) == (
             'failed_at_start',
-            'hardware_disconnected',
+            'camera_disconnected',
         ), outcome
         assert outcome.captures.captured == 0

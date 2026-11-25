@@ -421,7 +421,7 @@ def test_after_disconnect_a_frame_at_the_departed_size_is_refused_and_not_stored
 # --- A camera removed mid-run ----------------------------------------------------
 
 
-def test_a_camera_removed_mid_run_ends_the_run_hardware_disconnected(
+def test_a_camera_removed_mid_run_ends_the_run_camera_disconnected(
     make_session, monkeypatch, tmp_path
 ):
     session = make_session('LS850')
@@ -445,7 +445,7 @@ def test_a_camera_removed_mid_run_ends_the_run_hardware_disconnected(
         parent_dir=str(tmp_path),
     )
 
-    assert _wait(run) == ('failed', 'hardware_disconnected')
+    assert _wait(run) == ('failed', 'camera_disconnected')
 
 
 # --- A camera removed mid-session -----------------------------------------------
@@ -592,7 +592,7 @@ def test_turning_auto_gain_off_as_the_camera_leaves_stores_it_off(make_session):
     assert session.settings['BF']['auto_gain'] is False
 
 
-def test_a_camera_removed_as_the_run_takes_the_auto_gain_arm_ends_the_run_hardware_disconnected(
+def test_a_camera_removed_as_the_run_takes_the_auto_gain_arm_ends_the_run_camera_disconnected(
     make_session, tmp_path
 ):
     """The run's start turns a live-view arm off; the camera leaving then is
@@ -608,7 +608,7 @@ def test_a_camera_removed_as_the_run_takes_the_auto_gain_arm_ends_the_run_hardwa
         parent_dir=str(tmp_path),
     )
 
-    assert _wait(run) == ('failed', 'hardware_disconnected')
+    assert _wait(run) == ('failed', 'camera_disconnected')
 
 
 def test_a_camera_removed_as_live_view_re_arms_auto_gain_keeps_the_frame_and_tells_nothing(

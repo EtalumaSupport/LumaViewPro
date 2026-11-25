@@ -4,7 +4,7 @@
 A capture that gets no frame raises ``CaptureFailedError``; a camera that is
 gone raises the ``not_connected`` refusal. A protocol run still counts a
 failure as a strike, now naming the capture's own reason on its row; a
-removal ends the run ``hardware_disconnected`` in words naming the camera.
+removal ends the run ``camera_disconnected`` in words naming the camera.
 Autofocus retries a capture failure and then reports it as itself, and
 keeps a dark frame whose retry gets none. The bandwidth test counts its
 failures by reason.
@@ -57,7 +57,7 @@ class TestAProtocolRun:
                 runner, tmp_path / 'runs', _steps(3), events=RunEvents(step_started=step_started)
             )
 
-        assert (outcome.status, outcome.reason) == ('failed', 'hardware_disconnected'), outcome
+        assert (outcome.status, outcome.reason) == ('failed', 'camera_disconnected'), outcome
         assert 'camera' in outcome.message.lower(), outcome.message
 
 

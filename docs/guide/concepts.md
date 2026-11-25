@@ -445,10 +445,11 @@ scope.motion.move_turret(2)                 # this scope has no turret: axis_abs
 Nothing reconnects a part during a session. A part
 that is not connected is named by `scope.unconnected_parts` until LumaViewPro
 restarts, so `'not_connected'` is a restart refusal (REST 503), and a run that
-loses a part ends at once (`'hardware_disconnected'`). A run refused
-`'not_connected'` and a run that ends `'hardware_disconnected'` name their
-boards as data, in `unconnected_parts` on the `ProtocolRunRefusedError` and on
-the run's `RunOutcome`: `["led"]` over REST.
+loses a part ends at once: `'camera_disconnected'` when the camera alone is
+gone, as a recording ends, and `'hardware_disconnected'` for any other board or
+several. A run refused `'not_connected'` and a run that ends either way name
+their boards as data, in `unconnected_parts` on the `ProtocolRunRefusedError`
+and on the run's `RunOutcome`: `["led"]` over REST.
 
 ## State and settings
 

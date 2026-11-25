@@ -3732,8 +3732,10 @@ class RunFailedError(Fault, CaptureError):
             read when the run took its snapshot of them.
             ``'run_loop_crashed'`` -- the run loop raised, or stopped
             without saying how the run ended.
-            ``'hardware_disconnected'`` -- a part the run needs was found
-            disconnected. ``'consecutive_scan_failures'`` -- the scan failed
+            ``'camera_disconnected'`` -- the camera was found disconnected,
+            as a recording's is. ``'hardware_disconnected'`` -- another part
+            the run needs, or several, was found disconnected.
+            ``'consecutive_scan_failures'`` -- the scan failed
             too many times in a row with the hardware still present.
             ``'interlock'`` -- the stage's interlock refused a move during a
             scan. ``'position_lost'`` -- an axis lost its position during a
@@ -3806,7 +3808,7 @@ class RecordingStoppedError(Fault, CaptureError):
     """
 
     titles: ClassVar[dict[str, str]] = {
-        'camera_disconnected': 'Recording Stopped',
+        'camera_disconnected': ENDING_TITLES['camera_disconnected'],
         'camera_stalled': 'Recording Stopped',
         'disk_space_critical': ENDING_TITLES['disk_space_critical'],
         'write_failed': ENDING_TITLES['write_failed'],

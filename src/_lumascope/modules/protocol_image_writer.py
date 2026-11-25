@@ -58,7 +58,7 @@ from _lumascope.modules.run_outcome import (
     RunEnding,
     RunStatus,
     StepFrames,
-    hardware_disconnected_ending,
+    disconnected_ending,
 )
 from _lumascope.modules.sequential_io_executor import IOTask
 
@@ -1254,7 +1254,7 @@ class ProtocolImageWriter:
                 f'[PROTOCOL] Capture failed for step {curr_step + 1} ({step.get("Name", "?")}), '
                 f'scan {scan_count + 1} -- the camera was removed'
             )
-            ending = hardware_disconnected_ending((Board.CAMERA,))
+            ending = disconnected_ending((Board.CAMERA,), RunStatus.FAILED)
             self._end_run_fatally(ending)
             return
         self._consecutive_capture_failures += 1

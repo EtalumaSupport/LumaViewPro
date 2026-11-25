@@ -146,6 +146,7 @@ class RunEndReason(enum.StrEnum):
     CAMERA_READ_FAILED = 'camera_read_failed', CameraReadFailedError.title, EndingKind.FAILURE
     RUN_LOOP_CRASHED = 'run_loop_crashed', 'Protocol Crashed', EndingKind.FAILURE
     HARDWARE_DISCONNECTED = 'hardware_disconnected', 'Protocol Aborted', EndingKind.FAILURE
+    CAMERA_DISCONNECTED = 'camera_disconnected', 'Camera Disconnected', EndingKind.FAILURE
     CONSECUTIVE_SCAN_FAILURES = 'consecutive_scan_failures', 'Protocol Aborted', EndingKind.FAILURE
     INTERLOCK = 'interlock', 'Protocol Aborted -- Stage Interlock', EndingKind.FAILURE
     POSITION_LOST = 'position_lost', 'Protocol Aborted -- Position Lost', EndingKind.FAILURE
@@ -187,8 +188,9 @@ class RunEnding:
             string -- those go to the log, not into a field a remote
             caller serializes.
         unconnected_parts: The boards found disconnected, for a
-            ``'hardware_disconnected'`` ending, which always names at least
-            one; empty for every other ending.
+            ``'camera_disconnected'`` ending, the camera alone, and a
+            ``'hardware_disconnected'`` ending, any other board or several;
+            empty for every other ending.
         axes_without_position: The axes found without a position, each
             mapped to its ``AxisState``, for a ``'position_lost'`` ending,
             which always names at least one; empty for every other ending.
@@ -210,10 +212,18 @@ class RunEnding:
         object.__setattr__(
             self, 'unconnected_parts', tuple(Board(part) for part in self.unconnected_parts)
         )
-        if bool(self.unconnected_parts) != (self.reason == 'hardware_disconnected'):
+        parts = self.unconnected_parts
+        if self.reason == 'camera_disconnected':
+            named = parts == (Board.CAMERA,)
+        elif self.reason == 'hardware_disconnected':
+            named = bool(parts) and parts != (Board.CAMERA,)
+        else:
+            named = not parts
+        if not named:
             raise TypeError(
-                f'a {self.reason!r} ending was given the boards {self.unconnected_parts!r}: '
-                "a 'hardware_disconnected' ending names the boards it lost, and no other "
+                f'a {self.reason!r} ending was given the boards {parts!r}: a '
+                "'camera_disconnected' ending names the camera alone, a "
+                "'hardware_disconnected' ending any other board or several, and no other "
                 'ending names any'
             )
         object.__setattr__(self, 'axes_without_position', axis_states(self.axes_without_position))
@@ -230,37 +240,33 @@ class RunEnding:
         return self.reason._heading
 
 
-def hardware_disconnected_ending(parts: tuple[Board, ...]) -> RunEnding:
+def disconnected_ending(parts: tuple[Board, ...], status: RunStatus) -> RunEnding:
     """The ending of a run whose hardware left it, in one set of words.
 
-    Whichever site finds it -- the run loop's connection check, or a step
-    whose camera was removed -- the run ends in these words, naming each
-    part gone by its noun.
+    Whichever site finds it -- the run loop's connection check, a step
+    whose camera was removed, or the start -- the run ends in these words,
+    naming each part gone by its noun: ``'camera_disconnected'`` when the
+    camera alone is gone, ``'hardware_disconnected'`` otherwise.
+
+    Args:
+        parts: The boards found disconnected, at least one.
+        status: ``FAILED`` for a run that took steps, ``FAILED_AT_START``
+            for one that never did.
     """
     gone = ' and '.join(part.noun for part in parts)
-    return RunEnding(
-        RunStatus.FAILED,
-        'hardware_disconnected',
-        f'The {gone} disconnected during the run. Check the USB cable and power '
-        'connections, save the protocol, then restart LumaViewPro and the protocol.',
-        unconnected_parts=parts,
-    )
-
-
-def hardware_disconnected_at_start_ending(parts: tuple[Board, ...]) -> RunEnding:
-    """The ending of a run whose hardware left before it began.
-
-    The run start's counterpart of ``hardware_disconnected_ending``: the
-    same reason and the same nouns, for a run that never took a step.
-    """
-    gone = ' and '.join(part.noun for part in parts)
-    return RunEnding(
-        RunStatus.FAILED_AT_START,
-        'hardware_disconnected',
-        f'The {gone} disconnected, so the run did not start. Check the USB cable and '
-        'power connections, then restart LumaViewPro and the protocol.',
-        unconnected_parts=parts,
-    )
+    if status == RunStatus.FAILED_AT_START:
+        message = (
+            f'The {gone} disconnected, so the run did not start. Check the USB cable and '
+            'power connections, then restart LumaViewPro and the protocol.'
+        )
+    else:
+        message = (
+            f'The {gone} disconnected during the run. Check the USB cable and power '
+            'connections, save the protocol, then restart LumaViewPro and the protocol.'
+        )
+    if parts == (Board.CAMERA,):
+        return RunEnding(status, 'camera_disconnected', message, unconnected_parts=parts)
+    return RunEnding(status, 'hardware_disconnected', message, unconnected_parts=parts)
 
 
 # Endings whose own popup already told the person the run's files were not
@@ -516,8 +522,8 @@ class RunOutcome:
         title: Short human sentence, suitable as a popup heading.
         message: The sentence a user reads.
         unconnected_parts: The boards found disconnected when the run
-            ended ``'hardware_disconnected'``, each by its ``Board``; empty
-            for every other reason.
+            ended ``'camera_disconnected'`` or ``'hardware_disconnected'``,
+            each by its ``Board``; empty for every other reason.
         axes_without_position: The axes found without a position when the
             run ended ``'position_lost'``, each mapped to its ``AxisState``;
             empty for every other reason.

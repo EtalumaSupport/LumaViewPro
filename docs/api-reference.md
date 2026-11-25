@@ -11913,7 +11913,7 @@ shape for every run kind.
 - <a id="RunOutcome.reason"></a>`reason`: `RunEndReason` -- Why the RUN ended.
 - <a id="RunOutcome.status"></a>`status`: `RunStatus` -- How the run ended.
 - <a id="RunOutcome.title"></a>`title`: `str` -- Short human sentence, suitable as a popup heading.
-- <a id="RunOutcome.unconnected_parts"></a>`unconnected_parts`: `tuple[Board, ...]` -- The boards found disconnected when the run ended `'hardware_disconnected'`, each by its `Board`; empty for every other reason.
+- <a id="RunOutcome.unconnected_parts"></a>`unconnected_parts`: `tuple[Board, ...]` -- The boards found disconnected when the run ended `'camera_disconnected'` or `'hardware_disconnected'`, each by its `Board`; empty for every other reason.
 - <a id="RunOutcome.video_save_wait_s"></a>`video_save_wait_s`: `float | None` -- Seconds the run's end waited for its video steps to finish saving, when every step finished having written every frame it kept; None when nothing was waited for, or when a step did not finish, was discarded or lost a frame.
 
 <a id="RunProgress"></a>
@@ -13645,6 +13645,7 @@ and nothing else.
 - `camera_read_failed`
 - `run_loop_crashed`
 - `hardware_disconnected`
+- `camera_disconnected`
 - `consecutive_scan_failures`
 - `interlock`
 - `position_lost`
@@ -17154,12 +17155,13 @@ read the same.
 **Attributes**
 
 - `title`: The ending's heading, its reason's (`ENDING_TITLES`).
-- `reason`: The ending's machine-readable cause, a run ending's reason. `'captures_failed'` -- the run reached its end without every capture it was asked for. `'start_failed'` -- the run's setup raised a fault of no other reason after the run was committed. `'dispatch_refused'` -- the run loop was refused when it was dispatched, so it never ran. `'capture_location_failed'` -- the run's folder could not be made at the capture location. `'run_dir_init_failed'` -- the run's folder was made and could not be initialized. `'camera_lane_stalled'` -- a camera command did not finish, so the run could not take the camera. `'camera_read_failed'` -- the camera's settings could not be read when the run took its snapshot of them. `'run_loop_crashed'` -- the run loop raised, or stopped without saying how the run ended. `'hardware_disconnected'` -- a part the run needs was found disconnected. `'consecutive_scan_failures'` -- the scan failed too many times in a row with the hardware still present. `'interlock'` -- the stage's interlock refused a move during a scan. `'position_lost'` -- an axis lost its position during a scan, and nothing in a run homes it again. `'disk_space_critical'` -- free disk at the save location fell below what the run needs, so the run stopped to save what it has. `'file_writer_stalled'` -- saving stopped making progress, so the run stopped before it lost more captures. `'write_failed'` -- the save location refused two frames in a row of a video step, so the run stopped, since its later steps write there too. `'video_writer_died'` -- the writer of a video step failed. `'led_channel_unavailable'` -- steps of the run take an LED channel this scope does not have, and their captures kept failing. `'camera_failure'` -- the camera failed too many steps in a row. `'autofocus_failed'` -- a single-autofocus run's autofocus did not find focus. `'autofocus_not_started'` -- a single-autofocus run's autofocus was refused before the stage moved, its first window reaching past Z's travel.
+- `reason`: The ending's machine-readable cause, a run ending's reason. `'captures_failed'` -- the run reached its end without every capture it was asked for. `'start_failed'` -- the run's setup raised a fault of no other reason after the run was committed. `'dispatch_refused'` -- the run loop was refused when it was dispatched, so it never ran. `'capture_location_failed'` -- the run's folder could not be made at the capture location. `'run_dir_init_failed'` -- the run's folder was made and could not be initialized. `'camera_lane_stalled'` -- a camera command did not finish, so the run could not take the camera. `'camera_read_failed'` -- the camera's settings could not be read when the run took its snapshot of them. `'run_loop_crashed'` -- the run loop raised, or stopped without saying how the run ended. `'camera_disconnected'` -- the camera was found disconnected, as a recording's is. `'hardware_disconnected'` -- another part the run needs, or several, was found disconnected. `'consecutive_scan_failures'` -- the scan failed too many times in a row with the hardware still present. `'interlock'` -- the stage's interlock refused a move during a scan. `'position_lost'` -- an axis lost its position during a scan, and nothing in a run homes it again. `'disk_space_critical'` -- free disk at the save location fell below what the run needs, so the run stopped to save what it has. `'file_writer_stalled'` -- saving stopped making progress, so the run stopped before it lost more captures. `'write_failed'` -- the save location refused two frames in a row of a video step, so the run stopped, since its later steps write there too. `'video_writer_died'` -- the writer of a video step failed. `'led_channel_unavailable'` -- steps of the run take an LED channel this scope does not have, and their captures kept failing. `'camera_failure'` -- the camera failed too many steps in a row. `'autofocus_failed'` -- a single-autofocus run's autofocus did not find focus. `'autofocus_not_started'` -- a single-autofocus run's autofocus was refused before the stage moved, its first window reaching past Z's travel.
 
 | Reason | Cause | REST status |
 |---|---|---|
 | `autofocus_failed` | -- | 500 |
 | `autofocus_not_started` | -- | 500 |
+| `camera_disconnected` | -- | 500 |
 | `camera_failure` | -- | 500 |
 | `camera_lane_stalled` | -- | 500 |
 | `camera_read_failed` | -- | 500 |
@@ -17198,6 +17200,7 @@ unattended mute, so the person who started it sees it.
 |---|---|---|
 | `autofocus_failed` | -- | 500 |
 | `autofocus_not_started` | -- | 500 |
+| `camera_disconnected` | -- | 500 |
 | `camera_failure` | -- | 500 |
 | `camera_lane_stalled` | -- | 500 |
 | `camera_read_failed` | -- | 500 |

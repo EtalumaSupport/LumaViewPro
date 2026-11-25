@@ -71,6 +71,14 @@ def _record_reports(monkeypatch, module):
             'recording again.',
         ),
         (
+            # Headed as a run that lost its camera is.
+            RecordingStoppedError('camera_disconnected'),
+            'Camera Disconnected',
+            'The camera stopped delivering frames, so the recording was stopped. '
+            'Frames captured so far are saved; check the camera connection before '
+            'recording again.',
+        ),
+        (
             RecordingStoppedError('disk_space_critical'),
             'Disk Space Critical',
             'Free disk space fell below the safety floor, so the recording was '
@@ -213,6 +221,7 @@ def _record_reports(monkeypatch, module):
     ],
     ids=[
         'stalled',
+        'camera-disconnected',
         'disk',
         'video-not-finished',
         'finalize-manual',

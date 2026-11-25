@@ -169,7 +169,7 @@ class TestAnErrorAbort:
             )
             result = outcome.result(timeout=WAIT_S)
             assert result is not None and result.status == 'failed', result
-            assert result.reason == 'hardware_disconnected', result
+            assert result.reason == 'camera_disconnected', result
             assert runner.session._sequenced_capture_runner.wait_for_run_idle(WAIT_S)
             release.set()
             assert heard_events.files_done.wait(WAIT_S), 'files_written never came'

@@ -83,7 +83,7 @@ class TestRunLoopInnerClassifiesByConnection:
         )
         ending, _domain = aborts[0].args
         reason, message = ending.reason, ending.message
-        assert reason == 'hardware_disconnected', (
+        assert reason == 'camera_disconnected', (
             f'the abort must name the disconnect as its cause; got {aborts[0].args}'
         )
         assert 'camera disconnected' in message, (

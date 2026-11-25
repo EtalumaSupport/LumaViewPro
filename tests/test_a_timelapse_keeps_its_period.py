@@ -262,7 +262,7 @@ def test_a_board_lost_during_a_long_wait_ends_the_run_at_the_next_check():
     ending = _run(clock, p)
 
     assert len(p.capture_times) == 1
-    assert ending.reason == 'hardware_disconnected'
+    assert ending.reason == 'camera_disconnected'
     assert clock.t <= lost_at + protocol_run_loop.HW_CHECK_INTERVAL_S + 1.0
 
 

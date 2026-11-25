@@ -108,7 +108,7 @@ class TestARunWhoseCameraIsGoneEndsAtOnce:
             steps = [_step(f'C{i}', i, x=20.0 + 10 * i, gain=1.0) for i in range(3)]
             outcome = _run(runner, run_parent, steps)
             rows = _record_rows(run_parent)
-        assert (outcome.status, outcome.reason) == ('failed', 'hardware_disconnected'), outcome
+        assert (outcome.status, outcome.reason) == ('failed', 'camera_disconnected'), outcome
         # The ending names the board it lost as data, as its sentence does.
         assert outcome.unconnected_parts == (Board.CAMERA,), outcome
         # The removal is refused at the capture, and the refusal ends the run

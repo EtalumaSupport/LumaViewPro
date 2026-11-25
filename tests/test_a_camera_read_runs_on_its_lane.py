@@ -219,4 +219,4 @@ def test_a_scope_disconnected_under_the_run_starts_snapshot_is_a_disconnect(tmp_
         outcome = _run(runner, tmp_path / 'runs', [_step('C0', 0, x=20.0, gain=1.0)])
 
     assert unplugging.is_set(), 'the run never read the camera'
-    assert (outcome.status, outcome.reason) == ('failed_at_start', 'hardware_disconnected'), outcome
+    assert (outcome.status, outcome.reason) == ('failed_at_start', 'camera_disconnected'), outcome
