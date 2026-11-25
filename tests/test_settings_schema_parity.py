@@ -30,10 +30,9 @@ from tests.settings_fixtures import shipped_template
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 CURRENT_PATH = REPO_ROOT / 'data' / 'current.json'
 
-# Top-level keys that exist ONLY in current.json, on purpose:
-# - turret_position: the live turret position the app records as it moves;
-#   derived runtime state with no meaningful user default.
-RUNTIME_ONLY_TOP_LEVEL = {'turret_position'}
+# Top-level keys that exist ONLY in current.json, on purpose, each with the
+# reason it is runtime-only. None now.
+RUNTIME_ONLY_TOP_LEVEL: set[str] = set()
 
 # Legacy sections a load-time migration folds away. An on-disk
 # current.json of any age may still carry them (the loader retires them
@@ -71,49 +70,32 @@ RUNTIME_ONLY_PER_LAYER: dict[str, set[str]] = {}
 # - ill_ma / exp_ms: renamed to illumination_ma / exposure_ms when the
 #   storage dict became the L2 API surface and its keys became the names
 #   callers write.
-# - file_root: a filename prefix every layer shipped, which nothing read.
-MIGRATED_PER_LAYER = {'ill_ma', 'exp_ms', 'file_root'}
+# - every retired key of every layer (a ``*.<key>`` row of
+#   ``settings_init._RETIRED_PATHS``).
+MIGRATED_PER_LAYER = {
+    'ill_ma',
+    'exp_ms',
+    *(
+        path.removeprefix('*.')
+        for path in settings_init._RETIRED_PATHS
+        if path.startswith('*.') and path.count('.') == 1
+    ),
+}
 
-# Nested keys the loader drops or renames away, keyed by the dotted path of
-# the entry they lived under. A current.json of any age may still hold them until its next
-# clean shutdown (normalize_loaded_settings pops them at load); they must
-# never come back in settings.json:
-# - protocol.bf_af_for_fluorescence: reusing brightfield's autofocus for
-#   the fluorescence steps, removed.
-# - protocol.autogain.max_duration_seconds: the longest an auto-gain step
-#   waited, unread once its settle became a frame count.
+# Nested keys a load drops, keyed by the dotted path of the entry they
+# lived under: every dotted ``settings_init._RETIRED_PATHS`` row below a named
+# entry. A current.json of any age may still hold them until its next clean
+# shutdown; they must never come back in settings.json.
+RETIRED_PER_LAYER: dict[str, set[str]] = {}
+for _path in settings_init._RETIRED_PATHS:
+    _parent, _, _leaf = _path.rpartition('.')
+    if _parent and '*' not in _parent:
+        RETIRED_PER_LAYER.setdefault(_parent, set()).add(_leaf)
+
+# Nested keys a load renames, under the same terms:
 # - video.max_duration_seconds: renamed max_duration_s, for its unit.
-# - profiling.stim_profiling: shipped with no reader, removed.
-# - profiling.handle_trace_obj_sample_every: the interval of the handle
-#   trace's object-type sampler, removed with it.
-# - profiling.enabled: the switch of a second tracemalloc profiler (the
-#   deep view), retired with it; the memory profiler is the one.
-# - rest_api.host, api_key, cors_origins: nothing read them; where the
-#   server serves is rest_api.address.
-RETIRED_PER_LAYER = {
-    'protocol': {'bf_af_for_fluorescence'},
-    'protocol.autogain': {'max_duration_seconds'},
-    'video': {'max_duration_seconds'},
-    'profiling': {'stim_profiling', 'handle_trace_obj_sample_every', 'enabled'},
-    'rest_api': {'host', 'api_key', 'cors_origins'},
-}
+RENAMED_PER_LAYER = {'video': {'max_duration_seconds'}}
 
-# Top-level keys the loader drops whole, under the same terms:
-# - autofocus, stage: six shipped keys with no reader; the autofocus
-#   optimisation work adds each back with its reader.
-# - camera_type: no reader; bring-up asks the camera registry.
-# - tracemalloc_enabled: the switch of a second tracemalloc profiler,
-#   retired with it; the memory profiler is the one.
-# - cprofile_enabled: cProfile's switch, retired; profile_session is the
-#   one CPU profiler.
-RETIRED_TOP_LEVEL = {
-    'autofocus',
-    'stage',
-    'camera_type',
-    'tracemalloc_enabled',
-    'cprofile_enabled',
-    'step_channel_order',
-}
 
 requires_current_json = pytest.mark.skipif(
     not CURRENT_PATH.exists(),
@@ -185,16 +167,12 @@ def test_settings_defaults_carry_no_runtime_only_keys():
     )
     retired_back = [
         f'{key}.{sub}'
-        for key, subkeys in RETIRED_PER_LAYER.items()
+        for table in (RETIRED_PER_LAYER, RENAMED_PER_LAYER)
+        for key, subkeys in table.items()
         for sub in subkeys & set(_entry_at(settings, key))
     ]
     assert not retired_back, (
         f'retired per-layer keys reappeared in settings.json: {retired_back} -- '
-        'the loader drops these; shipping a default would resurrect them'
-    )
-    retired_top = RETIRED_TOP_LEVEL & set(settings)
-    assert not retired_top, (
-        f'retired blocks reappeared in settings.json: {sorted(retired_top)} -- '
         'the loader drops these; shipping a default would resurrect them'
     )
 
@@ -202,13 +180,7 @@ def test_settings_defaults_carry_no_runtime_only_keys():
 @requires_current_json
 def test_top_level_key_parity():
     settings, current = _load_settings(), _load_current()
-    current_only = (
-        set(current)
-        - set(settings)
-        - RUNTIME_ONLY_TOP_LEVEL
-        - MIGRATED_TOP_LEVEL
-        - RETIRED_TOP_LEVEL
-    )
+    current_only = set(current) - set(settings) - RUNTIME_ONLY_TOP_LEVEL - MIGRATED_TOP_LEVEL
     assert not current_only, (
         f'current.json has top-level keys with no settings.json default and '
         f'no runtime-only exemption: {sorted(current_only)} -- add a default '
@@ -230,6 +202,7 @@ def test_per_layer_key_parity():
         allowed = (
             RUNTIME_ONLY_PER_LAYER.get(key, set())
             | RETIRED_PER_LAYER.get(key, set())
+            | RENAMED_PER_LAYER.get(key, set())
             | MIGRATED_PER_LAYER
         )
         current_only = set(c_val) - set(s_val) - allowed
