@@ -31,6 +31,9 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
     # Whether the scope has a motorised axis, which the red STOP is shown for:
     # the capability the motion controls are shown by, set with them.
     stage_has_motors = BooleanProperty(False)
+    # Whether a press of STOP has anything to stop, as the Session answers
+    # it (``something_to_stop``); the button is grayed while it is False.
+    something_to_stop = BooleanProperty(False)
 
     def __init__(self, scope, **kwargs):
         # The scope is the session's, handed in. It goes on the widget
@@ -152,6 +155,17 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         from ui.ui_helpers import stop_the_stage
 
         stop_the_stage()
+
+    def draw_stop_button(self):
+        """Show STOP lit while the Session says a press has something to stop.
+
+        Drawn on every run-state edge and on every position and turret
+        change: the edges on which the answer changes.
+        """
+        lit = _app_ctx.ctx.session.something_to_stop
+        if lit != self.something_to_stop:
+            gui_logger.display('STOP_BUTTON', 'lit' if lit else 'grayed')
+            self.something_to_stop = lit
 
     def take_back_control(self):
         gui_logger.button('TAKE_BACK_CONTROL')

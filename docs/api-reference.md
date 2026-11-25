@@ -3411,6 +3411,28 @@ again.
 
 - [`ScopeDisconnectError`](#ScopeDisconnectError): `disconnect_failed`
 
+<a id="ScopeSession.something_to_stop"></a>
+### `ScopeSession.something_to_stop`
+
+```python
+something_to_stop: bool  # property
+```
+
+Marks: in-process; reads (changes nothing).  
+Raises nothing.
+
+Whether a press of STOP (`MotionAPI.stop_motion`) has anything to stop now: what lights the GUI's STOP.
+
+True while anything holds the scope -- a run, a home, a diagnostic,
+a manual recording -- or a run is starting or unwinding with no
+holder; while any axis or the turret moves or homes; and while any
+axis's position is unknown on a connected motor board, since the
+API cannot then say the stage is at rest. False otherwise: while
+the only work under way is work STOP does not stop (a finished
+run's files, a build, a still), and with the motor board lost and
+nothing running, when a press would only be refused. A wire client
+reads it in `status`.
+
 <a id="ScopeSession.source_path"></a>
 ### `ScopeSession.source_path`
 
@@ -12368,6 +12390,7 @@ axis can read HOMING in `axes` a moment before the home appears in
 - <a id="Status.parts"></a>`parts`: `tuple[PartStatus, ...]` -- Which parts came up at bring-up, and why each that did not (`ScopeSession.bring_up_record`).
 - <a id="Status.run_refused"></a>`run_refused`: `ProtocolRunRefusedError | None` -- The refusal a run's start would give now for the scope's state alone, None when the state refuses none. None does not promise a run starts: the protocol, an axis's position, the camera feed and the interlocks are judged when the run is asked.
 - <a id="Status.slow_camera_stop"></a>`slow_camera_stop`: `SlowCameraStop | None` -- The camera's slow stop (`SlowCameraStop`): the first stop this session that outlasted the camera's maximum exposure by 5 s, told then as `CameraStopStalledNotice`. None until one is told.
+- <a id="Status.something_to_stop"></a>`something_to_stop`: `bool` -- Whether a press of STOP has anything to stop (`ScopeSession.something_to_stop`); as of the last run-state edge, as `axes` is, so a client watching moves reads them from its position and turret events.
 - <a id="Status.turret"></a>`turret`: `TurretStatus | None` -- The turret's state and slot (`MotionAPI.turret_status`), None on a scope with no turret; `moving` or `homing` while it turns.
 
 <a id="StepFrames"></a>

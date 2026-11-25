@@ -5,8 +5,8 @@ The listener bridge posted a callback per position poll, and the progress
 proxies one per write, so a UI thread held up during a run held one per
 event, without bound. Each now posts the state it shows
 (``schedule_ui_latest``), keyed by its owner: a held-up UI thread holds one
-entry per position axis, turret, LED address, shown channel, settings
-redraw and popup attribute, however many changes came, and runs the newest.
+entry per position axis, turret, STOP, LED address, shown channel,
+settings redraw and popup attribute, however many changes came, and runs the newest.
 """
 
 from __future__ import annotations
@@ -79,6 +79,7 @@ def _bridge(session, drawn):
             ids={'verticalcontrol_id': z_ctrl},
             update_xy_stage_control_gui=lambda: drawn.append(('xy',)),
         ),
+        lumaview=SimpleNamespace(draw_stop_button=lambda: drawn.append(('stop',))),
     )
     layers = {}
 
@@ -102,8 +103,8 @@ def test_a_burst_of_each_state_leaves_one_update_waiting_per_key(session, held):
         bridge._on_led_state_changed(second, None, None, 0)
         bridge._on_shown_channel_changed(LED0, False)
         bridge._on_settings_changed((f'{LED0}.gain_db',))
-    # XY, Z, the turret, two LED addresses, the shown channel, the settings.
-    assert ui_backlog() == 7
+    # XY, Z, the turret, STOP, two LED addresses, the shown channel, the settings.
+    assert ui_backlog() == 8
     held.run()
     assert sorted(drawn) == sorted(
         [
@@ -111,6 +112,7 @@ def test_a_burst_of_each_state_leaves_one_update_waiting_per_key(session, held):
             ('labware',),
             ('z', _BURST - 1),
             ('turret',),
+            ('stop',),
             ('shown_channel',),
             ('settings', LED0),
         ]

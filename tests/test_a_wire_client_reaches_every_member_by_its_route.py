@@ -213,6 +213,7 @@ def test_a_read_answers_its_encoded_value(client, session):
         'live_work',
         'lock',
         'control',
+        'something_to_stop',
         'run_refused',
         'axes',
         'turret',

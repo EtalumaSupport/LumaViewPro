@@ -241,6 +241,7 @@ class UIListenerBridge:
         newest position of each.
         """
         ctx = self._ctx
+        self._draw_stop()
         if axis in ('X', 'Y'):
 
             def _draw_xy(dt):
@@ -262,12 +263,17 @@ class UIListenerBridge:
         the display reads the slot from the API when it redraws. A state:
         the UI thread draws the newest.
         """
+        self._draw_stop()
         z_ctrl = self._ctx.motion_settings.ids.get('verticalcontrol_id')
         if not z_ctrl:
             return
         # Display only: a person's own turret press asks the objective
         # question where it ends, never on each event of the move.
         schedule_ui_latest((self, 'turret'), lambda dt: z_ctrl.show_turret_state(prompt=False))
+
+    def _draw_stop(self) -> None:
+        """STOP follows each move: an axis moving, homing or unknown lights it."""
+        schedule_ui_latest((self, 'stop'), lambda dt: self._ctx.lumaview.draw_stop_button())
 
     def _on_led_state_changed(self, address, name, state, illumination_ma):
         """LED listener -- rapid stim pulses leave one UI update waiting per address.

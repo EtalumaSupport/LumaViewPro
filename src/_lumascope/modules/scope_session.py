@@ -498,6 +498,7 @@ class ControlsLock:
     'live_work',
     'lock',
     'control',
+    'something_to_stop',
     'run_refused',
     'axes',
     'turret',
@@ -523,6 +524,10 @@ class Status:
             refusal.
         control: The control session held, None when none is
             (``ScopeSession.control``).
+        something_to_stop: Whether a press of STOP has anything to stop
+            (``ScopeSession.something_to_stop``); as of the last run-state
+            edge, as ``axes`` is, so a client watching moves reads them
+            from its position and turret events.
         run_refused: The refusal a run's start would give now for the
             scope's state alone, None when the state refuses none. None does not
             promise a run starts: the protocol, an axis's position, the
@@ -551,6 +556,7 @@ class Status:
     live_work: LiveWork
     lock: ControlsLock
     control: ControlSession | None
+    something_to_stop: bool
     run_refused: ProtocolRunRefusedError | None
     axes: dict[StageAxis, AxisPosition]
     turret: TurretStatus | None
@@ -1553,6 +1559,7 @@ class ScopeSession:
             'live_work': self.live_work,
             'lock': self.controls_lock,
             'control': self._activity_claim.control,
+            'something_to_stop': self.something_to_stop,
             'run_refused': self._sequenced_capture_runner.state_refusal(self._activity_claim),
             'axes': self.scope.motion.axis_positions,
             'turret': self.scope.motion.turret_status,
@@ -1667,6 +1674,31 @@ class ScopeSession:
             control_named=f'{control.name} has remote control.' if control is not None else None,
             recording=self.manual_recording.is_recording,
         )
+
+    @api(in_process=True)
+    @property
+    def something_to_stop(self) -> bool:
+        """Whether a press of STOP (``MotionAPI.stop_motion``) has anything to stop now: what lights the GUI's STOP.
+
+        True while anything holds the scope -- a run, a home, a diagnostic,
+        a manual recording -- or a run is starting or unwinding with no
+        holder; while any axis or the turret moves or homes; and while any
+        axis's position is unknown on a connected motor board, since the
+        API cannot then say the stage is at rest. False otherwise: while
+        the only work under way is work STOP does not stop (a finished
+        run's files, a build, a still), and with the motor board lost and
+        nothing running, when a press would only be refused. A wire client
+        reads it in ``status``.
+
+        Raises:
+            Nothing.
+        """
+        if self._activity_claim.holder is not None or self._sequenced_capture_runner.run_live:
+            return True
+        motion = self.scope.motion
+        if motion.is_any_axis_moving():
+            return True
+        return self.scope.motor_connected and bool(motion.axes_without_position)
 
     def in_flight_named(self) -> list[str]:
         """What a gesture started that is still running, each as a sentence; empty when nothing is.

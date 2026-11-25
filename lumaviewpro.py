@@ -727,6 +727,7 @@ class LumaViewProApp(TooltipMixin, App):
         )
         gui_logger.display('HOMING_BANNER', self.live_work.has(live_work.WorkKind.HOME))
         self._draw_run_controls()
+        ctx.lumaview.draw_stop_button()
         # The objective question is withheld while an activity holds the
         # scope; this edge is the one that fires when the hold ends, so the
         # question is asked again here rather than at the next turret move.
