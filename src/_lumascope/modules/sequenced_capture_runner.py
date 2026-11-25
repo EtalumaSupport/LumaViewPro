@@ -79,9 +79,11 @@ from _lumascope.modules.exceptions import (
     _RunStartError,
     SingleScanNotice,
     ValueClampedNotice,
+    interlock_sentence,
     system_words,
     unknown_positions_sentence,
 )
+from _lumascope.lib.stage_interlock import INTERLOCK_TITLES, REFUSED_BEFORE_MOTION
 from _lumascope.modules.protocol import Protocol
 import _lumascope.modules.path_utils as path_utils
 from _lumascope.modules.protocol_execution_record import ProtocolExecutionRecord
@@ -1593,21 +1595,21 @@ class SequencedCaptureRunner:
         # must act on.
         self.refuse_unknown_positions()
 
-        # Every run commands X and Y at every plate step, and the stage's
-        # lid refuses each of those moves, so a run admitted with the lid
+        # Every run commands X and Y at every plate step, and an open
+        # interlock refuses each of those moves, so a run admitted with one
         # open would end at its first step. After the position gate: an
         # unhomed scope is told to home first, and the home is refused for
-        # the lid in its own words. Asked of the board directly rather than
-        # queued behind a move or a home on the IO lane.
+        # the interlock in its own words. Asked of the board directly rather
+        # than queued behind a move or a home on the IO lane; the first open
+        # one in the interlocks' list is the one told.
         open_interlocks = self._scope.motion.read_interlocks()
-        if 'lid_open' in open_interlocks:
-            self._refuse(
-                reason='lid_open_before_motion',
-                message=(
-                    "Cannot start the run: the microscope's lid is open. "
-                    'Close it, then start the run.'
-                ),
-            )
+        for interlock in INTERLOCK_TITLES:
+            if interlock in open_interlocks:
+                self._refuse(
+                    reason=REFUSED_BEFORE_MOTION[interlock],
+                    message='Cannot start the run. '
+                    + interlock_sentence(REFUSED_BEFORE_MOTION[interlock]),
+                )
 
         # After the not-homed gate: an unhomed scope is told to home, not
         # that its steps are outside travel. The offset is the scope's, the

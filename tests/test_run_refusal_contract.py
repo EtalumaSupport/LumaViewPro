@@ -771,6 +771,7 @@ RUNNER_REFUSAL_COVERAGE = {
     'camera_not_delivering': _FUNNEL_LOOP,
     'position_unknown': _FUNNEL_LOOP,
     'lid_open_before_motion': _FUNNEL_LOOP,
+    'stage_unpowered_before_motion': _FUNNEL_LOOP,
     # Raised at start(), not prepare(), so it cannot ride the scenario
     # loop (which drives _prepare); it gets the start-tier twin below.
     'recording_active': ('test_start_refused_while_recording_holds_activity_claim'),
@@ -900,6 +901,10 @@ class TestTheRefusalFunnel:
             mp.setattr(scope.motion, 'read_interlocks', lambda: frozenset({'lid_open'}))
             return _make_single_step_protocol()
 
+        def stage_unpowered(mp):
+            mp.setattr(scope.motion, 'read_interlocks', lambda: frozenset({'stage_unpowered'}))
+            return _make_single_step_protocol()
+
         def autofocus_running(mp):
             # A live interactive autofocus owns Z and the LED lease; a run
             # prepared under it must be refused before any commitment.
@@ -944,6 +949,7 @@ class TestTheRefusalFunnel:
             ('position_unknown', position_unknown),
             ('not_on_this_scope', not_on_this_scope),
             ('lid_open_before_motion', lid_open),
+            ('stage_unpowered_before_motion', stage_unpowered),
         ]
 
     def test_each_refusal_reason_is_raised_with_its_reason_and_posts_nothing(
@@ -1105,7 +1111,8 @@ def test_every_runner_refusal_reason_is_covered():
     src/_lumascope/modules/protocol.py for a commit, and a refusal added in a module
     nobody listed escaped the census in silence. A reason the census
     cannot read as a literal fails it, unless it is a funnel handing on
-    its own parameter, whose callers' literals are collected instead.
+    its own parameter, whose callers' literals are collected instead, or
+    an interlock's entry in ``REFUSED_BEFORE_MOTION``, whose values are.
     This is what makes the refusal suite's enumeration unmissable
     instead of remembered: exclusive_activity_running shipped with zero
     coverage because nothing coupled the scenario list to the refusal
@@ -1113,6 +1120,7 @@ def test_every_runner_refusal_reason_is_covered():
     """
     import typing
 
+    from _lumascope.lib.stage_interlock import REFUSED_BEFORE_MOTION
     from _lumascope.modules.common_utils import NoRoomToStart
     from _lumascope.modules.sequenced_capture_runner import FilesStillWriting
     from tests import ast_seams
@@ -1175,8 +1183,18 @@ def test_every_runner_refusal_reason_is_covered():
                         and isinstance(kw.value.value, ast.Name)
                         and kw.value.value.id in self.answers[-1]
                     )
+                    # An open interlock's refusal is read from the interlocks'
+                    # one table (``REFUSED_BEFORE_MOTION[interlock]``): its
+                    # reasons are the table's values.
+                    by_interlock = (
+                        isinstance(kw.value, ast.Subscript)
+                        and isinstance(kw.value.value, ast.Name)
+                        and kw.value.value.id == 'REFUSED_BEFORE_MOTION'
+                    )
                     if isinstance(kw.value, ast.Constant):
                         raised.add(kw.value.value)
+                    elif by_interlock:
+                        raised.update(REFUSED_BEFORE_MOTION.values())
                     elif handed_on:
                         raised.update(self.answers[-1][kw.value.value.id])
                     elif not (isinstance(kw.value, ast.Name) and kw.value.id in self.params[-1]):

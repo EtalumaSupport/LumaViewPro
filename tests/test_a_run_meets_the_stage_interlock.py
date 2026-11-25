@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A run is refused while the stage's lid is open, and one that meets the lid ends at once.
+"""A run is refused while a stage interlock is open, and one that meets the lid ends at once.
 
 Every run commands X and Y at every plate step, and a stage that guards
 motion with its lid refuses each of those moves. A run admitted with the lid
@@ -78,6 +78,33 @@ class TestARunIsRefusedWhileTheLidIsOpen:
 
         assert (outcome.status, outcome.reason) == ('completed', 'completed')
         assert reads, 'the run was admitted without reading the lid'
+
+
+def test_a_run_on_an_unpowered_stage_is_refused_naming_its_power(tmp_path):
+    """On the simulated LS720, its production TMCM-6110 driver: a homed stage
+    whose power is then lost refuses the run before anything moves, in the
+    interlock's own words, as an open lid does."""
+    session = ScopeSession.create(
+        complete_settings(**_settings(tmp_path, microscope='LS720')), simulate=True
+    )
+    try:
+        session.scope.motion.home()
+        session.scope.simulation.interlock(powered=False)
+
+        with pytest.raises(ProtocolRunRefusedError) as refused:
+            _run(session, tmp_path)
+
+        assert (refused.value.reason, refused.value.title) == (
+            'stage_unpowered_before_motion',
+            'No Stage Power',
+        )
+        assert refused.value.message == (
+            "Cannot start the run. The stage has no power. Check the stage's power supply, "
+            'then home.'
+        )
+        assert _images(tmp_path) == []
+    finally:
+        session.shutdown()
 
 
 class TestARunThatMeetsTheLidEndsAtOnce:

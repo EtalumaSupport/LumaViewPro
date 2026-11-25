@@ -2392,6 +2392,8 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             starts or a step is added or updated; the axes are
             ``axes_without_position``. ``'lid_open_before_motion'`` -- the stage's lid is
             open, so the stage refuses to move.
+            ``'stage_unpowered_before_motion'`` -- the stage has no power, so
+            its interlock refuses to move it.
             ``'no_acquiring_channel'`` -- no channel, or not the step's, is
             set to acquire, so there is no step to make.
             ``'channel_already_in_add'`` -- another step added with this one
@@ -2508,6 +2510,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'camera_not_delivering': RefusalCause.STATE,
         'position_unknown': RefusalCause.STATE,
         'lid_open_before_motion': RefusalCause.STATE,
+        'stage_unpowered_before_motion': RefusalCause.STATE,
         'capture_location_unusable': RefusalCause.STATE,
         'frame_size_unknown': RefusalCause.STATE,
         'disk_space_insufficient': RefusalCause.STATE,
@@ -2562,6 +2565,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'camera_not_delivering': 'Camera Not Delivering Frames',
         'position_unknown': 'Scope Not Homed',
         'lid_open_before_motion': INTERLOCK_TITLES['lid_open'],
+        'stage_unpowered_before_motion': INTERLOCK_TITLES['stage_unpowered'],
         'capture_location_unusable': 'Save Location Unusable',
         'frame_size_unknown': 'Frame Size Not Known',
         'disk_space_insufficient': 'Not Enough Disk Space',
@@ -4348,10 +4352,10 @@ class HardwareCommandRefusedError(Refusal, Exception):
     Attributes:
         reason: Machine-readable refusal code.
             ``'exclusive_activity_running'``, ``'not_connected'``,
-            ``'camera_not_streaming'`` and ``'lid_open_before_motion'`` are
-            explained by ``ProtocolRunRefusedError``, which carries them as
-            the same fact. ``'capture_in_flight'`` -- an earlier still has
-            not finished. ``'home_in_flight'`` -- another home holds the
+            ``'camera_not_streaming'``, ``'lid_open_before_motion'`` and
+            ``'stage_unpowered_before_motion'`` are explained by
+            ``ProtocolRunRefusedError``, which carries them as the same fact.
+            ``'capture_in_flight'`` -- an earlier still has not finished. ``'home_in_flight'`` -- another home holds the
             scope. ``'home_not_stoppable'`` -- a home drives on a motor
             controller that cannot stop one. ``'scope_disconnected'`` -- the
             scope's lanes are closed, so it takes no command until the
@@ -4359,8 +4363,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
             has ended, so nothing would judge the move.
             ``'position_unread'`` -- the move's drive needs a position the
             motor controller did not report: the relative base, or Z for the
-            backlash approach. ``'stage_unpowered_before_motion'`` -- the
-            stage has no power, so its interlock refuses to move it.
+            backlash approach.
             ``'axis_absent'`` -- the scope does not have the motion part
             asked for. ``'not_on_this_scope'`` -- the scope does not have
             another part asked for, such as an LED channel or fan control.
@@ -4564,6 +4567,19 @@ def the_activity_named(kind: str | None) -> str:
     return _HOLDER_NOUNS.get(kind, 'Another activity')
 
 
+def interlock_sentence(reason: str) -> str:
+    """The person's words for a motion an open interlock refused, by its ``INTERLOCK_REASONS`` reason.
+
+    One sentence per interlock, read by a hardware command's refusal and a
+    run's start alike, so the person is told the same fact one way.
+    """
+    if reason == 'lid_open_before_motion':
+        return "The microscope's lid is open. Close it to move or home the stage."
+    if reason == 'stage_unpowered_before_motion':
+        return "The stage has no power. Check the stage's power supply, then home."
+    raise ValueError(f'{reason!r} is not an interlock refusal')
+
+
 def _command_refused_sentence(reason: str, holder: Holder | None) -> str:
     if reason == 'capture_in_flight':
         return 'A capture is still being saved. Try again in a moment.'
@@ -4587,10 +4603,8 @@ def _command_refused_sentence(reason: str, holder: Holder | None) -> str:
             'The motor controller did not report the stage position, so the move '
             'was not sent. Try again; if it repeats, check the USB cable.'
         )
-    if reason == 'lid_open_before_motion':
-        return "The microscope's lid is open. Close it to move or home the stage."
-    if reason == 'stage_unpowered_before_motion':
-        return "The stage has no power. Check the stage's power supply, then home."
+    if reason in INTERLOCK_REASONS:
+        return interlock_sentence(reason)
     if reason == 'other_led_lit':
         return (
             "An LED other than the shown channel's is lit, so nothing was captured. "
