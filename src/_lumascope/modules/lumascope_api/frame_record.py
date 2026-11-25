@@ -191,7 +191,7 @@ class LightTiming(enum.StrEnum):
     'gain_db',
     'gain_source',
     'held_channel',
-    'illumination_ma',
+    'illumination_by_address_ma',
     'illumination_timing',
     'judgments',
     'saturated_fraction',
@@ -221,7 +221,7 @@ class FrameRecord:
         black_level: The camera's black level parameter the frame was taken
             at, in the camera's own units (``CameraAPI.read_black_level``).
             None for a recorded frame: no frame reports it.
-        illumination_ma: Drive current of each LED address lit for the
+        illumination_by_address_ma: Drive current of each LED address lit for the
             frame, by address. An address that was off is absent.
         illumination_timing: When those currents were read
             (``LightTiming``).
@@ -272,7 +272,7 @@ class FrameRecord:
     gain_db: float | None
     gain_source: SettingSource | None
     black_level: float | None
-    illumination_ma: Mapping[int, float]
+    illumination_by_address_ma: Mapping[int, float]
     illumination_timing: LightTiming
     frames_summed: int
     frame_significant_bits: int
@@ -299,7 +299,9 @@ class FrameRecord:
         # Frozen all the way down: the record travels to another thread and
         # is read there, so its mapping must not be shared with the capture's.
         object.__setattr__(
-            self, 'illumination_ma', types.MappingProxyType(dict(self.illumination_ma))
+            self,
+            'illumination_by_address_ma',
+            types.MappingProxyType(dict(self.illumination_by_address_ma)),
         )
 
     @property
@@ -381,7 +383,7 @@ def grab_record(
         gain_db=gain_db,
         gain_source=gain_source,
         black_level=black_level,
-        illumination_ma=lit,
+        illumination_by_address_ma=lit,
         illumination_timing=LightTiming.BEFORE_GRAB,
         frames_summed=frames_summed,
         frame_significant_bits=frame_significant_bits,
@@ -430,7 +432,7 @@ def delivered_frame_record(
         gain_db=facts.gain_db,
         gain_source=SettingSource.FRAME if facts.gain_db is not None else None,
         black_level=None,
-        illumination_ma=lit,
+        illumination_by_address_ma=lit,
         illumination_timing=LightTiming.ON_ARRIVAL,
         frames_summed=1,
         frame_significant_bits=frame_significant_bits,

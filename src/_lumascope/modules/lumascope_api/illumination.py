@@ -416,7 +416,7 @@ def lit_other_than(
     Args:
         illumination: The LED store, read for which channel each address is.
         channel: The channel the frame is named for.
-        lit: The addresses lit, from a frame's record (``FrameRecord.illumination_ma``);
+        lit: The addresses lit, from a frame's record (``FrameRecord.illumination_by_address_ma``);
             None reads them from the store now, ``snapshot_lit_pairs``'s meaning.
     """
     readings = illumination.led_states or ()

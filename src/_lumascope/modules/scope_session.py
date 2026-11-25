@@ -3262,7 +3262,7 @@ class ScopeSession:
             exposed_after_call=exposed_after_call,
         )
         if channel is not None and lit_other_than(
-            self.scope.illumination, channel, still.record.illumination_ma
+            self.scope.illumination, channel, still.record.illumination_by_address_ma
         ):
             raise HardwareCommandRefusedError('other_led_lit', 'capture_still')
         return still

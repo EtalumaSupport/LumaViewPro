@@ -107,8 +107,8 @@ class TestMidWindowInvalidationHonored:
         info = live_scope.imaging.last_capture_info
         assert info['rechecks'] >= 1, 'the dirtied window must be re-run, not returned'
         bf_address = live_scope.channel_identity.find('BF').led_addresses[0]
-        assert record.illumination_ma == {bf_address: 100.0}, (
-            f'the re-run must read the NEW commanded state; recorded {record.illumination_ma}'
+        assert record.illumination_by_address_ma == {bf_address: 100.0}, (
+            f'the re-run must read the NEW commanded state; recorded {record.illumination_by_address_ma}'
         )
 
     def test_dirtied_window_rejection_recovers(self, live_scope, monkeypatch):
@@ -130,7 +130,7 @@ class TestMidWindowInvalidationHonored:
             'the expectation must re-derive lit -> dark; the capture was '
             'judged against the LED it no longer commands'
         )
-        assert record.illumination_ma == {}
+        assert record.illumination_by_address_ma == {}
 
     def test_excluded_source_never_retriggers(self, live_scope, monkeypatch):
         """The live view's settled state excludes stage motion

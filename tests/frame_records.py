@@ -33,7 +33,7 @@ def frame_record(**overrides) -> FrameRecord:
         'gain_db': 1.0,
         'gain_source': SettingSource.FRAME,
         'black_level': None,
-        'illumination_ma': {},
+        'illumination_by_address_ma': {},
         'illumination_timing': LightTiming.BEFORE_GRAB,
         'frames_summed': 1,
         'frame_significant_bits': 8,

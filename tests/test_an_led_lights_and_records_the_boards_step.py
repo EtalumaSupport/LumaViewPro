@@ -67,7 +67,7 @@ def test_an_fx2_frame_records_the_commanded_current(fx2_session, fx2):
     imaging = fx2_session.scope.imaging
     record = imaging.capture_still(accept_dark=True, timeout_s=2.0).record
     bf_address = fx2_session.scope.channel_identity.find('BF').led_addresses[0]
-    assert record.illumination_ma[bf_address] == pytest.approx(2 * _FX2_STEP_MA)
+    assert record.illumination_by_address_ma[bf_address] == pytest.approx(2 * _FX2_STEP_MA)
 
 
 def test_the_simulated_serial_board_steps_as_the_board_does():

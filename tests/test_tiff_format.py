@@ -1391,7 +1391,7 @@ def _a_full_still(
     bf_address = scope.channel_identity.find('BF').led_addresses[0]
     record = frame_record(
         black_level=0.0,
-        illumination_ma={bf_address: 50.0},
+        illumination_by_address_ma={bf_address: 50.0},
         frame_significant_bits=significant_bits,
         camera_timestamp_ticks=123,
         camera_timestamp_tick_hz=1_000_000_000,

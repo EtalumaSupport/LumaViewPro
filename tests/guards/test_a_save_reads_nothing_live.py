@@ -41,7 +41,7 @@ def _record(illumination_ma=None):
         exposure_ms=12.5,
         gain_db=3.0,
         black_level=4.0,
-        illumination_ma={3: 40.0} if illumination_ma is None else illumination_ma,
+        illumination_by_address_ma={3: 40.0} if illumination_ma is None else illumination_ma,
         frames_summed=2,
         frame_significant_bits=12,
         camera_timestamp_ticks=1000,
@@ -117,4 +117,4 @@ def test_a_frame_whose_led_was_off_records_no_current(sim_scope):
 def test_a_record_cannot_be_changed_after_the_capture():
     record = _record()
     with pytest.raises(TypeError):
-        record.illumination_ma[3] = 0.0
+        record.illumination_by_address_ma[3] = 0.0

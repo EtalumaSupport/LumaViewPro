@@ -276,7 +276,7 @@ def test_channel_settings_takes_each_still_with_the_settings_it_wrote():
         (
             s.channel,
             s.record.held_channel,
-            list(s.record.illumination_ma.values()),
+            list(s.record.illumination_by_address_ma.values()),
             s.record.exposure_ms,
             s.record.gain_db,
         )
@@ -293,7 +293,7 @@ def test_channel_settings_over_rest_takes_the_same_stills(served):
         (
             s['channel'],
             s['record']['held_channel'],
-            list(s['record']['illumination_ma'].values()),
+            list(s['record']['illumination_by_address_ma'].values()),
             s['record']['exposure_ms'],
             s['record']['gain_db'],
         )

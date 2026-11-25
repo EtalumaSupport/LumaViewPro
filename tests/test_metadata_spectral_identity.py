@@ -55,7 +55,7 @@ def _metadata(scope, channel, lit=None):
         0,
         0,
         objective_id=scope.runtime_state.get_current_objective_id(),
-        frame_record=frame_record(illumination_ma=lit or {}),
+        frame_record=frame_record(illumination_by_address_ma=lit or {}),
         labware=scope.runtime_state.get_labware(),
         well_label=None,
         fallback_focus=None,

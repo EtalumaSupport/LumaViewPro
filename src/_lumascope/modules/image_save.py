@@ -436,7 +436,7 @@ def generate_image_metadata(
     # left out, as every board address is.
     illumination_by_channel_ma = {
         key: round(ma, common_utils.max_decimal_precision('illumination'))
-        for address, ma in sorted(frame_record.illumination_ma.items())
+        for address, ma in sorted(frame_record.illumination_by_address_ma.items())
         if (key := identity.key_at(address)) is not None
     }
 
@@ -468,7 +468,8 @@ def generate_image_metadata(
             {'illumination_ma': round(_ma, common_utils.max_decimal_precision('illumination'))}
             if record is not None
             and record.led_addresses
-            and (_ma := frame_record.illumination_ma.get(record.led_addresses[0])) is not None
+            and (_ma := frame_record.illumination_by_address_ma.get(record.led_addresses[0]))
+            is not None
             else {}
         ),
         **(

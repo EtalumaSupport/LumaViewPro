@@ -23,7 +23,7 @@ session.light_shown_channel(True)           # at BF's stored current, 5 mA
 still = session.capture_still('BF', all_ones_check=True)
 record = still.record
 print(still.image.shape, still.image.dtype)
-print(record.held_channel, record.exposure_ms, record.gain_db, record.illumination_ma)
+print(record.held_channel, record.exposure_ms, record.gain_db, record.illumination_by_address_ma)
 assert record.dark is False                 # lit, and light was seen
 assert record.saturated_fraction < 0.98     # measured, because all_ones_check asked
 ```
@@ -182,7 +182,7 @@ states a fact its own way: `plate_pos_mm.x` and `.y` the pair a `SavedStill`
 states as `x_mm` and `y_mm`,
 and `illumination_ma` the one current, with
 `illumination_by_channel_ma.<channel>` each lit channel's, where the record
-keys its currents by LED address. The channel and its light are `channel`,
+keys its currents by LED address (`illumination_by_address_ma`). The channel and its light are `channel`,
 `held_channel`, `illumination_ma` and `dark`. `filterset` is the scope's
 filter set, whatever channel was imaged. Every key, its unit, what a sum
 does to it, its name in the Plane block and every key an older file states

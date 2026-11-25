@@ -365,7 +365,9 @@ class ManualCaptureController:
                 first_capture = scope.imaging.last_capture_info
             shown = self._shown_channel()
             if shown == channel:
-                if lit_other_than(scope.illumination, channel, still.record.illumination_ma):
+                if lit_other_than(
+                    scope.illumination, channel, still.record.illumination_by_address_ma
+                ):
                     raise HardwareCommandRefusedError('other_led_lit', _MEMBER)
                 return channel, still
             if time.monotonic() - started > first_capture['deadline_s']:

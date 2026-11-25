@@ -69,7 +69,7 @@ class TestTheStillIsHandedBackWithItsRecord:
 
         still = session.capture_still()
 
-        assert list(still.record.illumination_ma.values()) == [100.0]
+        assert list(still.record.illumination_by_address_ma.values()) == [100.0]
 
     def test_its_pixels_cannot_be_changed(self, session):
         still = session.capture_still('BF')

@@ -186,14 +186,14 @@ class TestTheFact:
     def test_no_lit_led_records_the_channel_the_recording_started_on(self, sim_scope):
         arrived = _arrival(sim_scope, channel_tiebreak='Lumi')
         assert arrived.light == Light('Lumi', {})
-        assert arrived.record.illumination_ma == {}
+        assert arrived.record.illumination_by_address_ma == {}
 
     def test_the_lit_led_names_the_frame_and_its_current_is_recorded(self, sim_scope):
         sim_scope.illumination.led_on(LED1, 100.0)
         arrived = _arrival(sim_scope)
         address = sim_scope.channel_identity.find(LED1).led_addresses[0]
         assert arrived.light == Light(LED1, {LED1: 100.0})
-        assert arrived.record.illumination_ma == {address: 100.0}
+        assert arrived.record.illumination_by_address_ma == {address: 100.0}
 
 
 class TestTheRecord:
