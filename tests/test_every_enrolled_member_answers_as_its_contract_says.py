@@ -1230,8 +1230,10 @@ def test_a_build_asked_while_the_scope_is_held_answers_as_its_contract_says(scop
             try:
                 call()
             except PostProcessingRefusedError as raised:
-                if raised.reason != 'scope_held':
-                    wrong.append(f'{member}: refused {raised.reason!r}, not scope_held')
+                if raised.reason != 'exclusive_activity_running':
+                    wrong.append(
+                        f'{member}: refused {raised.reason!r}, not exclusive_activity_running'
+                    )
                     continue
                 said = _undeclared(member, raised) or _wire_matches(scope, route, body, raised)
                 if said:

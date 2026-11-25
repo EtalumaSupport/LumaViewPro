@@ -240,7 +240,9 @@ Each build takes only what the one before it in the call carried forward, so
 `zproject` and `stitch` together stitch the projections. The same call made
 again rebuilds nothing already made, and resumes where it stopped. A build does
 not start while a run, a recording, a home or a diagnostic holds the scope
-(`'scope_held'`), or while a run's files are being written (`'files_writing'`).
+(`'exclusive_activity_running'`, naming the holder), or while a run's files are being
+written (`'files_writing'`; `'files_writing_stalled'` with the writer's recovery, as a run's
+start is told).
 Nor does it start on a folder whose drive has less than 2 GB free, the floor a
 run starts above (`'disk_space_insufficient'`). One already running when a run
 starts runs on, on its own lane.

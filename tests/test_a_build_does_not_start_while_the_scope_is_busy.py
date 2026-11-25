@@ -6,8 +6,10 @@ shares the cores, the interpreter lock and the disk with whatever holds the
 scope -- a run, a recording, a diagnostic, a home -- and with a finished
 run's file writes (#812 measured a folder build halving the capture rate).
 So `PostProcessingAPI` refuses a build whose turn comes while something
-holds the scope (``'scope_held'``) or a run's files are still being written
-(``'files_writing'``), for every caller. It is asked as the build starts, on
+holds the scope (``'exclusive_activity_running'``, naming the holder) or a
+run's files are still being written (``'files_writing'``, or
+``'files_writing_stalled'`` with the writer's recovery), for every caller, in
+the words a run's start is refused in. It is asked as the build starts, on
 the lane: a build queued behind another is refused if a hold began while it
 waited.
 
@@ -31,8 +33,11 @@ import pytest
 import tifffile
 
 from _lumascope.modules import common_utils, live_work
+from _lumascope.modules.caller import Caller
 from _lumascope.modules.cell_count_method import CellCountMethod
 from _lumascope.modules.exceptions import (
+    FileWriterStalledError,
+    Holder,
     LiveFolderPathRefusedError,
     PostProcessingRefusedError,
     RefusalCause,
@@ -41,6 +46,7 @@ from _lumascope.modules.post_processing_api import Stitch
 from _lumascope.modules.sequential_io_executor import IOTask
 from _lumascope.modules.scope_session import ScopeSession
 from tests.disk_fakes import free_space_unreadable
+from tests.protocol_drives import run_identity
 from tests.settings_fixtures import complete_settings
 from tests.test_run_refusal_contract import _a_closed_batch_still_writing
 
@@ -59,9 +65,25 @@ def test_a_build_asked_while_the_scope_is_held_is_refused_for_its_state(session,
     with session.diagnostic_claim(), pytest.raises(PostProcessingRefusedError) as refused:
         session.post_processing.stitch(tmp_path)
 
-    assert refused.value.reason == 'scope_held'
+    assert refused.value.reason == 'exclusive_activity_running'
     assert refused.value.cause is RefusalCause.STATE
+    assert refused.value.holder is Holder.DIAGNOSTIC
+    assert refused.value.title == 'Another Activity Running'
     assert 'diagnostic' in str(refused.value).lower()
+
+
+def test_a_build_asked_while_a_run_holds_names_the_run_and_who_started_it(session, tmp_path):
+    # The run's claim taken as a run takes it, with no run behind it: a
+    # simulated run on the fast tier ends before a build could be asked.
+    held = session._activity_claim.try_claim('protocol', run=run_identity(Caller.REST))
+    try:
+        with pytest.raises(PostProcessingRefusedError) as refused:
+            session.post_processing.stitch(tmp_path)
+    finally:
+        held.release()
+
+    assert refused.value.reason == 'exclusive_activity_running'
+    assert (refused.value.holder, refused.value.holder_trigger) == (Holder.PROTOCOL, Caller.REST)
 
 
 def test_a_build_asked_while_a_runs_files_are_written_is_refused(session, tmp_path):
@@ -78,6 +100,25 @@ def test_a_build_asked_while_a_runs_files_are_written_is_refused(session, tmp_pa
         runner._write_batch = held
 
     assert refused.value.reason == 'files_writing'
+    assert refused.value.remedy is None
+
+
+def test_a_build_asked_while_a_runs_writer_is_stalled_is_given_its_recovery(session, tmp_path):
+    # A stand-in by design, as above, with its one write stuck past the stall.
+    runner = session._sequenced_capture_runner
+    stalled = _a_closed_batch_still_writing(stuck_write='frame_0001.tiff')
+    held, runner._write_batch = runner._write_batch, stalled
+    try:
+        with pytest.raises(PostProcessingRefusedError) as refused:
+            session.post_processing.zproject(tmp_path)
+    finally:
+        runner._write_batch = held
+
+    assert refused.value.reason == 'files_writing_stalled'
+    assert refused.value.remedy == FileWriterStalledError.recovery(1)
+    assert refused.value.title == 'File Writer Stalled'
+    assert 'frame_0001.tiff' in str(refused.value)
+    assert 'Recover the file writer before building' in str(refused.value)
 
 
 def test_a_build_queued_before_a_hold_is_refused_when_its_turn_comes(session, tmp_path):
@@ -121,7 +162,7 @@ def test_a_build_queued_before_a_hold_is_refused_when_its_turn_comes(session, tm
 
     assert not caller.is_alive()
     assert isinstance(outcome.get('raised'), PostProcessingRefusedError), outcome
-    assert outcome['raised'].reason == 'scope_held'
+    assert outcome['raised'].reason == 'exclusive_activity_running'
 
 
 def _the_drive_has(monkeypatch, free_bytes: int) -> None:

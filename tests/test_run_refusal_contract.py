@@ -1117,14 +1117,22 @@ def test_every_runner_refusal_reason_is_covered():
     import typing
 
     from _lumascope.modules.common_utils import NoRoomToStart
+    from _lumascope.modules.sequenced_capture_runner import FilesStillWriting
     from tests import ast_seams
 
     raised = set()
     unread = []
-    # A start's free-space refusal is the one judge's answer, handed on as it
-    # came (``reason=no_room.reason``): its reasons are the ones its record's
-    # type admits, read from that type, never a second list kept here.
-    judges = {'room_to_start': set(typing.get_args(typing.get_type_hints(NoRoomToStart)['reason']))}
+    # A start's free-space refusal and its file-drain refusal are each one
+    # judge's answer, handed on as it came (``reason=no_room.reason``): their
+    # reasons are the ones the record's type admits, read from that type,
+    # never a second list kept here.
+    judges = {
+        judge: set(typing.get_args(typing.get_type_hints(record)['reason']))
+        for judge, record in (
+            ('room_to_start', NoRoomToStart),
+            ('files_still_writing', FilesStillWriting),
+        )
+    }
 
     class ReasonCollector(ast.NodeVisitor):
         def __init__(self, rel_path):

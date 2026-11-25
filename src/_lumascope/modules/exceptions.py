@@ -2858,6 +2858,7 @@ class PostProcessingOperation(StrEnum):
     POST_PROCESSING = 'Post-Processing'
 
 
+@api_fields('holder', 'holder_trigger')
 class PostProcessingRefusedError(Refusal, CaptureError):
     """What a post-processing operation was given cannot yield the output asked of it.
 
@@ -2871,8 +2872,10 @@ class PostProcessingRefusedError(Refusal, CaptureError):
     person, and what to do. Or the scope's state refused it: a build
     started while something holds the scope or a run's files are still
     being written would share the process's cores, interpreter lock and
-    disk with that work (``'scope_held'``, ``'files_writing'``), and the
-    same request may succeed once it ends; or the drive it would write on
+    disk with that work (``'exclusive_activity_running'``,
+    ``'files_writing'``), and the same request may succeed once it ends, or
+    once the stalled file writer is recovered (``'files_writing_stalled'``,
+    with that recovery as its ``remedy``); or the drive it would write on
     has less free than a run needs to start (``'disk_space_insufficient'``).
 
     Attributes:
@@ -2909,12 +2912,11 @@ class PostProcessingRefusedError(Refusal, CaptureError):
             could not be loaded. ``'results_unreadable'`` -- the cell-count
             results file cannot be read as one LumaViewPro writes.
             ``'unsupported_source_format'`` -- the source images are not
-            TIFF or OME-TIFF, which the build re-reads. ``'scope_held'`` --
-            something holds the scope, and a build now would share the
-            computer with its work. ``'files_writing'`` and
-            ``'disk_space_insufficient'`` (the drive the build writes on has
-            less free than a run needs to start), as
-            ``ProtocolRunRefusedError`` explains them,
+            TIFF or OME-TIFF, which the build re-reads.
+            ``'exclusive_activity_running'``, ``'files_writing'``,
+            ``'files_writing_stalled'`` and ``'disk_space_insufficient'``
+            (the drive the build writes on has less free than a run needs
+            to start), as ``ProtocolRunRefusedError`` explains them,
             ``'capture_location_unusable'`` (the free space where the build
             would write cannot be read), as ``CaptureLocationError``
             explains it, ``'unreadable'``, as
@@ -2922,7 +2924,21 @@ class PostProcessingRefusedError(Refusal, CaptureError):
             ``'names_exhausted'``, as ``CaptureLocationError`` explains it
             (a cell count's results and every numbered name after them),
             are the same facts.
+        holder: The kind of activity holding the scope, for
+            ``'exclusive_activity_running'``; else None.
+        holder_trigger: Who started the run behind the refusal --
+            ``'gui'``, ``'rest'`` or ``'api'``: the run that holds the scope,
+            or the finished run whose files are still being written; None
+            when no run is behind it.
+        remedy: The file writer's recovery, for
+            ``'files_writing_stalled'``; else None.
+
+    ``holder`` and ``holder_trigger`` are published, so a REST problem
+    carries who holds the scope beside the words, as a run's start does.
     """
+
+    holder: Holder | None
+    holder_trigger: Caller | None
 
     causes: ClassVar[dict[str, RefusalCause]] = {
         'axis_not_plottable': RefusalCause.REQUEST,
@@ -2943,8 +2959,9 @@ class PostProcessingRefusedError(Refusal, CaptureError):
         'results_unreadable': RefusalCause.REQUEST,
         'unreadable': RefusalCause.REQUEST,
         'unsupported_source_format': RefusalCause.REQUEST,
-        'scope_held': RefusalCause.STATE,
+        'exclusive_activity_running': RefusalCause.STATE,
         'files_writing': RefusalCause.STATE,
+        'files_writing_stalled': RefusalCause.STATE,
         'disk_space_insufficient': RefusalCause.STATE,
         'capture_location_unusable': RefusalCause.STATE,
         'names_exhausted': RefusalCause.STATE,
@@ -2976,6 +2993,11 @@ class PostProcessingRefusedError(Refusal, CaptureError):
             'No Z-Stack Data Found',
             _NO_ZSTACK_ADVICE,
         ),
+        'exclusive_activity_running': (
+            ProtocolRunRefusedError.titles['exclusive_activity_running'],
+            '',
+        ),
+        'files_writing_stalled': (ProtocolRunRefusedError.titles['files_writing_stalled'], ''),
         'disk_space_insufficient': (ProtocolRunRefusedError.titles['disk_space_insufficient'], ''),
         'capture_location_unusable': (
             ProtocolRunRefusedError.titles['capture_location_unusable'],
@@ -2983,12 +3005,28 @@ class PostProcessingRefusedError(Refusal, CaptureError):
         ),
     }
 
-    def __init__(self, *, operation: str, reason: str, message: str, detail: 'str | None' = None):
+    def __init__(
+        self,
+        *,
+        operation: str,
+        reason: str,
+        message: str,
+        detail: 'str | None' = None,
+        holder: 'Holder | None' = None,
+        holder_trigger: Caller | None = None,
+        remedy: Remedy | None = None,
+    ):
         self.reason = reason
         self.operation = PostProcessingOperation(operation)
         # What is wrong with the one file, without naming it, as the reader's
         # refusal states it; None when the message alone says it.
         self.detail = detail
+        # What holds the scope and who started it, for
+        # 'exclusive_activity_running'; a finished run's starter for the
+        # file reasons; None otherwise.
+        self.holder = _holder(holder)
+        self.holder_trigger = holder_trigger
+        self.remedy = remedy
         _, advice = self._row()
         super().__init__(f'{message}{advice}', reason)
 

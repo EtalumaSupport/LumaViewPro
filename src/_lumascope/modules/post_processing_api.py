@@ -68,6 +68,7 @@ if TYPE_CHECKING:
     from _lumascope.modules.api_surface import ProgressCallback
     from _lumascope.modules.channel_record import ChannelColors
     from _lumascope.modules.quick_enhance import QuickEnhanceSettings
+    from _lumascope.modules.sequenced_capture_runner import FilesStillWriting
     from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
     from _lumascope.modules.tiling_config import TilingGrids
 
@@ -630,7 +631,7 @@ class PostProcessingAPI:
         settings_snapshot: Callable[[], dict],
         channel_colors: Callable[[], ChannelColors],
         scope_holder: Callable[[], ActivityHolder | None],
-        files_draining: Callable[[], bool],
+        files_still_writing: Callable[[str], FilesStillWriting | None],
         on_saved: Callable[[pathlib.Path], None],
     ):
         """
@@ -647,8 +648,9 @@ class PostProcessingAPI:
                 read of it, read as each build is asked for.
             scope_holder: What holds the scope now -- a run, a recording, a
                 diagnostic, a home -- or None; asked as each build starts.
-            files_draining: Whether a finished run's files are still being
-                written; asked as each build starts.
+            files_still_writing: A finished run's files still being written,
+                in the words of what waits on them, or None; asked as each
+                build starts (``SequencedCaptureRunner.files_still_writing``).
             on_saved: Told the folder a build's files landed in, on the
                 lane, before the build answers: of a complete build, of a
                 build that failed part way, and of each build ``build``
@@ -661,7 +663,7 @@ class PostProcessingAPI:
         self._settings_snapshot = settings_snapshot
         self._channel_colors = channel_colors
         self._scope_holder = scope_holder
-        self._files_draining = files_draining
+        self._files_still_writing = files_still_writing
         # Each build submitted through _run, by its lane task, with its
         # progress as its own callback last said; kept from the submit until
         # the call returns, so the lane's running task is named by it.
@@ -1846,9 +1848,12 @@ class PostProcessingAPI:
         above (``common_utils.room_to_start``).
 
         Raises:
-            PostProcessingRefusedError: ``'scope_held'``, naming what holds
-                the scope; ``'files_writing'``, a finished run's files are
-                still being written; ``'disk_space_insufficient'``, the drive
+            PostProcessingRefusedError: ``'exclusive_activity_running'``,
+                naming what holds the scope; ``'files_writing'``, a finished
+                run's files are still being written, or
+                ``'files_writing_stalled'``, its writer has stopped, with the
+                recovery that answers it, as a run's start is refused for
+                them; ``'disk_space_insufficient'``, the drive
                 under *beside* has less free than
                 ``common_utils.MIN_REQUIRED_DISK_MB``;
                 ``'capture_location_unusable'``, its free space cannot be
@@ -1858,20 +1863,22 @@ class PostProcessingAPI:
         if holder is not None:
             raise PostProcessingRefusedError(
                 operation=operation,
-                reason='scope_held',
+                reason='exclusive_activity_running',
                 message=(
                     f'{the_holder_named(holder)} is using the microscope, and a build now '
                     'would slow it down. Try again when it ends.'
                 ),
+                holder=holder.kind,
+                holder_trigger=holder.run_started_by,
             )
-        if self._files_draining():
+        writing = self._files_still_writing('building')
+        if writing is not None:
             raise PostProcessingRefusedError(
                 operation=operation,
-                reason='files_writing',
-                message=(
-                    "A protocol's files are still being written, and a build now would slow "
-                    'the writing down. Try again when they are written.'
-                ),
+                reason=writing.reason,
+                message=writing.message,
+                holder_trigger=writing.holder_trigger,
+                remedy=writing.remedy,
             )
         if beside is None:
             return

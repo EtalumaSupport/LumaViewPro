@@ -875,7 +875,9 @@ class ScopeSession:
             channel_colors=lambda: self.channel_colors,
             # Read as each build starts; the claim is made further down.
             scope_holder=lambda: self._activity_claim.holder,
-            files_draining=lambda: self._draining_batch() is not None,
+            files_still_writing=lambda before: self._sequenced_capture_runner.files_still_writing(
+                before
+            ),
             on_saved=self._saved,
         )
         # Run-state listeners: zero-argument callables notified on every

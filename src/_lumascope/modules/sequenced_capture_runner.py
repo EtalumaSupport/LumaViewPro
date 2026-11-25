@@ -413,6 +413,24 @@ def _channel_whose_focus_it_saves(plan: RunPlan) -> str | None:
     return plan.protocol.step_row(step_index=0)['channel']
 
 
+@dataclasses.dataclass(frozen=True)
+class FilesStillWriting:
+    """A finished run's files still being written, as every start that waits on them says it.
+
+    Attributes:
+        reason: ``'files_writing'``, or ``'files_writing_stalled'`` when
+            the writer has stopped and will not finish on its own.
+        message: The words a person reads, naming the run and what waits.
+        remedy: The file writer's recovery, for a stalled writer; else None.
+        holder_trigger: Who started the run whose files these are.
+    """
+
+    reason: typing.Literal['files_writing', 'files_writing_stalled']
+    message: str
+    remedy: Remedy | None
+    holder_trigger: Caller | None
+
+
 class SequencedCaptureRunner:
     LOGGER_NAME = 'SeqCapExec'
 
@@ -1240,33 +1258,13 @@ class SequencedCaptureRunner:
         if self._is_run_live() or (holder is not None and holder.kind == WorkKind.PROTOCOL):
             return self._already_running()
 
-        batch = self._write_batch
-        if batch is not None and batch.draining:
-            # A stalled writer will not finish on its own, so its refusal
-            # carries the recovery that answers it, by name: the Session
-            # owns recovery, and this layer cannot reach it.
-            if batch.stalled(WRITE_STALL_FATAL_S):
-                unsaved = batch.pending
-                stalled = FileWriterStalledError.stalled_sentence(
-                    the_run_named(self._run_identity, sentence_start=True),
-                    batch.describe_stuck_write(),
-                )
-                return self._refusal(
-                    holder_trigger=self._last_run_started_by(),
-                    reason='files_writing_stalled',
-                    message=(
-                        f'{stalled} Recover the file writer before starting a new run: '
-                        f'{FileWriterStalledError.cost_sentence(unsaved)}'
-                    ),
-                    remedy=FileWriterStalledError.recovery(unsaved),
-                )
+        writing = self.files_still_writing('starting a new run')
+        if writing is not None:
             return self._refusal(
-                reason='files_writing',
-                message=(
-                    f'{the_run_named(self._run_identity, sentence_start=True)} is still '
-                    'writing its files. Please wait.'
-                ),
-                holder_trigger=self._last_run_started_by(),
+                reason=writing.reason,
+                message=writing.message,
+                holder_trigger=writing.holder_trigger,
+                remedy=writing.remedy,
             )
 
         # A capture and a build never overlap: a run waits for the builds on
@@ -2658,6 +2656,47 @@ class SequencedCaptureRunner:
     def write_batch(self) -> RunWriteBatch | None:
         """The live or last run's writes, or None when no run has started."""
         return self._write_batch
+
+    def files_still_writing(self, before: str) -> FilesStillWriting | None:
+        """Whether a finished run's files are still being written, in the words of what waits on them.
+
+        The one judgment of the drain, for every start that waits on it: a
+        run, a build, a control take. Only *before* differs between them.
+
+        Args:
+            before: What waits, as its sentence ends: ``'starting a new
+                run'``, ``'building'``.
+
+        Returns:
+            None while no finished run's files are being written, the live
+            run's own included; else the drain, a stalled writer's with the
+            recovery that answers it.
+        """
+        batch = self._write_batch
+        if batch is None or not batch.draining:
+            return None
+        run = the_run_named(self._run_identity, sentence_start=True)
+        # A stalled writer will not finish on its own, so its refusal
+        # carries the recovery that answers it, by name: the Session
+        # owns recovery, and this layer cannot reach it.
+        if batch.stalled(WRITE_STALL_FATAL_S):
+            unsaved = batch.pending
+            stalled = FileWriterStalledError.stalled_sentence(run, batch.describe_stuck_write())
+            return FilesStillWriting(
+                reason='files_writing_stalled',
+                message=(
+                    f'{stalled} Recover the file writer before {before}: '
+                    f'{FileWriterStalledError.cost_sentence(unsaved)}'
+                ),
+                remedy=FileWriterStalledError.recovery(unsaved),
+                holder_trigger=self._last_run_started_by(),
+            )
+        return FilesStillWriting(
+            reason='files_writing',
+            message=f'{run} is still writing its files. Please wait.',
+            remedy=None,
+            holder_trigger=self._last_run_started_by(),
+        )
 
     _FILE_WRITER_CHECK_INTERVAL_S = 1.0
 

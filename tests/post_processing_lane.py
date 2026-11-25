@@ -32,7 +32,7 @@ def a_post_processing_api() -> Iterator[PostProcessingAPI]:
             settings_snapshot=dict,
             channel_colors=release_colors,
             scope_holder=lambda: None,
-            files_draining=lambda: False,
+            files_still_writing=lambda before: None,
         )
     finally:
         lane.shutdown()

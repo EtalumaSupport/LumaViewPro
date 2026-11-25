@@ -133,7 +133,7 @@ def test_processor_returns_processor_result_on_missing_folder(
         channel_colors=release_colors,
         # a stand-in by design: no scope here holds anything or drains files.
         scope_holder=lambda: None,
-        files_draining=lambda: False,
+        files_still_writing=lambda before: None,
     )
     stitcher_plugin.register(harness_ctx)
     processor = harness_ctx.plugins.post_processing.get('stitcher')

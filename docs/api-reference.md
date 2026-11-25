@@ -4109,7 +4109,7 @@ the members one by one.
 
 **Refusals**
 
-- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`, `scope_held`, `files_writing`, `disk_space_insufficient`, `capture_location_unusable`, `invalid_setting`, `protocol_data_unreadable`, `no_images`, `unsupported_source_format`, `output_outside_folder`, `collision`, `excluded_inputs`, `manifest_unreadable`
+- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`, `exclusive_activity_running`, `files_writing`, `files_writing_stalled`, `disk_space_insufficient`, `capture_location_unusable`, `invalid_setting`, `protocol_data_unreadable`, `no_images`, `unsupported_source_format`, `output_outside_folder`, `collision`, `excluded_inputs`, `manifest_unreadable`
 - [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`
 - [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 - [`SessionClosingError`](#SessionClosingError): `session_closing`
@@ -4156,7 +4156,7 @@ its end.
 
 **Refusals by REST status**
 
-- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `disk_space_insufficient`, `capture_location_unusable`
+- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `exclusive_activity_running`, `files_writing`, `files_writing_stalled`, `disk_space_insufficient`, `capture_location_unusable`
 - 422: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `invalid_setting`
 - 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
@@ -4244,7 +4244,7 @@ The results table, the method file, how many images were counted, each image lef
 
 **Refusals**
 
-- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`, `scope_held`, `files_writing`, `disk_space_insufficient`, `capture_location_unusable`, `method_invalid`, `protocol_data_unreadable`, `no_images`, `no_data`
+- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`, `exclusive_activity_running`, `files_writing`, `files_writing_stalled`, `disk_space_insufficient`, `capture_location_unusable`, `method_invalid`, `protocol_data_unreadable`, `no_images`, `no_data`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
 - [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`
 - [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
@@ -4287,7 +4287,7 @@ raised. A count has no stop: once started it runs to its end.
 
 **Refusals by REST status**
 
-- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `disk_space_insufficient`, `capture_location_unusable`
+- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `exclusive_activity_running`, `files_writing`, `files_writing_stalled`, `disk_space_insufficient`, `capture_location_unusable`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
 - 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
@@ -4348,7 +4348,7 @@ Each derived file, the folder they are in, and the outcome in words.
 
 **Refusals**
 
-- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `disk_space_insufficient`, `capture_location_unusable`, `unreadable`, `no_images`, `no_data`
+- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `exclusive_activity_running`, `files_writing`, `files_writing_stalled`, `disk_space_insufficient`, `capture_location_unusable`, `unreadable`, `no_images`, `no_data`
 - [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`
 - [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 - [`SessionClosingError`](#SessionClosingError): `session_closing`
@@ -4388,7 +4388,7 @@ it runs to its end.
 
 **Refusals by REST status**
 
-- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `disk_space_insufficient`, `capture_location_unusable`
+- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `exclusive_activity_running`, `files_writing`, `files_writing_stalled`, `disk_space_insufficient`, `capture_location_unusable`
 - 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="PostProcessingAPI.graph"></a>
@@ -4439,7 +4439,7 @@ The PNG written and the outcome in words.
 
 **Refusals by REST status**
 
-- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `disk_space_insufficient`, `capture_location_unusable`
+- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `exclusive_activity_running`, `files_writing`, `files_writing_stalled`, `disk_space_insufficient`, `capture_location_unusable`
 - 422: [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_file`, `wrong_extension`, `not_a_folder`; [`PostProcessingRefusedError`](#PostProcessingRefusedError): `graph_incomplete`, `results_unreadable`, `axis_not_plottable`, `fit_impossible`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`
 - 500: [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 
@@ -13053,7 +13053,7 @@ value, so `Part(board)` is the board's part.
 <a id="Caller"></a>
 ### `lumascope.Caller`
 
-Held in: [`ControlSession.taken_by`](#ControlSession.taken_by), [`ControlSessionRefusedError.holder_trigger`](#ControlSessionRefusedError.holder_trigger), [`DiagnosticRefusedError.holder_trigger`](#DiagnosticRefusedError.holder_trigger), [`HardwareCommandRefusedError.holder_trigger`](#HardwareCommandRefusedError.holder_trigger), [`ProtocolRunRefusedError.holder_trigger`](#ProtocolRunRefusedError.holder_trigger), [`RecordingRefusedError.holder_trigger`](#RecordingRefusedError.holder_trigger).
+Held in: [`ControlSession.taken_by`](#ControlSession.taken_by), [`ControlSessionRefusedError.holder_trigger`](#ControlSessionRefusedError.holder_trigger), [`DiagnosticRefusedError.holder_trigger`](#DiagnosticRefusedError.holder_trigger), [`HardwareCommandRefusedError.holder_trigger`](#HardwareCommandRefusedError.holder_trigger), [`PostProcessingRefusedError.holder_trigger`](#PostProcessingRefusedError.holder_trigger), [`ProtocolRunRefusedError.holder_trigger`](#ProtocolRunRefusedError.holder_trigger), [`RecordingRefusedError.holder_trigger`](#RecordingRefusedError.holder_trigger).
 
 Which host a call came through.
 
@@ -13260,7 +13260,7 @@ has neither.
 <a id="Holder"></a>
 ### `lumascope.Holder`
 
-Held in: [`ControlSessionRefusedError.holder`](#ControlSessionRefusedError.holder), [`DiagnosticRefusedError.holder`](#DiagnosticRefusedError.holder), [`HardwareCommandRefusedError.holder`](#HardwareCommandRefusedError.holder), [`ProtocolRunRefusedError.holder`](#ProtocolRunRefusedError.holder), [`RecordingRefusedError.holder`](#RecordingRefusedError.holder).
+Held in: [`ControlSessionRefusedError.holder`](#ControlSessionRefusedError.holder), [`DiagnosticRefusedError.holder`](#DiagnosticRefusedError.holder), [`HardwareCommandRefusedError.holder`](#HardwareCommandRefusedError.holder), [`PostProcessingRefusedError.holder`](#PostProcessingRefusedError.holder), [`ProtocolRunRefusedError.holder`](#ProtocolRunRefusedError.holder), [`RecordingRefusedError.holder`](#RecordingRefusedError.holder).
 
 What holds the microscope when a refusal names its holder.
 
@@ -16566,14 +16566,25 @@ given cannot be used. The message says which, in words written for the
 person, and what to do. Or the scope's state refused it: a build
 started while something holds the scope or a run's files are still
 being written would share the process's cores, interpreter lock and
-disk with that work (`'scope_held'`, `'files_writing'`), and the
-same request may succeed once it ends; or the drive it would write on
+disk with that work (`'exclusive_activity_running'`,
+`'files_writing'`), and the same request may succeed once it ends, or
+once the stalled file writer is recovered (`'files_writing_stalled'`,
+with that recovery as its `remedy`); or the drive it would write on
 has less free than a run needs to start (`'disk_space_insufficient'`).
 
 **Attributes**
 
 - `operation`: The operation's name as a person reads it ("Stitch").
-- `reason`: Machine-readable refusal code. `'axis_not_plottable'` -- a graph's X or Y names a column of the results file that axis cannot take. `'collision'` -- every image group would write an output under a name another group's output shares, so nothing could be built. `'excluded_inputs'` -- the folder holds only derived outputs, which the build does not take as input. `'fit_impossible'` -- the graphed values cannot give the trendline asked for. `'graph_incomplete'` -- a graph was asked for without a results file, an X axis and a Y axis. `'invalid_path'` -- no folder was given to process. `'invalid_setting'` -- a setting of the build is not one it can use, such as no build chosen, an image shape or scale that is not one, or a playback rate below 1 frame per second. `'manifest_unreadable'` -- a recording's details file is there but cannot be opened, is not JSON, or holds a fact that is not its kind, so the video would build without the color and rate it records. `'method_invalid'` -- the cell-count method holds something the count cannot use. `'method_unreadable'` -- the cell-count method file cannot be read, is not JSON, or has no metadata naming its type and version. `'no_data'` -- the folder holds images, but not the data this operation needs: no Z-stack for a z-projection, no recording frames for a video, nothing a count could count, or a recording where stills are needed. `'no_images'` -- the folder holds no image files. `'no_scale'` -- the image states no scale, so it is counted in pixels, and the method filters a size in microns. `'output_outside_folder'` -- the folder's protocol names a step whose output would be written outside the folder. `'protocol_data_unreadable'` -- the folder's protocol data could not be loaded. `'results_unreadable'` -- the cell-count results file cannot be read as one LumaViewPro writes. `'unsupported_source_format'` -- the source images are not TIFF or OME-TIFF, which the build re-reads. `'scope_held'` -- something holds the scope, and a build now would share the computer with its work. `'files_writing'` and `'disk_space_insufficient'` (the drive the build writes on has less free than a run needs to start), as `ProtocolRunRefusedError` explains them, `'capture_location_unusable'` (the free space where the build would write cannot be read), as `CaptureLocationError` explains it, `'unreadable'`, as `InputFramesUnusableError` explains it, and `'names_exhausted'`, as `CaptureLocationError` explains it (a cell count's results and every numbered name after them), are the same facts.
+- `reason`: Machine-readable refusal code. `'axis_not_plottable'` -- a graph's X or Y names a column of the results file that axis cannot take. `'collision'` -- every image group would write an output under a name another group's output shares, so nothing could be built. `'excluded_inputs'` -- the folder holds only derived outputs, which the build does not take as input. `'fit_impossible'` -- the graphed values cannot give the trendline asked for. `'graph_incomplete'` -- a graph was asked for without a results file, an X axis and a Y axis. `'invalid_path'` -- no folder was given to process. `'invalid_setting'` -- a setting of the build is not one it can use, such as no build chosen, an image shape or scale that is not one, or a playback rate below 1 frame per second. `'manifest_unreadable'` -- a recording's details file is there but cannot be opened, is not JSON, or holds a fact that is not its kind, so the video would build without the color and rate it records. `'method_invalid'` -- the cell-count method holds something the count cannot use. `'method_unreadable'` -- the cell-count method file cannot be read, is not JSON, or has no metadata naming its type and version. `'no_data'` -- the folder holds images, but not the data this operation needs: no Z-stack for a z-projection, no recording frames for a video, nothing a count could count, or a recording where stills are needed. `'no_images'` -- the folder holds no image files. `'no_scale'` -- the image states no scale, so it is counted in pixels, and the method filters a size in microns. `'output_outside_folder'` -- the folder's protocol names a step whose output would be written outside the folder. `'protocol_data_unreadable'` -- the folder's protocol data could not be loaded. `'results_unreadable'` -- the cell-count results file cannot be read as one LumaViewPro writes. `'unsupported_source_format'` -- the source images are not TIFF or OME-TIFF, which the build re-reads. `'exclusive_activity_running'`, `'files_writing'`, `'files_writing_stalled'` and `'disk_space_insufficient'` (the drive the build writes on has less free than a run needs to start), as `ProtocolRunRefusedError` explains them, `'capture_location_unusable'` (the free space where the build would write cannot be read), as `CaptureLocationError` explains it, `'unreadable'`, as `InputFramesUnusableError` explains it, and `'names_exhausted'`, as `CaptureLocationError` explains it (a cell count's results and every numbered name after them), are the same facts.
+- `remedy`: The file writer's recovery, for `'files_writing_stalled'`; else None.
+
+`holder` and `holder_trigger` are published, so a REST problem
+carries who holds the scope beside the words, as a run's start does.
+
+**Fields**
+
+- <a id="PostProcessingRefusedError.holder"></a>`holder`: `Holder | None` -- The kind of activity holding the scope, for `'exclusive_activity_running'`; else None.
+- <a id="PostProcessingRefusedError.holder_trigger"></a>`holder_trigger`: `Caller | None` -- Who started the run behind the refusal -- `'gui'`, `'rest'` or `'api'`: the run that holds the scope, or the finished run whose files are still being written; None when no run is behind it.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -16582,7 +16593,9 @@ has less free than a run needs to start (`'disk_space_insufficient'`).
 | `collision` | request | 422 |
 | `disk_space_insufficient` | state | 409 |
 | `excluded_inputs` | request | 422 |
+| `exclusive_activity_running` | state | 409 |
 | `files_writing` | state | 409 |
+| `files_writing_stalled` | state | 409 |
 | `fit_impossible` | request | 422 |
 | `graph_incomplete` | request | 422 |
 | `invalid_path` | request | 422 |
@@ -16597,7 +16610,6 @@ has less free than a run needs to start (`'disk_space_insufficient'`).
 | `output_outside_folder` | request | 422 |
 | `protocol_data_unreadable` | request | 422 |
 | `results_unreadable` | request | 422 |
-| `scope_held` | state | 409 |
 | `unreadable` | request | 422 |
 | `unsupported_source_format` | request | 422 |
 
