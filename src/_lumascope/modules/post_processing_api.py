@@ -1439,6 +1439,10 @@ class PostProcessingAPI:
             PostProcessingRefusedError: reason ``method_invalid``, a
                 *method* sent as its fields holds what ``CellCountMethod``
                 refuses. Nothing is written.
+            PostProcessingFailedError: ``'post_processing_failed'``, the
+                disk refused the folder or the write; chained from its
+                ``OSError``, and the words give the system's reason. A
+                method saved there before is kept.
         """
         from _lumascope.modules.post_processing import save_cell_count_method
 

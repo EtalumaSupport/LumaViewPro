@@ -29,7 +29,12 @@ from _lumascope.modules.cell_count_method import (
     FilterBounds,
     saved_form,
 )
-from _lumascope.modules.exceptions import LiveFolderPathRefusedError, PostProcessingRefusedError
+from _lumascope.modules.exceptions import (
+    LiveFolderPathRefusedError,
+    PostProcessingFailedError,
+    PostProcessingRefusedError,
+)
+from _lumascope.modules.notification_center import outcome_of
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -104,10 +109,17 @@ def test_a_save_that_fails_partway_leaves_the_method_saved_before(post, tmp_path
         return handle
 
     monkeypatch.setattr(post_processing, 'open', cut_short, raising=False)
-    with pytest.raises(OSError) as raised:
+    with pytest.raises(PostProcessingFailedError) as raised:
         post.save_cell_count_method(CellCountMethod(pixels_per_um=4.0), path)
 
-    assert raised.value.errno == errno.ENOSPC
+    # A fault the person is told in the disk's words, never an undeclared
+    # OSError, which is shown as LumaViewPro's own internal fault.
+    assert raised.value.reason == 'post_processing_failed'
+    assert raised.value.__cause__.errno == errno.ENOSPC
+    told = outcome_of(raised.value).shown_words
+    assert os.strerror(errno.ENOSPC) in told
+    assert str(path) in told
+    assert '.tmp' not in told
     assert path.read_bytes() == before
     assert [p.name for p in tmp_path.iterdir() if p.name.startswith('method.json')] == [
         'method.json'

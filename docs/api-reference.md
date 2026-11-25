@@ -4577,10 +4577,12 @@ was.
 
 - `LiveFolderPathRefusedError`: `'not_a_file'`, a folder is at *path*; `'wrong_extension'`, its name does not end in `.json` (in any case), which is not added; `'not_a_folder'`, a file is where its folder would be. Nothing is written.
 - `PostProcessingRefusedError`: reason `method_invalid`, a *method* sent as its fields holds what `CellCountMethod` refuses. Nothing is written.
+- `PostProcessingFailedError`: `'post_processing_failed'`, the disk refused the folder or the write; chained from its `OSError`, and the words give the system's reason. A method saved there before is kept.
 
 **Refusals by REST status**
 
 - 422: [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `not_a_file`, `wrong_extension`, `not_a_folder`; [`PostProcessingRefusedError`](#PostProcessingRefusedError): `method_invalid`
+- 500: [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`
 
 <a id="Lumascope"></a>
 ## `lumascope.Lumascope`

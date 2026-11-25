@@ -270,11 +270,21 @@ def save_cell_count_method(method: CellCountMethod, path: str | os.PathLike) -> 
             *path*; ``'wrong_extension'``, its name does not end in
             ``.json`` (in any case), which is not added; ``'not_a_folder'``,
             a file is where its folder would be. Nothing is written.
+        PostProcessingFailedError: ``'post_processing_failed'``, the disk
+            refused the folder or the write; chained from its ``OSError``,
+            and the words give the system's reason. A method saved there
+            before is kept.
     """
     path = path_utils.file_to_write(path, extension='.json')
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path_utils.written_whole(path) as temporary:
-        _write_cell_count_method(method, temporary)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path_utils.written_whole(path) as temporary:
+            _write_cell_count_method(method, temporary)
+    except OSError as e:
+        raise PostProcessingFailedError(
+            operation=CELL_COUNT_OPERATION,
+            missing=f'The method could not be written to {path} ({system_words(e)}).',
+        ) from e
 
 
 def _write_cell_count_method(method: CellCountMethod, file: str | os.PathLike) -> None:
