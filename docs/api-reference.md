@@ -906,7 +906,7 @@ bytes; a Python caller is handed the array.
 
 **Args**
 
-- `channel`: The shown channel, whose stored exposure, gain and auto-gain the camera holds for the grab, put on in the capture's own camera-lane task; no other channel is taken, so the camera holds the shown channel after it. After a raw camera write (`CameraAPI.set_gain_db`, `set_exposure_ms`, `apply`) the camera holds no channel's settings, and none are written: the raw values stand, and the record's `held_channel` is None. None (the default) captures with the camera as set.
+- `channel`: The shown channel, whose stored exposure, gain and auto-gain the camera holds for the grab, put on in the capture's own camera-lane task; no other channel is taken, so the camera holds the shown channel after it. After a raw camera write (`CameraAPI.set_gain_db`, `set_exposure_ms`, `apply`) the camera holds no channel's settings, and none are written: the raw values stand, and the record's `held_channel` is None. None (the default) captures with the camera as set. A saved still named for the shown channel is `start_save_still`'s.
 - `force_to_8bit`: Convert the image to 8 bits; False keeps the camera's depth (`CapturedStill.significant_bits`).
 - `accept_dark`: Skip the dark-frame judgment: a frame with essentially no lit pixel while a channel is lit is kept at once, its record's `dark` None. False (the default) retries such a frame until `timeout_s` and then keeps it, its record's `dark` True.
 - `exclude_sources`: Hardware changes to ignore for validity, e.g. `(FrameValiditySource.Z_MOVE,)`. The frame returned can predate an excluded change, so a frame that is measured or recorded never excludes one.
@@ -2244,6 +2244,10 @@ Route: `GET /api/v1/plate_position`.
 
 The stage's position in plate coordinates, on the session's labware.
 
+Where the stage is held, what a bookmark or a step records; where a
+point of the frame is this instant, mid-move too, is
+`runtime_state.frame_point_plate`.
+
 **Returns**
 
 Where the scope is on the plate: X and Y in mm, Z in um.
@@ -3235,14 +3239,17 @@ def setting(self, path: str) -> SettingValue
 Marks: reads (changes nothing).  
 Route: `GET /api/v1/setting`.
 
-A copy of one setting, named by its dotted path: `'stage_offset'`, `'video.max_fps'`.
+A copy of one setting, named by its dotted path: `'jpg_quality'`, `'video.max_fps'`.
 
 Taken under the lock, so it is never a value part-way through a
 write; a copy, so changing it changes no setting (`update_settings`
-and the Session's members do).
+and the Session's members do). The value is the stored one, in the
+store's own shape: `setting('stage_offset')` is `{'x': x_um, 'y': y_um}`
+in um, which `runtime_state.stage_offset` hands a coordinate
+caller as a `StageOffset`.
 
-A setting with a read of its own is read there, so one setting has
-one read: `setting('binning')` is refused for
+A setting a member changes is read there, so it has one read:
+`setting('binning')` is refused for
 `scope.camera.binning`, `setting('objective_id')` for
 `objective_id`, `setting('bookmark')` for `bookmark`,
 `setting('BF.gain_db')` for `channel_settings`. The
@@ -3297,9 +3304,11 @@ for the rest of the task, rather than reading a dict another
 thread may be part-way through rewriting. In-process: a wire client
 reads a setting by its path, through `setting`.
 
-`objective_id` is the active objective, as `setting` answers
-it: on a turret scope, the slot's in the light path, or None while
-that is unknown.
+`objective_id` is the active objective the runtime state answers:
+on a turret scope, the slot's in the light path, or None while that
+is unknown (`objective_id` itself raises then). Every other value
+is the stored one, a setting a member changes included, as a worker
+that took the copy saw the store.
 
 <a id="ScopeSession.show_channel"></a>
 ### `ScopeSession.show_channel`
@@ -3878,6 +3887,11 @@ def start_save_still(
 Route: `POST /api/v1/manual_capture/start_save_still`.
 
 Capture one still and save it; returns at once.
+
+The still is named for the shown channel and taken with its stored
+settings held, refused while another LED is lit; a frame taken with
+the camera as it is set, saved or not, is `ScopeSession.capture_still`
+with no channel.
 
 **Args**
 
@@ -6257,8 +6271,10 @@ Marks: in-process; event: [`FrameDelivered`](#FrameDelivered).
 
 Register a per-frame listener fired on every successful grab.
 
-The canonical entry point for live_processing plugins (see
-`ctx.plugins.live_processing`) and the manual-record path.
+The in-process listener underneath the recordings and the
+live-processing registry. A live_processing plugin registers through
+`LiveProcessingRegistry.register` (`ctx.plugins.live_processing`),
+which keeps its health record; a listener added here has none.
 The supplied handler is wrapped in a budget enforcer
 (`HANDLER_BUDGET_MS` per call; `HANDLER_DROP_K` consecutive
 over-budget or raising invocations remove it, reported once as a
@@ -8006,6 +8022,9 @@ plus the point's distance from the frame's center
 for a display, such as the plate position under a cursor: an
 unknown is answered as the refusal that says why, never raised.
 Judged on X and Y alone; Z's position does not move the point.
+It answers mid-move, where the frame is that instant; where the
+stage is held, in X, Y and Z, refused while an axis moves (what a
+bookmark or a step records), is `ScopeSession.plate_position`.
 
 **Args**
 
@@ -8137,6 +8156,9 @@ Marks: reads (changes nothing).
 Route: `GET /api/v1/scope/runtime_state/stage_offset`.
 
 The stage offset for coordinate transformations, from the settings.
+
+The stored setting `stage_offset` (`ScopeSession.setting`
+answers it as `{'x': x_um, 'y': y_um}`), as a `StageOffset`.
 
 **Returns**
 

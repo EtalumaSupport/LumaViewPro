@@ -3187,7 +3187,8 @@ class ScopeSession:
                 ``apply``) the camera holds no channel's settings, and none are
                 written: the raw values stand, and the record's
                 ``held_channel`` is None. None (the default) captures with the
-                camera as set.
+                camera as set. A saved still named for the shown channel is
+                ``start_save_still``'s.
             force_to_8bit: Convert the image to 8 bits; False keeps the
                 camera's depth (``CapturedStill.significant_bits``).
             accept_dark: Skip the dark-frame judgment: a frame with
@@ -4857,9 +4858,11 @@ class ScopeSession:
         thread may be part-way through rewriting. In-process: a wire client
         reads a setting by its path, through ``setting``.
 
-        ``objective_id`` is the active objective, as ``setting`` answers
-        it: on a turret scope, the slot's in the light path, or None while
-        that is unknown.
+        ``objective_id`` is the active objective the runtime state answers:
+        on a turret scope, the slot's in the light path, or None while that
+        is unknown (``objective_id`` itself raises then). Every other value
+        is the stored one, a setting a member changes included, as a worker
+        that took the copy saw the store.
 
         Raises:
             Nothing.
@@ -4877,14 +4880,17 @@ class ScopeSession:
 
     @api(reads=True)
     def setting(self, path: str) -> 'SettingValue':
-        """A copy of one setting, named by its dotted path: ``'stage_offset'``, ``'video.max_fps'``.
+        """A copy of one setting, named by its dotted path: ``'jpg_quality'``, ``'video.max_fps'``.
 
         Taken under the lock, so it is never a value part-way through a
         write; a copy, so changing it changes no setting (``update_settings``
-        and the Session's members do).
+        and the Session's members do). The value is the stored one, in the
+        store's own shape: ``setting('stage_offset')`` is ``{'x': x_um, 'y': y_um}``
+        in um, which ``runtime_state.stage_offset`` hands a coordinate
+        caller as a ``StageOffset``.
 
-        A setting with a read of its own is read there, so one setting has
-        one read: ``setting('binning')`` is refused for
+        A setting a member changes is read there, so it has one read:
+        ``setting('binning')`` is refused for
         ``scope.camera.binning``, ``setting('objective_id')`` for
         ``objective_id``, ``setting('bookmark')`` for ``bookmark``,
         ``setting('BF.gain_db')`` for ``channel_settings``. The
@@ -7045,6 +7051,10 @@ class ScopeSession:
     @property
     def plate_position(self) -> PlateLocation:
         """The stage's position in plate coordinates, on the session's labware.
+
+        Where the stage is held, what a bookmark or a step records; where a
+        point of the frame is this instant, mid-move too, is
+        ``runtime_state.frame_point_plate``.
 
         Returns:
             Where the scope is on the plate: X and Y in mm, Z in um.

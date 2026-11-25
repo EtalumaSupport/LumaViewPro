@@ -483,6 +483,9 @@ class RuntimeState:
         for a display, such as the plate position under a cursor: an
         unknown is answered as the refusal that says why, never raised.
         Judged on X and Y alone; Z's position does not move the point.
+        It answers mid-move, where the frame is that instant; where the
+        stage is held, in X, Y and Z, refused while an axis moves (what a
+        bookmark or a step records), is ``ScopeSession.plate_position``.
 
         Args:
             x_fraction: How far across the frame's width, from 0 to 1.
@@ -556,6 +559,9 @@ class RuntimeState:
     @property
     def stage_offset(self) -> coord_transformations.StageOffset:
         """The stage offset for coordinate transformations, from the settings.
+
+        The stored setting ``stage_offset`` (``ScopeSession.setting``
+        answers it as ``{'x': x_um, 'y': y_um}``), as a ``StageOffset``.
 
         Returns:
             Where the plate is mounted on the stage, in um.
