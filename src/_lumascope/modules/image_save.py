@@ -801,7 +801,8 @@ def save_image(
                 white_bits=white_bits,
                 jpeg_quality=jpeg_quality,
             )
-            pathlib.Path(file_loc).write_bytes(jpg_bytes)
+            with path_utils.written_whole(file_loc) as temporary:
+                temporary.write_bytes(jpg_bytes)
         else:
             image_utils.write_tiff(
                 data=image,

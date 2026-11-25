@@ -7,11 +7,12 @@ in ``NOT_COPIED.txt``, not carried as if it were read.
 The data folder's copy (``TechSupportReport._step_data_folder``, both
 reports' one copier) blanks the value of every ``"api_key"`` in every
 ``current.json*`` -- the live file, each file set aside as rejected, a
-``.saving`` a power cut left -- and keeps every other byte, on the bytes:
-those files are copied because they may not parse, and a rejected one may
-not decode, so support can read the corruption. A copy that fails fails the
-report; a file the settings saver renames away between the listing and its
-copy is not there to copy, and is left out and named.
+temporary a power cut left (``path_utils.written_whole`` names it from
+``current.json``) -- and keeps every other byte, on the bytes: those files
+are copied because they may not parse, and a rejected one may not decode,
+so support can read the corruption. A copy that fails fails the report; a
+temporary the settings save moves onto ``current.json`` between the
+listing and its copy is not there to copy, and is left out and named.
 
 Driven through ``make_logs_zip``, the cheaper of the two reports that share
 the copier.
@@ -30,6 +31,9 @@ from _lumascope.modules import path_utils
 from _lumascope.modules.exceptions import SupportReportNotSavedError
 from tests.installation_fixtures import INSTALLATION_FILES, copy_installation_files
 
+# A settings save's temporary, as path_utils.written_whole names it.
+_LEFT_BY_A_POWER_CUT = 'current.json.0a1b2c3d.tmp'
+
 # Each file as it sits in the data folder, and as the report must carry it.
 _FILES = {
     # The live file, in the platform encoding (an accented path, cp1252),
@@ -46,7 +50,7 @@ _FILES = {
         b'{"rest_api": {"api_key": "", "port": 8000,,, \xff\xfe',
     ),
     # A power cut mid-write: cut off inside the value, then a NUL tail.
-    'current.json.saving': (
+    _LEFT_BY_A_POWER_CUT: (
         b'{\n    "rest_api": {\n        "api_key": "s3cr' + b'\x00' * 8,
         b'{\n    "rest_api": {\n        "api_key": ""',
     ),
@@ -159,7 +163,7 @@ class _Listed:
         return iter(self._entries)
 
 
-def test_a_saving_file_renamed_away_mid_copy_is_left_out_and_named(
+def test_a_settings_temporary_moved_away_mid_copy_is_left_out_and_named(
     session, data, tmp_path, monkeypatch
 ):
     real_scandir = os.scandir
@@ -169,17 +173,17 @@ def test_a_saving_file_renamed_away_mid_copy_is_left_out_and_named(
             return real_scandir(path)
         with real_scandir(path) as listing:
             entries = list(listing)
-        if (data / 'current.json.saving').exists():
-            # The saver's rename, landing between the listing and the copy.
-            os.replace(data / 'current.json.saving', data / 'current.json')
+        if (data / _LEFT_BY_A_POWER_CUT).exists():
+            # The save's move, landing between the listing and the copy.
+            os.replace(data / _LEFT_BY_A_POWER_CUT, data / 'current.json')
         return _Listed(entries)
 
-    # a stand-in by design: times the settings saver's os.replace into the
+    # a stand-in by design: times the settings save's os.replace into the
     # copier's walk, a window no simulated scope can be timed to hit.
     monkeypatch.setattr(os, 'scandir', listed_then_saved)
     copied = _copied(session.make_logs_zip(output_dir=tmp_path / 'out').path)
 
-    assert 'current.json.saving' not in copied
-    # What the rename put in place, blanked.
-    assert copied['current.json'] == _FILES['current.json.saving'][1]
-    assert b'current.json.saving' in copied['NOT_COPIED.txt']
+    assert _LEFT_BY_A_POWER_CUT not in copied
+    # What the move put in place, blanked.
+    assert copied['current.json'] == _FILES[_LEFT_BY_A_POWER_CUT][1]
+    assert _LEFT_BY_A_POWER_CUT.encode() in copied['NOT_COPIED.txt']

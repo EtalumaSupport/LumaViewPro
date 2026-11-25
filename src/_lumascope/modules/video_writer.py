@@ -194,9 +194,10 @@ class VideoWriter:
 
         A failed open propagates to the caller: there is no fallback
         backend, and swallowing the error here would silently produce no
-        video at all.
+        video at all. The container is named, never guessed from the file's
+        name: a build writes under a ``.tmp`` name (``path_utils.written_whole``).
         """
-        self._container = av.open(str(self._output_path), mode='w')
+        self._container = av.open(str(self._output_path), mode='w', format='mp4')
         # libx264 honors the fractional rate, so a true sub-1 fps recording
         # (timelapse / long-exposure) keeps its real duration -- see
         # _encoder_rate for why an int floor would lose it.

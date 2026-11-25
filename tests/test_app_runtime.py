@@ -398,8 +398,9 @@ def test_a_seeding_cut_short_leaves_no_part_of_a_file_and_the_next_launch_comple
     installed,
 ):
     # A copy stopped partway through labware.json fails that launch with its
-    # reason and leaves nothing at the file's name, so the next launch copies
-    # it whole instead of keeping a truncated file it would refuse forever.
+    # reason and leaves nothing at the file's name, nor its partial copy
+    # beside it, so the next launch copies it whole instead of keeping a
+    # truncated file it would refuse forever.
     _exe_folder, bundle, documents = installed
     data = documents / 'LumaViewPro 9.9.9-installed' / 'data'
 
@@ -407,7 +408,9 @@ def test_a_seeding_cut_short_leaves_no_part_of_a_file_and_the_next_launch_comple
 
     assert first['started'] is False
     assert 'No space left on device' in first['error']
-    assert not (data / 'labware.json').exists()
+    # labware.json is the first file seeded, so nothing else is there yet.
+    assert path_utils.USER_DATA_FILES[0] == 'labware.json'
+    assert list(data.iterdir()) == []
 
     second = _start_installed(installed)
 

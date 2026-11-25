@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import math
@@ -9,7 +10,8 @@ import os
 import pathlib
 import shutil
 import sys
-import tempfile
+import uuid
+from collections.abc import Iterator
 from enum import StrEnum
 from typing import ClassVar
 
@@ -313,6 +315,77 @@ def move_aside(path: pathlib.Path, suffix: str) -> pathlib.Path:
     )
 
 
+@contextlib.contextmanager
+def written_whole(target: str | os.PathLike) -> Iterator[pathlib.Path]:
+    """Yield a name beside *target* to write to, moved onto *target* once the block ends.
+
+    The one way LVP writes a file whole. A writer opened on the target
+    itself leaves a truncated file under the real name when the write stops
+    partway (a full disk, a crash), which a later reader takes for the
+    file. A block that raises, ``BaseException`` included, leaves the
+    target as it was and nothing beside it; a process crash leaves only the
+    temporary. Its name is the target's whole name, then 8 hex characters,
+    then ``.tmp``:
+
+    - the whole name first, because the support report blanks a stored API
+      key in every file whose name begins ``current.json``, and a settings
+      temporary left by a power cut is copied into it;
+    - unique, because two launches at once seed the same folder, and the
+      video writer's picker steps past a taken name, which would leave a
+      stale fixed-name temporary to be moved onto the video's name;
+    - ``.tmp`` last, so no image or video search takes a leftover for a
+      file of its kind. A writer that picks its format from the name is told
+      the format instead.
+
+    It is named, not created, since a created file is itself a taken name
+    to that picker. Durability is the block's: only a block that fsyncs
+    survives a power cut (``write_whole``).
+
+    Raises:
+        OSError: the move onto *target* failed; nothing is left beside it.
+    """
+    target = pathlib.Path(target)
+    temporary = target.with_name(f'{target.name}.{uuid.uuid4().hex[:8]}.tmp')
+    try:
+        yield temporary
+        os.replace(temporary, target)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            temporary.unlink(missing_ok=True)
+        raise
+
+
+def write_whole(file: str | os.PathLike, data: dict, *, indent: int) -> None:
+    """Write ``data`` to ``file`` as JSON: the whole new file, or the old one untouched.
+
+    Flushed to the drive before it takes the name, so a power cut mid-save
+    leaves the previous file whole, or no file where there was none. Its
+    two writers: the live settings, the user's only copy of their
+    configuration, read as UTF-8 by ``settings_init.read_settings_json``;
+    and a recording's manifest, the only carrier of its color and measured
+    rate, which a later video build refuses when it finds one cut short.
+    The text is encoded before the file is opened: ``json.dump``'s
+    streaming encoder took about seven times as long on an hour-long
+    recording's manifest, written while the recording engine holds the
+    lock its frame ingest takes.
+
+    Args:
+        file: The file to write.
+        data: What it holds.
+        indent: The JSON indent its readers and the files already on disk
+            use: 4 for the settings, 2 for a manifest.
+
+    Raises:
+        OSError: the write or the replace failed; the file is unchanged and
+            nothing is left beside it.
+    """
+    text = json.dumps(data, indent=indent)
+    with written_whole(file) as temporary, open(temporary, 'w', encoding='utf-8') as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+
+
 def free_stem(folder: pathlib.Path, stem: str, endings: tuple[str, ...]) -> str:
     """The first of *stem*, ``<stem>_001`` ... ``<stem>_999`` with no file
     in *folder* named it plus any of *endings*.
@@ -538,13 +611,13 @@ def seed_installed_data_root() -> None:
     An installed build's data folder is in Documents and starts empty. A
     file already there is the user's and is never overwritten; one the
     folder lacks, at its first launch or after a removal, is copied. Each
-    file is copied under a temporary name beside its own and moved to its
-    name in one ``os.replace``, so a file at its name is always the whole
-    shipped file: a copy stopped partway (the disk full, the process killed)
-    leaves only the temporary file, which no reader names, and the next
-    launch copies it again; two launches at once each move a whole copy of
-    the same bytes. Any other run's data root is the folder it was launched
-    from, holding the build's own data, and is left as it is.
+    file is copied whole (``written_whole``), so a file at its name is
+    always the whole shipped file: a copy that fails leaves nothing, a
+    process killed partway leaves only a temporary, which no reader names,
+    and the next launch copies it again; two launches at once each move a
+    whole copy of the same bytes. Any other run's data root is the folder
+    it was launched from, holding the build's own data, and is left as it
+    is.
 
     Raises:
         OSError: a file could not be copied; the files moved before it stay.
@@ -559,12 +632,8 @@ def seed_installed_data_root() -> None:
         if target.exists():
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
-        handle, partial = tempfile.mkstemp(
-            dir=target.parent, prefix=f'.{target.name}.', suffix='.seeding'
-        )
-        os.close(handle)
-        shutil.copy2(source, partial)
-        os.replace(partial, target)
+        with written_whole(target) as partial:
+            shutil.copy2(source, partial)
 
 
 def get_log_dir(source_path: str | pathlib.Path | None = None) -> pathlib.Path:

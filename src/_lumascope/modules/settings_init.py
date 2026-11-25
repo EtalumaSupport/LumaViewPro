@@ -141,7 +141,7 @@ def read_settings_json(path: str, logger: logging.Logger | None = None) -> dict:
     generator falls back to other directories, the GUI asks the user), so
     this classifies and they choose.
 
-    Read as UTF-8 on every platform, as `settings_saver.write_whole`
+    Read as UTF-8 on every platform, as `path_utils.write_whole`
     writes it. Every file LVP writes is ASCII anyway (`json.dump` escapes
     non-ASCII), so only a hand edit saved in another encoding fails to
     decode, and it is refused as any unreadable file is: never decoded a

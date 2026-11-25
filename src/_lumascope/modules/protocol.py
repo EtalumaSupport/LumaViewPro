@@ -2100,7 +2100,6 @@ class Protocol:
                 ``OSError``); nothing at ``file_path`` changed.
         """
         file_path = path_utils.file_to_write(file_path, extension='.tsv')
-        tmp_loc = file_path.with_name(file_path.name + '.tmp')
         if channel_settings is None:
             channel_settings = self._config.get('channel_settings')
         header, steps = self._header_text(), self._steps_text()
@@ -2108,15 +2107,13 @@ class Protocol:
 
         try:
             file_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(tmp_loc, 'w', encoding='utf-8') as fp:
+            with (
+                path_utils.written_whole(file_path) as tmp_loc,
+                open(tmp_loc, 'w', encoding='utf-8') as fp,
+            ):
                 fp.write(header + block + steps)
-            os.replace(tmp_loc, file_path)
-        except Exception as e:
-            with contextlib.suppress(OSError):
-                tmp_loc.unlink(missing_ok=True)
-            if isinstance(e, OSError):
-                raise ProtocolNotSavedError(file=file_path, cause=e) from e
-            raise
+        except OSError as e:
+            raise ProtocolNotSavedError(file=file_path, cause=e) from e
         return self._fingerprint_of(header, steps)
 
     def optimize_step_ordering(self) -> None:

@@ -780,8 +780,8 @@ def test_rewrite_failure_preserves_original_and_removes_tmp(tmp_path, monkeypatc
     assert record_path.read_text() == original_text, (
         'a failed rewrite must leave the original v1 file untouched'
     )
-    tmp_file = record_path.with_name(record_path.name + '.tmp')
-    assert not tmp_file.exists(), 'the aborted rewrite must remove its temp file'
+    beside = [p.name for p in record_path.parent.iterdir() if p.name.startswith(record_path.name)]
+    assert beside == [record_path.name], 'the aborted rewrite must remove its temp file'
 
 
 # ---------------------------------------------------------------------------

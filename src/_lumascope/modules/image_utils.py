@@ -7,7 +7,6 @@ import enum
 import functools
 import io
 import json
-import os
 import pathlib
 import re
 import struct
@@ -30,6 +29,7 @@ from _lumascope.modules.channel_record import GRAY, Color, stored_key
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.image_mode as image_mode
 import _lumascope.modules.objectives_loader as objectives_loader
+import _lumascope.modules.path_utils as path_utils
 import _lumascope.modules.wall_time as wall_time
 import _lumascope.modules.image_utils as image_utils
 
@@ -2353,25 +2353,6 @@ def maybe_apply_false_color(
     return data
 
 
-@contextlib.contextmanager
-def _written_whole(file_loc: pathlib.Path | str) -> Iterator[pathlib.Path]:
-    """Yield a name beside ``file_loc`` to write to, moved onto it once whole.
-
-    A writer opened on the target itself leaves a truncated file under the
-    real name when the write stops part-way (a full disk, a crash), and a
-    later build reads it as an unreadable frame. A write that raises leaves
-    nothing at the target and no temporary behind; a crash leaves only the
-    temporary. A '.tmp' name is one no image search picks up.
-    """
-    file_loc = pathlib.Path(file_loc)
-    tmp_loc = file_loc.with_name(file_loc.name + '.tmp')
-    try:
-        yield tmp_loc
-        os.replace(tmp_loc, file_loc)
-    finally:
-        tmp_loc.unlink(missing_ok=True)
-
-
 def _tiff_codec(shape: tuple, dtype: np.dtype) -> dict:
     """The one way every TIFF LVP writes is compressed, by the two writers below.
 
@@ -2452,7 +2433,7 @@ def write_hyperstack_tiff(
         if key not in ('Instrument', 'record')
     }
     # The planes stream from the caller, which can refuse one mid-write.
-    with _written_whole(file_loc) as tmp_loc:
+    with path_utils.written_whole(file_loc) as tmp_loc:
         with tf.TiffWriter(str(tmp_loc), ome=True, bigtiff=use_bigtiff) as tif:
             tif.write(
                 planes,
@@ -2621,7 +2602,7 @@ def write_tiff(
     # tifffile encodes each write's strips on its own thread pool (maxworkers
     # left at its auto default). A Windows handle soak measured that executor
     # as a minor share of the save path's handle growth, not its source.
-    with _written_whole(file_loc) as tmp_loc:
+    with path_utils.written_whole(file_loc) as tmp_loc:
         with tf.TiffWriter(str(tmp_loc), **kwargs) as tif:
             if (image_type is None) and is_color_image(image=data):
                 # Handles case where an actual color image is provided (such as the bullseye in engineering mode)

@@ -2549,11 +2549,12 @@ class TechSupportReport:
         """Copy the installation's data folder but its icons and unread files, every ``current.json*``'s stored ``api_key`` value blanked.
 
         The live settings file, each one set aside as rejected and a
-        ``.saving`` a power cut left are all copied: support reads them
-        for what they hold, the corruption included, so the blank is made
-        on their bytes and every other byte is kept. A copy that fails
-        raises. A file gone between the listing and its copy -- the
-        settings saver renames its ``.saving`` over ``current.json`` -- is
+        temporary a power cut left (``path_utils.written_whole``, named
+        from ``current.json``) are all copied: support reads them for what
+        they hold, the corruption included, so the blank is made on their
+        bytes and every other byte is kept. A copy that fails raises. A
+        file gone between the listing and its copy -- the settings save
+        moves its temporary onto ``current.json`` -- is
         not there to copy, and is named in ``NOT_COPIED.txt``, as is each
         file there that is read from elsewhere (``_data_folder_not_copied``).
         """

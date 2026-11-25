@@ -512,6 +512,32 @@ def test_a_recipe_alone_at_a_name_still_takes_it(tmp_path):
     assert (tmp_path / 'original_enhanced.recipe.json').read_text() == '{"left": "behind"}'
 
 
+def test_an_export_stopped_after_its_image_is_written_leaves_nothing_beside_the_source(
+    tmp_path, monkeypatch
+):
+    # The enhanced image is written whole before its recipe; an export that
+    # stops between the two, by any exception, leaves neither the copy nor a
+    # temporary a later count of the folder would take for an image.
+    source = tmp_path / 'original.tif'
+    _write_source(source, np.linspace(0, 4095, 64, dtype=np.uint16).reshape(8, 8), 12)
+    real_write_text = pathlib.Path.write_text
+
+    # a stand-in by design: an exception the export does not name, which no
+    # real recipe write raises on demand.
+    def refuse_the_recipe(self, *args, **kwargs):
+        if 'recipe.json' in self.name:
+            raise RuntimeError('scripted: the recipe write stopped')
+        return real_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(pathlib.Path, 'write_text', refuse_the_recipe)
+    with pytest.raises(RuntimeError, match='scripted'):
+        QuickEnhancer().export_file(
+            source, quick_enhance_settings(), channel_colors=release_colors()
+        )
+
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['original.tif']
+
+
 def test_brightfield_tiff_stays_monochrome_and_preserves_payload_depth(tmp_path):
     source = tmp_path / 'bf.tif'
     source_data = np.linspace(0, 4095, 256, dtype=np.uint16).reshape(16, 16)

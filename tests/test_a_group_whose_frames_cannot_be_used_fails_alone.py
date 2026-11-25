@@ -457,8 +457,8 @@ class TestAHyperstackLeavesNothingWhenRefused:
             )
 
         assert refused.value.reason == 'geometry'
-        assert not (tmp_path / 'out.ome.tiff').exists()
-        assert not (tmp_path / 'out.ome.tiff.tmp').exists()
+        # Neither the output nor its temporary (named from it).
+        assert [p.name for p in tmp_path.iterdir() if p.name.startswith('out.ome.tiff')] == []
 
 
 def test_a_custom_steps_refusal_names_no_well(tmp_path):

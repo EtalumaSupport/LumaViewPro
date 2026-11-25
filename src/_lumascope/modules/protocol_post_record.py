@@ -2,13 +2,12 @@
 
 import csv
 import datetime
-import os
 import pathlib
 
 import numpy as np
 import pandas as pd
 
-from _lumascope.modules import post_derivation
+from _lumascope.modules import path_utils, post_derivation
 from _lumascope.modules.common_utils import PostFunction, read_table, recover_step_label
 from _lumascope.modules.protocol import _bool_cell, _float_cell, _int_cell
 from _lumascope.modules.protocol_execution_record import ProtocolExecutionRecord
@@ -503,38 +502,35 @@ class ProtocolPostRecord:
     def _rewrite_outfile(self):
         """Rewrite the on-disk file in the current format, keeping all rows.
 
-        Writes to a sibling temp file and atomically replaces the original,
-        so a crash or error mid-rewrite cannot truncate the record -- the
-        old file survives intact until the new one is complete.
+        Written whole (``path_utils.written_whole``), so a crash or error
+        mid-rewrite cannot truncate the record -- the old file survives
+        intact until the new one is complete.
         """
-        tmp_loc = self._file_loc.with_name(self._file_loc.name + '.tmp')
-        try:
-            with open(tmp_loc, 'w', encoding='utf-8') as fp:
-                writer = csv.writer(fp, delimiter='\t', lineterminator='\n')
-                self._write_header(writer)
-                for _, row in self.records().iterrows():
-                    self._add_record_to_file(
-                        writer=writer,
-                        file_path=row['Filepath'],
-                        timestamp=row['Timestamp'],
-                        name=row['Name'],
-                        label=row['Label'],
-                        scan_count=row['Scan Count'],
-                        x=row['X'],
-                        y=row['Y'],
-                        z=row['Z'],
-                        z_slice=row['Z-Slice'],
-                        well=row['Well'],
-                        color=row['channel'],
-                        objective=row['Objective'],
-                        tile_group_id=row['Tile Group ID'],
-                        tile=row['Tile'],
-                        custom_step=row['Custom Step'],
-                        channel_group_id=row['Channel Group ID'],
-                        derivation=row['Derivation'],
-                    )
-            os.replace(tmp_loc, self._file_loc)
-        except Exception:
-            tmp_loc.unlink(missing_ok=True)
-            raise
+        with (
+            path_utils.written_whole(self._file_loc) as tmp_loc,
+            open(tmp_loc, 'w', encoding='utf-8') as fp,
+        ):
+            writer = csv.writer(fp, delimiter='\t', lineterminator='\n')
+            self._write_header(writer)
+            for _, row in self.records().iterrows():
+                self._add_record_to_file(
+                    writer=writer,
+                    file_path=row['Filepath'],
+                    timestamp=row['Timestamp'],
+                    name=row['Name'],
+                    label=row['Label'],
+                    scan_count=row['Scan Count'],
+                    x=row['X'],
+                    y=row['Y'],
+                    z=row['Z'],
+                    z_slice=row['Z-Slice'],
+                    well=row['Well'],
+                    color=row['channel'],
+                    objective=row['Objective'],
+                    tile_group_id=row['Tile Group ID'],
+                    tile=row['Tile'],
+                    custom_step=row['Custom Step'],
+                    channel_group_id=row['Channel Group ID'],
+                    derivation=row['Derivation'],
+                )
         self._file_version = self.CURRENT_VERSION

@@ -447,3 +447,19 @@ def test_the_overlay_prints_a_frames_own_time_with_its_offset(pacific_time):
         '2026-09-29 12:00:00.005'
     )
     assert video_writer_module.overlay_text(None) is None
+
+
+def test_a_video_written_under_a_tmp_name_is_an_mp4(tmp_path):
+    """The container is named, never guessed from the file's name: a build
+    writes its video under ``path_utils.written_whole``'s ``.tmp`` name."""
+    import av
+
+    path = tmp_path / 'group.mp4.0a1b2c3d.tmp'
+    writer = VideoWriter(output_path=path, fps=10.0, color=GRAY, include_timestamp_overlay=False)
+    for level in (0, 128, 255):
+        writer.add_frame(image=np.full((24, 32), level, dtype=np.uint8), timestamp=None)
+    writer.close()
+
+    with av.open(str(path)) as played:
+        assert 'mp4' in played.format.name.split(',')
+        assert sum(1 for _ in played.decode(video=0)) == 3

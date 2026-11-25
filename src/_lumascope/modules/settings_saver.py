@@ -1,17 +1,14 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-"""The thread that saves a session's live settings, and the whole-file write it saves with.
+"""The thread that saves a session's live settings.
 
 What a save writes, and whether it may, is the Session's
 (``ScopeSession._save_settings_file``); this module holds only when it
-runs and how the file is replaced.
+runs. The file is replaced by ``path_utils.write_whole``.
 """
 
 from __future__ import annotations
 
-import contextlib
-import json
-import os
 import threading
 from collections.abc import Callable
 
@@ -65,41 +62,3 @@ class SettingsSaver:
             # next window instead of being taken for one already saved.
             self._woken.clear()
             self._save()
-
-
-def write_whole(file: str | os.PathLike, data: dict, *, indent: int) -> None:
-    """Write ``data`` to ``file`` as JSON: the whole new file, or the old one untouched.
-
-    Written beside the file, flushed to the drive, then moved over it, so a
-    crash or a power cut mid-save leaves the previous file whole, or no file
-    where there was none. Its two writers: the live settings, the user's
-    only copy of their configuration, read as UTF-8 by
-    ``settings_init.read_settings_json``; and a recording's manifest, the
-    only carrier of its color and measured rate, which a later video build
-    refuses when it finds one cut short. The text is encoded before the
-    file is opened: ``json.dump``'s streaming encoder took about seven times
-    as long on an hour-long recording's manifest, written while the
-    recording engine holds the lock its frame ingest takes.
-
-    Args:
-        file: The file to write.
-        data: What it holds.
-        indent: The JSON indent its readers and the files already on disk
-            use: 4 for the settings, 2 for a manifest.
-
-    Raises:
-        OSError: the write or the replace failed; the file is unchanged and
-            nothing is left beside it.
-    """
-    text = json.dumps(data, indent=indent)
-    temporary = f'{file}.saving'
-    try:
-        with open(temporary, 'w', encoding='utf-8') as f:
-            f.write(text)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(temporary, file)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.remove(temporary)
-        raise

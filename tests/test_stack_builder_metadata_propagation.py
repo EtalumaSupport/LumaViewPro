@@ -826,8 +826,8 @@ def test_mixed_dtype_inputs_refused_naming_the_file(tmp_path):
         )
     assert refused.value.reason == 'mixed_pixel_types'
     # Refused part-way through the write: nothing is left at the output name.
-    assert not (tmp_path / 'out.ome.tiff').exists()
-    assert not (tmp_path / 'out.ome.tiff.tmp').exists()
+    # Neither the output nor its temporary (named from it).
+    assert [p.name for p in tmp_path.iterdir() if p.name.startswith('out.ome.tiff')] == []
 
 
 def test_hyperstack_output_uses_strips(tmp_path):

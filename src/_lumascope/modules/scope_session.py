@@ -146,7 +146,7 @@ from _lumascope.modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, Me
 from _lumascope.modules.plugins import PLUGIN_API_LEVEL, PluginRegistry
 from _lumascope.modules.python_values import python_values
 from _lumascope.modules.scheduler import Scheduler, ThreadingTimerScheduler
-from _lumascope.modules.settings_saver import SettingsSaver, write_whole
+from _lumascope.modules.settings_saver import SettingsSaver
 from _lumascope.modules.sequential_io_executor import (
     IOTask,
     refuse_blocking_on_a_worker,
@@ -5664,7 +5664,7 @@ class ScopeSession:
         snapshot = self._copy_of_the_store()
         t0 = time.monotonic()
         try:
-            write_whole(file, snapshot, indent=4)
+            path_utils.write_whole(file, snapshot, indent=4)
         except OSError as e:
             fault = SettingsFileNotWrittenError(file, e)
             fault.__cause__ = e

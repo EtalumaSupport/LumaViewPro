@@ -2,14 +2,14 @@
 
 import datetime
 import json
-import os
 import pathlib
-import uuid
+import typing
 
 import pandas as pd
 
 from _lumascope.lib.real_numbers import is_finite_number
 import _lumascope.modules.image_utils as image_utils
+import _lumascope.modules.path_utils as path_utils
 import _lumascope.modules.channel_record as channel_record
 import _lumascope.modules.post_derivation as post_derivation
 from _lumascope.modules.channel_record import GRAY, ChannelColors, Color
@@ -20,6 +20,8 @@ from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     InputFramesUnusableError,
     PostProcessingRefusedError,
+    Quiet,
+    RefusalCause,
     VideoNotFinishedError,
     system_words,
 )
@@ -96,6 +98,27 @@ def _follows(frame_ts: datetime.datetime | None, previous: datetime.datetime | N
         return frame_ts is not None
     times = image_utils.comparable_times([previous, frame_ts])
     return times is not None and times[1] > times[0]
+
+
+class _NoVideoError(Quiet, Exception):
+    """A group's encode that made no video, leaving its whole-write block untaken.
+
+    ``_create_video`` answers through its status dict, as every group
+    algorithm does, having removed its file itself; this carries that answer
+    out of the block so no empty file takes the planned name. Caught beside
+    the block and returned as that answer, so no caller or reporter meets it.
+
+    Attributes:
+        reason: ``'no_video'``.
+        result: ``_create_video``'s answer.
+    """
+
+    title = 'No Video Made'
+    causes: typing.ClassVar[dict[str, RefusalCause | None]] = {'no_video': RefusalCause.STATE}
+
+    def __init__(self, result: dict):
+        super().__init__("The group's encode made no video.")
+        self.result = result
 
 
 class VideoBuilder(ProtocolPostProcessor):
@@ -226,11 +249,8 @@ class VideoBuilder(ProtocolPostProcessor):
         # the writer's picker would move a rebuild over an unrecorded file at
         # that name to a numbered copy the record never names, and a crash
         # mid-encode would leave a truncated MP4 under the real name. The
-        # temporary ends in the planned suffix because the container is
-        # chosen by it (so image_utils._written_whole's '.tmp' cannot serve),
-        # and is unique, so the picker never moves it.
+        # routine's temporary is unique, so the picker never moves it.
         planned = pathlib.Path(kwargs['output_file_loc'])
-        temporary = planned.with_name(f'{planned.stem}.{uuid.uuid4().hex}.tmp{planned.suffix}')
         frame_rate_fps = kwargs['frame_rate_fps']
         vfr = False
         if _is_recording(df):
@@ -252,28 +272,31 @@ class VideoBuilder(ProtocolPostProcessor):
             )
         elif frame_rate_fps is None:
             frame_rate_fps = DEFAULT_BUILD_FPS
+        # A failed move is the build's write failure, which the build loop
+        # answers, naming the planned video.
         try:
-            # One group is one channel (_get_groups), so its first row's
-            # channel colours the whole video.
-            result = self._create_video(
-                path=path,
-                df=df[['Filepath', 'Scan Count', 'Timestamp']],
-                frame_rate_fps=frame_rate_fps,
-                vfr=vfr,
-                enable_timestamp_overlay=kwargs['enable_timestamp_overlay'],
-                output_file_loc=temporary,
-                on_progress=kwargs['on_progress'],
-                total_groups=kwargs['total_groups'],
-                current_group=kwargs['current_group'],
-                color=channel_record.output_color(df.iloc[0]['channel'], kwargs['channel_colors']),
-            )
-            if result['status']:
-                # A failed rename is the build's write failure, which the
-                # build loop answers, naming the planned video.
-                os.replace(path / temporary, path / planned)
-            return PostProcResult.from_group_result(result)
-        finally:
-            (path / temporary).unlink(missing_ok=True)
+            with path_utils.written_whole(path / planned) as temporary:
+                # One group is one channel (_get_groups), so its first row's
+                # channel colours the whole video.
+                result = self._create_video(
+                    path=path,
+                    df=df[['Filepath', 'Scan Count', 'Timestamp']],
+                    frame_rate_fps=frame_rate_fps,
+                    vfr=vfr,
+                    enable_timestamp_overlay=kwargs['enable_timestamp_overlay'],
+                    output_file_loc=temporary,
+                    on_progress=kwargs['on_progress'],
+                    total_groups=kwargs['total_groups'],
+                    current_group=kwargs['current_group'],
+                    color=channel_record.output_color(
+                        df.iloc[0]['channel'], kwargs['channel_colors']
+                    ),
+                )
+                if not result['status']:
+                    raise _NoVideoError(result)
+        except _NoVideoError as none_made:
+            result = none_made.result
+        return PostProcResult.from_group_result(result)
 
     @staticmethod
     def _add_record(

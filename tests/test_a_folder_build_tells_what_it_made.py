@@ -132,12 +132,9 @@ def test_a_count_writes_the_method_it_counted_by_beside_its_results(counter, tmp
 
 # Each of the two writes fails before either file takes its name, by its own
 # branch, and each must name its own file.
-@pytest.mark.parametrize(
-    ('temp_suffix', 'named'),
-    [('.tmp.csv', 'results_001.csv'), ('.tmp.json', 'results_001_method.json')],
-)
+@pytest.mark.parametrize('named', ['results_001.csv', 'results_001_method.json'])
 def test_a_file_that_cannot_be_written_keeps_the_previous_results_and_method(
-    counter, tmp_path, monkeypatch, temp_suffix, named
+    counter, tmp_path, monkeypatch, named
 ):
     _old_results(tmp_path)
     old_method = _old_method(tmp_path)
@@ -147,7 +144,8 @@ def test_a_file_that_cannot_be_written_keeps_the_previous_results_and_method(
     # a stand-in by design: a disk that refuses one file, which no folder
     # in a test produces portably (a read-only folder refuses both).
     def refuse_one(file, *args, **kwargs):
-        if str(file).endswith(temp_suffix):
+        # The temporary written whole onto *named* (path_utils.written_whole).
+        if os.path.basename(file).startswith(f'{named}.') and str(file).endswith('.tmp'):
             raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), file)
         return real_open(file, *args, **kwargs)
 

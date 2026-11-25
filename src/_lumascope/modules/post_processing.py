@@ -9,7 +9,6 @@ import json
 import os
 import pathlib
 import re
-import uuid
 from collections.abc import Mapping
 
 import numpy as np
@@ -271,9 +270,14 @@ def save_cell_count_method(method: CellCountMethod, path: str | os.PathLike) -> 
             a file is where its folder would be. Nothing is written.
     """
     path = path_utils.file_to_write(path, extension='.json')
-    saved = python_values({**saved_form(method), 'metadata': dict(_CELL_COUNT_METHOD_METADATA)})
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, 'w', encoding='utf-8') as f:
+    _write_cell_count_method(method, path)
+
+
+def _write_cell_count_method(method: CellCountMethod, file: str | os.PathLike) -> None:
+    """Write *method*'s saved form to *file*, whatever its name: the one encoding of a method file."""
+    saved = python_values({**saved_form(method), 'metadata': dict(_CELL_COUNT_METHOD_METADATA)})
+    with open(file, 'w', encoding='utf-8') as f:
         json.dump(saved, f, indent=4)
 
 
@@ -590,50 +594,35 @@ class PostProcessing:
 
         results_file_path = os.path.join(path, f'{stem}{_RESULTS_ENDING}')
         method_file_path = os.path.join(path, f'{stem}{_METHOD_ENDING}')
-        results_temp = os.path.join(path, f'.results.{uuid.uuid4().hex}.tmp.csv')
-        method_temp = os.path.join(path, f'.results_method.{uuid.uuid4().hex}.tmp.json')
-
-        def discard_temps() -> None:
-            for temp in (results_temp, method_temp):
-                with contextlib.suppress(OSError):
-                    os.remove(temp)
-
         # Both are written whole before either takes its name, so a failed
-        # write leaves no results without their method.
+        # write leaves no results without their method. The results take
+        # theirs first, inside the method's block: failing there names
+        # nothing new, and leaves the method's move as the one OSError the
+        # outer block can raise (PostProcessingFailedError is not one).
         try:
-            with open(results_temp, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow(RESULTS_COLUMNS)
-                for record in results:
-                    writer.writerow(record[column] for column in RESULTS_COLUMNS)
+            with path_utils.written_whole(method_file_path) as method_temp:
+                try:
+                    _write_cell_count_method(method, method_temp)
+                except OSError as e:
+                    raise PostProcessingFailedError(
+                        operation=CELL_COUNT_OPERATION,
+                        missing=f'The method could not be written to {method_file_path} ({system_words(e)}).',
+                    ) from e
+                try:
+                    with (
+                        path_utils.written_whole(results_file_path) as results_temp,
+                        open(results_temp, 'w', newline='', encoding='utf-8') as f,
+                    ):
+                        writer = csv.writer(f)
+                        writer.writerow(RESULTS_COLUMNS)
+                        for record in results:
+                            writer.writerow(record[column] for column in RESULTS_COLUMNS)
+                except OSError as e:
+                    raise PostProcessingFailedError(
+                        operation=CELL_COUNT_OPERATION,
+                        missing=f'The results could not be written to {results_file_path} ({system_words(e)}).',
+                    ) from e
         except OSError as e:
-            discard_temps()
-            raise PostProcessingFailedError(
-                operation=CELL_COUNT_OPERATION,
-                missing=f'The results could not be written to {results_file_path} ({system_words(e)}).',
-            ) from e
-        try:
-            save_cell_count_method(method, method_temp)
-        except OSError as e:
-            discard_temps()
-            raise PostProcessingFailedError(
-                operation=CELL_COUNT_OPERATION,
-                missing=f'The method could not be written to {method_file_path} ({system_words(e)}).',
-            ) from e
-
-        # The results go first: failing there names nothing new.
-        try:
-            os.replace(results_temp, results_file_path)
-        except OSError as e:
-            discard_temps()
-            raise PostProcessingFailedError(
-                operation=CELL_COUNT_OPERATION,
-                missing=f'The results could not be written to {results_file_path} ({system_words(e)}).',
-            ) from e
-        try:
-            os.replace(method_temp, method_file_path)
-        except OSError as e:
-            discard_temps()
             raise PostProcessingFailedError(
                 operation=CELL_COUNT_OPERATION,
                 missing=(

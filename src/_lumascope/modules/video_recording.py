@@ -69,7 +69,7 @@ from _lumascope.modules.exceptions import CaptureFailedError, RecordingRefusedEr
 from _lumascope.modules.lumascope_api.frame_record import ClockMapping, TimestampSource
 from _lumascope.modules.live_work import WorkKind
 from _lumascope.modules.notification_center import cause_in_words
-from _lumascope.modules.settings_saver import write_whole
+from _lumascope.modules.path_utils import write_whole
 from _lumascope.modules.video_cadence import CadenceSelector, StallWatch, frame_budget
 
 if TYPE_CHECKING:

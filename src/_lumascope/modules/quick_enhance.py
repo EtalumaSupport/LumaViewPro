@@ -8,10 +8,8 @@ the live display worker.
 from __future__ import annotations
 
 import json
-import os
 import pathlib
 import re
-import uuid
 from dataclasses import asdict, dataclass
 from collections.abc import Callable
 
@@ -455,9 +453,8 @@ class QuickEnhancer:
         output = self.apply(image, settings, significant_bits)
         output_path, recipe_path = self._next_output_paths(source_path)
 
-        temp_output = output_path.with_name(f'.{output_path.stem}.{uuid.uuid4().hex}.tmp.tif')
-        temp_recipe = recipe_path.with_name(f'.{recipe_path.name}.{uuid.uuid4().hex}.tmp')
-        try:
+        # The recipe takes its name first, inside the image's block.
+        with path_utils.written_whole(output_path) as temp_output:
             # Read once: the channel and the output's record both come from it.
             source_record = image_utils.read_file_record(source_path)
             channel = str(
@@ -508,16 +505,8 @@ class QuickEnhancer:
                 output_dtype=output.dtype,
                 significant_bits=significant_bits,
             )
-            temp_recipe.write_text(json.dumps(recipe, indent=2), encoding='utf-8')
-            os.replace(temp_recipe, recipe_path)
-            os.replace(temp_output, output_path)
-        except (OSError, ValueError, cv2.error, MemoryError):
-            for temporary in (temp_output, temp_recipe):
-                try:
-                    temporary.unlink(missing_ok=True)
-                except OSError:
-                    logger.warning('[QuickEnhance] Could not remove temporary file %s', temporary)
-            raise
+            with path_utils.written_whole(recipe_path) as temp_recipe:
+                temp_recipe.write_text(json.dumps(recipe, indent=2), encoding='utf-8')
 
         if display_callback is not None:
             try:
