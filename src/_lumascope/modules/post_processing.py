@@ -261,7 +261,9 @@ def load_cell_count_method(path: str | os.PathLike) -> CellCountMethod:
 def save_cell_count_method(method: CellCountMethod, path: str | os.PathLike) -> None:
     """Write *method* to *path* as a cell-count method file.
 
-    A missing folder is made where *path* sends it.
+    A missing folder is made where *path* sends it. Written whole
+    (``path_utils.written_whole``): a write that fails leaves a method
+    saved there before as it was.
 
     Raises:
         LiveFolderPathRefusedError: ``'not_a_file'``, a folder is at
@@ -271,7 +273,8 @@ def save_cell_count_method(method: CellCountMethod, path: str | os.PathLike) -> 
     """
     path = path_utils.file_to_write(path, extension='.json')
     path.parent.mkdir(parents=True, exist_ok=True)
-    _write_cell_count_method(method, path)
+    with path_utils.written_whole(path) as temporary:
+        _write_cell_count_method(method, temporary)
 
 
 def _write_cell_count_method(method: CellCountMethod, file: str | os.PathLike) -> None:

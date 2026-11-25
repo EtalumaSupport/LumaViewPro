@@ -4435,7 +4435,7 @@ The PNG written and the outcome in words.
 - `LiveFolderPathRefusedError`: `'path_not_found'`, nothing is at *results*; `'not_a_file'`, a folder is there or at *path*; `'wrong_extension'`, *path* does not end in `.png` (in any case), which is not added; `'not_a_folder'`, a file is where its folder would be. Nothing is written.
 - `PostProcessingRefusedError`: `'graph_incomplete'`, no *results* file or no *x* or *y* is given; `'results_unreadable'`, the file cannot be graphed; `'axis_not_plottable'`, *x* or *y* is not a column that axis can take; `'fit_impossible'`, the values cannot give the *trendline*. Nothing is written.
 - `ArgumentRefusedError`: `'not_offered'`, the *trendline* is not one *x* and *y* take, offering those they take. Nothing is written.
-- `PostProcessingFailedError`: the folder or the file could not be written; the message names the file and the system's reason.
+- `PostProcessingFailedError`: the folder or the file could not be written; the message names the file and the system's reason, and a graph saved there before is left as it was.
 
 **Refusals by REST status**
 
@@ -4564,7 +4564,9 @@ Route: `POST /api/v1/post_processing/save_cell_count_method`.
 Write *method* to *path* as a cell-count method file, which
 `load_cell_count_method` reads back.
 
-Written on the caller's thread, as the load is read.
+Written on the caller's thread, as the load is read, and written
+whole: a write that fails leaves a method saved there before as it
+was.
 
 **Args**
 

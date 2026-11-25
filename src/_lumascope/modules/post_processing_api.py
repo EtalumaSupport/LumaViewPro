@@ -606,7 +606,9 @@ def _save_graph(results, path, *, x, y, trendline, x_label, y_label, title, on_p
     figure = _figure(_results_table(results), x, y, trendline, x_label, y_label, title)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        figure.savefig(path, format='png')
+        # Written whole: a failed save leaves a graph saved there before.
+        with path_utils.written_whole(path) as temporary:
+            figure.savefig(temporary, format='png')
     except OSError as e:
         raise PostProcessingFailedError(
             operation=PostProcessingOperation.GRAPHING,
@@ -1420,7 +1422,9 @@ class PostProcessingAPI:
         """Write *method* to *path* as a cell-count method file, which
         ``load_cell_count_method`` reads back.
 
-        Written on the caller's thread, as the load is read.
+        Written on the caller's thread, as the load is read, and written
+        whole: a write that fails leaves a method saved there before as it
+        was.
 
         Args:
             method: The cell-count method to write.
@@ -1794,7 +1798,8 @@ class PostProcessingAPI:
                 one *x* and *y* take, offering those they take. Nothing is
                 written.
             PostProcessingFailedError: the folder or the file could not be
-                written; the message names the file and the system's reason.
+                written; the message names the file and the system's reason,
+                and a graph saved there before is left as it was.
         """
         if results is None or x is None or y is None:
             raise PostProcessingRefusedError(

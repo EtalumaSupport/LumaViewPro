@@ -17,14 +17,21 @@ file holds what the drawing shows and the words of an incomplete save.
 from __future__ import annotations
 
 import datetime
+import errno
+import os
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 from matplotlib.dates import ConciseDateFormatter
+from matplotlib.figure import Figure
 
 from _lumascope.modules import graph_analysis
-from _lumascope.modules.exceptions import ArgumentRefusedError, PostProcessingRefusedError
+from _lumascope.modules.exceptions import (
+    ArgumentRefusedError,
+    PostProcessingFailedError,
+    PostProcessingRefusedError,
+)
 from _lumascope.modules.graph_analysis import Trendline
 from _lumascope.modules.post_processing import RESULTS_TIME_FORMAT
 from _lumascope.modules.scope_session import ScopeSession
@@ -154,6 +161,27 @@ def test_a_save_without_a_file_and_both_axes_is_refused_in_words(session, tmp_pa
     assert refused.value.reason == 'graph_incomplete'
     assert 'choose a results file and an X and a Y axis first' in str(refused.value)
     assert not (tmp_path / 'g.png').exists()
+
+
+def test_a_save_that_fails_partway_leaves_the_graph_saved_before(session, tmp_path, monkeypatch):
+    graph = tmp_path / 'g.png'
+    session.post_processing.graph(tmp_path / 'results.csv', graph, x='count', y='mean_area')
+    before = graph.read_bytes()
+
+    # a stand-in by design: a disk that fills partway through the PNG,
+    # which no folder in a test produces.
+    def cut_short(figure, file, **kwargs):
+        with open(file, 'wb') as part:
+            part.write(before[: len(before) // 2])
+        raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), str(file))
+
+    monkeypatch.setattr(Figure, 'savefig', cut_short)
+    with pytest.raises(PostProcessingFailedError) as failed:
+        session.post_processing.graph(tmp_path / 'results.csv', graph, x='count', y='mean_area')
+
+    assert f'could not be written to {graph}' in str(failed.value)
+    assert graph.read_bytes() == before
+    assert [p.name for p in tmp_path.iterdir() if p.name.startswith('g.png')] == ['g.png']
 
 
 def test_the_in_process_drawing_matches_the_saved_choices(session, tmp_path):

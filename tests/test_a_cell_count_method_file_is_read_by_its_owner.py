@@ -14,12 +14,15 @@ and the panel stores a method only from that answer.
 from __future__ import annotations
 
 import dataclasses
+import errno
 import json
+import os
 from types import SimpleNamespace
 
 import pytest
 
 import ui.post_processing as panel_module
+from _lumascope.modules import post_processing
 from _lumascope.modules.cell_count_method import (
     CellCountFilters,
     CellCountMethod,
@@ -82,6 +85,33 @@ def test_a_folder_at_the_path_is_refused_and_left_as_it_was(post, tmp_path):
         post.save_cell_count_method(CellCountMethod(), folder)
     assert refused.value.reason == 'not_a_file'
     assert [p.name for p in folder.iterdir()] == ['kept.txt']
+
+
+def test_a_save_that_fails_partway_leaves_the_method_saved_before(post, tmp_path, monkeypatch):
+    path = tmp_path / 'method.json'
+    post.save_cell_count_method(CellCountMethod(pixels_per_um=2.5), path)
+    before = path.read_bytes()
+    real_open = open
+
+    # a stand-in by design: a disk that fills partway through the write,
+    # which no folder in a test produces.
+    def cut_short(file, mode='r', *args, **kwargs):
+        handle = real_open(file, mode, *args, **kwargs)
+        if 'w' in mode:
+            handle.write('{"context": {"pixels_per')
+            handle.close()
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), file)
+        return handle
+
+    monkeypatch.setattr(post_processing, 'open', cut_short, raising=False)
+    with pytest.raises(OSError) as raised:
+        post.save_cell_count_method(CellCountMethod(pixels_per_um=4.0), path)
+
+    assert raised.value.errno == errno.ENOSPC
+    assert path.read_bytes() == before
+    assert [p.name for p in tmp_path.iterdir() if p.name.startswith('method.json')] == [
+        'method.json'
+    ]
 
 
 def _without(saved: dict, *path: str) -> dict:
