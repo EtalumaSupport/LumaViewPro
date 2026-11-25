@@ -85,7 +85,7 @@ def test_a_still_under_a_floored_exposure_states_the_floor_in_its_file(tmp_path)
     with _open_session(settings) as session:
         floor_ms = session.scope.camera.setting_limits.exposure_min_ms
         (path,) = _files(session)
-    assert read_file_record(path)['exposure_time_ms'] == floor_ms
+    assert read_file_record(path)['exposure_ms'] == floor_ms
 
 
 def test_a_camera_that_reaches_every_saved_value_is_told_nothing(tmp_path):

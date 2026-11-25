@@ -341,7 +341,7 @@ def test_scan_over_rest_completes_and_keeps_its_images(served):
 def _slice_steps_um(paths):
     from _lumascope.modules.image_utils import read_file_record
 
-    z = sorted(read_file_record(p)['z_pos_um'] for p in paths)
+    z = sorted(read_file_record(p)['z_um'] for p in paths)
     return [round(b - a, 1) for a, b in itertools.pairwise(z)]
 
 

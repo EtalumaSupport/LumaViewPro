@@ -131,7 +131,7 @@ def _captured_z(session, protocol, run_dir: pathlib.Path) -> list[float]:
     # they are written.
     run.files.result(timeout=WAIT_S)
     return sorted(
-        read_file_record(path)['z_pos_um'] for path in run_dir.rglob('*.tif*') if path.is_file()
+        read_file_record(path)['z_um'] for path in run_dir.rglob('*.tif*') if path.is_file()
     )
 
 

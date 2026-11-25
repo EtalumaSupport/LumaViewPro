@@ -18044,11 +18044,11 @@ Every fact a saved file's record can state, by its key, in the order the writer 
 |---|---|---|---|---|---|---|
 | `objective` | shared | `Objective` | -- | no | `id`, `description`, `manufacturer`, `short_name`, `magnification`, `focal_length_mm`, `numerical_aperture`, `depth_of_field_um`, `working_distance_mm`, `autofocus_step_min_um`, `autofocus_step_max_um`, `autofocus_half_range_um`, `jog_z_fine_um`, `jog_z_coarse_um`, `jog_xy_fine_um`, `jog_xy_coarse_um`, `focus_peak_fwhm_dense_um` | -- |
 | `plate_pos_mm` | shared | -- | -- | no | `x`, `y` | -- |
-| `z_pos_um` | shared | `PositionZ` | um | no | -- | -- |
+| `z_um` | shared | `PositionZ` | um | no | -- | `z_pos_um` until 4.0.0-beta48, in the view only |
 | `illumination_ma` | channel | `Illumination` | mA | no | -- | -- |
 | `illumination_by_channel_ma` | channel | `IlluminationByChannel` | mA | no | keyed by channel name | -- |
 | `illumination_timing` | channel | `IlluminationTiming` | -- | no | -- | -- |
-| `exposure_time_ms` | channel | `ExposureTime` | ms | no | -- | -- |
+| `exposure_ms` | channel | `ExposureTime` | ms | no | -- | `exposure_time_ms` until 4.0.0-beta48, in the view only |
 | `gain_db` | channel | `Gain` | dB | no | -- | -- |
 | `black_level` | channel | `BlackLevel` | -- | no | -- | -- |
 | `frames_summed` | channel | `FramesSummed` | -- | yes | -- | -- |

@@ -36,7 +36,7 @@ def _stated(path):
     """The well, channel and Z the image at *path* states, as the results write them."""
     facts = image_utils.read_file_record(path)
     plate = facts.get('plate') or {}
-    z = facts.get('z_pos_um')
+    z = facts.get('z_um')
     return (plate.get('well_label') or '', facts.get('channel') or '', '' if z is None else str(z))
 
 

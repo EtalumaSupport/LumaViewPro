@@ -72,7 +72,7 @@ def test_the_builder_records_its_frame_with_the_live_scope_unreachable(sim_scope
         fallback_focus=None,
     )
 
-    assert metadata['exposure_time_ms'] == 12.5
+    assert metadata['exposure_ms'] == 12.5
     assert metadata['gain_db'] == 3.0
     assert metadata['black_level'] == 4.0
     assert metadata['illumination_ma'] == 40.0

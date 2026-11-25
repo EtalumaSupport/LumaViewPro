@@ -42,10 +42,10 @@ def _make_metadata():
         'channel': LED1,
         'significant_bits': 8,
         'objective': {'id': '10x'},
-        'exposure_time_ms': 50.0,
+        'exposure_ms': 50.0,
         'gain_db': 0.0,
         'illumination_ma': 100.0,
-        'z_pos_um': 1000.0,
+        'z_um': 1000.0,
         'plate_pos_mm': {'x': 10.0, 'y': 20.0},
         'datetime': datetime.datetime(2026, 3, 16, 12, 0, 0),
         'well_site': '1',
@@ -1035,8 +1035,8 @@ class TestOmeMetadataReadback:
         assert recovered is not None, 'OME-TIFF input must recover via the OME fallback'
         assert recovered['plate_pos_mm']['x'] == pytest.approx(metadata['plate_pos_mm']['x'])
         assert recovered['plate_pos_mm']['y'] == pytest.approx(metadata['plate_pos_mm']['y'])
-        assert recovered['z_pos_um'] == pytest.approx(metadata['z_pos_um'])
-        assert recovered['exposure_time_ms'] == pytest.approx(metadata['exposure_time_ms'])
+        assert recovered['z_um'] == pytest.approx(metadata['z_um'])
+        assert recovered['exposure_ms'] == pytest.approx(metadata['exposure_ms'])
         assert recovered['pixel_size_um'] == pytest.approx(metadata['pixel_size_um'])
 
 
@@ -1064,7 +1064,7 @@ class TestStructuredReadbackOptionalGainExposure:
     def test_missing_gain_exposure_still_recovers_positions(self, img_8bit, metadata, tmp_tiff):
         path = tmp_tiff()
         md = dict(metadata)
-        del md['exposure_time_ms']
+        del md['exposure_ms']
         del md['gain_db']
         self._write(img_8bit, md, path)
 
@@ -1075,9 +1075,9 @@ class TestStructuredReadbackOptionalGainExposure:
         )
         assert recovered['plate_pos_mm']['x'] == pytest.approx(md['plate_pos_mm']['x'])
         assert recovered['plate_pos_mm']['y'] == pytest.approx(md['plate_pos_mm']['y'])
-        assert recovered['z_pos_um'] == pytest.approx(md['z_pos_um'])
+        assert recovered['z_um'] == pytest.approx(md['z_um'])
         assert recovered['pixel_size_um'] == pytest.approx(md['pixel_size_um'])
-        assert 'exposure_time_ms' not in recovered, (
+        assert 'exposure_ms' not in recovered, (
             'An omitted (unknown) exposure must stay omitted, not be fabricated on read-back'
         )
         assert 'gain_db' not in recovered, (
@@ -1090,7 +1090,7 @@ class TestStructuredReadbackOptionalGainExposure:
 
         recovered = image_utils.read_file_record(path)
         assert recovered is not None
-        assert recovered['exposure_time_ms'] == pytest.approx(metadata['exposure_time_ms'])
+        assert recovered['exposure_ms'] == pytest.approx(metadata['exposure_ms'])
         assert recovered['gain_db'] == pytest.approx(metadata['gain_db'])
 
     def test_black_level_round_trips_and_its_absence_stays_absent(
@@ -1304,7 +1304,7 @@ class TestPostprocMetadataRoundTrip:
         md = {
             **metadata,
             'plate_pos_mm': {'x': np.float64(10.0), 'y': np.float64(20.0)},
-            'z_pos_um': np.float64(1000.0),
+            'z_um': np.float64(1000.0),
         }
         path = tmp_tiff()
         self._write(
@@ -1358,7 +1358,7 @@ _PER_CHANNEL = (
     'illumination_ma',
     'illumination_by_channel_ma',
     'illumination_timing',
-    'exposure_time_ms',
+    'exposure_ms',
     'gain_db',
     'black_level',
     'frames_summed',
@@ -1983,7 +1983,7 @@ def test_the_view_is_plain_text_and_a_plain_tiffs_is_ascii(tmp_path):
         'objective': {'id': '20x Oly', 'magnification': 20},
         'pixel_size_um': None,
         'channel': 'BF',
-        'exposure_time_ms': 50.0,
+        'exposure_ms': 50.0,
         'frame_validity': [{'source': 'led', 'counts': True}, {'source': 'gain', 'counts': False}],
         'plate': {'name': '96 well \u00b5plate', 'well_label': 'D6'},
         'datetime': datetime.datetime(2026, 10, 30, 9, 15, 2, 250000),
@@ -2008,7 +2008,7 @@ def test_the_view_is_plain_text_and_a_plain_tiffs_is_ascii(tmp_path):
     plain = [
         ('objective.id', '20x Oly'),
         ('objective.magnification', '20'),
-        ('exposure_time_ms', '50.0'),
+        ('exposure_ms', '50.0'),
         ('frame_validity.0.source', 'led'),
         ('frame_validity.0.counts', 'true'),
         ('frame_validity.1.source', 'gain'),

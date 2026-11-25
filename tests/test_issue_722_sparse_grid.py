@@ -47,14 +47,14 @@ def _write_frame(
         metadata={
             'datetime': datetime.datetime(2026, 7, 6, 12, 0, 0),
             'plate_pos_mm': {'x': 10.0, 'y': 5.0},
-            'z_pos_um': z_um,
+            'z_um': z_um,
             'objective': {
                 'id': '20x Oly',
                 'magnification': 20,
                 'numerical_aperture': 0.45,
                 'working_distance_mm': 8.1,
             },
-            'exposure_time_ms': 50.0,
+            'exposure_ms': 50.0,
             'gain_db': 3.0,
             'illumination_ma': 75.0,
             'pixel_size_um': 0.5,

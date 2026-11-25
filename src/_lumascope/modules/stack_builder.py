@@ -474,7 +474,7 @@ class StackBuilder(ProtocolPostProcessor):
         plane_metadata = {
             'PositionX': [pos['x'] if pos else None for pos in plate_positions],
             'PositionY': [pos['y'] if pos else None for pos in plate_positions],
-            'PositionZ': [(record or {}).get('z_pos_um') for record in input_records],
+            'PositionZ': [(record or {}).get('z_um') for record in input_records],
         }
 
         # Timing is all-or-nothing: DeltaT is the measured list only when

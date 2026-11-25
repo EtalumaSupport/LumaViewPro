@@ -54,16 +54,16 @@ class TestAnXYZScope:
 
         metadata = read_file_record(path)
         assert metadata['plate_pos_mm'] == pytest.approx({'x': plate_x, 'y': plate_y}, abs=1e-3)
-        assert metadata['z_pos_um'] == pytest.approx(z, abs=1e-3)
+        assert metadata['z_um'] == pytest.approx(z, abs=1e-3)
 
     def test_the_overlay_copy_records_the_same_position(self, session):
         raw, overlay = _files(session, crosshairs=True)
 
         raw_metadata = read_file_record(raw)
         overlay_metadata = read_file_record(overlay)
-        assert 'z_pos_um' in raw_metadata
+        assert 'z_um' in raw_metadata
         assert overlay_metadata['plate_pos_mm'] == raw_metadata['plate_pos_mm']
-        assert overlay_metadata['z_pos_um'] == raw_metadata['z_pos_um']
+        assert overlay_metadata['z_um'] == raw_metadata['z_um']
 
     def test_an_axis_without_its_reference_records_nothing_for_it(self, session):
         session.scope.motion._set_axis_state('Z', AxisState.UNKNOWN)
@@ -71,7 +71,7 @@ class TestAnXYZScope:
 
         metadata = read_file_record(path)
         assert 'plate_pos_mm' in metadata
-        assert 'z_pos_um' not in metadata
+        assert 'z_um' not in metadata
 
 
 class TestAZOnlyScope:
@@ -83,4 +83,4 @@ class TestAZOnlyScope:
 
         metadata = read_file_record(path)
         assert 'plate_pos_mm' not in metadata
-        assert metadata['z_pos_um'] == pytest.approx(z, abs=1e-3)
+        assert metadata['z_um'] == pytest.approx(z, abs=1e-3)

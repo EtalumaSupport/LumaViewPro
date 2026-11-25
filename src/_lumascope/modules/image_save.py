@@ -284,7 +284,7 @@ def position_metadata_fields(
         stage_z_um: Stage Z in um, or None when unknown.
 
     Returns:
-        dict: ``plate_pos_mm`` when X and Y are both known, ``z_pos_um``
+        dict: ``plate_pos_mm`` when X and Y are both known, ``z_um``
             when Z is; empty otherwise.
     """
     fields: dict = {}
@@ -293,7 +293,7 @@ def position_metadata_fields(
         py = round(plate_y_mm, common_utils.max_decimal_precision('y'))
         fields['plate_pos_mm'] = {'x': px, 'y': py}
     if stage_z_um is not None:
-        fields['z_pos_um'] = round(stage_z_um, common_utils.max_decimal_precision('z'))
+        fields['z_um'] = round(stage_z_um, common_utils.max_decimal_precision('z'))
     return fields
 
 
@@ -411,7 +411,7 @@ def generate_image_metadata(
     # here is an unknown setting, never a stand-in.
     _frame_settings = {}
     if frame_record.exposure_ms is not None:
-        _frame_settings['exposure_time_ms'] = round(
+        _frame_settings['exposure_ms'] = round(
             frame_record.exposure_ms, common_utils.max_decimal_precision('exposure')
         )
     if frame_record.gain_db is not None:

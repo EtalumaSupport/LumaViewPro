@@ -27,8 +27,8 @@ _RECORD = {
     'datetime': datetime.datetime(2026, 10, 29, 12, 0, 0),
     'objective': {'id': '20x Oly', 'magnification': 20, 'numerical_aperture': 0.45},
     'plate_pos_mm': {'x': 12.5, 'y': 30.25},
-    'z_pos_um': 4321.0,
-    'exposure_time_ms': 50.0,
+    'z_um': 4321.0,
+    'exposure_ms': 50.0,
     'instrument': {'manufacturer': 'Etaluma', 'model': 'LS850', 'camera_model': 'cam'},
     'plate': {'name': '96 well microplate', 'rows': 8, 'columns': 12, 'well_label': 'A1'},
 }

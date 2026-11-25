@@ -1733,7 +1733,7 @@ class TestEachFrameRecordsItsOwnMoment:
         known, lost, regained = self._described_frames(tmp_path)
         assert known['plate_pos_mm'] == {'x': 1.5, 'y': 2.5}
         assert 'plate_pos_mm' not in lost
-        assert lost['z_pos_um'] == 3.0, 'Z is independent of the X/Y pair'
+        assert lost['z_um'] == 3.0, 'Z is independent of the X/Y pair'
         assert regained['plate_pos_mm'] == {'x': 1.5, 'y': 2.5}
 
     def test_a_moving_stage_is_marked_on_that_frame(self, tmp_path):
@@ -1748,7 +1748,7 @@ class TestEachFrameRecordsItsOwnMoment:
         still, moving = self._described_frames(tmp_path)
         assert still['stage_moving'] is False
         assert moving['stage_moving'] is True
-        assert moving['z_pos_um'] == 3.0, 'a moving axis still knows its frame of reference'
+        assert moving['z_um'] == 3.0, 'a moving axis still knows its frame of reference'
 
     def test_the_channel_that_lit_each_frame_is_recorded(self, tmp_path):
         controller, scope, clock = make_controller(tmp_path, lit=LED0, shown=LED0)
@@ -1773,7 +1773,7 @@ class TestEachFrameRecordsItsOwnMoment:
 
         (only,) = self._described_frames(tmp_path)
         assert 'plate_pos_mm' not in only
-        assert only['z_pos_um'] == 3.0
+        assert only['z_um'] == 3.0
 
 
 class TestARecordingThatCannotBeOneHyperstackSaysWhy:

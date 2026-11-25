@@ -91,7 +91,7 @@ class TestThePlatePositionSurvivesTheSave:
             fallback_focus=None,
         )
 
-        assert metadata['z_pos_um'] == pytest.approx(STAGE_Z_UM)
+        assert metadata['z_um'] == pytest.approx(STAGE_Z_UM)
 
     def test_two_captures_a_known_distance_apart_record_that_distance(self, positioned_scope):
         """The property no single reading can show. Nine millimetres apart on

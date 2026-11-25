@@ -73,7 +73,7 @@ class TestMetadataReadRobustness:
         tf.imwrite(str(p), np.zeros((4, 4), dtype=np.uint16), metadata=_structured_metadata())
         out = image_utils.read_file_record(p)
         assert out is not None
-        assert out['exposure_time_ms'] == 10.0
+        assert out['exposure_ms'] == 10.0
         assert out['channel'] == LED0
 
     def test_missing_acquisition_key_returns_none_not_keyerror(self, tmp_path):
@@ -109,9 +109,9 @@ class TestMetadataReadRobustness:
         assert out is not None
         assert out['pixel_size_um'] == 0.5
         assert out['channel'] == LED0
-        assert out['exposure_time_ms'] == 10.0
+        assert out['exposure_ms'] == 10.0
         assert 'plate_pos_mm' not in out
-        assert 'z_pos_um' not in out
+        assert 'z_um' not in out
 
 
 class TestStitchMixedChannelGuard:

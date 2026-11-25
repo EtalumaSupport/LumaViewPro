@@ -209,7 +209,7 @@ class TestALateWriteRecordsItsFrame:
 
         metadata, _ = files['C1']
         assert metadata.get('frames_summed') == 3, metadata.get('frames_summed')
-        assert metadata.get('exposure_time_ms') == 2.5, metadata.get('exposure_time_ms')
+        assert metadata.get('exposure_ms') == 2.5, metadata.get('exposure_ms')
 
     @pytest.mark.slow
     def test_an_autofocused_file_records_the_z_it_was_taken_at(self, tmp_path, monkeypatch):
@@ -240,8 +240,8 @@ class TestALateWriteRecordsItsFrame:
             'autofocus left the stage at the planned height, so this run cannot tell the '
             "frame's Z from the step's"
         )
-        assert metadata.get('z_pos_um') == pytest.approx(stage_z_at_capture['C2'], abs=1e-4), (
-            f'the file records Z {metadata.get("z_pos_um")}, but the frame was taken at '
+        assert metadata.get('z_um') == pytest.approx(stage_z_at_capture['C2'], abs=1e-4), (
+            f'the file records Z {metadata.get("z_um")}, but the frame was taken at '
             f'{stage_z_at_capture["C2"]}'
         )
 

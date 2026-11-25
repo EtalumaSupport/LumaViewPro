@@ -54,7 +54,7 @@ def judge(session, label, path, expect=None):
         return None
     channel = meta.get('channel')
     held = meta.get('camera_held_channel')
-    got = (meta.get('exposure_time_ms'), meta.get('gain_db'))
+    got = (meta.get('exposure_ms'), meta.get('gain_db'))
     stored = session.settings_snapshot[channel]
     figure(f'{label}: file', {'name': path.name, 'channel': channel, 'held': held, 'file': got})
     figure(f'{label}: {channel} stored', (stored['exposure_ms'], stored['gain_db']))

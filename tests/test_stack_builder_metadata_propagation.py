@@ -44,7 +44,7 @@ def _write_structured_input(
     *,
     channel: str,
     plate_pos_mm: dict | None,
-    z_pos_um: float | None,
+    z_um: float | None,
     value: int = 100,
 ) -> None:
     """Write a per-frame TIFF via image_utils.write_tiff so it carries
@@ -54,7 +54,7 @@ def _write_structured_input(
     arr = np.full((4, 4), value, dtype=np.uint8)
     position = {
         key: fact
-        for key, fact in (('plate_pos_mm', plate_pos_mm), ('z_pos_um', z_pos_um))
+        for key, fact in (('plate_pos_mm', plate_pos_mm), ('z_um', z_um))
         if fact is not None
     }
     image_utils.write_tiff(
@@ -71,7 +71,7 @@ def _write_structured_input(
                 'numerical_aperture': 0.45,
                 'working_distance_mm': 8.1,
             },
-            'exposure_time_ms': 50.0,
+            'exposure_ms': 50.0,
             'gain_db': 3.0,
             'illumination_ma': 75.0,
             'pixel_size_um': 0.5,
@@ -107,7 +107,7 @@ def _stack_of(tmp_path, frames: list[dict]) -> pathlib.Path:
             tf.imwrite(str(tmp_path / fname), np.full((4, 4), 100, dtype=np.uint8))
         else:
             _write_structured_input(
-                tmp_path / fname, channel=LED1, plate_pos_mm=frame['xy'], z_pos_um=frame['z']
+                tmp_path / fname, channel=LED1, plate_pos_mm=frame['xy'], z_um=frame['z']
             )
         x, y, z = frame['plan']
         rows.append(
@@ -208,7 +208,7 @@ class TestEachPlaneStatesWhereItsFrameWasTaken:
         # With no position and no time, tifffile writes no <Plane> at all.
         stated = [k for p in _planes(out) for k in p if k.startswith('Position')]
         assert stated == [], 'a frame with no record states no position, so no plane states one'
-        assert 'z_pos_um' not in image_utils.read_file_record(out)
+        assert 'z_um' not in image_utils.read_file_record(out)
 
     def test_the_planes_and_the_files_record_state_one_z(self, tmp_path):
         # No autofocus: the stage stops at a whole microstep, so a step planned
@@ -226,7 +226,7 @@ class TestEachPlaneStatesWhereItsFrameWasTaken:
         out = _stack_of(tmp_path, frames)
 
         assert [float(p['PositionZ']) for p in _planes(out)] == [7154.00255] * 2
-        assert image_utils.read_file_record(out)['z_pos_um'] == 7154.00255, (
+        assert image_utils.read_file_record(out)['z_um'] == 7154.00255, (
             "the record read back is the planes' Z, the one Z the file states"
         )
 
@@ -265,7 +265,7 @@ class TestEachPlaneStatesWhereItsFrameWasTaken:
 
         (stack,) = (tmp_path / 'runs').rglob('*.ome.tiff')
         frames = sorted(p for p in (tmp_path / 'runs').rglob('*.tif*') if p != stack)
-        taken_at = [image_utils.read_file_record(frame)['z_pos_um'] for frame in frames]
+        taken_at = [image_utils.read_file_record(frame)['z_um'] for frame in frames]
         planned = [s['Z'] for s in slices]
         assert all(abs(z - plan) > 10.0 for z, plan in zip(taken_at, planned, strict=True)), (
             f'precondition: the sweep moved off the plan {planned}; the frames say {taken_at}'
@@ -288,7 +288,7 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
                 tmp_path / fname,
                 channel=LED2,
                 plate_pos_mm={'x': 0.0, 'y': 0.0},
-                z_pos_um=float(z_idx) * 10,
+                z_um=float(z_idx) * 10,
             )
             rows.append(
                 {
@@ -332,7 +332,7 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
                     tmp_path / fname,
                     channel=channel,
                     plate_pos_mm={'x': 0.0, 'y': 0.0},
-                    z_pos_um=float(z_idx) * 10,
+                    z_um=float(z_idx) * 10,
                 )
                 rows.append(
                     {
@@ -421,7 +421,7 @@ def _two_slice_stack(tmp_path, *, plate_pos_mm=None, bare=False) -> pathlib.Path
                 tmp_path / fname,
                 channel=LED1,
                 plate_pos_mm=plate_pos_mm,
-                z_pos_um=float(z_idx) * 10,
+                z_um=float(z_idx) * 10,
             )
         rows.append(
             {
@@ -479,7 +479,7 @@ class TestAHyperstackStatesWhatItsFramesAgreeOn:
         assert record['objective']['magnification'] == 20
         assert record['plate_pos_mm'] == {'x': 12.5, 'y': 8.25}
         # One channel: its settings travel; never a capture's own fact.
-        assert record['exposure_time_ms'] == 50.0
+        assert record['exposure_ms'] == 50.0
         assert [key for key in record if image_utils.FILE_FACTS[key].kind.value == 'capture'] == []
         with tf.TiffFile(str(out)) as tif:
             assert 51838 not in tif.pages[0].tags
@@ -509,7 +509,7 @@ class TestHyperstackChannelColor:
             ref,
             channel=LED1,
             plate_pos_mm={'x': 0.0, 'y': 0.0},
-            z_pos_um=0.0,
+            z_um=0.0,
         )
         metadata = image_utils.build_hyperstack_output_metadata(
             input_records=[image_utils.read_file_record(ref)],
@@ -551,7 +551,7 @@ class TestHyperstackChannelColor:
                     tmp_path / fname,
                     channel=channel,
                     plate_pos_mm={'x': 0.0, 'y': 0.0},
-                    z_pos_um=float(z_idx) * 10,
+                    z_um=float(z_idx) * 10,
                 )
                 rows.append(
                     {
@@ -607,7 +607,7 @@ class TestHyperstackScaleComesFromTheInput:
                 tmp_path / fname,
                 channel=LED2,
                 plate_pos_mm={'x': 0.0, 'y': 0.0},
-                z_pos_um=float(z_idx) * 10,
+                z_um=float(z_idx) * 10,
             )
             rows.append(
                 {
@@ -749,7 +749,7 @@ def test_nondense_scan_counts_build_by_rank(tmp_path):
             tmp_path / fname,
             channel=LED1,
             plate_pos_mm=plate_pos,
-            z_pos_um=10.0,
+            z_um=10.0,
             value=value,
         )
         rows.append(
@@ -796,7 +796,7 @@ def test_mixed_dtype_inputs_refused_naming_the_file(tmp_path):
 
     plate_pos = {'x': 1.0, 'y': 2.0}
     _write_structured_input(
-        tmp_path / 'frame_s0.tiff', channel=LED1, plate_pos_mm=plate_pos, z_pos_um=10.0
+        tmp_path / 'frame_s0.tiff', channel=LED1, plate_pos_mm=plate_pos, z_um=10.0
     )
     # A bare signed 16-bit TIFF simulates a foreign frame landing in the same
     # well folder: its depth reads as 16, so only its pixel type is wrong.
@@ -837,7 +837,7 @@ def test_hyperstack_output_uses_strips(tmp_path):
     still path while breaking native open."""
     plate_pos = {'x': 1.0, 'y': 2.0}
     fname = 'frame_t0_z0_c0.tiff'
-    _write_structured_input(tmp_path / fname, channel=LED1, plate_pos_mm=plate_pos, z_pos_um=10.0)
+    _write_structured_input(tmp_path / fname, channel=LED1, plate_pos_mm=plate_pos, z_um=10.0)
     df = pd.DataFrame(
         [
             {

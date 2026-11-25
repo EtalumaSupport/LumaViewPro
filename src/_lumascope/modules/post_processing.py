@@ -752,7 +752,7 @@ def _where_taken(facts: dict | None, row: dict | None) -> dict:
     plate = stated.get('plate')
     well = plate.get('well_label') if plate is not None else None
     channel = _image_channel(facts, row)
-    z = stated.get('z_pos_um')
+    z = stated.get('z_um')
     return {
         'well': '' if well is None else well,
         'channel': '' if channel is None else channel,

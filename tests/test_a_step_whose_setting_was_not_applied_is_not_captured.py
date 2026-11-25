@@ -81,7 +81,7 @@ def test_a_manual_step_writes_its_gain_and_exposure_and_no_auto_gain_mode(tmp_pa
     taken = {}
     for path in (tmp_path / 'runs').rglob('*.tiff'):
         metadata = read_file_record(path) or {}
-        taken[path.name.split('_')[0]] = (metadata.get('gain_db'), metadata.get('exposure_time_ms'))
+        taken[path.name.split('_')[0]] = (metadata.get('gain_db'), metadata.get('exposure_ms'))
     assert taken == {'C0': (3.0, 2.5), 'C1': (5.0, 2.5)}
 
 

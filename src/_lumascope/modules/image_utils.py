@@ -580,7 +580,9 @@ FILE_FACTS: dict[str, FileFact] = {
     # PositionX and PositionY, in mm: a pair, because half a plate coordinate
     # is not one.
     'plate_pos_mm': FileFact(FactKind.SHARED, fields=('x', 'y')),
-    'z_pos_um': FileFact(FactKind.SHARED, 'PositionZ', 'um'),
+    'z_um': FileFact(
+        FactKind.SHARED, 'PositionZ', 'um', formerly=(FormerKey('z_pos_um', '4.0.0-beta48'),)
+    ),
     'illumination_ma': FileFact(FactKind.CHANNEL, 'Illumination', 'mA'),
     # Every LED lit for the grab, by channel; Illumination is the named
     # channel's alone, and the one older files carry.
@@ -589,7 +591,12 @@ FILE_FACTS: dict[str, FileFact] = {
     ),
     # When those currents were read (frame_record.LightTiming).
     'illumination_timing': FileFact(FactKind.CHANNEL, 'IlluminationTiming'),
-    'exposure_time_ms': FileFact(FactKind.CHANNEL, 'ExposureTime', 'ms'),
+    'exposure_ms': FileFact(
+        FactKind.CHANNEL,
+        'ExposureTime',
+        'ms',
+        formerly=(FormerKey('exposure_time_ms', '4.0.0-beta48'),),
+    ),
     'gain_db': FileFact(FactKind.CHANNEL, 'Gain', 'dB'),
     # The camera's own black level parameter, in the camera's own units: no
     # unit is written because none is common to every camera.

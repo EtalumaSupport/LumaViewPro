@@ -32,7 +32,7 @@ from tests.frame_records import frame_record, plate
 from tests.scope_fakes import bind_settings_like_a_session
 from _lumascope.modules.channel_record import release_colors
 
-POSITION_KEYS = ('plate_pos_mm', 'z_pos_um')
+POSITION_KEYS = ('plate_pos_mm', 'z_um')
 
 
 @pytest.fixture
@@ -132,7 +132,7 @@ class TestNoPositionMeansNoPositionKeys:
             fallback_focus=None,
         )
 
-        assert metadata['z_pos_um'] == pytest.approx(4950.0)
+        assert metadata['z_um'] == pytest.approx(4950.0)
         assert 'plate_pos_mm' not in metadata
 
     def test_a_written_file_carries_no_position_fields(self, positioned_scope, tmp_path):
@@ -174,7 +174,7 @@ class TestAFileWithNoPositionIsStillReadable:
 
         assert recovered['plate_pos_mm']['x'] == pytest.approx(15.38)
         assert recovered['plate_pos_mm']['y'] == pytest.approx(11.24)
-        assert recovered['z_pos_um'] == pytest.approx(4950.0)
+        assert recovered['z_um'] == pytest.approx(4950.0)
 
 
 def _read_plane(path) -> dict:

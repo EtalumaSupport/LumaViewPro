@@ -730,7 +730,7 @@ class TestGroupAlgorithmPixelSize:
             metadata={
                 'datetime': datetime.datetime(2026, 7, 14, 12, 0, 0),
                 'plate_pos_mm': {'x': x, 'y': y},
-                'z_pos_um': 0.0,
+                'z_um': 0.0,
                 'objective': {},
                 'illumination_ma': 0.0,
                 'pixel_size_um': pixel_size_um,

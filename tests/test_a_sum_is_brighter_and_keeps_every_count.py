@@ -317,8 +317,8 @@ def _write(
             **counted,
             'datetime': datetime.datetime(2026, 10, 4, 12, 0, 0),
             'plate_pos_mm': {'x': 0.0, 'y': 0.0},
-            'z_pos_um': 0.0,
-            'exposure_time_ms': 50.0,
+            'z_um': 0.0,
+            'exposure_ms': 50.0,
             'gain_db': 0.0,
             'illumination_ma': 0.0,
             'pixel_size_um': 0.5,
@@ -412,7 +412,7 @@ def test_a_sum_projection_states_no_frame_count(tmp_path):
     # Three slices of four frames each, summed: the slice's count beside a
     # per-frame exposure would state a third of what each pixel integrates.
     stated = _project_summed_slices(tmp_path, 'Sum')
-    assert stated['exposure_time_ms'] == 50.0
+    assert stated['exposure_ms'] == 50.0
     assert 'frames_summed' not in stated
 
 

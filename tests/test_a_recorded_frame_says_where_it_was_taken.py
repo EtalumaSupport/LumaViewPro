@@ -345,7 +345,7 @@ class TestTheFrameFile:
         written = _written(sim_scope, tmp_path, arrived, frame_number=4)
 
         assert written['plate_pos_mm'] == {'x': 1.5, 'y': 2.5}
-        assert written['z_pos_um'] == 3.0
+        assert written['z_um'] == 3.0
         assert written['stage_moving'] is False
         assert written['recording_frame'] == 4
 
@@ -355,7 +355,7 @@ class TestTheFrameFile:
         written = _written(sim_scope, tmp_path, arrived)
 
         assert 'plate_pos_mm' not in written
-        assert 'z_pos_um' not in written
+        assert 'z_um' not in written
         assert written['stage_moving'] is True
         assert 'illumination_by_channel_ma' not in written, 'a frame no LED lit has no current'
 
@@ -368,7 +368,7 @@ class TestTheFrameFile:
 
         written = _written(sim_scope, tmp_path, arrived)
 
-        assert (written['exposure_time_ms'], written['gain_db']) == (25.0, 6.0)
+        assert (written['exposure_ms'], written['gain_db']) == (25.0, 6.0)
         assert written['binning_size'] == A_CAMERA.binning_size
         assert written['objective'] == _stated_fields(sim_scope.objectives['10x Oly'])
         assert written['plate']['name'] == plate().name
@@ -381,7 +381,7 @@ class TestTheFrameFile:
     def test_a_frame_without_chunks_states_no_exposure_or_gain(self, sim_scope, tmp_path):
         written = _written(sim_scope, tmp_path, _arrival(sim_scope, chunks=None))
 
-        assert 'exposure_time_ms' not in written
+        assert 'exposure_ms' not in written
         assert 'gain_db' not in written
 
 
@@ -498,7 +498,7 @@ class TestARecordingOnTheSimulator:
         assert frames
         written = read_file_record(frames[0])
         assert written['channel'] == LED1
-        assert written['exposure_time_ms'] > 0 and 'gain_db' in written
+        assert written['exposure_ms'] > 0 and 'gain_db' in written
         assert written['objective'] == objective
         assert written['plate']['name'] == plate_name
         assert written['pixel_size_um'] is not None
@@ -509,7 +509,7 @@ class TestARecordingOnTheSimulator:
         # The stage stood still, so every plane states the one position.
         stack = read_file_record(folder / MANUAL_HYPERSTACK_FILENAME)
         assert stack['plate_pos_mm'] == written['plate_pos_mm'], "the stack states the frame's"
-        assert stack['z_pos_um'] == written['z_pos_um'], "the stack states the frame's"
+        assert stack['z_um'] == written['z_um'], "the stack states the frame's"
 
 
 class TestARecordingStatesEachFramesStart:

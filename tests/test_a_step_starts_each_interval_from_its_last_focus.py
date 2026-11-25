@@ -91,7 +91,7 @@ def _run_two_intervals(tmp_path, *, first_pattern='focus_target'):
 
     assert outcome.status == 'completed', outcome
     frames_z = [
-        read_file_record(path)['z_pos_um'] for path in sorted((tmp_path / 'runs').rglob('*.tiff'))
+        read_file_record(path)['z_um'] for path in sorted((tmp_path / 'runs').rglob('*.tiff'))
     ]
     assert len(frames_z) == 2, frames_z
     return protocol, (lowest[0], lowest[1]), frames_z

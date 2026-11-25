@@ -39,8 +39,8 @@ def _a_record(**overrides) -> dict:
         'datetime': _A_TIME,
         'objective': {'id': '20x Oly', 'magnification': 20, 'working_distance_mm': 8.1},
         'plate_pos_mm': {'x': 12.5, 'y': 30.25},
-        'z_pos_um': 4321.0,
-        'exposure_time_ms': 50.0,
+        'z_um': 4321.0,
+        'exposure_ms': 50.0,
         'gain_db': 3.0,
         'illumination_ma': 120.0,
         'frames_summed': 2,
@@ -130,7 +130,7 @@ def test_an_ome_still_with_no_position_or_exposure_states_its_scale_and_objectiv
     """With no schema Plane attribute to write, tifffile writes no Plane
     element; the file still states its scale, channel and objective."""
     record = _a_record()
-    for key in ('plate_pos_mm', 'z_pos_um', 'exposure_time_ms'):
+    for key in ('plate_pos_mm', 'z_um', 'exposure_ms'):
         del record[key]
     path = _write(tmp_path / 'o.ome.tiff', record, ome=True)
 
@@ -224,7 +224,7 @@ def test_a_hyperstack_built_from_ome_stills_states_what_a_derived_file_does(tmp_
     rows = []
     for z in range(2):
         name = f'frame_z{z}.ome.tiff'
-        _write(tmp_path / name, _a_record(z_pos_um=100.0 * z), ome=True)
+        _write(tmp_path / name, _a_record(z_um=100.0 * z), ome=True)
         rows.append(
             {
                 'Filepath': name,
@@ -251,7 +251,7 @@ def test_a_hyperstack_built_from_ome_stills_states_what_a_derived_file_does(tmp_
     assert root.find(f'{q("Instrument")}/{q("Microscope")}').get('Model') == 'LS850'
     stated = _a_record()
     shared = ('instrument', 'plate', 'objective', 'filterset', 'binning_size')
-    on_its_channel = ('exposure_time_ms', 'gain_db', 'excitation_nm', 'channel_display')
+    on_its_channel = ('exposure_ms', 'gain_db', 'excitation_nm', 'channel_display')
     assert {key: record.get(key) for key in shared + on_its_channel} == {
         key: image_utils.read_file_record(tmp_path / 'frame_z0.ome.tiff')[key]
         for key in shared + on_its_channel
@@ -317,12 +317,12 @@ def test_a_hyperstacks_record_states_only_what_all_its_planes_agree_on(tmp_path)
     roots = {case: valid_description(path) for case, path in paths.items()}
     read = {case: image_utils.read_file_record(path) for case, path in paths.items()}
 
-    assert 'z_pos_um' not in read['two Z']
+    assert 'z_um' not in read['two Z']
     assert read['two Z']['plate_pos_mm'] == {'x': 12.5, 'y': 30.25}
     assert read['two Z']['channel'] == LED1
     assert 'channel' not in read['two channels']
-    assert 'exposure_time_ms' not in read['two channels']
-    assert read['two channels']['z_pos_um'] == 1500.0
+    assert 'exposure_ms' not in read['two channels']
+    assert read['two channels']['z_um'] == 1500.0
     assert roots['no Plane'].find(f'{q("Image")}/{q("Pixels")}/{q("Plane")}') is None
     assert read['no Plane']['plate_pos_mm'] == record['plate_pos_mm']
     assert (read['no Plane']['pixel_size_um'], read['no Plane']['instrument']) == (

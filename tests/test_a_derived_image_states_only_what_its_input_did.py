@@ -29,7 +29,7 @@ from _lumascope.modules.zproject_method import ZProjectMethod
 from _lumascope.modules.zprojector import ZProjector
 from tests.stock_channels import LED1, LED2
 
-_ACQUISITION_FIELDS = ('plate_pos_mm', 'z_pos_um', 'exposure_time_ms', 'gain_db', 'illumination_ma')
+_ACQUISITION_FIELDS = ('plate_pos_mm', 'z_um', 'exposure_ms', 'gain_db', 'illumination_ma')
 
 
 def _write(path, metadata, *, ome=False):
@@ -81,8 +81,8 @@ def test_a_capture_with_no_scale_keeps_everything_else_it_states(tmp_path):
             'significant_bits': 12,
             'datetime': datetime.datetime(2026, 10, 4, 0, 0, 0),
             'plate_pos_mm': {'x': 12.5, 'y': 30.25},
-            'z_pos_um': 4321.0,
-            'exposure_time_ms': 50.0,
+            'z_um': 4321.0,
+            'exposure_ms': 50.0,
             'gain_db': 3.0,
             'illumination_ma': 120.0,
         },
@@ -93,8 +93,8 @@ def test_a_capture_with_no_scale_keeps_everything_else_it_states(tmp_path):
     assert back is not None, 'a capture with no scale was read as having no metadata (#810)'
     assert back['pixel_size_um'] is None
     assert back['plate_pos_mm'] == {'x': 12.5, 'y': 30.25}
-    assert back['z_pos_um'] == 4321.0
-    assert back['exposure_time_ms'] == 50.0
+    assert back['z_um'] == 4321.0
+    assert back['exposure_ms'] == 50.0
     assert back['gain_db'] == 3.0
     assert back['illumination_ma'] == 120.0
 
@@ -103,7 +103,7 @@ def test_a_capture_with_no_scale_keeps_everything_else_it_states(tmp_path):
     )
     assert derived['pixel_size_um'] is None
     assert derived['plate_pos_mm'] == {'x': 12.5, 'y': 30.25}
-    assert derived['exposure_time_ms'] == 50.0
+    assert derived['exposure_ms'] == 50.0
 
 
 def test_an_ome_input_states_only_what_its_xml_carries():
@@ -130,7 +130,7 @@ def test_an_ome_input_keeps_the_scale_and_exposure_it_states():
     back = image_utils._read_ome_input_metadata(ome)
 
     assert back['pixel_size_um'] == 0.65
-    assert back['exposure_time_ms'] == 50.0
+    assert back['exposure_ms'] == 50.0
     assert 'gain_db' not in back
     assert 'illumination_ma' not in back
 
@@ -144,7 +144,7 @@ def test_a_composite_states_no_per_channel_acquisition_setting(tmp_path):
             'channel': LED2,
             'significant_bits': 12,
             'datetime': datetime.datetime(2026, 10, 4, 0, 0, 0),
-            'exposure_time_ms': 50.0,
+            'exposure_ms': 50.0,
             'gain_db': 3.0,
             'black_level': 4.0,
             'illumination_ma': 120.0,
@@ -160,7 +160,7 @@ def test_a_composite_states_no_per_channel_acquisition_setting(tmp_path):
         adds_frames=False,
     )
 
-    for field in ('exposure_time_ms', 'gain_db', 'black_level', 'illumination_ma', 'frames_summed'):
+    for field in ('exposure_ms', 'gain_db', 'black_level', 'illumination_ma', 'frames_summed'):
         assert field not in metadata, f'a merged image states one {field}'
     assert metadata['pixel_size_um'] == 0.65
 
@@ -183,11 +183,11 @@ def test_an_ome_file_stating_a_zero_scale_reads_as_no_scale(tmp_path):
     back = image_utils.read_file_record(path)
 
     assert back['pixel_size_um'] is None
-    assert back['exposure_time_ms'] == 5.0
+    assert back['exposure_ms'] == 5.0
     assert image_utils.read_pixel_size_um(path) is None
 
 
-def _tile(path, *, x, gain_db=3.0, z_pos_um=100.0, pixel_size_um=0.65):
+def _tile(path, *, x, gain_db=3.0, z_um=100.0, pixel_size_um=0.65):
     """An 8-bit BF tile at ``x`` mm stating its gain, Z and scale."""
     image_utils.write_tiff(
         data=np.full((16, 16), 100, dtype=np.uint8),
@@ -197,9 +197,9 @@ def _tile(path, *, x, gain_db=3.0, z_pos_um=100.0, pixel_size_um=0.65):
             'channel': 'BF',
             'datetime': datetime.datetime(2026, 10, 28, 12, 0, 0),
             'plate_pos_mm': {'x': x, 'y': 0.0},
-            'z_pos_um': z_pos_um,
+            'z_um': z_um,
             'gain_db': gain_db,
-            'exposure_time_ms': 10.0,
+            'exposure_ms': 10.0,
         },
         ome=False,
         color=release_color('BF'),
@@ -246,14 +246,14 @@ def test_a_derived_file_states_a_setting_only_where_its_inputs_agree(tmp_path):
     slices.mkdir()
     ZProjector(has_turret=False)._zproject(
         slices,
-        _tiles(slices, z_pos_um=(100.0, 110.0)),
+        _tiles(slices, z_um=(100.0, 110.0)),
         ZProjectMethod.MAX,
         pathlib.Path('projected.tiff'),
         release_colors(),
     )
 
     assert stated == {'differ': None, 'agree': 3.0}
-    assert 'z_pos_um' not in image_utils.read_file_record(slices / 'projected.tiff')
+    assert 'z_um' not in image_utils.read_file_record(slices / 'projected.tiff')
 
 
 def test_a_stitch_whose_tiles_state_no_one_scale_is_unregistered_and_states_none(tmp_path):

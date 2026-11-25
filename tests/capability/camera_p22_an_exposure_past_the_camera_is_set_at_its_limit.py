@@ -77,7 +77,7 @@ def body(session):
         figure('still', str(path))
         check('the file carries its record', record is not None, str(path))
         if record is not None:
-            in_file = record.get('exposure_time_ms')
+            in_file = record.get('exposure_ms')
             figure('file_exposure_ms', in_file)
             check(
                 'the file names the channel',

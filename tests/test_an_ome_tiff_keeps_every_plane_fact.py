@@ -44,9 +44,9 @@ def _every_plane_field() -> dict:
         'excitation_nm': 470.0,
         'datetime': datetime.datetime(2026, 10, 19, 12, 0, 0),
         'plate_pos_mm': {'x': 12.5, 'y': 30.25},
-        'z_pos_um': 4321.0,
+        'z_um': 4321.0,
         'illumination_ma': 120.0,
-        'exposure_time_ms': 50.0,
+        'exposure_ms': 50.0,
         'gain_db': 3.0,
         'black_level': 4,
         'frames_summed': 4,
@@ -140,7 +140,7 @@ def test_lvp_reads_an_ome_file_as_it_reads_an_imagej_file(tmp_path):
 
     assert ome == imagej
     assert ome['frames_summed'] == 4
-    assert ome['exposure_time_ms'] == 50.0
+    assert ome['exposure_ms'] == 50.0
 
 
 def test_a_numpy_value_is_kept_as_its_number(tmp_path):
