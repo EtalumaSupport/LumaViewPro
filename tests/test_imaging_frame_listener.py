@@ -96,6 +96,28 @@ def test_handler_exception_does_not_count_toward_budget():
     imaging._remove_wrapper.assert_not_called()
 
 
+def test_a_handler_removed_for_raising_names_its_first_error(centre_posts):
+    """The removal says what the handler raised first, never "it is in the log"."""
+    # a stand-in by design: the subject is the wrapper; the imaging API is its
+    # interchangeable collaborator, whose removal hook is only observed.
+    imaging = _make_imaging_stub()
+    errors = iter(
+        [ValueError('the first frame was 12-bit'), *[RuntimeError('later')] * HANDLER_DROP_K]
+    )
+
+    def raises(*args):
+        raise next(errors)
+
+    w = _BudgetedHandler(imaging, raises, name='counts')
+    for _ in range(HANDLER_DROP_K):
+        w(None)
+
+    imaging._remove_wrapper.assert_called_once_with(w)
+    (removed,) = [n for n in centre_posts if n.reason == 'raised']
+    assert '(the first: ValueError: the first frame was 12-bit)' in removed.message, removed.message
+    assert 'log' not in removed.message, removed.message
+
+
 def test_removed_wrapper_short_circuits():
     """After auto-removal, further calls don't reach the handler."""
     imaging = _make_imaging_stub()

@@ -15367,7 +15367,7 @@ declining to go on calling the handler, which the plugin's author can fix
 **Attributes**
 
 - `name`: The handler's display name.
-- `reason`: `'over_budget'` -- it ran past the per-frame budget for the drop count of frames in a row; `'raised'` -- it raised for the drop count of frames in a row.
+- `reason`: `'over_budget'` -- it ran past the per-frame budget for the drop count of frames in a row; `'raised'` -- it raised for the drop count of frames in a row, the first of them named in the words.
 
 | Reason | Cause | REST status |
 |---|---|---|

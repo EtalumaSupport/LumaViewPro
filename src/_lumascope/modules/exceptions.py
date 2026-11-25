@@ -4086,7 +4086,7 @@ class FrameHandlerRemovedError(Refusal, Exception):
         name: The handler's display name.
         reason: ``'over_budget'`` -- it ran past the per-frame budget for the
             drop count of frames in a row; ``'raised'`` -- it raised for the
-            drop count of frames in a row.
+            drop count of frames in a row, the first of them named in the words.
     """
 
     title = 'Plugin Removed'
@@ -4096,8 +4096,18 @@ class FrameHandlerRemovedError(Refusal, Exception):
     }
 
     def __init__(
-        self, name: str, reason: str, *, budget_ms: int, drop_k: int, last_ms: float = 0.0
+        self,
+        name: str,
+        reason: str,
+        *,
+        budget_ms: int,
+        drop_k: int,
+        last_ms: float = 0.0,
+        first_error: str | None = None,
     ) -> None:
+        """*first_error* is the first of the run of errors, its type and text, for ``'raised'``."""
+        if (first_error is None) != (reason != 'raised'):
+            raise TypeError(f'first_error goes with raised, not {reason!r}')
         if reason == 'over_budget':
             cause = (
                 f'exceeded the {budget_ms}ms budget for {drop_k} consecutive frames '
@@ -4106,7 +4116,7 @@ class FrameHandlerRemovedError(Refusal, Exception):
             fix = "Reduce the handler's per-frame cost"
         else:
             cause = f'raised an error on {drop_k} consecutive frames'
-            fix = "Fix the handler's error (the first one is in the log)"
+            fix = f"Fix the handler's error (the first: {first_error})"
         super().__init__(
             f"Plugin '{name}': the frame handler {cause}. It has been disabled to "
             f'protect the imaging pipeline. {fix} and re-register, or restart the '

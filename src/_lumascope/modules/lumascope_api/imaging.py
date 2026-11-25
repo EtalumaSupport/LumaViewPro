@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import logging as _logging
+import textwrap
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping
@@ -318,6 +319,7 @@ class _BudgetedHandler:
         '_budget_trace',
         '_consecutive_over',
         '_consecutive_raised',
+        '_first_error',
         '_handler',
         '_imaging',
         '_name',
@@ -330,6 +332,8 @@ class _BudgetedHandler:
         self._name = name
         self._consecutive_over = 0
         self._consecutive_raised = 0
+        # The first error of the current run of failures, for the removal's words.
+        self._first_error: str | None = None
         self._removed = False
         # Budget-consumption census. The over-budget branch below already
         # logs, but only once it is ALREADY over -- so a handler sitting just
@@ -362,6 +366,9 @@ class _BudgetedHandler:
             self._consecutive_raised += 1
             if self._consecutive_raised == 1:
                 logger.exception(f"[SCOPE API ] live_processing handler '{self._name}' raised: {e}")
+                self._first_error = textwrap.shorten(
+                    f'{type(e).__name__}: {e}', width=200, placeholder=' ...'
+                )
             if self._consecutive_raised >= HANDLER_DROP_K:
                 self._auto_remove('raised')
             return
@@ -407,6 +414,7 @@ class _BudgetedHandler:
                 budget_ms=HANDLER_BUDGET_MS,
                 drop_k=HANDLER_DROP_K,
                 last_ms=last_elapsed_ms,
+                first_error=self._first_error if reason == 'raised' else None,
             ),
             solicited=False,
             category='Live Processing',

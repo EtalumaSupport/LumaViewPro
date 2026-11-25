@@ -321,7 +321,11 @@ _BUILT_WITH = {
     'PluginRegistrationError': lambda reason: PluginRegistrationError(reason, 'm'),
     'HomingFaultError': lambda reason: HomingFaultError('ALL', reason, ()),
     'FrameHandlerRemovedError': lambda reason: FrameHandlerRemovedError(
-        'n', reason, budget_ms=1, drop_k=1
+        'n',
+        reason,
+        budget_ms=1,
+        drop_k=1,
+        first_error='ValueError: e' if reason == 'raised' else None,
     ),
     'CompositeFailedError': lambda reason: CompositeFailedError('m', reason),
 }
