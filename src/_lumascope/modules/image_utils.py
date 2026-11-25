@@ -657,9 +657,19 @@ FILE_FACTS: dict[str, FileFact] = {
     'dark': FileFact(FactKind.CAPTURE, 'Dark'),
     # Whether the camera held a channel's stored settings for the frame, and
     # which: a frame taken after a script's raw gain or exposure write says
-    # it held none.
-    'camera_held_a_channel': FileFact(FactKind.CAPTURE, 'CameraHeldAChannel'),
-    'camera_held_channel': FileFact(FactKind.CAPTURE, 'CameraHeldChannel'),
+    # it held none, where an absent key would read as a file from before the
+    # fact. The keys are FrameRecord's word; the Plane names are kept for the
+    # readers that parse the block.
+    'held_a_channel': FileFact(
+        FactKind.CAPTURE,
+        'CameraHeldAChannel',
+        formerly=(FormerKey('camera_held_a_channel', '4.0.0-beta48'),),
+    ),
+    'held_channel': FileFact(
+        FactKind.CAPTURE,
+        'CameraHeldChannel',
+        formerly=(FormerKey('camera_held_channel', '4.0.0-beta48'),),
+    ),
     # Taken where a failed autofocus left the stage, and why it failed.
     'fallback_focus': FileFact(FactKind.CAPTURE, 'FallbackFocus'),
     # A recorded frame's number in its recording, and whether an axis was

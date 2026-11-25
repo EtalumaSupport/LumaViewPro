@@ -177,13 +177,13 @@ carries the record as a person reads it, plain `key = value` pairs (a plain
 TIFF's first `ImageDescription`, an ImageJ TIFF's `Info`), which an image
 viewer lists with the file's metadata (in Fiji, the Bio-Formats importer's
 *Display metadata*). Its keys are the API's words where the API has one fact
-for them (`exposure_ms`, `z_um`), and differ where the file states a fact its
-own way: `camera_held_channel` where `FrameRecord` has `held_channel`,
-`plate_pos_mm.x` and `.y` the pair a `SavedStill` states as `x_mm` and `y_mm`,
+for them (`exposure_ms`, `z_um`, `held_channel`), and differ where the file
+states a fact its own way: `plate_pos_mm.x` and `.y` the pair a `SavedStill`
+states as `x_mm` and `y_mm`,
 and `illumination_ma` the one current, with
 `illumination_by_channel_ma.<channel>` each lit channel's, where the record
 keys its currents by LED address. The channel and its light are `channel`,
-`camera_held_channel`, `illumination_ma` and `dark`. `filterset` is the scope's
+`held_channel`, `illumination_ma` and `dark`. `filterset` is the scope's
 filter set, whatever channel was imaged. Every key, its unit, what a sum
 does to it, its name in the Plane block and every key an older file states
 it under is the reference's [saved-file

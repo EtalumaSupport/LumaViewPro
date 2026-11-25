@@ -203,11 +203,11 @@ def test_the_saved_file_states_the_layer_the_camera_held(session):
 
     held_saved = read_file_record(held)
     raw_saved = read_file_record(raw)
-    assert (held_saved.get('camera_held_a_channel'), held_saved.get('camera_held_channel')) == (
+    assert (held_saved.get('held_a_channel'), held_saved.get('held_channel')) == (
         True,
         LED0,
     ), held_saved
-    assert (raw_saved.get('camera_held_a_channel'), 'camera_held_channel' in raw_saved) == (
+    assert (raw_saved.get('held_a_channel'), 'held_channel' in raw_saved) == (
         False,
         False,
     ), raw_saved

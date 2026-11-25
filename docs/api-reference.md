@@ -18061,8 +18061,8 @@ Every fact a saved file's record can state, by its key, in the order the writer 
 | `judgments` | capture | `FrameValidity` | -- | no | keyed by judgment index: `source`, `counts`, `frames_after`, `after_write_ms`, `skip`, `counted_by`, `after_in_force_ms` | `frame_validity` until 4.0.0-beta48, in the view only |
 | `saturated_fraction` | capture | `SaturatedFraction` | -- | no | -- | -- |
 | `dark` | capture | `Dark` | -- | no | -- | -- |
-| `camera_held_a_channel` | capture | `CameraHeldAChannel` | -- | no | -- | -- |
-| `camera_held_channel` | capture | `CameraHeldChannel` | -- | no | -- | -- |
+| `held_a_channel` | capture | `CameraHeldAChannel` | -- | no | -- | `camera_held_a_channel` until 4.0.0-beta48, in the view only |
+| `held_channel` | capture | `CameraHeldChannel` | -- | no | -- | `camera_held_channel` until 4.0.0-beta48, in the view only |
 | `fallback_focus` | capture | `FallbackFocus` | -- | no | -- | -- |
 | `recording_frame` | capture | `RecordingFrame` | -- | no | -- | `frame_num` until 4.0.0-beta38 (beae9fcdb), read back |
 | `stage_moving` | capture | `StageMoving` | -- | no | -- | -- |

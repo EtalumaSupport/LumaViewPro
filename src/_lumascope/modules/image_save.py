@@ -530,13 +530,13 @@ def generate_image_metadata(
     # Whether the camera held a channel's stored settings for the frame, and
     # which: a frame taken after a script's raw gain or exposure write says
     # it held none, rather than leaving the reader to guess.
-    metadata['camera_held_a_channel'] = frame_record.held_channel is not None
+    metadata['held_a_channel'] = frame_record.held_channel is not None
     # A frame taken where a failed autofocus left the stage says so: the
     # run's outcome names the step, but the file travels without it.
     if fallback_focus is not None:
         metadata['fallback_focus'] = fallback_focus
     if frame_record.held_channel is not None:
-        metadata['camera_held_channel'] = frame_record.held_channel
+        metadata['held_channel'] = frame_record.held_channel
 
     return metadata
 

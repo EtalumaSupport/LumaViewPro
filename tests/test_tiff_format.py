@@ -1463,7 +1463,7 @@ def test_every_key_a_save_records_reads_back_from_the_file(
     read = image_utils.read_file_record(path)
     lost = sorted(set(recorded) - set(read) - set(_IN_THE_FILE_AS))
     assert lost == [], f'recorded but not in the file: {lost}'
-    assert (read['binning_size'], read['camera_held_a_channel'], read['camera_held_channel']) == (
+    assert (read['binning_size'], read['held_a_channel'], read['held_channel']) == (
         2,
         True,
         'BF',

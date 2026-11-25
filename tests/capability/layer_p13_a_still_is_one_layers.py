@@ -53,7 +53,7 @@ def judge(session, label, path, expect=None):
         check(f'{label}: the file carries its record', False, str(path))
         return None
     channel = meta.get('channel')
-    held = meta.get('camera_held_channel')
+    held = meta.get('held_channel')
     got = (meta.get('exposure_ms'), meta.get('gain_db'))
     stored = session.settings_snapshot[channel]
     figure(f'{label}: file', {'name': path.name, 'channel': channel, 'held': held, 'file': got})
