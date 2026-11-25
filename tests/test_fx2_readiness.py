@@ -22,6 +22,7 @@ def _set_gate(monkeypatch, refusal: str | None = None) -> None:
         fx2driver._Fx2Gate(
             library_path='/bundled/libusb-1.0.dylib' if refusal is None else None,
             library_refusal=refusal,
+            refusal_words=None if refusal is None else fx2driver._LIBRARY_NOT_LOADED,
             library_version=None,
         ),
     )

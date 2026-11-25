@@ -435,7 +435,11 @@ class TestNothingCameUp:
 
 # The FX2 driver this installation did not load, as both registries carry it.
 _FX2_DECLINED = (
-    DeclinedDriver('fx2', 'bundled libusb not in use: libusb-package is not installed'),
+    DeclinedDriver(
+        'fx2',
+        'bundled libusb not in use: libusb-package is not installed',
+        fx2driver._LIBRARY_NOT_LOADED,
+    ),
 )
 
 
@@ -487,7 +491,9 @@ class TestADeclinedFx2IsToldOnlyWhereItCouldBeTheBoard:
         )
         try:
             assert [n.reason for n in centre_posts] == ['no_hardware_driver_unavailable']
-            assert 'A driver did not load on this installation' in centre_posts[0].message
+            # Why the driver did not load, in the person's words; nothing left to the log.
+            said = centre_posts[0].message
+            assert fx2driver._LIBRARY_NOT_LOADED in said and 'log' not in said, said
         finally:
             s.shutdown()
             s.scope.disconnect()
@@ -511,6 +517,9 @@ class TestADeclinedFx2IsToldOnlyWhereItCouldBeTheBoard:
                 ('Camera', 'camera_driver_unavailable'),
                 ('Illumination', 'led_driver_unavailable'),
             ]
+            for told in _outcomes(centre_posts, OutcomeKind.FAULT):
+                said = told.message
+                assert fx2driver._LIBRARY_NOT_LOADED in said and 'log' not in said, said
         finally:
             s.shutdown()
             s.scope.disconnect()

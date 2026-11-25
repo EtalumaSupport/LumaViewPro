@@ -134,11 +134,13 @@ class DeclinedDriver:
 
     Attributes:
         name: Its registry name, the one it would have registered under.
-        reason: Why it did not load.
+        reason: Why it did not load, for the log.
+        person_words: Why it did not load and what to do, as a person reads it.
     """
 
     name: str
     reason: str
+    person_words: str
 
     def __str__(self) -> str:
         return f'{self.name}: {self.reason}'
@@ -186,7 +188,7 @@ class DriverRegistry:
     def __init__(self, kind: str):
         self._kind = kind  # 'motor' | 'led' | 'camera' -- for error messages
         self._entries: dict[str, _RegistryEntry] = {}
-        self._declined: dict[str, str] = {}
+        self._declined: dict[str, DeclinedDriver] = {}
 
     def register(self, name: str, *, priority: int = 50, is_simulator: bool = False) -> Callable:
         """Decorator. Registers a driver class under `name`.
@@ -220,14 +222,14 @@ class DriverRegistry:
 
         return decorator
 
-    def decline(self, name: str, reason: str) -> Callable:
+    def decline(self, name: str, reason: str, *, person_words: str) -> Callable:
         """Decorator. Leaves a driver this installation cannot load unregistered, with why.
 
         The registry never tries it; a fallback or ``NoLiveDriverError``
         names it and the reason, so an absent part on a scope that needs
         that driver is not read as an unplugged cable alone.
         """
-        self._declined[name] = reason
+        self._declined[name] = DeclinedDriver(name, reason, person_words)
         return lambda cls: cls
 
     @staticmethod
@@ -445,7 +447,7 @@ class DriverRegistry:
         # why the FX2 was not in the picture.
         tried = tuple(e.cls.__name__ for e in real_candidates)
         detail = '' if last_error is None else f'{type(last_error).__name__}: {last_error}'
-        declined = tuple(DeclinedDriver(name, reason) for name, reason in self._declined.items())
+        declined = tuple(self._declined.values())
         if not_responsive_names:
             cause = 'not_responding'
         elif not_connected_names:

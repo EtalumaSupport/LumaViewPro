@@ -140,7 +140,9 @@ class TestRegistryGatedOnPrereqs:
             fx2driver,
             '_FX2_GATE',
             fx2driver._FX2_GATE._replace(
-                library_path=None, library_refusal='libusb-package is not installed'
+                library_path=None,
+                library_refusal='libusb-package is not installed',
+                refusal_words=fx2driver._LIBRARY_NOT_LOADED,
             ),
         )
         registry = DriverRegistry('camera')
@@ -153,7 +155,11 @@ class TestRegistryGatedOnPrereqs:
         with pytest.raises(NoLiveDriverError) as caught:
             registry.create('auto')
         assert caught.value.fallback.declined == (
-            DeclinedDriver('fx2', 'bundled libusb not in use: libusb-package is not installed'),
+            DeclinedDriver(
+                'fx2',
+                'bundled libusb not in use: libusb-package is not installed',
+                fx2driver._LIBRARY_NOT_LOADED,
+            ),
         )
 
 
@@ -1090,26 +1096,48 @@ class TestFx2DriverLibusbBackendProbe:
         return registry.registered_names()
 
     @pytest.mark.parametrize(
-        ('case', 'kwargs', 'reason'),
+        ('case', 'kwargs', 'reason', 'words'),
         [
-            ('package absent', {'package': False}, 'libusb-package is not installed'),
-            ('no library file', {'library_path': None}, 'holds no library file'),
-            ('backend did not load', {'backend': None}, 'did not load'),
+            (
+                'package absent',
+                {'package': False},
+                'libusb-package is not installed',
+                fx2driver._LIBRARY_NOT_LOADED,
+            ),
+            (
+                'no library file',
+                {'library_path': None},
+                'holds no library file',
+                fx2driver._LIBRARY_NOT_LOADED,
+            ),
+            (
+                'backend did not load',
+                {'backend': None},
+                'did not load',
+                fx2driver._LIBRARY_NOT_LOADED,
+            ),
             (
                 'another libusb first',
                 {'backend': 'OTHER'},
                 'another libusb was loaded before the bundled one: /opt/homebrew/lib/libusb-1.0.dylib',
+                fx2driver._ANOTHER_LIBRARY_FIRST,
             ),
             (
                 'usb1 holds another',
                 {'usb1_loads': False},
                 'python-libusb1 had already loaded another libusb',
+                fx2driver._ANOTHER_LIBRARY_FIRST,
             ),
-            ('usb1 handle fails', {'usb1_opens': False}, 'did not load for python-libusb1'),
+            (
+                'usb1 handle fails',
+                {'usb1_opens': False},
+                'did not load for python-libusb1',
+                fx2driver._LIBRARY_NOT_LOADED,
+            ),
         ],
     )
     def test_each_failed_bundled_load_classifies_unavailable_and_says_why(
-        self, monkeypatch, case, kwargs, reason
+        self, monkeypatch, case, kwargs, reason, words
     ):
         backend = kwargs.pop('backend', self._backend_on(self._BUNDLED))
         if backend == 'OTHER':
@@ -1119,12 +1147,32 @@ class TestFx2DriverLibusbBackendProbe:
         assert gate.available is False, case
         assert reason in gate.library_refusal, (case, gate.library_refusal)
         assert gate.unavailable_reason == f'bundled libusb not in use: {gate.library_refusal}'
+        # The person is told the kind, never the library's own reason.
+        assert gate.refusal_words == words, (case, gate.refusal_words)
         records = self._stated(gate)
         assert any(
             lvl == 'INFO' and 'bundled libusb not in use' in msg and reason in msg
             for lvl, msg in records
         ), f'{case}: the refusal must be stated with its reason; got {records}'
         assert self._registered(monkeypatch, gate) == [], f'{case}: no driver may register'
+
+    def test_a_computer_libusb_package_has_no_library_for_is_told_it_cannot_run_a_classic(self):
+        # Where pip installs no libusb-package, reinstalling cannot help.
+        said = {
+            (system, machine): fx2driver._no_wheel_for(system, machine)
+            for system, machine in (
+                ('linux', 'armv7l'),
+                ('linux', 'aarch64'),
+                ('linux', 'x86_64'),
+                ('win32', 'ARM64'),
+                ('win32', 'AMD64'),
+                ('darwin', 'arm64'),
+            )
+        }
+        assert [where for where, none in said.items() if none] == [
+            ('linux', 'armv7l'),
+            ('win32', 'ARM64'),
+        ], said
 
     def test_the_bundled_library_binds_both_bindings_and_is_named(self, monkeypatch):
         """The backend is asked for the bundled file and nothing else, the

@@ -501,19 +501,22 @@ class NoHardwareDetectedNotice(Notice, Exception):  # noqa: N818 -- a notice, no
             'restart LumaViewPro.'
         ),
         'no_hardware_driver_unavailable': (
-            'A driver did not load on this installation (the log names it and why). '
-            'Reinstall LumaViewPro if this scope needs that driver; otherwise power on '
-            'the scope and reconnect the USB cable, then restart LumaViewPro.'
+            'The Lumascope Classic driver did not load. {declined} If this is not a '
+            'Lumascope Classic, power on the scope and reconnect the USB cable, then '
+            'restart LumaViewPro.'
         ),
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_CONNECT)
 
-    def __init__(self, reason: str):
+    def __init__(self, *, declined_words: str | None):
+        """*declined_words* is why the driver this scope could be using did not
+        load (``DeclinedDriver.person_words``), or None when none was declined."""
+        reason = 'no_hardware' if declined_words is None else 'no_hardware_driver_unavailable'
         super().__init__(
             'LumaViewPro found no microscope hardware it can use. You can continue in '
             'software-only mode: protocol design and post-processing work; live view '
             'and capture need the scope. '
-            f'{self._CONNECT[reason]}'
+            f'{self._CONNECT[reason].format(declined=declined_words)}'
         )
         self.reason = reason
 
@@ -1309,9 +1312,8 @@ class CameraNotAvailableError(Fault, BringUpError):
         ),
         'camera_driver_unavailable': (
             'Camera not detected',
-            'Camera not found, and a camera driver did not load on this installation '
-            '(the log names it and why). Reinstall LumaViewPro if this scope needs that '
-            'driver; otherwise check USB cable and power.',
+            'Camera not found, and the Lumascope Classic driver did not load. {declined} '
+            'If this is not a Lumascope Classic, check USB cable and power.',
         ),
         'camera_firmware_missing': (
             'Camera firmware missing',
@@ -1357,18 +1359,24 @@ class CameraNotAvailableError(Fault, BringUpError):
         ),
     }
 
-    def __init__(self, reason: str, *, repairable: bool = False):
+    def __init__(self, reason: str, *, repairable: bool = False, declined_words: str | None = None):
         """Build the notice for ``reason``.
 
         Args:
             reason: One of the class's reasons.
             repairable: Offer Repair (``repair()``) as the answer; only for
                 ``'camera_driver_unusable'``.
+            declined_words: Why the driver did not load
+                (``DeclinedDriver.person_words``); for
+                ``'camera_driver_unavailable'``, and only for it.
         """
         self.reason = reason
         if repairable and reason != 'camera_driver_unusable':
             raise TypeError(f'Repair answers camera_driver_unusable, not {reason!r}')
+        if (declined_words is None) != (reason != 'camera_driver_unavailable'):
+            raise TypeError(f'declined_words goes with camera_driver_unavailable, not {reason!r}')
         _, message = self._WORDS[reason]
+        message = message.format(declined=declined_words)
         if reason == 'camera_driver_unusable':
             message += self._UNUSABLE_ANSWER[repairable]
         super().__init__(message, reason)
@@ -1715,17 +1723,22 @@ class LedBoardUnavailableError(Fault, BringUpError):
             'this session. Reinstall LumaViewPro.'
         ),
         'led_driver_unavailable': (
-            'The LED control board was not found, and an LED driver did not load on this '
-            'installation (the log names it and why), so illumination is not available '
-            'this session. Reinstall LumaViewPro if this scope needs that driver; '
-            'otherwise check the USB cable and 24V power, then restart LumaViewPro.'
+            'The LED control board was not found, and the Lumascope Classic driver did '
+            'not load, so illumination is not available this session. {declined} If this '
+            'is not a Lumascope Classic, check the USB cable and 24V power, then restart '
+            'LumaViewPro.'
         ),
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_ADVICE)
     same_fact_as = (CameraNotAvailableError,)
 
-    def __init__(self, reason: str):
-        super().__init__(f'{self._ADVICE[reason]} The rest of the microscope is working.', reason)
+    def __init__(self, reason: str, *, declined_words: str | None = None):
+        """*declined_words* is why the driver did not load
+        (``DeclinedDriver.person_words``), for ``'led_driver_unavailable'`` and only for it."""
+        if (declined_words is None) != (reason != 'led_driver_unavailable'):
+            raise TypeError(f'declined_words goes with led_driver_unavailable, not {reason!r}')
+        advice = self._ADVICE[reason].format(declined=declined_words)
+        super().__init__(f'{advice} The rest of the microscope is working.', reason)
 
 
 class MotorBoardUnavailableError(Fault, BringUpError):

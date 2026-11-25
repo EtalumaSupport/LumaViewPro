@@ -52,12 +52,19 @@ class TestCameraNotifyVoice:
             DriverFallback(
                 'not_detected',
                 ('PylonCamera',),
-                declined=(DeclinedDriver('fx2', 'bundled libusb not in use: no library file'),),
+                declined=(
+                    DeclinedDriver(
+                        'fx2',
+                        'bundled libusb not in use: no library file',
+                        'Reinstall LumaViewPro.',
+                    ),
+                ),
             ),
         )
         cause = _camera_failure_cause(exc, True)
         assert cause == 'camera_driver_unavailable'
-        assert 'libusb' not in str(CameraNotAvailableError(cause))
+        said = str(CameraNotAvailableError(cause, declined_words='Reinstall LumaViewPro.'))
+        assert 'libusb' not in said and 'Reinstall LumaViewPro.' in said, said
 
     def test_a_held_camera_port_is_port_in_use(self):
         exc = NoLiveDriverError('camera', DriverFallback('port_in_use', ('PylonCamera',)))

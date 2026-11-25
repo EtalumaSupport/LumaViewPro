@@ -703,7 +703,7 @@ class TestAKindWithNoNullDriverThatFindsNothing:
         class Alpha:
             found = False
 
-        @reg.decline('gamma', 'pyusb is not installed')
+        @reg.decline('gamma', 'pyusb is not installed', person_words='Reinstall LumaViewPro.')
         class Gamma:
             pass
 
@@ -712,7 +712,7 @@ class TestAKindWithNoNullDriverThatFindsNothing:
 
         assert caught.value.fallback.cause == 'not_detected'
         assert caught.value.fallback.declined == (
-            DeclinedDriver('gamma', 'pyusb is not installed'),
+            DeclinedDriver('gamma', 'pyusb is not installed', 'Reinstall LumaViewPro.'),
         )
         assert 'gamma' not in reg.registered_names()
 

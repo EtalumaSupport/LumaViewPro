@@ -208,7 +208,9 @@ def test_off_windows_a_usb_library_not_in_use_gives_a_census_saying_why(monkeypa
         fx2driver,
         '_FX2_GATE',
         fx2driver._FX2_GATE._replace(
-            library_path=None, library_refusal='libusb-package is not installed'
+            library_path=None,
+            library_refusal='libusb-package is not installed',
+            refusal_words=fx2driver._LIBRARY_NOT_LOADED,
         ),
     )
 

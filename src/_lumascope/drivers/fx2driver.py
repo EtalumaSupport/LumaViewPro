@@ -81,6 +81,7 @@ import ctypes
 import logging
 import math
 import os
+import platform
 import sys
 import threading
 import time
@@ -95,7 +96,7 @@ import usb.util
 import usb1
 
 from _lumascope.lib.build_files import build_root
-from _lumascope.lib.lumascope_error import Fault, RefusalCause
+from _lumascope.lib.lumascope_error import INTERNAL_FAULT_SENTENCE, Fault, RefusalCause
 from _lumascope.lib.log_helpers import camera_logger as _cam_log
 from _lumascope.lib.log_helpers import logger
 from _lumascope.lib.log_helpers import VERBOSE
@@ -222,13 +223,38 @@ def _vr_name(req: int) -> str:
     return _VR_NAMES.get(req, f'VR_0x{req:02X}')
 
 
+# Why the FX2 drivers did not load, as a person reads it: each refusal of
+# the bundled libusb is one of these three.
+_CLASSIC_MODELS = 'Lumascope Classic (LS460, LS560, LS620, LS720)'
+_NO_CLASSIC_HERE = f'This computer cannot run a {_CLASSIC_MODELS}.'
+_LIBRARY_NOT_LOADED = (
+    "This installation's USB library is missing or did not load: reinstall LumaViewPro "
+    f'if this is a {_CLASSIC_MODELS}.'
+)
+_ANOTHER_LIBRARY_FIRST = (
+    f"Another USB library was loaded before LumaViewPro's own. {INTERNAL_FAULT_SENTENCE}"
+)
+
+
+def _no_wheel_for(system: str, machine: str) -> bool:
+    """Whether libusb-package ships no library for a computer: 32-bit ARM Linux, Windows on ARM.
+
+    *system* is ``sys.platform``, *machine* ``platform.machine()``.
+    """
+    machine = machine.lower()
+    if system.startswith('linux'):
+        return machine.startswith('arm') and not machine.startswith('arm64')
+    return system == 'win32' and machine == 'arm64'
+
+
 def _load_bundled_libusb(usb1_module):
     """Bind pyusb and python-libusb1 to libusb-package's library.
 
     ``usb1_module`` is python-libusb1.
 
-    Returns ``(path, None)`` when both bindings run on the bundled file, or
-    ``(None, reason)`` when they cannot. Which libusb a host happens to have
+    Returns ``(path, None, None)`` when both bindings run on the bundled
+    file, or ``(None, reason, person_words)`` when they cannot: the reason
+    for the log, the words for the person. Which libusb a host happens to have
     (Homebrew's, a distro's, a stray DLL) must never decide what the driver
     runs on, so there is no fallback: ``libusb_package.get_libusb1_backend``
     would fall back to the system search when its own file is missing, so
@@ -243,24 +269,34 @@ def _load_bundled_libusb(usb1_module):
     try:
         import libusb_package
     except ImportError:
-        return None, (
-            'libusb-package is not installed (pip install -r requirements.txt; '
-            'it has no wheel for 32-bit ARM Linux or Windows on ARM)'
+        return (
+            None,
+            (
+                'libusb-package is not installed (pip install -r requirements.txt; '
+                'it has no wheel for 32-bit ARM Linux or Windows on ARM)'
+            ),
+            _NO_CLASSIC_HERE
+            if _no_wheel_for(sys.platform, platform.machine())
+            else _LIBRARY_NOT_LOADED,
         )
     lib_path = libusb_package.get_library_path()
     if lib_path is None:
-        return None, 'libusb-package holds no library file in this install'
+        return None, 'libusb-package holds no library file in this install', _LIBRARY_NOT_LOADED
     path = str(lib_path)
     try:
         import usb.backend.libusb1
 
         backend = usb.backend.libusb1.get_backend(find_library=lambda _name: path)
     except Exception as ex:
-        return None, f'the bundled libusb at {path} did not load: {ex}'
+        return None, f'the bundled libusb at {path} did not load: {ex}', _LIBRARY_NOT_LOADED
     if backend is None:
-        return None, f'the bundled libusb at {path} did not load'
+        return None, f'the bundled libusb at {path} did not load', _LIBRARY_NOT_LOADED
     if backend.lib._name != path:
-        return None, f'another libusb was loaded before the bundled one: {backend.lib._name}'
+        return (
+            None,
+            f'another libusb was loaded before the bundled one: {backend.lib._name}',
+            _ANOTHER_LIBRARY_FIRST,
+        )
     # Its own handle to the same file: each binding declares argument types
     # on the functions of the handle it holds, so one shared handle leaves
     # pyusb calling with python-libusb1's declarations and every descriptor
@@ -268,10 +304,14 @@ def _load_bundled_libusb(usb1_module):
     try:
         usb1_handle = ctypes.CDLL(path)
     except OSError as ex:
-        return None, f'the bundled libusb at {path} did not load for python-libusb1: {ex}'
+        return (
+            None,
+            f'the bundled libusb at {path} did not load for python-libusb1: {ex}',
+            _LIBRARY_NOT_LOADED,
+        )
     if not usb1_module.loadLibrary(usb1_handle):
-        return None, 'python-libusb1 had already loaded another libusb'
-    return path, None
+        return None, 'python-libusb1 had already loaded another libusb', _ANOTHER_LIBRARY_FIRST
+    return path, None, None
 
 
 class _Fx2Gate(NamedTuple):
@@ -290,12 +330,14 @@ class _Fx2Gate(NamedTuple):
         library_path: The bundled libusb both bindings run on; None when it
             is not in use.
         library_refusal: Why the bundled libusb is not in use; None when it is.
+        refusal_words: The same, as a person reads it; None when it is in use.
         library_version: The bundled libusb's version as python-libusb1
             reads it; None where it is not in use.
     """
 
     library_path: str | None
     library_refusal: str | None
+    refusal_words: str | None
     library_version: str | None
 
     @property
@@ -317,10 +359,11 @@ def _fx2_gate(usb1_module) -> _Fx2Gate:
     Binds the bundled libusb (``_load_bundled_libusb``, with its ordering
     invariant), so it runs once, at import. ``usb1_module`` is python-libusb1.
     """
-    library_path, library_refusal = _load_bundled_libusb(usb1_module)
+    library_path, library_refusal, refusal_words = _load_bundled_libusb(usb1_module)
     return _Fx2Gate(
         library_path=library_path,
         library_refusal=library_refusal,
+        refusal_words=refusal_words,
         library_version=None if library_path is None else usb1_module.getVersion(),
     )
 
@@ -395,7 +438,9 @@ def _register_if_fx2_available(registry, name, **kwargs):
     """
     if _FX2_GATE.available:
         return registry.register(name, **kwargs)
-    return registry.decline(name, _FX2_GATE.unavailable_reason)
+    return registry.decline(
+        name, _FX2_GATE.unavailable_reason, person_words=_FX2_GATE.refusal_words
+    )
 
 
 # ---------------------------------------------------------------------------

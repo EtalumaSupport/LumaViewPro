@@ -170,7 +170,7 @@ def test_a_scope_with_no_camera_comes_up_and_says_so_once(
 def test_the_no_hardware_notice_says_live_view_needs_the_scope():
     """With nothing up there is no frame to show, so the notice names live
     view beside capture as what needs the scope, never as what works."""
-    words = str(NoHardwareDetectedNotice('no_hardware'))
+    words = str(NoHardwareDetectedNotice(declined_words=None))
 
     assert 'protocol design and post-processing work' in words
     assert 'live view and capture need the scope' in words

@@ -64,6 +64,7 @@ from _lumascope.drivers.null_motorboard import NullMotionBoard
 from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
 from _lumascope.drivers.registry import (
+    DeclinedDriver,
     DriverFallback,
     DriverNotLiveError,
     NoLiveDriverError,
@@ -366,7 +367,7 @@ def _camera_failure_cause(exc: BaseException, fx2_could_be_this_scope: bool) -> 
     driver raised, the registry raises the cause it found: no camera, or a
     port held. A camera not found is told beside the FX2
     driver that did not load only when this scope may be an FX2 scope
-    (``_a_declined_fx2_could_be_this_scope``). Anything outside the
+    (``_the_declined_fx2_that_could_be_this_scope``). Anything outside the
     hardware's family is LumaViewPro's own failure, never the cable's.
     """
     if isinstance(exc, NoLiveDriverError):
@@ -415,10 +416,10 @@ def _probe_failed_at_bring_up(feature: str) -> CameraReadFailedError:
     )
 
 
-def _a_declined_fx2_could_be_this_scope(
+def _the_declined_fx2_that_could_be_this_scope(
     camera_up: bool, led_fallback: DriverFallback | None
-) -> bool:
-    """Whether the FX2 driver that did not load here may be this scope's board.
+) -> DeclinedDriver | None:
+    """The FX2 driver that did not load here, when it may be this scope's board; else None.
 
     The FX2 is the one board that carries a camera and LEDs, and one gate
     declines both its halves together. With them declined, the only LED
@@ -430,12 +431,9 @@ def _a_declined_fx2_could_be_this_scope(
     """
     from _lumascope.drivers.fx2driver import REGISTRY_NAME  # local-import: loaded where it is read
 
-    return (
-        not camera_up
-        and led_fallback is not None
-        and led_fallback.cause == 'not_detected'
-        and any(declined.name == REGISTRY_NAME for declined in led_fallback.declined)
-    )
+    if camera_up or led_fallback is None or led_fallback.cause != 'not_detected':
+        return None
+    return next((d for d in led_fallback.declined if d.name == REGISTRY_NAME), None)
 
 
 def _host_fx2_bindings(identity: str) -> list | None:
@@ -1437,15 +1435,15 @@ class Lumascope:
             parts[Board.LED] = dataclasses.replace(parts[Board.LED], cause='fx2_failed')
         # Decided once, from the camera and the LED board; the camera's cause,
         # the LED board's and the no-hardware notice each read it.
-        self._fx2_could_be_this_scope = _a_declined_fx2_could_be_this_scope(camera_up, led_fallback)
+        self._declined_fx2 = _the_declined_fx2_that_could_be_this_scope(camera_up, led_fallback)
         if not camera_up:
             parts[Board.CAMERA] = PartStatus(
                 Board.CAMERA,
                 up=False,
-                cause=_camera_failure_cause(self._camera_failure, self._fx2_could_be_this_scope),
+                cause=_camera_failure_cause(self._camera_failure, self._declined_fx2 is not None),
                 detail=f'{type(self._camera_failure).__name__}: {self._camera_failure}',
             )
-        if self._fx2_could_be_this_scope:
+        if self._declined_fx2 is not None:
             parts[Board.LED] = dataclasses.replace(parts[Board.LED], cause='led_driver_unavailable')
         self._bring_up_parts = parts
         self._bring_up_substitutions: list[Substitution] = []
@@ -2080,18 +2078,24 @@ class Lumascope:
         if self._nothing_found:
             # The one notice says the camera too.
             self._camera_failure = None
-            reason = (
-                'no_hardware_driver_unavailable' if self._fx2_could_be_this_scope else 'no_hardware'
-            )
             notifications.report_outcome(
-                NoHardwareDetectedNotice(reason), solicited=False, category='Hardware'
+                NoHardwareDetectedNotice(declined_words=self._declined_words()),
+                solicited=False,
+                category='Hardware',
             )
             return
         self._report_camera()
         led = parts[Board.LED]
         if led.missing and led.cause != 'fx2_failed':
             notifications.report_outcome(
-                LedBoardUnavailableError(led.cause), solicited=False, category='Illumination'
+                LedBoardUnavailableError(
+                    led.cause,
+                    declined_words=(
+                        self._declined_words() if led.cause == 'led_driver_unavailable' else None
+                    ),
+                ),
+                solicited=False,
+                category='Illumination',
             )
         elif led.cause == 'safety_off_failed':
             notifications.report_outcome(
@@ -2118,6 +2122,10 @@ class Lumascope:
         for device in census.devices:
             logger.info(f'[USB census] {device.describe()}')
 
+    def _declined_words(self) -> str | None:
+        """Why the FX2 driver that could be this scope's did not load, as a person reads it."""
+        return None if self._declined_fx2 is None else self._declined_fx2.person_words
+
     def _report_camera(self) -> None:
         """Report, once, the camera failure bring-up kept beside its part.
 
@@ -2139,6 +2147,9 @@ class Lumascope:
             reported = CameraNotAvailableError(
                 camera.cause,
                 repairable=camera.cause == 'camera_driver_unusable' and repair_refusal() is None,
+                declined_words=(
+                    self._declined_words() if camera.cause == 'camera_driver_unavailable' else None
+                ),
             )
             reported.__cause__ = failure
         notifications.report_outcome(reported, solicited=False, category='Camera')
