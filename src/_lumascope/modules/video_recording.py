@@ -370,42 +370,49 @@ class FrameLosses:
     Attributes:
         failed_writes: Each selected frame that could not be written, as
             (the frame, why), in the words a person reads.
-        selected: Frames selected.
-        unstamped: Frames that came without the camera's timestamp and were
+        frames_selected: Frames selected.
+        frames_unstamped: Frames that came without the camera's timestamp and were
             left out.
-        skipped: Frames skipped because frames waited to be saved while the
+        frames_skipped: Frames skipped because frames waited to be saved while the
             PC's memory ran short.
-        lost_at_camera: Frames the camera numbered that never reached the
+        frames_lost_at_camera: Frames the camera numbered that never reached the
             recording; None when no recording's camera numbers its frames.
     """
 
     failed_writes: tuple[tuple[str, str], ...] = ()
-    selected: int = 0
-    unstamped: int = 0
-    skipped: int = 0
-    lost_at_camera: int | None = None
+    frames_selected: int = 0
+    frames_unstamped: int = 0
+    frames_skipped: int = 0
+    frames_lost_at_camera: int | None = None
 
     @property
-    def dropped(self) -> int:
+    def write_failures(self) -> int:
         """Selected frames that could not be written."""
         return len(self.failed_writes)
 
     def __bool__(self) -> bool:
         """Whether any frame was lost."""
-        return bool(self.dropped or self.unstamped or self.skipped or self.lost_at_camera)
+        return bool(
+            self.write_failures
+            or self.frames_unstamped
+            or self.frames_skipped
+            or self.frames_lost_at_camera
+        )
 
     def __add__(self, other: 'FrameLosses') -> 'FrameLosses':
         """Both counts together; lost at the camera is None only when both are."""
-        if self.lost_at_camera is None and other.lost_at_camera is None:
-            lost_at_camera = None
+        if self.frames_lost_at_camera is None and other.frames_lost_at_camera is None:
+            frames_lost_at_camera = None
         else:
-            lost_at_camera = (self.lost_at_camera or 0) + (other.lost_at_camera or 0)
+            frames_lost_at_camera = (self.frames_lost_at_camera or 0) + (
+                other.frames_lost_at_camera or 0
+            )
         return FrameLosses(
             failed_writes=self.failed_writes + other.failed_writes,
-            selected=self.selected + other.selected,
-            unstamped=self.unstamped + other.unstamped,
-            skipped=self.skipped + other.skipped,
-            lost_at_camera=lost_at_camera,
+            frames_selected=self.frames_selected + other.frames_selected,
+            frames_unstamped=self.frames_unstamped + other.frames_unstamped,
+            frames_skipped=self.frames_skipped + other.frames_skipped,
+            frames_lost_at_camera=frames_lost_at_camera,
         )
 
 
@@ -522,10 +529,10 @@ class RecordingResult:
             failed_writes=tuple(
                 (f'frame {frame}{video}', cause) for frame, cause in self.failed_writes
             ),
-            selected=self.frames_selected,
-            unstamped=self.frames_unstamped,
-            skipped=self.frames_skipped,
-            lost_at_camera=self.frames_lost_at_camera,
+            frames_selected=self.frames_selected,
+            frames_unstamped=self.frames_unstamped,
+            frames_skipped=self.frames_skipped,
+            frames_lost_at_camera=self.frames_lost_at_camera,
         )
 
     def lost_frames(self) -> bool:

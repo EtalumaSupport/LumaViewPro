@@ -435,10 +435,10 @@ def run_cleanup(
         notifications.report_outcome(
             VideoFramesDroppedError(
                 video_losses.failed_writes,
-                video_losses.selected,
-                unstamped=video_losses.unstamped,
-                skipped=video_losses.skipped,
-                lost_at_camera=video_losses.lost_at_camera,
+                video_losses.frames_selected,
+                frames_unstamped=video_losses.frames_unstamped,
+                frames_skipped=video_losses.frames_skipped,
+                frames_lost_at_camera=video_losses.frames_lost_at_camera,
                 lost_in=FramesLostIn.RUN,
             ),
             solicited=False,

@@ -3160,7 +3160,13 @@ class FramesLostIn(StrEnum):
     RUN = 'run'
 
 
-@api_fields('dropped', 'skipped', 'unstamped', 'lost_at_camera', 'selected')
+@api_fields(
+    'write_failures',
+    'frames_skipped',
+    'frames_unstamped',
+    'frames_lost_at_camera',
+    'frames_selected',
+)
 class VideoFramesDroppedError(Fault, CaptureError):
     """Frames the camera sent a recording were not all saved, so its video has gaps.
 
@@ -3173,15 +3179,15 @@ class VideoFramesDroppedError(Fault, CaptureError):
     counts too.
 
     Attributes:
-        dropped: Selected frames that could not be written.
+        write_failures: Selected frames that could not be written.
         failed_writes: Each of them as (the frame, why), in the words a
             person reads; said once per cause.
-        selected: Frames the recording selected.
-        unstamped: Frames that came without the camera's timestamp and were
+        frames_selected: Frames the recording selected.
+        frames_unstamped: Frames that came without the camera's timestamp and were
             left out.
-        skipped: Frames skipped because this PC could not save frames as
+        frames_skipped: Frames skipped because this PC could not save frames as
             fast as the camera sent them.
-        lost_at_camera: Frames the camera sent that never reached the
+        frames_lost_at_camera: Frames the camera sent that never reached the
             recording; None for a camera that numbers no frames, whose
             losses are not known.
         lost_in: A manual recording, one protocol video step, or every video
@@ -3191,28 +3197,28 @@ class VideoFramesDroppedError(Fault, CaptureError):
     words.
     """
 
-    dropped: int
-    selected: int
-    unstamped: int
-    skipped: int
-    lost_at_camera: int | None
+    write_failures: int
+    frames_selected: int
+    frames_unstamped: int
+    frames_skipped: int
+    frames_lost_at_camera: int | None
     title = 'Video Frames Dropped'
     causes: ClassVar[dict[str, RefusalCause | None]] = {'video_frames_dropped': None}
 
     def __init__(
         self,
         failed_writes: 'Sequence[tuple[str, str]]',
-        selected: int,
+        frames_selected: int,
         *,
-        unstamped: int,
-        skipped: int,
-        lost_at_camera: int | None,
+        frames_unstamped: int,
+        frames_skipped: int,
+        frames_lost_at_camera: int | None,
         lost_in: FramesLostIn,
     ):
         from _lumascope.modules.common_utils import causes_in_words
 
         failed_writes = tuple(failed_writes)
-        dropped = len(failed_writes)
+        write_failures = len(failed_writes)
         what, during, reached, gaps = {
             FramesLostIn.MANUAL_RECORDING: ('', '', 'the recording', 'the saved video has gaps'),
             FramesLostIn.VIDEO_STEP: (
@@ -3229,37 +3235,39 @@ class VideoFramesDroppedError(Fault, CaptureError):
             ),
         }[lost_in]
         lost = []
-        if dropped:
-            lost.append(f'{dropped} of {selected} frame(s) {what}could not be written')
-        if unstamped:
+        if write_failures:
             lost.append(
-                f'{unstamped} frame(s) {what}came from the camera without their timestamps '
+                f'{write_failures} of {frames_selected} frame(s) {what}could not be written'
+            )
+        if frames_unstamped:
+            lost.append(
+                f'{frames_unstamped} frame(s) {what}came from the camera without their timestamps '
                 'and were left out'
             )
-        if skipped:
+        if frames_skipped:
             lost.append(
-                f'{skipped} frame(s) {what}were skipped because this PC could not save '
+                f'{frames_skipped} frame(s) {what}were skipped because this PC could not save '
                 'frames as fast as the camera sent them'
             )
-        if lost_at_camera:
+        if frames_lost_at_camera:
             lost.append(
-                f'{lost_at_camera} frame(s) the camera sent{during} never reached {reached}'
+                f'{frames_lost_at_camera} frame(s) the camera sent{during} never reached {reached}'
             )
         said = []
-        if dropped:
+        if write_failures:
             said.append(f'Not written: {causes_in_words(failed_writes)}.')
-        if skipped:
+        if frames_skipped:
             said.append('A lower Recording max FPS in Advanced Settings avoids the skips.')
         super().__init__(
             ' '.join([f'{"; ".join(lost)}, so {gaps}.', *said]),
             'video_frames_dropped',
         )
-        self.dropped = dropped
+        self.write_failures = write_failures
         self.failed_writes = failed_writes
-        self.selected = selected
-        self.unstamped = unstamped
-        self.skipped = skipped
-        self.lost_at_camera = lost_at_camera
+        self.frames_selected = frames_selected
+        self.frames_unstamped = frames_unstamped
+        self.frames_skipped = frames_skipped
+        self.frames_lost_at_camera = frames_lost_at_camera
         self.lost_in = lost_in
 
 
@@ -3272,7 +3280,7 @@ class RecordingFramesUnstampedError(Fault, CaptureError):
     this is not a stalled camera and not an empty feed.
 
     Attributes:
-        unstamped: Frames the camera sent without their timestamps.
+        frames_unstamped: Frames the camera sent without their timestamps.
         protocol_step: True for a protocol video step, False for a manual
             recording.
     """
@@ -3280,14 +3288,14 @@ class RecordingFramesUnstampedError(Fault, CaptureError):
     title = 'Recording Saved No Frames'
     causes: ClassVar[dict[str, RefusalCause | None]] = {'frames_unstamped': None}
 
-    def __init__(self, unstamped: int, *, protocol_step: bool):
+    def __init__(self, frames_unstamped: int, *, protocol_step: bool):
         what = 'the video step' if protocol_step else 'the recording'
         super().__init__(
-            f'The camera sent {unstamped} frame(s) without their timestamps, so {what} '
+            f'The camera sent {frames_unstamped} frame(s) without their timestamps, so {what} '
             'saved none. Restart LumaViewPro before recording again.',
             'frames_unstamped',
         )
-        self.unstamped = unstamped
+        self.frames_unstamped = frames_unstamped
         self.protocol_step = protocol_step
 
 

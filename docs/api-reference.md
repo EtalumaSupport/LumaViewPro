@@ -16894,7 +16894,7 @@ this is not a stalled camera and not an empty feed.
 
 **Attributes**
 
-- `unstamped`: Frames the camera sent without their timestamps.
+- `frames_unstamped`: Frames the camera sent without their timestamps.
 - `protocol_step`: True for a protocol video step, False for a manual recording.
 
 | Reason | Cause | REST status |
@@ -17732,11 +17732,11 @@ words.
 
 **Fields**
 
-- <a id="VideoFramesDroppedError.dropped"></a>`dropped`: `int` -- Selected frames that could not be written.
-- <a id="VideoFramesDroppedError.lost_at_camera"></a>`lost_at_camera`: `int | None` -- Frames the camera sent that never reached the recording; None for a camera that numbers no frames, whose losses are not known.
-- <a id="VideoFramesDroppedError.selected"></a>`selected`: `int` -- Frames the recording selected.
-- <a id="VideoFramesDroppedError.skipped"></a>`skipped`: `int` -- Frames skipped because this PC could not save frames as fast as the camera sent them.
-- <a id="VideoFramesDroppedError.unstamped"></a>`unstamped`: `int` -- Frames that came without the camera's timestamp and were left out.
+- <a id="VideoFramesDroppedError.frames_lost_at_camera"></a>`frames_lost_at_camera`: `int | None` -- Frames the camera sent that never reached the recording; None for a camera that numbers no frames, whose losses are not known.
+- <a id="VideoFramesDroppedError.frames_selected"></a>`frames_selected`: `int` -- Frames the recording selected.
+- <a id="VideoFramesDroppedError.frames_skipped"></a>`frames_skipped`: `int` -- Frames skipped because this PC could not save frames as fast as the camera sent them.
+- <a id="VideoFramesDroppedError.frames_unstamped"></a>`frames_unstamped`: `int` -- Frames that came without the camera's timestamp and were left out.
+- <a id="VideoFramesDroppedError.write_failures"></a>`write_failures`: `int` -- Selected frames that could not be written.
 
 | Reason | Cause | REST status |
 |---|---|---|

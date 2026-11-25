@@ -918,9 +918,9 @@ class ProtocolVideoStep:
                         VideoFramesDroppedError(
                             result.losses().failed_writes,
                             result.frames_selected,
-                            unstamped=result.frames_unstamped,
-                            skipped=result.frames_skipped,
-                            lost_at_camera=result.frames_lost_at_camera,
+                            frames_unstamped=result.frames_unstamped,
+                            frames_skipped=result.frames_skipped,
+                            frames_lost_at_camera=result.frames_lost_at_camera,
                             lost_in=FramesLostIn.VIDEO_STEP,
                         ),
                         solicited=False,

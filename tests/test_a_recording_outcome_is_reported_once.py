@@ -101,9 +101,9 @@ def _record_reports(monkeypatch, module):
             VideoFramesDroppedError(
                 _FULL_DISK_TWICE,
                 9,
-                unstamped=0,
-                skipped=0,
-                lost_at_camera=0,
+                frames_unstamped=0,
+                frames_skipped=0,
+                frames_lost_at_camera=0,
                 lost_in=FramesLostIn.MANUAL_RECORDING,
             ),
             'Video Frames Dropped',
@@ -114,9 +114,9 @@ def _record_reports(monkeypatch, module):
             VideoFramesDroppedError(
                 (('frame 3', 'No space left on device'), ('frame 7', 'Permission denied')),
                 9,
-                unstamped=0,
-                skipped=0,
-                lost_at_camera=0,
+                frames_unstamped=0,
+                frames_skipped=0,
+                frames_lost_at_camera=0,
                 lost_in=FramesLostIn.VIDEO_STEP,
             ),
             'Video Frames Dropped',
@@ -128,9 +128,9 @@ def _record_reports(monkeypatch, module):
             VideoFramesDroppedError(
                 _FULL_DISK_TWICE,
                 9,
-                unstamped=3,
-                skipped=0,
-                lost_at_camera=0,
+                frames_unstamped=3,
+                frames_skipped=0,
+                frames_lost_at_camera=0,
                 lost_in=FramesLostIn.MANUAL_RECORDING,
             ),
             'Video Frames Dropped',
@@ -140,7 +140,12 @@ def _record_reports(monkeypatch, module):
         ),
         (
             VideoFramesDroppedError(
-                (), 9, unstamped=3, skipped=0, lost_at_camera=0, lost_in=FramesLostIn.VIDEO_STEP
+                (),
+                9,
+                frames_unstamped=3,
+                frames_skipped=0,
+                frames_lost_at_camera=0,
+                lost_in=FramesLostIn.VIDEO_STEP,
             ),
             'Video Frames Dropped',
             '3 frame(s) in a video step came from the camera without their timestamps '
@@ -150,9 +155,9 @@ def _record_reports(monkeypatch, module):
             VideoFramesDroppedError(
                 (),
                 9,
-                unstamped=0,
-                skipped=4,
-                lost_at_camera=None,
+                frames_unstamped=0,
+                frames_skipped=4,
+                frames_lost_at_camera=None,
                 lost_in=FramesLostIn.MANUAL_RECORDING,
             ),
             'Video Frames Dropped',
@@ -162,7 +167,12 @@ def _record_reports(monkeypatch, module):
         ),
         (
             VideoFramesDroppedError(
-                (), 9, unstamped=0, skipped=0, lost_at_camera=5, lost_in=FramesLostIn.VIDEO_STEP
+                (),
+                9,
+                frames_unstamped=0,
+                frames_skipped=0,
+                frames_lost_at_camera=5,
+                lost_in=FramesLostIn.VIDEO_STEP,
             ),
             'Video Frames Dropped',
             '5 frame(s) the camera sent during a video step never reached the '
@@ -170,7 +180,12 @@ def _record_reports(monkeypatch, module):
         ),
         (
             VideoFramesDroppedError(
-                (), 9, unstamped=0, skipped=4, lost_at_camera=5, lost_in=FramesLostIn.RUN
+                (),
+                9,
+                frames_unstamped=0,
+                frames_skipped=4,
+                frames_lost_at_camera=5,
+                lost_in=FramesLostIn.RUN,
             ),
             'Video Frames Dropped',
             "4 frame(s) in the run's video steps were skipped because this PC could not "
@@ -393,7 +408,7 @@ def test_dropped_frames_are_reported_once_unsolicited(tmp_path, monkeypatch, pos
 
     ((fault, kw),) = reported
     assert isinstance(fault, VideoFramesDroppedError)
-    assert (fault.dropped, fault.lost_in) == (1, FramesLostIn.MANUAL_RECORDING)
+    assert (fault.write_failures, fault.lost_in) == (1, FramesLostIn.MANUAL_RECORDING)
     # Told once per recording, so the repeat window does not hold it back.
     assert kw == {'solicited': False, 'category': 'Recording', 'once_per_run': True}
 
@@ -417,8 +432,11 @@ def test_frames_a_full_disk_refused_are_told_with_its_words_and_counted_as_faile
 
     ((fault, kw),) = reported
     assert isinstance(fault, VideoFramesDroppedError)
-    assert fault.dropped == failing.packets_refused == 2
-    assert f'{fault.dropped} of {fault.selected} frame(s) could not be written' in str(fault)
+    assert fault.write_failures == failing.packets_refused == 2
+    assert (
+        f'{fault.write_failures} of {fault.frames_selected} frame(s) could not be written'
+        in str(fault)
+    )
     assert 'Not written: No space left on device (2: frame ' in str(fault)
     assert 'log' not in str(fault)
     (manifest_path,) = tmp_path.rglob('*_manifest.json')
@@ -459,7 +477,7 @@ def test_frames_skipped_for_memory_are_reported_once_in_their_own_words(
 
     ((fault, kw),) = reported
     assert isinstance(fault, VideoFramesDroppedError)
-    assert (fault.skipped, fault.dropped, fault.selected) == (3, 0, 5)
+    assert (fault.frames_skipped, fault.write_failures, fault.frames_selected) == (3, 0, 5)
     assert str(fault).startswith(
         '3 frame(s) were skipped because this PC could not save frames as fast as the '
         'camera sent them'
@@ -482,7 +500,7 @@ def test_frames_the_camera_lost_are_reported_once_and_never_told_as_kept(
 
     ((fault, kw),) = reported
     assert isinstance(fault, VideoFramesDroppedError), 'a recording with gaps was told as kept'
-    assert fault.lost_at_camera == 7
+    assert fault.frames_lost_at_camera == 7
     assert '7 frame(s) the camera sent never reached the recording' in str(fault)
     # Told once per recording, so the repeat window does not hold it back.
     assert kw == {'solicited': False, 'category': 'Recording', 'once_per_run': True}
@@ -509,11 +527,11 @@ def test_a_video_steps_dropped_frames_are_reported_under_protocol(sim_scope, tmp
     ((fault, kw),) = reported
     assert isinstance(fault, VideoFramesDroppedError)
     assert fault.lost_in is FramesLostIn.VIDEO_STEP
-    assert f'Not written: disk said no ({fault.dropped}: frame 0, ' in str(fault)
+    assert f'Not written: disk said no ({fault.write_failures}: frame 0, ' in str(fault)
     # The run's losses name each frame with its video, so a run of several
     # videos names each lost frame once.
     lost = step.frame_losses.failed_writes
-    assert len(lost) == fault.dropped
+    assert len(lost) == fault.write_failures
     assert all(
         re.fullmatch(r'frame \d+ of \S+', frame) and cause == 'disk said no'
         for frame, cause in lost
@@ -659,7 +677,7 @@ def test_a_video_step_sent_only_unstamped_frames_says_so(sim_scope, tmp_path, mo
 
     ((fault, kw),) = reported
     assert isinstance(fault, RecordingFramesUnstampedError) and fault.protocol_step is True
-    assert fault.unstamped > 0
+    assert fault.frames_unstamped > 0
     assert kw == {'solicited': False, 'category': 'Protocol', 'log_only': True}
 
 
@@ -669,19 +687,26 @@ def test_a_dropped_frames_fault_carries_its_counts_on_the_wire():
     fault = VideoFramesDroppedError(
         (('frame 3', 'No space left on device'),),
         9,
-        unstamped=2,
-        skipped=3,
-        lost_at_camera=None,
+        frames_unstamped=2,
+        frames_skipped=3,
+        frames_lost_at_camera=None,
         lost_in=FramesLostIn.MANUAL_RECORDING,
     )
     body = problems.answered_by_member(fault, 'req').body
     assert body['type'].endswith('video_frames_dropped')
     assert {
-        k: body[k] for k in ('dropped', 'selected', 'unstamped', 'skipped', 'lost_at_camera')
+        k: body[k]
+        for k in (
+            'write_failures',
+            'frames_selected',
+            'frames_unstamped',
+            'frames_skipped',
+            'frames_lost_at_camera',
+        )
     } == {
-        'dropped': 1,
-        'selected': 9,
-        'unstamped': 2,
-        'skipped': 3,
-        'lost_at_camera': None,
+        'write_failures': 1,
+        'frames_selected': 9,
+        'frames_unstamped': 2,
+        'frames_skipped': 3,
+        'frames_lost_at_camera': None,
     }
