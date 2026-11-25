@@ -127,7 +127,10 @@ motorized XY stage and a known objective, it shows that point's position on
 the plate too, as Plate (x, y) mm.
 
 While LumaViewPro is busy, the line also says what it's doing and how far
-it has got: a recording and how long it has run, a protocol's video step
-against its length, a run's images still being written, or a build such as
-"Building a video" with the folder it works in. When you close
-LumaViewPro, it waits for the work shown here to finish.
+it has got: a still being captured, a recording and how long it has run, a
+protocol's video step against its length, a run's images still being
+written, or a build such as "Building a video" with the folder it works
+in. When you close LumaViewPro, it waits for that work to finish. After a
+capture, the line also counts down while the still or composite is held on
+screen, as "Showing the captured still (1.4s)"; a close doesn't wait for
+that.
