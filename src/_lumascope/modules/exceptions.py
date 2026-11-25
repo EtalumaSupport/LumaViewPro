@@ -4938,9 +4938,12 @@ class ArgumentRefusedError(Refusal, ValueError):
             - ``'objective_in_several_slots'`` -- an objective to turn
               the turret to that two or more slots hold (``offered``: the
               slots), so no one slot is meant.
-            - ``'objective_not_on_turret'`` -- an objective to turn the
-              turret to that no slot holds (``offered``: the objectives
-              the slots hold, in slot order).
+            - ``'turret_objectives_unassigned'`` -- an objective to turn
+              the turret to that no slot holds (``offered``: the objectives
+              the slots hold, in slot order). The same fact a run is
+              refused for (``ProtocolRunRefusedError``), and answered the
+              same way: assign the objective to its slot and ask again. The
+              scope's state, not the request, so REST answers it 409.
             - ``'slot_required'`` -- an objective confirmed on
               a turret scope with no slot named; the confirmation records
               the glass in a slot.
@@ -5082,8 +5085,8 @@ class ArgumentRefusedError(Refusal, ValueError):
             'Objective in Several Slots',
             '{value!r} is in turret slots {offered}; turn the turret to the slot to use.',
         ),
-        'objective_not_on_turret': (
-            'Objective Not on the Turret',
+        'turret_objectives_unassigned': (
+            ProtocolRunRefusedError.titles['turret_objectives_unassigned'],
             '{value!r} is in no turret slot; the turret holds {offered}. Assign it to the '
             'slot it is installed in.',
         ),
@@ -5102,7 +5105,13 @@ class ArgumentRefusedError(Refusal, ValueError):
         ),
     }
     titles: ClassVar[dict[str, str]] = {reason: title for reason, (title, _) in _WORDS.items()}
-    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_WORDS, RefusalCause.REQUEST)
+    # Every reason is the request's but one: an objective no slot holds is
+    # the turret's assignment, which the scope's state holds and a retry
+    # after assigning it meets, as a run's start is refused for it.
+    causes: ClassVar[dict[str, RefusalCause | None]] = {
+        **dict.fromkeys(_WORDS, RefusalCause.REQUEST),
+        'turret_objectives_unassigned': RefusalCause.STATE,
+    }
     same_fact_as = (
         SettingRefusedError,
         ProtocolRunRefusedError,

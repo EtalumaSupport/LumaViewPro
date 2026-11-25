@@ -2827,7 +2827,7 @@ objective already active is a no-op.
 **Raises**
 
 - `CatalogNameRefusedError`: `'objective_not_in_catalog'`, `objective_id` is not exactly a catalog key. The refusal lands before any write or move.
-- `ArgumentRefusedError`: On a turret scope, `'objective_in_several_slots'`, two or more slots hold `objective_id` (`offered`: the slots), or `'objective_not_on_turret'`, none does (`offered`: what the slots hold). Nothing is moved.
+- `ArgumentRefusedError`: On a turret scope, `'objective_in_several_slots'`, two or more slots hold `objective_id` (`offered`: the slots), or `'turret_objectives_unassigned'`, none does (`offered`: what the slots hold; assign it and ask again). Nothing is moved.
 - `HardwareCommandRefusedError`: A run, a diagnostic or a recording holds the scope (`'exclusive_activity_running'`), nothing written or moved; or the turret move's own refusal, `'not_connected'` or `'axis_absent'`, nothing moved.
 - `AxisStateUnknownError`: The turret has not been homed.
 - `MoveFaultError`: The Z park, the turret move or the Z restore did not arrive (see `MotionAPI.start_move_z`); the slot is unknown afterwards.
@@ -2835,12 +2835,12 @@ objective already active is a no-op.
 
 **Refusals**
 
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `turret_objectives_unassigned`, `objective_in_several_slots`
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `axis_absent`, `activity_ended`, `not_connected`, `scope_disconnected`
 - [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
 - [`MoveStoppedError`](#MoveStoppedError): `stopped`, `lid_open_mid_move`, `superseded`
 - [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - [`CatalogNameRefusedError`](#CatalogNameRefusedError): `objective_not_in_catalog`
-- [`ArgumentRefusedError`](#ArgumentRefusedError): `objective_in_several_slots`, `objective_not_on_turret`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
@@ -2876,13 +2876,13 @@ The pick's `Operation`: its `result()` is whether the active objective changed, 
 **Raises**
 
 - `CatalogNameRefusedError`: `'objective_not_in_catalog'`, as `select_objective`.
-- `ArgumentRefusedError`: `'objective_in_several_slots'` or `'objective_not_on_turret'`, as `select_objective`. Nothing is moved.
+- `ArgumentRefusedError`: `'objective_in_several_slots'` or `'turret_objectives_unassigned'`, as `select_objective`. Nothing is moved.
 - `HardwareCommandRefusedError`: A run, a diagnostic, a home or a recording holds the scope (`'exclusive_activity_running'`), nothing written or moved; or `'not_connected'` or `'axis_absent'`, as `MotionAPI.start_move_turret`.
 
 **Refusals by REST status**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`CatalogNameRefusedError`](#CatalogNameRefusedError): `objective_not_in_catalog`; [`ArgumentRefusedError`](#ArgumentRefusedError): `objective_in_several_slots`, `objective_not_on_turret`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`
+- 409: [`ArgumentRefusedError`](#ArgumentRefusedError): `turret_objectives_unassigned`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`CatalogNameRefusedError`](#CatalogNameRefusedError): `objective_not_in_catalog`; [`ArgumentRefusedError`](#ArgumentRefusedError): `objective_in_several_slots`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="ScopeSession.selected_model"></a>
@@ -13970,7 +13970,7 @@ replaces were, so a caller catching a bad argument keeps working.
   - `'argument_not_on_board'` -- an argument of a simulated fault the board cannot take; `board` names the board, `takes` what it takes for that argument.
   - `'slot_not_holding_objective'` -- a turret slot given for steps naming an objective the slot does not hold now (`offered`: the slots that hold it).
   - `'objective_in_several_slots'` -- an objective to turn the turret to that two or more slots hold (`offered`: the slots), so no one slot is meant.
-  - `'objective_not_on_turret'` -- an objective to turn the turret to that no slot holds (`offered`: the objectives the slots hold, in slot order).
+  - `'turret_objectives_unassigned'` -- an objective to turn the turret to that no slot holds (`offered`: the objectives the slots hold, in slot order). The same fact a run is refused for (`ProtocolRunRefusedError`), and answered the same way: assign the objective to its slot and ask again. The scope's state, not the request, so REST answers it 409.
   - `'slot_required'` -- an objective confirmed on a turret scope with no slot named; the confirmation records the glass in a slot.
   - `'gain_range_inverted'` -- auto-gain settings whose `min_gain_db` is above their `max_gain_db`; `value` holds the two.
 - `value`: What was given, as given.
@@ -14012,12 +14012,12 @@ words; the client already holds the value it sent.
 | `not_offered` | request | 422 |
 | `not_read` | request | 422 |
 | `objective_in_several_slots` | request | 422 |
-| `objective_not_on_turret` | request | 422 |
 | `out_of_range` | request | 422 |
 | `plate_frame_axis` | request | 422 |
 | `protocol_source_ambiguous` | request | 422 |
 | `slot_not_holding_objective` | request | 422 |
 | `slot_required` | request | 422 |
+| `turret_objectives_unassigned` | state | 409 |
 | `well_unknown` | request | 422 |
 | `wrong_kind` | request | 422 |
 

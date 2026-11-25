@@ -6743,8 +6743,9 @@ class ScopeSession:
             ArgumentRefusedError: On a turret scope,
                 ``'objective_in_several_slots'``, two or more slots hold
                 ``objective_id`` (``offered``: the slots), or
-                ``'objective_not_on_turret'``, none does (``offered``: what
-                the slots hold). Nothing is moved.
+                ``'turret_objectives_unassigned'``, none does (``offered``:
+                what the slots hold; assign it and ask again). Nothing is
+                moved.
             HardwareCommandRefusedError: A run, a diagnostic or a recording
                 holds the scope (``'exclusive_activity_running'``), nothing
                 written or moved; or the turret move's own refusal,
@@ -6791,7 +6792,7 @@ class ScopeSession:
             CatalogNameRefusedError: ``'objective_not_in_catalog'``,
                 as ``select_objective``.
             ArgumentRefusedError: ``'objective_in_several_slots'`` or
-                ``'objective_not_on_turret'``, as ``select_objective``.
+                ``'turret_objectives_unassigned'``, as ``select_objective``.
                 Nothing is moved.
             HardwareCommandRefusedError: A run, a diagnostic, a home or a
                 recording holds the scope (``'exclusive_activity_running'``),
@@ -6839,7 +6840,7 @@ class ScopeSession:
             )
         if not holding:
             raise ArgumentRefusedError(
-                'objective_not_on_turret',
+                'turret_objectives_unassigned',
                 argument='objective_id',
                 value=objective_id,
                 offered=tuple(held for _, held in sorted(slots.items()) if held is not None),

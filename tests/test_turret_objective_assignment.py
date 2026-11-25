@@ -132,9 +132,14 @@ class TestPickingAnObjectiveTurnsTheTurret:
         with pytest.raises(ArgumentRefusedError) as excinfo:
             turret_session.select_objective('40x Phase')
 
-        assert excinfo.value.reason == 'objective_not_on_turret'
+        assert excinfo.value.reason == 'turret_objectives_unassigned'
         assert excinfo.value.offered == ('10x Oly', '20x Oly', '4x Oly')
         assert turret_session.scope.motion.turret_status.slot == 1
+        # The fact a run is refused for, answered alike: assign it, ask again.
+        from _lumascope.rest.problems import answered_by_member
+
+        assert excinfo.value.title == 'Turret Configuration Required'
+        assert answered_by_member(excinfo.value, 'id').status == 409
 
     def test_an_empty_turret_says_it_holds_nothing(self, turret_session):
         """Its words name what the slots hold, so a turret holding nothing says so."""
@@ -159,7 +164,7 @@ class TestPickingAnObjectiveTurnsTheTurret:
         with pytest.raises(ArgumentRefusedError) as excinfo:
             turret_session.start_select_objective('40x Phase')
 
-        assert excinfo.value.reason == 'objective_not_on_turret'
+        assert excinfo.value.reason == 'turret_objectives_unassigned'
         assert turret_session.scope.motion.turret_status.slot == 1
 
     def test_a_started_pick_of_the_active_objective_is_done_unchanged(self, turret_session):
