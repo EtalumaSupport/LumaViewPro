@@ -147,19 +147,20 @@ class RunEnded:
     protocol: Protocol
 
 
-@api_fields('run_dir', 'files')
+@api_fields('run_dir', 'outcome')
 @dataclasses.dataclass(frozen=True)
 class FilesWritten:
     """A ``files_written`` event, sent once the run's last image write has landed.
 
     Attributes:
         run_dir: The run's folder; None for a run that saved nothing.
-        files: ``WRITTEN``, or ``INCOMPLETE`` when some of the run's images
-            are not on disk.
+        outcome: ``WRITTEN``, or ``INCOMPLETE`` when some of the run's images
+            are not on disk: the run's files' outcome, as ``RunFiles.outcome``
+            names it.
     """
 
     run_dir: pathlib.Path | None
-    files: FilesOutcome
+    outcome: FilesOutcome
 
 
 @api_fields(

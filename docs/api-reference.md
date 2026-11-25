@@ -9766,7 +9766,7 @@ A `files_written` event, sent once the run's last image write has landed.
 
 **Fields**
 
-- <a id="FilesWritten.files"></a>`files`: `FilesOutcome` -- `WRITTEN`, or `INCOMPLETE` when some of the run's images are not on disk.
+- <a id="FilesWritten.outcome"></a>`outcome`: `FilesOutcome` -- `WRITTEN`, or `INCOMPLETE` when some of the run's images are not on disk: the run's files' outcome, as `RunFiles.outcome` names it.
 - <a id="FilesWritten.run_dir"></a>`run_dir`: `pathlib.Path | None` -- The run's folder; None for a run that saved nothing.
 
 <a id="FilterBounds"></a>
@@ -13204,7 +13204,7 @@ What a live-folder listing's entry is.
 <a id="FilesOutcome"></a>
 ### `lumascope.FilesOutcome`
 
-Held in: [`FilesWritten.files`](#FilesWritten.files), [`RunEvents.files_written`](#RunEvents.files_written), [`RunFiles.outcome`](#RunFiles.outcome).
+Held in: [`FilesWritten.outcome`](#FilesWritten.outcome), [`RunEvents.files_written`](#RunEvents.files_written), [`RunFiles.outcome`](#RunFiles.outcome).
 
 What became of a run's images once its writes are done.
 

@@ -86,18 +86,18 @@ def send_run_ended(
 
 
 def send_files_written(
-    events: RunEvents, run: EngineRun, *, run_dir: pathlib.Path | None, files: FilesOutcome
+    events: RunEvents, run: EngineRun, *, run_dir: pathlib.Path | None, outcome: FilesOutcome
 ) -> None:
     """Send the run's one ``files_written``; one of *run*'s files events once it has run.
 
-    ``files`` is the run's write outcome: ``WRITTEN``, or ``INCOMPLETE``
+    ``outcome`` is the run's write outcome: ``WRITTEN``, or ``INCOMPLETE``
     when some of its images are not on disk.
     """
     deliver(
         events,
         'files_written',
         run_dir,
-        files,
+        outcome,
         delivery=run.files_told(),
     )
 

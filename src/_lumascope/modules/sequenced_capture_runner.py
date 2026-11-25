@@ -3107,7 +3107,9 @@ class SequencedCaptureRunner:
             # its levels, as it does when the run itself goes idle.
             if on_run_state is not None:
                 actions.append(on_run_state)
-            actions.append(lambda: send_files_written(events, run, run_dir=run_dir, files=outcome))
+            actions.append(
+                lambda: send_files_written(events, run, run_dir=run_dir, outcome=outcome)
+            )
             for action in actions:
                 try:
                     action()

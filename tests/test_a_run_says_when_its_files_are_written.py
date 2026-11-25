@@ -86,13 +86,13 @@ def test_a_files_outcome_is_one_of_the_set_wherever_it_is_built(tmp_path):
     assert RunFiles('incomplete', 0, 1, 'write_batch_save_failed').outcome == (
         FilesOutcome.INCOMPLETE
     )
-    assert type(FilesWritten(tmp_path, 'written').files) is FilesOutcome
+    assert type(FilesWritten(tmp_path, 'written').outcome) is FilesOutcome
     with pytest.raises(ArgumentRefusedError) as refused:
         RunFiles('partial', 0, 1, 'write_batch_save_failed')
     assert (refused.value.reason, refused.value.argument) == ('not_offered', 'RunFiles.outcome')
     with pytest.raises(ArgumentRefusedError) as refused:
         FilesWritten(tmp_path, 'partial')
-    assert (refused.value.reason, refused.value.argument) == ('not_offered', 'FilesWritten.files')
+    assert (refused.value.reason, refused.value.argument) == ('not_offered', 'FilesWritten.outcome')
 
 
 def test_an_image_that_failed_to_save_is_counted(tmp_path, monkeypatch):
