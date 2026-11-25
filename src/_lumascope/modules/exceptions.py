@@ -3706,6 +3706,9 @@ class RunFailedError(Fault, CaptureError):
             below what the run needs, so the run stopped to save what it
             has. ``'file_writer_stalled'`` -- saving stopped making progress,
             so the run stopped before it lost more captures.
+            ``'write_failed'`` -- the save location refused two frames in a
+            row of a video step, so the run stopped, since its later steps
+            write there too.
             ``'video_writer_died'`` -- the writer of a video step failed.
             ``'led_channel_unavailable'`` -- steps of the run take an LED
             channel this scope does not have, and their captures kept
@@ -3750,9 +3753,10 @@ class RecordingStoppedError(Fault, CaptureError):
     """A manual recording was stopped before anyone asked it to stop.
 
     Built by the recording's own watch when the camera stops delivering
-    frames or the free disk falls below what it needs, and reported where it
-    is detected: no caller is waiting on a recording that is running. The
-    frames written so far are on disk.
+    frames, the free disk falls below what it needs or the save location
+    refuses its frames, and reported where it is detected: no caller is
+    waiting on a recording that is running. The frames written so far are on
+    disk.
 
     Attributes:
         reason: ``'camera_disconnected'`` -- the camera is no longer active.
@@ -3760,12 +3764,16 @@ class RecordingStoppedError(Fault, CaptureError):
             longer than the recording's exposure allows.
             ``'disk_space_critical'``, as ``RunFailedError`` explains it: a
             recording stops as a run ends.
+            ``'write_failed'``, as ``RunFailedError`` explains it: two frames
+            in a row could not be saved, and the words say why in the
+            system's.
     """
 
     titles: ClassVar[dict[str, str]] = {
         'camera_disconnected': 'Recording Stopped',
         'camera_stalled': 'Recording Stopped',
         'disk_space_critical': ENDING_TITLES['disk_space_critical'],
+        'write_failed': ENDING_TITLES['write_failed'],
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles)
     same_fact_as = (RunFailedError,)
@@ -3780,11 +3788,27 @@ class RecordingStoppedError(Fault, CaptureError):
             'stopped early. Frames captured so far are saved; free up space before '
             'recording again.'
         ),
+        # Filled with the refusal's own words, in the system's.
+        'write_failed': (
+            'A frame could not be saved ({cause}), so the recording was stopped. '
+            'What was saved before it is kept.'
+        ),
     }
     _WORDS['camera_stalled'] = _WORDS['camera_disconnected']
 
-    def __init__(self, reason: str):
-        super().__init__(self._WORDS[reason], reason)
+    def __init__(self, reason: str, *, refusal: 'OSError | FFmpegError | None' = None):
+        """Build the stop for *reason*; *refusal* is the write's, for ``'write_failed'`` alone.
+
+        Raises:
+            TypeError: *refusal* given for another reason, or missing for
+                ``'write_failed'``, whose words are the refusal's.
+        """
+        if (reason == 'write_failed') != (refusal is not None):
+            raise TypeError(f'a refusal is the cause of write_failed alone, not of {reason!r}')
+        words = self._WORDS[reason]
+        if refusal is not None:
+            words = words.format(cause=system_words(refusal))
+        super().__init__(words, reason)
 
 
 @api_fields('run_ending', 'merge_failure')

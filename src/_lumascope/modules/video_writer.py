@@ -18,7 +18,6 @@ import _lumascope.modules.path_utils as path_utils
 import _lumascope.modules.wall_time as wall_time
 from _lumascope.modules.channel_record import GRAY, Color
 from _lumascope.modules.exceptions import VideoNotFinishedError
-from _lumascope.modules.notification_center import cause_in_words
 from _lumascope.lvp_logger import logger
 
 
@@ -261,8 +260,8 @@ class VideoWriter:
         timestamp: datetime.datetime | float | None = None,
         significant_bits: int | None = None,
         white_bits: int | None = None,
-    ) -> str | None:
-        """Add a frame to the video; return why it was dropped, or None.
+    ) -> None:
+        """Add a frame to the video.
 
         Accepts mono 2D (H, W) input when `color` was set at __init__; the
         writer applies the channel false-color before the encoder boundary.
@@ -286,13 +285,15 @@ class VideoWriter:
         timestamp raises immediately rather than silently degrading the
         file's timing.
 
-        Returns:
-            None when the frame was encoded or the writer is closed; else
-            why the encoder dropped it, as a person reads it, for a caller
-            that says which frames a video lacks.
+        A closed writer takes no frame and says nothing.
 
         Raises:
             ValueError: VFR mode and ``timestamp`` is None.
+            OSError: The file refused the frame's packets (a full disk, a
+                drive that went away).
+            av.error.FFmpegError: The encoder refused the frame. The caller
+                decides what the loss costs: one frame of a recording, or a
+                whole build.
         """
         if self._vfr and timestamp is None:
             raise ValueError(
@@ -301,7 +302,7 @@ class VideoWriter:
             )
         with self._frame_lock:
             if self._finished:
-                return None
+                return
 
             # Init the encoder on the first frame when it was not opened
             # eagerly at __init__ -- no dimensions given, or color was None
@@ -346,28 +347,20 @@ class VideoWriter:
                 if text is not None:
                     image = image_utils.add_timestamp(image=image, timestamp_str=text)
 
-            # Per-frame failure policy: an encode error costs exactly that
-            # frame -- counted as dropped and surfaced by the caller --
-            # never the whole recording.
-            try:
-                # PyAV expects RGB for color, gray for mono.
-                if image.ndim == 3:
-                    frame = av.VideoFrame.from_ndarray(image, format='rgb24')
-                else:
-                    frame = av.VideoFrame.from_ndarray(image, format='gray')
-                if self._vfr:
-                    ts_s = self._timestamp_seconds(timestamp)
-                    if self._vfr_origin_s is None:
-                        self._vfr_origin_s = ts_s
-                    frame.pts = round((ts_s - self._vfr_origin_s) / VFR_TIME_BASE)
-                    frame.time_base = VFR_TIME_BASE
-                for packet in self._stream.encode(frame):
-                    self._container.mux(packet)
-                self._frame_count += 1
-            except Exception as e:
-                logger.error(f'VideoWriter: PyAV encode error: {e}')
-                return cause_in_words(e)
-            return None
+            # PyAV expects RGB for color, gray for mono.
+            if image.ndim == 3:
+                frame = av.VideoFrame.from_ndarray(image, format='rgb24')
+            else:
+                frame = av.VideoFrame.from_ndarray(image, format='gray')
+            if self._vfr:
+                ts_s = self._timestamp_seconds(timestamp)
+                if self._vfr_origin_s is None:
+                    self._vfr_origin_s = ts_s
+                frame.pts = round((ts_s - self._vfr_origin_s) / VFR_TIME_BASE)
+                frame.time_base = VFR_TIME_BASE
+            for packet in self._stream.encode(frame):
+                self._container.mux(packet)
+            self._frame_count += 1
 
     def close(self) -> None:
         """Flush encoder and close the container. Idempotent.

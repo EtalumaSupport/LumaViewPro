@@ -85,12 +85,13 @@ def video_step_on(
     return ProtocolVideoStep(**kwargs)
 
 
-def record_first_frame(scope, save_folder, monkeypatch, *, write_fails=False, **overrides):
+def record_first_frame(scope, save_folder, monkeypatch, *, refused_writes=0, **overrides):
     """Run a frames-leg step on *scope* to its finish; its first frame written ends it.
 
     The frame's write records what arrived with it and stands in for the
-    disk, failing with ``OSError`` when *write_fails*. Returns the step and
-    the arrivals written, in order.
+    disk, the first *refused_writes* of them failing with ``OSError``; the
+    duration passes at the last of those, or at the first write when none
+    fails. Returns the step and the arrivals written to, in order.
     """
     import _lumascope.modules.protocol_recording as protocol_recording
 
@@ -99,9 +100,10 @@ def record_first_frame(scope, save_folder, monkeypatch, *, write_fails=False, **
     written = []
 
     def _write_frame(_scope, _image, _file_loc, arrived, **_kwargs):
-        elapsed.pass_duration()
         written.append(arrived)
-        if write_fails:
+        if len(written) == max(1, refused_writes):
+            elapsed.pass_duration()
+        if len(written) <= refused_writes:
             raise OSError('disk said no')
 
     monkeypatch.setattr(protocol_recording, 'write_frame', _write_frame)
@@ -125,10 +127,8 @@ def record_first_mp4_frame(scope, save_folder, monkeypatch, **overrides):
 
     class _EndsAtItsFirstFrame(real_writer):
         def add_frame(self, *args, **kwargs):
-            # The writer's answer passes through: a frame it dropped is told.
-            dropped = super().add_frame(*args, **kwargs)
+            super().add_frame(*args, **kwargs)
             elapsed.pass_duration()
-            return dropped
 
     monkeypatch.setattr(protocol_recording, 'VideoWriter', _EndsAtItsFirstFrame)
     step = video_step_on(

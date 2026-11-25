@@ -45,6 +45,7 @@ def _engine(tmp_path, writer=None):
     engine = VideoRecordingEngine(
         write_frame=writer if writer is not None else WriterStub(tmp_path),
         writers=1,
+        on_write_refused=lambda refusal: None,
         claim=ActivityClaim(),
         clock=clock,
         steady_clock=host_clock.steady_ns,

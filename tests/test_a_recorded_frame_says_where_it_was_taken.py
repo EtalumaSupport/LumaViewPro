@@ -439,6 +439,7 @@ def _engine(writer, clock):
     return VideoRecordingEngine(
         write_frame=writer,
         writers=1,
+        on_write_refused=lambda refusal: None,
         claim=ActivityClaim(),
         clock=clock,
         steady_clock=host_clock.steady_ns,

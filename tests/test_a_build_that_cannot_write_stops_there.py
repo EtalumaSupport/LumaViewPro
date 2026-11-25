@@ -223,3 +223,31 @@ def test_a_video_that_cannot_take_its_name_stops_the_build(tmp_path, monkeypatch
     told = str(stopped.value)
     assert refused[0] in told and '[Errno' not in told, told
     assert list(folder.rglob('*.mp4')) == [], 'the build went on past the stop'
+
+
+def test_a_frame_the_encoder_refuses_stops_the_build_as_its_video_not_finished(
+    tmp_path, monkeypatch
+):
+    # A frame the encoder refuses is the output's failure, not the frame's:
+    # an encoder error that is no OSError stops the build as the video not
+    # finished, never as a defect, and no partial file is left.
+    import av.error
+
+    from _lumascope.modules import video_writer
+
+    folder = _video_folder(tmp_path)
+
+    def add_frame(self, **_kwargs):
+        # a stand-in by design: an encoder that refuses a frame, which no
+        # folder of valid frames produces
+        raise av.error.ArgumentError(errno.EINVAL, 'Invalid argument')
+
+    monkeypatch.setattr(video_writer.VideoWriter, 'add_frame', add_frame)
+
+    with pytest.raises(PostProcessingFailedError) as stopped:
+        _video(folder)
+
+    told = str(stopped.value)
+    assert 'could not be finished' in told and 'Invalid argument' in told, told
+    assert 'A1_BF' in told, told
+    assert list(folder.rglob('*.mp4')) == [], 'the build went on past the stop'

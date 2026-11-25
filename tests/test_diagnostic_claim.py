@@ -119,6 +119,7 @@ class TestTheDiagnosticHoldsTheScope:
         engine = VideoRecordingEngine(
             write_frame=MagicMock(),
             writers=1,
+            on_write_refused=MagicMock(),
             claim=session._activity_claim,
             clock=lambda: 0.0,
             steady_clock=host_clock.steady_ns,

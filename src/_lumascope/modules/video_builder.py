@@ -6,6 +6,7 @@ import pathlib
 import typing
 
 import pandas as pd
+from av.error import FFmpegError
 
 from _lumascope.lib.real_numbers import is_finite_number
 import _lumascope.modules.image_utils as image_utils
@@ -366,8 +367,9 @@ class VideoBuilder(ProtocolPostProcessor):
 
         Returns whether the frame was handed to the writer, the time it was
         handed with, and why it is not in the video, or None when it is: a
-        frame unreadable, with no place in a ``vfr`` video, or dropped by the
-        encoder, which the caller says the video lacks.
+        frame unreadable or with no place in a ``vfr`` video, which the
+        caller says the video lacks. The writer's refusal of a frame it was
+        handed raises, from ``add_frame``: the output, not the frame, failed.
         """
         try:
             if enable_timestamp_overlay or vfr:
@@ -395,13 +397,13 @@ class VideoBuilder(ProtocolPostProcessor):
         # load_pixels). VideoWriter applies the channel false-color, the 8-bit
         # downconvert scaled by significant_bits against white_bits (one frame's
         # white, for a sum), and any cv2 BGR-swap internally.
-        dropped = writer.add_frame(
+        writer.add_frame(
             image=image,
             timestamp=frame_ts,
             significant_bits=significant_bits,
             white_bits=white_bits,
         )
-        return True, frame_ts, dropped
+        return True, frame_ts, None
 
     def _create_video(
         self,
@@ -453,26 +455,42 @@ class VideoBuilder(ProtocolPostProcessor):
         # Each frame not in the video, and why, for the build to say.
         dropped = []
         previous_ts = None
-        for _, row in df.iterrows():
-            image_path = path / row['Filepath']
-            handed, frame_ts, cause = self._add_source_frame(
-                video,
-                image_path,
-                enable_timestamp_overlay=enable_timestamp_overlay,
-                recorded_time=row['Timestamp'],
-                vfr=vfr,
-                previous_ts=previous_ts,
-            )
-            if cause is not None:
-                dropped.append((str(row['Filepath']), cause))
-            if not handed:
-                continue
-            previous_ts = frame_ts
+        try:
+            for _, row in df.iterrows():
+                image_path = path / row['Filepath']
+                handed, frame_ts, cause = self._add_source_frame(
+                    video,
+                    image_path,
+                    enable_timestamp_overlay=enable_timestamp_overlay,
+                    recorded_time=row['Timestamp'],
+                    vfr=vfr,
+                    previous_ts=previous_ts,
+                )
+                if cause is not None:
+                    dropped.append((str(row['Filepath']), cause))
+                if not handed:
+                    continue
+                previous_ts = frame_ts
 
-            if report is not None:
-                report((i / total_frames) * 100, None)
+                if report is not None:
+                    report((i / total_frames) * 100, None)
 
-            i += 1
+                i += 1
+        except BaseException as failed:
+            # The writer is released on every exit, and its unfinished file
+            # goes, as at a failed close below. A frame the file or the
+            # encoder refused is the output's failure, told as the video not
+            # finished, which the build loop answers as a write; a close
+            # that fails after it is the same failure's echo, so it is
+            # logged and the frame's failure stays the answer.
+            try:
+                video.close()
+            except VideoNotFinishedError as also:
+                logger.warning(f'[{self._name}] After the failed frame: {also}')
+            pathlib.Path(video.output_path).unlink(missing_ok=True)
+            if isinstance(failed, (OSError, FFmpegError)):
+                raise VideoNotFinishedError(video.output_path, failed) from failed
+            raise
 
         try:
             video.close()

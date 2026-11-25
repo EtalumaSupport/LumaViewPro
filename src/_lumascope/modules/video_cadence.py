@@ -201,6 +201,11 @@ class CadenceSelector:
     the start claims a slot and there is no capacity: a frame budget is
     a rate times a duration, so without a rate the recording's end is
     its duration, which the caller enforces in time.
+
+    At any rate a frame claims a slot only when its time is after the last
+    kept frame's: a video plays each frame at its time, so one at or before
+    the last (a host clock stepped back under a camera without a latch) has
+    no place in it, and the encoder refuses it.
     """
 
     def __init__(self, fps: float | None, max_frames: int | None, start_ts: float):
@@ -230,6 +235,7 @@ class CadenceSelector:
         self._next_slot_ts = start_ts + self._interval_s
         self._max_frames = max_frames
         self._reserved = 0
+        self._last_kept_ts: float | None = None
 
     @property
     def reserved_count(self) -> int:
@@ -260,15 +266,18 @@ class CadenceSelector:
         """
         if self.at_capacity:
             return False
+        if self._last_kept_ts is not None and now <= self._last_kept_ts:
+            return False
         return now >= self._next_slot_ts or math.isclose(
             now, self._next_slot_ts, rel_tol=0.0, abs_tol=self._interval_s * 1e-6
         )
 
-    def reserve(self) -> int:
-        """Commit the pending slot claim and return the reserved slot index.
+    def reserve(self, now: float) -> int:
+        """Commit the slot claim of the frame delivered at ``now``; its slot index.
 
         Advances the slot deadline by one interval (never re-anchored to
         the wall clock -- that is what makes catch-up-after-stall work).
+        ``now`` is the kept frame's time, which the next frame must follow.
 
         Raises:
             RuntimeError: If called at capacity; callers gate on
@@ -279,4 +288,5 @@ class CadenceSelector:
         slot_index = self._reserved
         self._reserved += 1
         self._next_slot_ts += self._interval_s
+        self._last_kept_ts = now
         return slot_index

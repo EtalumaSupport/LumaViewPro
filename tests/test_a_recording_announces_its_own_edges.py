@@ -48,7 +48,12 @@ def _engine_heard_by(tmp_path, claim_for, *, blocked=False):
     writer = WriterStub(tmp_path, blocked=blocked)
     clock = FakeClock()
     engine = VideoRecordingEngine(
-        write_frame=writer, writers=1, claim=claim, clock=clock, steady_clock=host_clock.steady_ns
+        write_frame=writer,
+        writers=1,
+        on_write_refused=lambda refusal: None,
+        claim=claim,
+        clock=clock,
+        steady_clock=host_clock.steady_ns,
     )
     return engine, writer, clock, heard
 

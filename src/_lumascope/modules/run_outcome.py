@@ -150,6 +150,7 @@ class RunEndReason(enum.StrEnum):
     INTERLOCK = 'interlock', 'Protocol Aborted -- Stage Interlock', EndingKind.FAILURE
     POSITION_LOST = 'position_lost', 'Protocol Aborted -- Position Lost', EndingKind.FAILURE
     DISK_SPACE_CRITICAL = 'disk_space_critical', 'Disk Space Critical', EndingKind.FAILURE
+    WRITE_FAILED = 'write_failed', 'Recording Stopped', EndingKind.FAILURE
     FILE_WRITER_STALLED = 'file_writer_stalled', 'File Writer Stalled', EndingKind.FAILURE
     VIDEO_WRITER_DIED = 'video_writer_died', 'Recording Failed', EndingKind.FAILURE
     LED_CHANNEL_UNAVAILABLE = 'led_channel_unavailable', 'Channel not available', EndingKind.FAILURE
@@ -263,12 +264,14 @@ def hardware_disconnected_at_start_ending(parts: tuple[Board, ...]) -> RunEnding
 
 
 # Endings whose own popup already told the person the run's files were not
-# all written: the disk floor, a stuck file writer, a video writer that
-# died. The images not saved and the record rows missing after one of them
-# are that same cause, so they are logged and not shown again.
+# all written: the disk floor, a save location that refused a video step's
+# frames, a stuck file writer, a video writer that died. The images not
+# saved and the record rows missing after one of them are that same cause,
+# so they are logged and not shown again.
 FILES_LOST_ENDINGS = frozenset(
     {
         RunEndReason.DISK_SPACE_CRITICAL,
+        RunEndReason.WRITE_FAILED,
         RunEndReason.FILE_WRITER_STALLED,
         RunEndReason.VIDEO_WRITER_DIED,
     }

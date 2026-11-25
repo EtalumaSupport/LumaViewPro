@@ -28,7 +28,11 @@ from _lumascope.modules.caller import Caller
 import _lumascope.modules.video_recording as video_recording_module
 from _lumascope.modules.exceptions import ProtocolRunRefusedError, RecordingRefusedError
 from _lumascope.modules.lumascope_api.frame_record import TimestampSource
-from _lumascope.modules.video_recording import RecordingConfig, VideoRecordingEngine
+from _lumascope.modules.video_recording import (
+    RecordingConfig,
+    RecordingEndReason,
+    VideoRecordingEngine,
+)
 from _lumascope.modules.video_recording import read_memory_headroom as _real_read_memory_headroom
 from tests.video_engine_harness import (
     FakeClock,
@@ -111,13 +115,14 @@ class SingleFileWriterStub:
         return self.output_path
 
 
-def make_engine(tmp_path, *, clock=None, writer=None, claim=None, writers=1):
+def make_engine(tmp_path, *, clock=None, writer=None, claim=None, writers=1, on_write_refused=None):
     clock = clock or FakeClock()
     writer = writer if writer is not None else WriterStub(tmp_path)
     claim = claim or ActivityClaim()
     engine = VideoRecordingEngine(
         write_frame=writer,
         writers=writers,
+        on_write_refused=on_write_refused or (lambda refusal: None),
         claim=claim,
         clock=clock,
         steady_clock=host_clock.steady_ns,
@@ -365,6 +370,46 @@ class TestLossIsNeverSilent:
         assert result.frames_written == 9
         assert result.write_failures == 1
         assert result.aborted is False
+        assert result.write_refused is None
+
+    def test_refusals_never_two_in_a_row_cost_their_frames_and_the_recording_goes_on(
+        self, tmp_path
+    ):
+        refused = []
+        writer = WriterStub(tmp_path, fail_frames={3, 5, 7})
+        engine, _, clock, _ = make_engine(tmp_path, writer=writer, on_write_refused=refused.append)
+        engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=1), None))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
+        engine.stop('stopped')
+        assert engine.wait_for_drain(timeout=5)
+        result = engine.result()
+        assert (result.frames_written, result.write_failures) == (7, 3)
+        assert result.write_refused is None
+        assert refused == []
+
+    def test_a_second_refusal_in_a_row_ends_the_recording_and_drops_its_backlog(self, tmp_path):
+        # A drive that went away refuses every frame after it. The writer is
+        # held until all ten frames wait, so the backlog behind the second
+        # refusal is there to drop; no stop is asked for, so the refusal is
+        # what closes selection, and the drain still ends and frees the claim.
+        refused = []
+        writer = WriterStub(tmp_path, fail_frames={3, 4}, blocked=True)
+        engine, _, clock, claim = make_engine(
+            tmp_path, writer=writer, on_write_refused=refused.append
+        )
+        engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=10), None))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
+        writer.unblock()
+        assert engine.wait_for_drain(timeout=5), 'the lanes never exited'
+        result = engine.result()
+        assert [n for n, _ts, _path in writer.written] == [0, 1, 2]
+        assert [n for n, _cause in result.failed_writes] == [3, 4]
+        assert result.end_reason is RecordingEndReason.WRITE_FAILED
+        assert isinstance(result.write_refused, OSError)
+        assert refused == [result.write_refused]
+        assert result.aborted is False
+        assert result.manifest_path is None
+        assert claim.owner is None
 
     def test_discard_pending_is_loud(self, tmp_path):
         writer = WriterStub(tmp_path, blocked=True)
@@ -404,6 +449,22 @@ class TestFatalityClassification:
         result = engine.result()
         assert result.aborted is True
         assert isinstance(result.writer_failure, SystemExit)
+
+    def test_a_defect_in_a_write_ends_the_recording_as_its_lanes_death(self, tmp_path):
+        # Only the save location's or the encoder's refusal costs a frame:
+        # anything else a write raises is our own fault and ends the take.
+        refused = []
+        writer = WriterStub(tmp_path, defect_on_frame=3)
+        engine, _, clock, _ = make_engine(tmp_path, writer=writer, on_write_refused=refused.append)
+        engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=1), None))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
+        engine.stop('stopped')
+        assert engine.wait_for_drain(timeout=5)
+        result = engine.result()
+        assert result.aborted is True
+        assert isinstance(result.writer_failure, TypeError)
+        assert result.write_failures == 0
+        assert refused == []
 
     def test_under_delivery_is_not_fatal(self, tmp_path):
         engine, _writer, clock, _ = make_engine(tmp_path)

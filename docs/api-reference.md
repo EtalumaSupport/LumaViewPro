@@ -13564,7 +13564,10 @@ its length. `FRAME_BUDGET_FILLED` -- it kept the frames it was asked
 for. `RUN_STOP` -- the run recording it was stopped.
 `CAMERA_DISCONNECTED`, `CAMERA_STALLED` -- the camera left, or
 stopped delivering frames. `DISK_SPACE_CRITICAL` -- the save drive
-reached its floor. `START_FAILED` -- its caller did not finish
+reached its floor. `WRITE_FAILED` -- the save location refused two
+frames in a row, and its backlog was dropped; no manifest is written
+for one, since the place it would go just refused the frames.
+`START_FAILED` -- its caller did not finish
 starting it; no manifest is written for one, since nothing was
 recorded. `DISCARDED` -- its frames were given up before they were
 written. `LANE_EXITED` -- a writer lane ended abnormally.
@@ -13577,6 +13580,7 @@ written. `LANE_EXITED` -- a writer lane ended abnormally.
 - `camera_disconnected`
 - `camera_stalled`
 - `disk_space_critical`
+- `write_failed`
 - `start_failed`
 - `discarded`
 - `lane_exited`
@@ -13645,6 +13649,7 @@ and nothing else.
 - `interlock`
 - `position_lost`
 - `disk_space_critical`
+- `write_failed`
 - `file_writer_stalled`
 - `video_writer_died`
 - `led_channel_unavailable`
@@ -16988,19 +16993,21 @@ A fault; bases `Fault`, `CaptureError`.
 A manual recording was stopped before anyone asked it to stop.
 
 Built by the recording's own watch when the camera stops delivering
-frames or the free disk falls below what it needs, and reported where it
-is detected: no caller is waiting on a recording that is running. The
-frames written so far are on disk.
+frames, the free disk falls below what it needs or the save location
+refuses its frames, and reported where it is detected: no caller is
+waiting on a recording that is running. The frames written so far are on
+disk.
 
 **Attributes**
 
-- `reason`: `'camera_disconnected'` -- the camera is no longer active. `'camera_stalled'` -- the camera stopped delivering frames for longer than the recording's exposure allows. `'disk_space_critical'`, as `RunFailedError` explains it: a recording stops as a run ends.
+- `reason`: `'camera_disconnected'` -- the camera is no longer active. `'camera_stalled'` -- the camera stopped delivering frames for longer than the recording's exposure allows. `'disk_space_critical'`, as `RunFailedError` explains it: a recording stops as a run ends. `'write_failed'`, as `RunFailedError` explains it: two frames in a row could not be saved, and the words say why in the system's.
 
 | Reason | Cause | REST status |
 |---|---|---|
 | `camera_disconnected` | -- | 500 |
 | `camera_stalled` | -- | 500 |
 | `disk_space_critical` | -- | 500 |
+| `write_failed` | -- | 500 |
 
 <a id="Refusal"></a>
 ### `lumascope.Refusal`
@@ -17133,7 +17140,7 @@ read the same.
 **Attributes**
 
 - `title`: The ending's heading, its reason's (`ENDING_TITLES`).
-- `reason`: The ending's machine-readable cause, a run ending's reason. `'captures_failed'` -- the run reached its end without every capture it was asked for. `'start_failed'` -- the run's setup raised a fault of no other reason after the run was committed. `'dispatch_refused'` -- the run loop was refused when it was dispatched, so it never ran. `'capture_location_failed'` -- the run's folder could not be made at the capture location. `'run_dir_init_failed'` -- the run's folder was made and could not be initialized. `'camera_lane_stalled'` -- a camera command did not finish, so the run could not take the camera. `'camera_read_failed'` -- the camera's settings could not be read when the run took its snapshot of them. `'run_loop_crashed'` -- the run loop raised, or stopped without saying how the run ended. `'hardware_disconnected'` -- a part the run needs was found disconnected. `'consecutive_scan_failures'` -- the scan failed too many times in a row with the hardware still present. `'interlock'` -- the stage's interlock refused a move during a scan. `'position_lost'` -- an axis lost its position during a scan, and nothing in a run homes it again. `'disk_space_critical'` -- free disk at the save location fell below what the run needs, so the run stopped to save what it has. `'file_writer_stalled'` -- saving stopped making progress, so the run stopped before it lost more captures. `'video_writer_died'` -- the writer of a video step failed. `'led_channel_unavailable'` -- steps of the run take an LED channel this scope does not have, and their captures kept failing. `'camera_failure'` -- the camera failed too many steps in a row. `'autofocus_failed'` -- a single-autofocus run's autofocus did not find focus. `'autofocus_not_started'` -- a single-autofocus run's autofocus was refused before the stage moved, its first window reaching past Z's travel.
+- `reason`: The ending's machine-readable cause, a run ending's reason. `'captures_failed'` -- the run reached its end without every capture it was asked for. `'start_failed'` -- the run's setup raised a fault of no other reason after the run was committed. `'dispatch_refused'` -- the run loop was refused when it was dispatched, so it never ran. `'capture_location_failed'` -- the run's folder could not be made at the capture location. `'run_dir_init_failed'` -- the run's folder was made and could not be initialized. `'camera_lane_stalled'` -- a camera command did not finish, so the run could not take the camera. `'camera_read_failed'` -- the camera's settings could not be read when the run took its snapshot of them. `'run_loop_crashed'` -- the run loop raised, or stopped without saying how the run ended. `'hardware_disconnected'` -- a part the run needs was found disconnected. `'consecutive_scan_failures'` -- the scan failed too many times in a row with the hardware still present. `'interlock'` -- the stage's interlock refused a move during a scan. `'position_lost'` -- an axis lost its position during a scan, and nothing in a run homes it again. `'disk_space_critical'` -- free disk at the save location fell below what the run needs, so the run stopped to save what it has. `'file_writer_stalled'` -- saving stopped making progress, so the run stopped before it lost more captures. `'write_failed'` -- the save location refused two frames in a row of a video step, so the run stopped, since its later steps write there too. `'video_writer_died'` -- the writer of a video step failed. `'led_channel_unavailable'` -- steps of the run take an LED channel this scope does not have, and their captures kept failing. `'camera_failure'` -- the camera failed too many steps in a row. `'autofocus_failed'` -- a single-autofocus run's autofocus did not find focus. `'autofocus_not_started'` -- a single-autofocus run's autofocus was refused before the stage moved, its first window reaching past Z's travel.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -17156,6 +17163,7 @@ read the same.
 | `run_loop_crashed` | -- | 500 |
 | `start_failed` | -- | 500 |
 | `video_writer_died` | -- | 500 |
+| `write_failed` | -- | 500 |
 
 <a id="RunFailedToStartError"></a>
 ### `lumascope.RunFailedToStartError`
@@ -17193,6 +17201,7 @@ unattended mute, so the person who started it sees it.
 | `run_loop_crashed` | -- | 500 |
 | `start_failed` | -- | 500 |
 | `video_writer_died` | -- | 500 |
+| `write_failed` | -- | 500 |
 
 <a id="RunFilesNotWrittenError"></a>
 ### `lumascope.RunFilesNotWrittenError`

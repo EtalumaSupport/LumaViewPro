@@ -54,6 +54,7 @@ from _lumascope.modules.exceptions import (
     VideoFramesDroppedError,
     VideoNotFinishedError,
     VideoWriterFailedError,
+    system_words,
 )
 from _lumascope.modules.run_events import RunEvents, VideoPhase, VideoProgress, deliver
 from _lumascope.modules.run_outcome import RunEnding, RunStatus
@@ -84,7 +85,6 @@ from _lumascope.modules.video_cadence import (
 )
 from _lumascope.modules.video_recording import (
     FrameLosses,
-    FrameNotWritten,
     PreRollEnd,
     RecordingConfig,
     RecordingEndReason,
@@ -98,7 +98,7 @@ COMPLETED = 'completed'  # recording ended normally (full or honest short delive
 CANCELED = 'canceled'  # run stop/abort ended the step early; kept frames are final
 NO_FRAMES = 'no_frames'  # the camera delivered nothing -- a capture failure (strike)
 CAMERA_LOST = 'camera_lost'  # camera went inactive mid-step; kept frames are final (strike)
-ABORTED = 'aborted'  # the controller aborted the run (disk); no strike, no row here
+ABORTED = 'aborted'  # the step's save location ended the run; no strike, no row here
 
 # The wait loop's tick: how quickly Stop/abort, a lost camera and a stall
 # are honored during a video step, and the ceiling on how stale a
@@ -224,6 +224,11 @@ class ProtocolVideoStep:
         self._aborted = aborted_event
         self._is_run_in_progress = is_run_in_progress
         self._abort_run_fatal = abort_run_fatal
+        # Set on a write lane when the step's save location ends the run,
+        # before the recording stops: the run's abort event is also a
+        # person's Stop, so the step's wait cannot tell the two apart from
+        # it, and a step that ended its run is no capture.
+        self._ended_the_run = threading.Event()
         self._record_step_row = record_step_row
         self._record_dropped_capture = record_dropped_capture
         self._run_claim = run_claim
@@ -451,6 +456,7 @@ class ProtocolVideoStep:
         engine = VideoRecordingEngine(
             write_frame=self._write_frame,
             writers=RECORDED_FRAME_WRITERS if self._recording_format.writes_frames else 1,
+            on_write_refused=self._stop_run_for_refused_write,
             claim=self._run_claim,
             clock=self._clock,
             steady_clock=self._steady_clock,
@@ -478,6 +484,8 @@ class ProtocolVideoStep:
             duration_s,
             stall_threshold_s(fps, float(step['Exposure']) / 1000.0),
         )
+        if self._ended_the_run.is_set():
+            outcome = ABORTED
 
         scope.imaging.remove_frame_listener(self._on_camera_frame)
         engine.stop(end_reason)
@@ -685,9 +693,7 @@ class ProtocolVideoStep:
     # Writer-lane edge
     # ------------------------------------------------------------------
 
-    def _write_frame(
-        self, image, timestamp_s, frame_number, config, chunks, facts
-    ) -> Path | FrameNotWritten:
+    def _write_frame(self, image, timestamp_s, frame_number, config, chunks, facts) -> Path:
         """Write one kept frame as its final artifact (runs on the lane)."""
         self._check_room_to_write(config)
 
@@ -715,10 +721,8 @@ class ProtocolVideoStep:
 
         writer = self._writer
         significant_bits = self._capture_config.capture_depth if image.dtype != np.uint8 else None
-        dropped = writer.add_frame(
-            image=image, timestamp=timestamp_s, significant_bits=significant_bits
-        )
-        return writer.output_path if dropped is None else FrameNotWritten(dropped)
+        writer.add_frame(image=image, timestamp=timestamp_s, significant_bits=significant_bits)
+        return writer.output_path
 
     def _check_room_to_write(self, config) -> None:
         """Rolling floor probe on the write lanes; a breach aborts the RUN.
@@ -731,10 +735,31 @@ class ProtocolVideoStep:
         """
         no_room = self._disk_check.room_to_write(config.output_dir, 'the video step')
         if no_room is not None and self._engine is not None and self._engine.is_recording:
+            self._ended_the_run.set()
             self._engine.stop(RecordingEndReason.DISK_SPACE_CRITICAL)
             self._abort_run_fatal(
                 RunEnding(RunStatus.FAILED, 'disk_space_critical', no_room), 'FileIO'
             )
+
+    def _stop_run_for_refused_write(self, refusal) -> None:
+        """The engine's ``on_write_refused``: the save location stopped the step, so the run.
+
+        Run on the lane, as the disk floor's stop is, before the engine ends
+        the recording, so the step's wait returns it as ``ABORTED``, never
+        counted captured. The reason is written out because the run-ending
+        vocabulary is collected from the funnel's literal first argument.
+        """
+        self._ended_the_run.set()
+        self._engine.stop(RecordingEndReason.WRITE_FAILED)
+        self._abort_run_fatal(
+            RunEnding(
+                RunStatus.FAILED,
+                'write_failed',
+                f'A frame of the video step could not be saved ({system_words(refusal)}), '
+                'so the run was stopped. What was saved before it is kept.',
+            ),
+            'FileIO',
+        )
 
     # ------------------------------------------------------------------
     # Post-drain finish (per-step thread; the protocol thread moves on)
@@ -816,8 +841,14 @@ class ProtocolVideoStep:
             notifications.report_outcome(fault, solicited=False, category='Protocol')
         finally:
             self._end_progress()
+            # A save location that refused the frames ended the run with its
+            # own words; the close it made fail, and the frames it lost, are
+            # that same event, logged and not told again.
+            refused = result is not None and result.write_refused is not None
             if unfinished is not None:
-                notifications.report_outcome(unfinished, solicited=False, category='Protocol')
+                notifications.report_outcome(
+                    unfinished, solicited=False, category='Protocol', log_only=refused
+                )
             if result is None:
                 # The finish failed before any measured truth existed. The
                 # step still owes the run a row: a video step that vanishes
@@ -906,6 +937,7 @@ class ProtocolVideoStep:
                 if (
                     result.lost_frames()
                     and not result.aborted
+                    and not refused
                     and not all_unstamped
                     and unfinished is None
                 ):
@@ -930,7 +962,7 @@ class ProtocolVideoStep:
                 # A file lost, to the writer's death or to an unfinished
                 # close, tells its own loss: its frame counts are not told
                 # beside it, nor is every frame said to be kept.
-                if not result.aborted and unfinished is None:
+                if not result.aborted and not refused and unfinished is None:
                     self._frame_losses = result.losses(of=self._video_name())
                 self._kept_every_frame = result.kept_every_frame() and unfinished is None
                 logger.info(f'[PROTOCOL-VIDEO] Finished: {result.summary()}')

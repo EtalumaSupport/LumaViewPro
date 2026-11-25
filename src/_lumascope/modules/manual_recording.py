@@ -90,7 +90,6 @@ from _lumascope.modules.image_mode import RecordingFormat
 from _lumascope.modules.recording_manifest import gather_host_provenance
 from _lumascope.modules.video_cadence import StallWatch, effective_recording_fps, stall_threshold_s
 from _lumascope.modules.video_recording import (
-    FrameNotWritten,
     RecordingEndReason,
     RecordingFinished,
     PreRollEnd,
@@ -593,6 +592,7 @@ class ManualRecordingController:
         engine = VideoRecordingEngine(
             write_frame=functools.partial(self._write_frame, recording),
             writers=RECORDED_FRAME_WRITERS if recording_format.writes_frames else 1,
+            on_write_refused=self._stop_for_refused_write,
             claim=self._claim,
             clock=self._clock,
             steady_clock=self._steady_clock,
@@ -923,7 +923,7 @@ class ManualRecordingController:
 
     def _write_frame(
         self, recording, image, timestamp_s, frame_number, config, chunks, facts
-    ) -> Path | FrameNotWritten:
+    ) -> Path:
         """Write one kept frame of *recording* as its final artifact (runs on a lane)."""
         self._check_room_to_write(recording, config)
 
@@ -979,13 +979,11 @@ class ManualRecordingController:
             )
         return file_loc
 
-    def _write_mp4_frame(self, recording, image, timestamp_s) -> Path | FrameNotWritten:
+    def _write_mp4_frame(self, recording, image, timestamp_s) -> Path:
         writer = recording.writer
         significant_bits = recording.plan.capture_depth if image.dtype != np.uint8 else None
-        dropped = writer.add_frame(
-            image=image, timestamp=timestamp_s, significant_bits=significant_bits
-        )
-        return writer.output_path if dropped is None else FrameNotWritten(dropped)
+        writer.add_frame(image=image, timestamp=timestamp_s, significant_bits=significant_bits)
+        return writer.output_path
 
     def _check_room_to_write(self, recording, config) -> None:
         """Rolling floor probe; a breach stops selection, never the drain.
@@ -998,13 +996,26 @@ class ManualRecordingController:
         """
         no_room = recording.disk_check.room_to_write(config.output_dir, 'the recording')
         if no_room is not None and recording.engine.is_recording:
-            notifications.report_outcome(
-                RecordingStoppedError('disk_space_critical'),
-                solicited=False,
-                category='Recording',
-                once_per_run=True,
+            self._stop_unasked(
+                RecordingStoppedError('disk_space_critical'), RecordingEndReason.DISK_SPACE_CRITICAL
             )
-            self._end(RecordingEndReason.DISK_SPACE_CRITICAL)
+
+    def _stop_for_refused_write(self, refusal) -> None:
+        """The engine's ``on_write_refused``: the save location stopped the recording.
+
+        Told here, on the lane, and the recording ended, as the disk floor's
+        stop is; the engine then drops what is queued behind it.
+        """
+        stopped = RecordingStoppedError('write_failed', refusal=refusal)
+        stopped.__cause__ = refusal
+        self._stop_unasked(stopped, RecordingEndReason.WRITE_FAILED)
+
+    def _stop_unasked(self, stopped: RecordingStoppedError, reason: RecordingEndReason) -> None:
+        """Tell a stop no one asked for, where it is met, and end the recording as *reason*."""
+        notifications.report_outcome(
+            stopped, solicited=False, category='Recording', once_per_run=True
+        )
+        self._end(reason)
 
     # ------------------------------------------------------------------
     # Post-drain finish (its own short-lived thread, one per recording)
@@ -1068,9 +1079,17 @@ class ManualRecordingController:
             # and the UI leave its recording state -- after a failed finish.
             # Every report here is the recording's one answer, told once
             # per recording, so the repeat window does not hold it back.
+            # A save location that refused the frames is why the close
+            # failed too: the stop the lane told is the person's one answer,
+            # and the close's failure is logged beside it.
+            refused = result is not None and result.write_refused is not None
             if unfinished is not None:
                 notifications.report_outcome(
-                    unfinished, solicited=False, category='Recording', once_per_run=True
+                    unfinished,
+                    solicited=False,
+                    category='Recording',
+                    log_only=refused,
+                    once_per_run=True,
                 )
             if result is not None:
                 if result.writer_failure is not None:
@@ -1111,9 +1130,15 @@ class ManualRecordingController:
                         category='Recording',
                         once_per_run=True,
                     )
-                elif result.lost_frames() and not result.aborted and unfinished is None:
+                elif (
+                    result.lost_frames()
+                    and not result.aborted
+                    and not refused
+                    and unfinished is None
+                ):
                     # An unfinished video's counts describe a file that may
-                    # not open: its own report above is the whole answer.
+                    # not open, and a stopped one's were told at its stop:
+                    # each one's own report is the whole answer.
                     notifications.report_outcome(
                         VideoFramesDroppedError(
                             result.losses().failed_writes,

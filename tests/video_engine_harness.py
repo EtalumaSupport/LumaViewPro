@@ -97,11 +97,14 @@ class WriterStub:
     """Scriptable writer edge: records writes; can block or fail on demand.
 
     Args:
-        fail_frames: Frame numbers whose write raises (per-frame failure).
+        fail_frames: Frame numbers whose write the disk refuses (OSError).
         blocked: Start with the gate closed so writes wedge until
             ``unblock`` -- the writer-lag scenarios.
         die_on_frame: Frame number whose write raises SystemExit,
             simulating writer-lane death (the fatal classification).
+        defect_on_frame: Frame number whose write raises TypeError: a
+            defect in the write, neither the disk's refusal nor the
+            encoder's.
     """
 
     def __init__(
@@ -110,10 +113,12 @@ class WriterStub:
         fail_frames=(),
         blocked: bool = False,
         die_on_frame: int | None = None,
+        defect_on_frame: int | None = None,
     ):
         self.out_dir = pathlib.Path(out_dir)
         self.fail_frames = set(fail_frames)
         self.die_on_frame = die_on_frame
+        self.defect_on_frame = defect_on_frame
         self.written = []
         # Per-frame chunk metadata as delivered to the write edge, in
         # write order; parallel to written so existing tuple consumers
@@ -138,6 +143,8 @@ class WriterStub:
         self._gate.wait()
         if self.die_on_frame is not None and frame_number == self.die_on_frame:
             raise SystemExit('writer lane death (scripted)')
+        if self.defect_on_frame is not None and frame_number == self.defect_on_frame:
+            raise TypeError(f'a defect in the write of frame {frame_number} (scripted)')
         if frame_number in self.fail_frames:
             raise OSError(f'scripted write failure for frame {frame_number}')
         path = self.out_dir / f'frame_{frame_number:06d}.tiff'

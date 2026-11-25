@@ -39,7 +39,7 @@ def run_selection(selector, arrival_times):
     picks = []
     for t in arrival_times:
         if selector.slot_open(t):
-            picks.append((t, selector.reserve()))
+            picks.append((t, selector.reserve(t)))
     return picks
 
 
@@ -129,6 +129,13 @@ class TestNoRateLimit:
         s = CadenceSelector(fps=None, max_frames=None, start_ts=START)
         assert not s.slot_open(START - 0.001)
 
+    def test_a_frame_at_or_before_the_last_kept_has_no_slot(self):
+        # A host clock stepped back, or a time repeated: a video plays each
+        # frame at its time, so such a frame has no place in it.
+        s = CadenceSelector(fps=None, max_frames=None, start_ts=START)
+        picks = run_selection(s, [START + 0.1, START + 0.1, START + 0.05, START + 0.2])
+        assert [t for t, _ in picks] == [START + 0.1, START + 0.2]
+
 
 class TestSlotCadence:
     def test_first_slot_deadline_is_one_interval_after_start(self):
@@ -169,15 +176,15 @@ class TestSlotCadence:
     def test_reserve_past_capacity_raises(self):
         s = CadenceSelector(fps=5, max_frames=1, start_ts=START)
         assert s.slot_open(START + 0.2)
-        s.reserve()
+        s.reserve(START + 0.2)
         with pytest.raises(RuntimeError):
-            s.reserve()
+            s.reserve(START + 0.4)
 
     def test_reserved_count_tracks_reservations(self):
         s = CadenceSelector(fps=5, max_frames=10, start_ts=START)
         assert s.reserved_count == 0
-        s.reserve()
-        s.reserve()
+        s.reserve(START + 0.2)
+        s.reserve(START + 0.4)
         assert s.reserved_count == 2
 
 
@@ -189,7 +196,7 @@ class TestCatchUpAfterStall:
         # catches back up to the wall clock.
         s = CadenceSelector(fps=5, max_frames=100, start_ts=START)
         assert s.slot_open(START + 0.2)
-        s.reserve()
+        s.reserve(START + 0.2)
 
         post_stall = [START + 2.0 + i * 0.01 for i in range(0, 40)]
         picks = run_selection(s, post_stall)
@@ -210,7 +217,7 @@ class TestCatchUpAfterStall:
         s = CadenceSelector(fps=5, max_frames=10, start_ts=START)
         late = START + 1.0
         assert s.slot_open(late)
-        s.reserve()
+        s.reserve(late)
         # If the deadline had re-anchored to the late arrival, the next
         # slot would not open until late + 0.2; catch-up requires it to
         # already be open.

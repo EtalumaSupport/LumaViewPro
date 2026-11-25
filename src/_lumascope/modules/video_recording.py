@@ -20,16 +20,23 @@ construction. ``RecordingConfig`` is an immutable snapshot taken at
 record start -- the engine never re-reads live settings mid-recording.
 
 What can go wrong, and where it is told. The engine reports nothing
-itself: it records what failed in its result, and the caller that
-finishes the recording reports it, because only that caller knows whether
-the recording belongs to a run the failure must also end.
+itself: it records what failed in its result, and its caller reports it,
+because only that caller knows whether the recording belongs to a run the
+failure must also end.
 
-- FATAL, aborts the recording: writer-lane death (a lane thread dies).
-  The escape rides the result as ``writer_failure``, and ``aborted``
-  reads it; the other lanes are ended and the recording finalizes at the
-  last one's exit.
-- Non-fatal, recording continues, counted: a single frame's write failure
-  (costs exactly that frame), short delivery (the camera delivered fewer
+- FATAL, aborts the recording: writer-lane death (a lane thread dies, or
+  a write raises what is neither the save location's nor the encoder's
+  refusal: a defect). The escape rides the result as ``writer_failure``,
+  and ``aborted`` reads it; the other lanes are ended and the recording
+  finalizes at the last one's exit.
+- FATAL, ends the recording: a second frame in a row whose write the save
+  location or the encoder refused (an ``OSError`` or an ``FFmpegError``):
+  a drive that went away refuses every frame after it. The refusal rides
+  the result as ``write_refused``; the caller is told at once, on the
+  lane, through ``on_write_refused``, so a run is ending before its step
+  is seen to stop; then the backlog is dropped as at a lane's death.
+- Non-fatal, recording continues, counted: one refused frame between
+  written ones (costs exactly that frame), short delivery (the camera delivered fewer
   frames than the configured rate promised), a frame skipped for memory,
   a frame the camera numbered and the recording never received. These
   land in the manifest and the result.
@@ -52,6 +59,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import psutil
+from av.error import FFmpegError
 
 from _lumascope.lib import profile_trace
 from _lumascope.lvp_logger import logger
@@ -161,7 +169,10 @@ class RecordingEndReason(enum.StrEnum):
     for. ``RUN_STOP`` -- the run recording it was stopped.
     ``CAMERA_DISCONNECTED``, ``CAMERA_STALLED`` -- the camera left, or
     stopped delivering frames. ``DISK_SPACE_CRITICAL`` -- the save drive
-    reached its floor. ``START_FAILED`` -- its caller did not finish
+    reached its floor. ``WRITE_FAILED`` -- the save location refused two
+    frames in a row, and its backlog was dropped; no manifest is written
+    for one, since the place it would go just refused the frames.
+    ``START_FAILED`` -- its caller did not finish
     starting it; no manifest is written for one, since nothing was
     recorded. ``DISCARDED`` -- its frames were given up before they were
     written. ``LANE_EXITED`` -- a writer lane ended abnormally.
@@ -175,6 +186,7 @@ class RecordingEndReason(enum.StrEnum):
     CAMERA_DISCONNECTED = 'camera_disconnected'
     CAMERA_STALLED = 'camera_stalled'
     DISK_SPACE_CRITICAL = 'disk_space_critical'
+    WRITE_FAILED = 'write_failed'
     START_FAILED = 'start_failed'
     DISCARDED = 'discarded'
     LANE_EXITED = 'lane_exited'
@@ -349,21 +361,6 @@ class RecordingFinished:
 
 
 @dataclass(frozen=True)
-class FrameNotWritten:
-    """A write edge's answer for a frame it did not write, and why.
-
-    The MP4 encoder takes a frame it cannot encode as a dropped frame and
-    goes on, so its edge answers this rather than raising; the engine counts
-    it with the writes that raised, so the manifest's counts are the file's.
-
-    Attributes:
-        cause: Why the frame is not in the file, as a person reads it.
-    """
-
-    cause: str
-
-
-@dataclass(frozen=True)
 class FrameLosses:
     """The frames one recording, or a run's video steps together, lost, by cause.
 
@@ -427,9 +424,9 @@ class RecordingResult:
         frames_selected: Frames the cadence selector kept.
         frames_written: Frames whose final artifact landed on disk.
         failed_writes: Each frame lost to its write, as (its frame number,
-            why, as a person reads it): a write that raised, or a frame the
-            MP4 encoder dropped. Each cost exactly that frame; the
-            recording continued.
+            why, as a person reads it): a write the save location or the
+            encoder refused. One between written frames cost exactly that
+            frame; a second in a row ended the recording (``write_refused``).
         frames_unstamped: Frames that arrived without the camera's
             timestamp in a recording whose times are the camera's, and so
             were never offered to the selector (``note_unstamped``).
@@ -441,6 +438,10 @@ class RecordingResult:
             camera that numbers none, whose losses are not known.
         writer_failure: What escaped the writer lane and killed it, or
             None; ``aborted`` is read from it, so the two cannot disagree.
+        write_refused: The refusal of the second frame in a row whose write
+            was refused, which ended the recording, or None. Its own fact,
+            beside ``failed_writes``: a recording can lose one frame and go
+            on, and ``end_reason`` names only what closed selection first.
         manifest_failure: The manifest write's error, or None. Needed
             because ``manifest_path`` is also None when there was nothing
             to describe, which is not a failure.
@@ -476,6 +477,7 @@ class RecordingResult:
     frames_skipped: int
     frames_lost_at_camera: int | None
     writer_failure: BaseException | None
+    write_refused: Exception | None
     manifest_failure: OSError | None
     configured_fps: float | None
     frame_budget: int | None
@@ -611,6 +613,9 @@ class _Take:
     timestamps: list = field(default_factory=list)
     chunks: list = field(default_factory=list)
     writer_failure: BaseException | None = None
+    # Refused writes since the last one written; the second ends the take.
+    refusals_in_a_row: int = 0
+    write_refused: Exception | None = None
     manifest_failure: OSError | None = None
     result: RecordingResult | None = None
     # None until selection closes.
@@ -628,20 +633,27 @@ class VideoRecordingEngine:
     Args:
         write_frame: Writer edge invoked on a writer lane once per kept
             frame: ``write_frame(image, timestamp_s, frame_number, config,
-            chunks, fact) -> pathlib.Path | FrameNotWritten``, the path
-            written, or why the frame was not. ``chunks`` is the frame's
+            chunks, fact) -> pathlib.Path``, the path written. ``chunks`` is the frame's
             camera chunk metadata (or None) and ``fact`` is whatever the
             caller recorded about the scope when the frame arrived (or
             None) -- both travel WITH the frame, because the write runs
             later, behind the backlog, and a write-time read would
             describe a different moment. The engine reads neither.
-            Raising, or answering ``FrameNotWritten``, costs exactly that
-            frame. With more than one lane, frames are written concurrently
+            Raising ``OSError`` or ``FFmpegError`` (the save location or the
+            encoder refusing) costs that frame, and a second in a row ends
+            the recording; raising anything else kills the lane. With more
+            than one lane, frames are written concurrently
             and may finish out of order; each keeps the frame number it was
             enqueued under.
         writers: The writer lanes each recording drains on: the caller's
             count for what it writes (several for per-frame files, one for
             an encoder that takes frames in order).
+        on_write_refused: Called once, on the lane, with the refusal that
+            ends the recording (``write_refused``), before the engine ends
+            it: the caller's reaction to its save location going away, run
+            where the refusal is met and before the recording is seen to
+            stop, so a run is already ending when its step's wait returns.
+            Runs under the recording's taking, as the write did.
         claim: The session's exclusivity claim, which ``start`` takes and
             refuses when an exclusive activity already holds it -- or,
             for a recording inside a run, the run's claim lent to it,
@@ -658,14 +670,16 @@ class VideoRecordingEngine:
     def __init__(
         self,
         *,
-        write_frame: Callable[..., 'pathlib.Path | FrameNotWritten'],
+        write_frame: Callable[..., pathlib.Path],
         writers: int,
+        on_write_refused: Callable[[Exception], None],
         claim: ActivityClaim | BorrowedClaim,
         clock: Callable[[], float],
         steady_clock: Callable[[], int],
     ):
         self._write_frame = write_frame
         self._writers = writers
+        self._on_write_refused = on_write_refused
         self._claim = claim
         self._clock = clock
         self._steady_clock = steady_clock
@@ -889,7 +903,7 @@ class VideoRecordingEngine:
             self._count_camera_frame_locked(take, chunks)
             if not take.selector.slot_open(timestamp_s):
                 return
-            take.selector.reserve()
+            take.selector.reserve(timestamp_s)
             # pending counts queued and in-flight frames, so more than the
             # writers is at least one frame no lane has taken.
             if take.pending > take.writers and read_memory_headroom().short:
@@ -1090,14 +1104,39 @@ class VideoRecordingEngine:
         take.pending -= dropped
         return dropped
 
-    def _count_failed_write(self, take: _Take, frame_number: int, cause: str, said: object) -> None:
-        """Count one frame lost to its write, with why; *said* is what the log names."""
+    def _count_refused_write(self, take: _Take, frame_number: int, refusal: Exception) -> bool:
+        """Count one frame its write was refused, with why; True when it ends the take.
+
+        The second refusal in a row ends the recording, once: a frame
+        written between two refusals says the save location still takes
+        frames. A take already ended by a lane's death is not ended again.
+        The refusal that ends it is recorded here; the caller ends it.
+        """
         with self._lock:
-            take.failed_writes.append((frame_number, cause))
-        logger.error(
-            f'[VideoEngine] Frame {frame_number} write failed and is lost '
-            f'({said}); the recording continues'
-        )
+            take.failed_writes.append((frame_number, cause_in_words(refusal)))
+            take.refusals_in_a_row += 1
+            ends = (
+                take.refusals_in_a_row >= 2
+                and take.write_refused is None
+                and take.writer_failure is None
+            )
+            if ends:
+                take.write_refused = refusal
+        logger.warning(f'[VideoEngine] Frame {frame_number} was not written ({refusal})')
+        return ends
+
+    def _end_for_refused_write(self, take: _Take, refusal: Exception) -> None:
+        """Tell the caller its save location ended the recording, then end it.
+
+        The caller is told first, so whatever it ends with the recording (a
+        run, through its fatal funnel) has begun ending before the recording
+        is seen to stop. The recording ends whatever the caller raises.
+        """
+        try:
+            self._on_write_refused(refusal)
+        finally:
+            with self._lock:
+                self._end_from_lane_locked(take, RecordingEndReason.WRITE_FAILED)
 
     def _drain_under(self, take: _Take) -> None:
         """Run one writer lane under the recording's taking.
@@ -1113,11 +1152,13 @@ class VideoRecordingEngine:
     def _drain_loop(self, take: _Take) -> None:
         """Writer lane: pop each frame and write it as its final artifact.
 
-        A single frame's write failure costs exactly that frame (counted,
-        never fatal). Any other escape -- including SystemExit from a
-        dying dependency -- is writer-lane death: the recording aborts
-        loudly, the backlog is dropped and every other lane is told to
-        exit. The recording finalizes at its last lane's exit.
+        A write the save location or the encoder refuses costs that frame,
+        and a second in a row ends the recording (``_count_refused_write``),
+        its caller told here, on the lane. Any other escape -- a defect, or
+        SystemExit from a dying dependency -- is writer-lane death: the
+        recording aborts loudly. Either end drops the backlog and tells
+        every other lane to exit. The recording finalizes at its last lane's
+        exit.
         """
         try:
             while True:
@@ -1134,18 +1175,17 @@ class VideoRecordingEngine:
                         written = self._write_frame(
                             image, timestamp_s, frame_number, take.config, chunks, fact
                         )
-                except Exception as ex:
-                    self._count_failed_write(take, frame_number, cause_in_words(ex), ex)
+                except (OSError, FFmpegError) as refusal:
+                    if self._count_refused_write(take, frame_number, refusal):
+                        self._end_for_refused_write(take, refusal)
                 except BaseException as ex:
                     self._abort_from_lane_death(take, ex)
                     return
                 else:
-                    if isinstance(written, FrameNotWritten):
-                        self._count_failed_write(take, frame_number, written.cause, written.cause)
-                    else:
-                        with self._lock:
-                            take.frames_written += 1
-                            take.last_written_path = written
+                    with self._lock:
+                        take.frames_written += 1
+                        take.last_written_path = written
+                        take.refusals_in_a_row = 0
                 finally:
                     with self._lock:
                         take.pending -= 1
@@ -1167,19 +1207,25 @@ class VideoRecordingEngine:
             self._lane_exited(take)
 
     def _abort_from_lane_death(self, take: _Take, ex: BaseException) -> None:
-        """Record a lane's death and end the recording's other lanes.
-
-        Selection closes, the queued backlog is dropped, and one end marker
-        is posted per lane whether or not selection had already closed, so
-        every lane still running exits after its write in flight.
-        """
+        """Record a lane's death and end the recording's other lanes."""
         with self._lock:
             if take.writer_failure is None:
                 take.writer_failure = ex
-            self._close_selection_locked(take, RecordingEndReason.ABORTED)
-            self._drop_backlog_locked(take)
-            for _ in range(take.writers):
-                take.lane_queue.put(_END_OF_RECORDING)
+            self._end_from_lane_locked(take, RecordingEndReason.ABORTED)
+
+    def _end_from_lane_locked(self, take: _Take, reason: RecordingEndReason) -> None:
+        """End the recording from a lane; the caller holds the lock.
+
+        Selection closes (named *reason* unless something closed it first),
+        the queued backlog is dropped, and one end marker is posted per lane
+        whether or not selection had already closed, since the drop takes
+        the markers too: every lane still running exits after its write in
+        flight.
+        """
+        self._close_selection_locked(take, reason)
+        self._drop_backlog_locked(take)
+        for _ in range(take.writers):
+            take.lane_queue.put(_END_OF_RECORDING)
 
     def _lane_exited(self, take: _Take) -> None:
         """Count one lane out; the last to exit finalizes the recording."""
@@ -1239,11 +1285,13 @@ class VideoRecordingEngine:
         manifest_path = None
         manifest_name = self._manifest_name(take)
         # An aborted recording has no trustworthy measured truth to publish,
-        # a failed start has nothing to describe at all, and a recording that
-        # produced no artifact has nothing to attach a manifest to; all get a
-        # result in memory but no manifest on disk.
+        # a failed start has nothing to describe at all, a recording that
+        # produced no artifact has nothing to attach a manifest to, and one
+        # its save location ended would write it where frames were just
+        # refused; all get a result in memory but no manifest on disk.
         if (
             take.writer_failure is None
+            and take.write_refused is None
             and take.end_reason != RecordingEndReason.START_FAILED
             and manifest_name is not None
         ):
@@ -1264,6 +1312,7 @@ class VideoRecordingEngine:
             frames_skipped=take.frames_skipped,
             frames_lost_at_camera=take.frames_lost_at_camera,
             writer_failure=take.writer_failure,
+            write_refused=take.write_refused,
             manifest_failure=take.manifest_failure,
             configured_fps=take.config.fps,
             frame_budget=take.config.frame_budget,

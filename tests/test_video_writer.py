@@ -8,6 +8,7 @@ against a fake av module so no real encode runs.
 
 import datetime
 import errno
+import logging
 import os
 from unittest import mock
 
@@ -15,7 +16,7 @@ import numpy as np
 import pytest
 
 import _lumascope.modules.video_writer as video_writer_module
-from _lumascope.modules.exceptions import INTERNAL_FAULT_SENTENCE, VideoNotFinishedError
+from _lumascope.modules.exceptions import VideoNotFinishedError
 from _lumascope.modules.video_writer import VideoWriter
 from _lumascope.modules.channel_record import GRAY, release_color
 from tests.stock_channels import LED0, LED2
@@ -265,17 +266,20 @@ class TestTimestampOverlay:
         assert np.count_nonzero(encoded != as_handed_in) > 0, 'no timestamp was drawn'
 
 
-class TestVideoWriterDropAccounting:
-    """A frame the encoder fails to write is a dropped frame: it is answered
-    as dropped, with why, and does NOT inflate the written-frame count."""
+class TestAFrameTheFileRefuses:
+    """A frame whose packets the file refuses raises out of ``add_frame`` as
+    itself: what the loss costs (one frame of a recording, a whole build) is
+    the caller's to decide, and the writer logs nothing of its own."""
 
-    def test_pyav_encode_error_counts_as_drop(self, tmp_path):
+    def test_a_refused_packet_raises_as_itself_and_logs_nothing(self, tmp_path, caplog):
         fake_av, fake_stream = _make_fake_av([])
+        refused = OSError(errno.EIO, os.strerror(errno.EIO))
+        fake_stream.encode = lambda frame=None: [object()]
 
-        def _raise(_frame):
-            raise RuntimeError('encode boom')
+        def _refuse(_packet):
+            raise refused
 
-        fake_stream.encode = _raise
+        fake_av.open.return_value.mux = _refuse
         with mock.patch.object(video_writer_module, 'av', fake_av):
             writer = VideoWriter(
                 output_path=tmp_path / 'out.mp4',
@@ -284,10 +288,10 @@ class TestVideoWriterDropAccounting:
                 height=24,
                 include_timestamp_overlay=False,
             )
-            dropped = writer.add_frame(image=np.zeros((24, 32, 3), dtype=np.uint8), timestamp=None)
-        assert writer._frame_count == 0, 'a failed encode must not count as a written frame'
-        # Not the encoder's words: an error it does not declare is our own.
-        assert dropped == INTERNAL_FAULT_SENTENCE
+            with caplog.at_level(logging.ERROR), pytest.raises(OSError) as raised:
+                writer.add_frame(image=np.zeros((24, 32, 3), dtype=np.uint8), timestamp=None)
+        assert raised.value is refused
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
 
 class TestAVideoThatCannotBeFinished:
