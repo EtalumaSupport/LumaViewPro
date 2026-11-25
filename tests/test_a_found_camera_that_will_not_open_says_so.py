@@ -198,6 +198,8 @@ def test_the_bring_up_tells_a_set_up_failure_as_the_set_up_never_the_cable():
     words = str(CameraNotAvailableError('camera_setup_failed'))
     assert 'setting it up failed' in words
     assert 'cable' not in words and 'power' not in words
+    # The support report carries the log to us; the person is never sent to it.
+    assert 'log' not in words and 'support report' in words, words
 
 
 def test_a_basler_that_opens_and_fails_its_configuration_raises_its_set_up(monkeypatch):

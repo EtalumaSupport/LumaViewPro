@@ -275,6 +275,11 @@ class CameraUsbDriverUnusableError(Fault, HardwareError):
         'LumaViewPro, which says how to install its own.'
     )
 
+    def __init__(self, message: str, *, refused_words: str):
+        """*refused_words* is each refused device and its driver, as a person reads it."""
+        super().__init__(message)
+        self.refused_words = refused_words
+
 
 class CameraUsbOpenFailedError(Fault, HardwareError):
     """The camera's USB device was found and could not be opened or set up

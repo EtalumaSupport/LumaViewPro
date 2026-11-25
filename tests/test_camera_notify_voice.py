@@ -63,7 +63,7 @@ class TestCameraNotifyVoice:
         )
         cause = _camera_failure_cause(exc, True)
         assert cause == 'camera_driver_unavailable'
-        said = str(CameraNotAvailableError(cause, declined_words='Reinstall LumaViewPro.'))
+        said = str(CameraNotAvailableError(cause, detail='Reinstall LumaViewPro.'))
         assert 'libusb' not in said and 'Reinstall LumaViewPro.' in said, said
 
     def test_a_held_camera_port_is_port_in_use(self):

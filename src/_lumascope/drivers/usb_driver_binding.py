@@ -145,6 +145,20 @@ class DeviceBinding:
         """
         return self.service is not None and not self.problem_code
 
+    def driver_in_words(self) -> str:
+        """The driver Windows has this device on, as a person reads it."""
+        if self.service is None:
+            return 'on no driver'
+        if not self.ours:
+            if self.provider is None:
+                return "on a driver that is not LumaViewPro's"
+            return f"on a driver from {self.provider}, not LumaViewPro's"
+        if self.started:
+            return "on LumaViewPro's driver"
+        meaning = PROBLEM_CODES.get(self.problem_code)
+        why = meaning.rstrip('.') if meaning else f'problem code {self.problem_code}'
+        return f"on LumaViewPro's driver, which Windows did not start ({why})"
+
     def describe(self) -> str:
         where = 'present' if self.present else 'not present'
         if self.service is None:
@@ -295,15 +309,15 @@ def refuse_unusable(bindings: dict[str, list[DeviceBinding]]) -> None:
         CameraUsbDriverUnusableError: Naming each such device, the driver it
             is bound to, Windows' problem code, and the fix.
     """
-    refused = [
-        f'{DEVICE_NAMES[identity]} {b.describe()}'
-        for identity, devices in bindings.items()
-        for b in unusable(devices)
-    ]
+    refused = [(identity, b) for identity, devices in bindings.items() for b in unusable(devices)]
     if refused:
         raise CameraUsbDriverUnusableError(
-            '; '.join(refused)
-            + "; install LumaViewPro's Lumascope Classic driver, so Windows binds it and starts it"
+            '; '.join(f'{DEVICE_NAMES[identity]} {b.describe()}' for identity, b in refused)
+            + "; install LumaViewPro's Lumascope Classic driver, so Windows binds it and starts it",
+            refused_words='; '.join(
+                f'Windows has the {DEVICE_NAMES[identity]} {b.driver_in_words()}'
+                for identity, b in refused
+            ),
         )
 
 

@@ -88,10 +88,13 @@ def test_bring_up_names_the_driver_not_an_absent_camera(monkeypatch):
         fx2driver._FX2Connection._reset_for_test()
 
     cause = _camera_failure_cause(caught.value, False)
-    notice = CameraNotAvailableError(cause)
+    notice = CameraNotAvailableError(cause, detail=caught.value.refused_words)
     assert cause == 'camera_driver_unusable'
     assert notice.title == 'Camera driver not usable'
-    assert 'install LumaViewPro with its installer' in str(notice)
+    said = str(notice)
+    assert 'Windows has the Lumascope Classic (Bootloader) on' in said, said
+    assert "not LumaViewPro's" in said and 'install LumaViewPro with its installer' in said, said
+    assert 'log' not in said, said
 
 
 def test_our_driver_windows_did_not_start_is_refused_naming_its_problem_code():
@@ -122,9 +125,16 @@ def test_bring_up_tells_our_driver_not_started_as_the_driver(monkeypatch):
         fx2driver._FX2Connection._reset_for_test()
 
     cause = _camera_failure_cause(caught.value, False)
-    notice = CameraNotAvailableError(cause)
+    notice = CameraNotAvailableError(cause, detail=caught.value.refused_words)
     assert cause == 'camera_driver_unusable'
-    assert "on LumaViewPro's driver without starting it" in str(notice)
+    # Windows' own sentence for the problem code, in place of the log's.
+    said = str(notice)
+    assert (
+        "Windows has the Lumascope Classic (Bootloader) on LumaViewPro's driver, which "
+        'Windows did not start (This device is not working properly because Windows cannot '
+        'load the drivers'
+    ) in said, said
+    assert 'log' not in said, said
 
 
 def test_a_problem_code_of_zero_or_none_is_a_started_driver():

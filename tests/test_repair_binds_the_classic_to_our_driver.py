@@ -139,6 +139,7 @@ def test_a_package_windows_did_not_take_is_refused_as_not_accepted(
         refused_session.apply_remedy(CameraNotAvailableError.repair())
 
     assert refused.value.reason == 'driver_not_accepted'
+    assert 'log' not in str(refused.value), str(refused.value)
 
 
 def test_a_scope_with_no_classic_device_is_refused_not_crashed(on_installed_windows):
@@ -221,8 +222,9 @@ def test_off_windows_repair_is_refused_before_anything_runs(fx2_session):
 
 
 def test_only_an_unusable_driver_offers_repair_and_says_where_it_can_be_installed():
-    offered = CameraNotAvailableError('camera_driver_unusable', repairable=True)
-    not_here = CameraNotAvailableError('camera_driver_unusable')
+    on_libusbk = "Windows has the Lumascope Classic on a driver from libusbK, not LumaViewPro's"
+    offered = CameraNotAvailableError('camera_driver_unusable', repairable=True, detail=on_libusbk)
+    not_here = CameraNotAvailableError('camera_driver_unusable', detail=on_libusbk)
 
     assert offered.remedy.member == 'repair_camera_driver'
     assert 'Install its driver from here' in str(offered)

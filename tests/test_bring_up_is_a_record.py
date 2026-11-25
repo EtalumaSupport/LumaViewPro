@@ -387,7 +387,8 @@ class TestAClassicRefusedItsDriver:
 
     def test_a_real_classic_is_told_by_the_camera_alone(self, monkeypatch, tmp_path, centre_posts):
         refused = CameraUsbDriverUnusableError(
-            "Lumascope Classic USB\\VID_04B4&PID_EA17\\1 (present): libusbK, not LumaViewPro's"
+            "Lumascope Classic USB\\VID_04B4&PID_EA17\\1 (present): libusbK, not LumaViewPro's",
+            refused_words="Windows has the Lumascope Classic on a driver from libusbK, not LumaViewPro's",
         )
         # a stand-in by design: the FX2's one attempt on a real scope, which
         # this host has not; the LED registry and the camera met it.

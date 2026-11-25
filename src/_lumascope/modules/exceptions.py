@@ -1312,7 +1312,7 @@ class CameraNotAvailableError(Fault, BringUpError):
         ),
         'camera_driver_unavailable': (
             'Camera not detected',
-            'Camera not found, and the Lumascope Classic driver did not load. {declined} '
+            'Camera not found, and the Lumascope Classic driver did not load. {detail} '
             'If this is not a Lumascope Classic, check USB cable and power.',
         ),
         'camera_firmware_missing': (
@@ -1321,8 +1321,7 @@ class CameraNotAvailableError(Fault, BringUpError):
         ),
         'camera_driver_unusable': (
             'Camera driver not usable',
-            "Windows has the camera on no driver, on a driver that is not LumaViewPro's, or on "
-            "LumaViewPro's driver without starting it (the log names Windows' problem code).",
+            '{detail}.',
         ),
         'camera_not_initialized': (
             'Camera not opened',
@@ -1332,8 +1331,8 @@ class CameraNotAvailableError(Fault, BringUpError):
         ),
         'camera_setup_failed': (
             'Camera not set up',
-            'The camera was found and opened, but setting it up failed (the log names the '
-            'setting). Restart LumaViewPro, and send a support report if it happens again.',
+            'The camera was found and opened, but setting it up failed. Restart '
+            'LumaViewPro, and send a support report if it happens again.',
         ),
         'camera_bring_up_failed': (
             'Camera not brought up',
@@ -1359,24 +1358,27 @@ class CameraNotAvailableError(Fault, BringUpError):
         ),
     }
 
-    def __init__(self, reason: str, *, repairable: bool = False, declined_words: str | None = None):
+    def __init__(self, reason: str, *, repairable: bool = False, detail: str | None = None):
         """Build the notice for ``reason``.
 
         Args:
             reason: One of the class's reasons.
             repairable: Offer Repair (``repair()``) as the answer; only for
                 ``'camera_driver_unusable'``.
-            declined_words: Why the driver did not load
-                (``DeclinedDriver.person_words``); for
-                ``'camera_driver_unavailable'``, and only for it.
+            detail: What the cause found, as a person reads it, for the
+                reasons whose words carry it and only for them: for
+                ``'camera_driver_unavailable'`` why the driver did not load
+                (``DeclinedDriver.person_words``), for
+                ``'camera_driver_unusable'`` each device and its driver
+                (``CameraUsbDriverUnusableError.refused_words``).
         """
         self.reason = reason
         if repairable and reason != 'camera_driver_unusable':
             raise TypeError(f'Repair answers camera_driver_unusable, not {reason!r}')
-        if (declined_words is None) != (reason != 'camera_driver_unavailable'):
-            raise TypeError(f'declined_words goes with camera_driver_unavailable, not {reason!r}')
         _, message = self._WORDS[reason]
-        message = message.format(declined=declined_words)
+        if (detail is None) == ('{detail}' in message):
+            raise TypeError(f'{reason!r} is built {"with" if detail is None else "without"} detail')
+        message = message.format(detail=detail)
         if reason == 'camera_driver_unusable':
             message += self._UNUSABLE_ANSWER[repairable]
         super().__init__(message, reason)
@@ -1460,8 +1462,7 @@ class CameraDriverRepairRefusedError(Refusal, Exception):
         ),
         'driver_not_accepted': (
             "Windows did not take the camera's driver: installing it was declined at Windows' "
-            "question, or Windows refused the package (the driver step's log, in the logs "
-            'folder of the LumaViewPro installation, says which). Try again to be asked again.'
+            'question, or Windows refused the package. Try again to be asked again.'
         ),
         'driver_already_ours': (
             "The camera is up, or its USB devices are already on LumaViewPro's driver, started "

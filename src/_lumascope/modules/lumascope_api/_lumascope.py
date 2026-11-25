@@ -392,6 +392,15 @@ def _camera_failure_cause(exc: BaseException, fx2_could_be_this_scope: bool) -> 
     return 'camera_bring_up_failed'
 
 
+def _camera_detail(cause: str, failure: BaseException, declined_words: str | None) -> str | None:
+    """What the camera's cause found, for the words of the causes that carry it; else None."""
+    if cause == 'camera_driver_unavailable':
+        return declined_words
+    if cause == 'camera_driver_unusable':
+        return failure.refused_words
+    return None
+
+
 def _no_camera_found(exc: BaseException | None) -> bool:
     """Whether the camera's failure says no camera was found.
 
@@ -2147,9 +2156,7 @@ class Lumascope:
             reported = CameraNotAvailableError(
                 camera.cause,
                 repairable=camera.cause == 'camera_driver_unusable' and repair_refusal() is None,
-                declined_words=(
-                    self._declined_words() if camera.cause == 'camera_driver_unavailable' else None
-                ),
+                detail=_camera_detail(camera.cause, failure, self._declined_words()),
             )
             reported.__cause__ = failure
         notifications.report_outcome(reported, solicited=False, category='Camera')
