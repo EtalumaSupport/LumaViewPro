@@ -4238,13 +4238,13 @@ The results table, the method file, how many images were counted, each image lef
 
 - `ArgumentRefusedError`: `'channel_unknown'`, *channel* is not one of this release's channels, before the count is queued.
 - `LiveFolderPathRefusedError`: `'path_not_found'`, nothing is at *folder*; `'not_a_folder'`, a file is.
-- `PostProcessingRefusedError`: reason `method_invalid`, a *method* sent as its fields holds what `CellCountMethod` refuses; `'protocol_data_unreadable'`, the run's record, its protocol or its post-processing record cannot be read, or the protocol is gone; `'names_exhausted'`, every numbered name for the results is taken; or the folder has nothing to count (reason `no_data`).
+- `PostProcessingRefusedError`: reason `method_invalid`, a *method* sent as its fields holds what `CellCountMethod` refuses; `'protocol_data_unreadable'`, the run's record, its protocol or its post-processing record cannot be read, or the protocol is gone; `'names_exhausted'`, every numbered name for the results is taken; reason `no_images`, the folder holds no image file; or its images hold nothing to count (reason `no_data`).
 - `PostProcessingFailedError`: the results or the method could not be written, or some images could not be counted; the results hold every image that was, and the error names the rest.
 - `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started.
 
 **Refusals**
 
-- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`, `scope_held`, `files_writing`, `disk_space_insufficient`, `capture_location_unusable`, `method_invalid`, `protocol_data_unreadable`, `no_data`
+- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`, `scope_held`, `files_writing`, `disk_space_insufficient`, `capture_location_unusable`, `method_invalid`, `protocol_data_unreadable`, `no_images`, `no_data`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
 - [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`
 - [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
@@ -4342,13 +4342,13 @@ Each derived file, the folder they are in, and the outcome in words.
 **Raises**
 
 - `LiveFolderPathRefusedError`: `'path_not_found'`, nothing is at *target*.
-- `PostProcessingRefusedError`: reason `unreadable`, *target* is a file that is not an image Quick Enhance can read; reason `no_data`, a folder that holds none.
+- `PostProcessingRefusedError`: reason `unreadable`, *target* is a file that is not an image Quick Enhance can read; reason `no_images`, a folder that holds no image file; reason `no_data`, a folder whose images are none it can read.
 - `PostProcessingFailedError`: a file could not be enhanced.
 - `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started.
 
 **Refusals**
 
-- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `disk_space_insufficient`, `capture_location_unusable`, `unreadable`, `no_data`
+- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `disk_space_insufficient`, `capture_location_unusable`, `unreadable`, `no_images`, `no_data`
 - [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`
 - [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 - [`SessionClosingError`](#SessionClosingError): `session_closing`

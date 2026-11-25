@@ -297,12 +297,48 @@ def test_the_default_cell_count_method_is_the_one_the_count_and_rest_take(sessio
                 f'/api/v1/jobs/{counted["id"]}', headers={'Prefer': 'wait=60'}
             ).json()
     problem = counted.get('error', counted)
-    assert problem.get('reason') == 'no_data', counted
+    assert problem.get('reason') == 'no_images', counted
 
     # Taken as it is in Python: the same refusal.
     with pytest.raises(PostProcessingRefusedError) as refused:
         session.post_processing.count_cells(tmp_path / 'empty', method=method)
-    assert refused.value.reason == 'no_data'
+    assert refused.value.reason == 'no_images'
+
+
+def test_a_folder_with_no_images_is_no_images_for_the_count_and_the_enhance(session, tmp_path):
+    """A folder holding no image is one reason whichever build is asked, in Python and over REST.
+
+    A build of the folder says ``'no_images'``; the count and Quick Enhance
+    say the same, so a client branching on the reason meets one string for
+    one fact.
+    """
+    from fastapi.testclient import TestClient
+
+    from _lumascope.rest.app import build_app
+
+    (tmp_path / 'empty').mkdir()
+    (tmp_path / 'empty' / 'notes.txt').write_text('not an image')
+
+    method = session.post_processing.default_cell_count_method
+    for build in (
+        lambda folder: session.post_processing.count_cells(folder, method=method),
+        session.post_processing.enhance,
+    ):
+        with pytest.raises(PostProcessingRefusedError) as refused:
+            build(tmp_path / 'empty')
+        assert refused.value.reason == 'no_images', refused.value.operation
+
+    with TestClient(build_app(session)) as client:
+        for route, body in (
+            ('start_count_cells', {'folder': 'empty', 'method': method.to_dict()}),
+            ('start_enhance', {'target': 'empty'}),
+        ):
+            answer = client.post(f'/api/v1/post_processing/{route}', json=body).json()
+            while answer.get('ended', True) is None:
+                answer = client.get(
+                    f'/api/v1/jobs/{answer["id"]}', headers={'Prefer': 'wait=60'}
+                ).json()
+            assert answer.get('error', answer).get('reason') == 'no_images', (route, answer)
 
 
 def test_the_session_lists_and_stops_the_post_processing_lane(tmp_path):

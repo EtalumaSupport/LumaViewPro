@@ -1313,7 +1313,8 @@ class PostProcessingAPI:
                 *target*.
             PostProcessingRefusedError: reason ``unreadable``, *target* is
                 a file that is not an image Quick Enhance can read; reason
-                ``no_data``, a folder that holds none.
+                ``no_images``, a folder that holds no image file; reason
+                ``no_data``, a folder whose images are none it can read.
             PostProcessingFailedError: a file could not be enhanced.
             SessionClosingError: ``'session_closing'``, the session's close
                 is running or has finished; nothing was started.
@@ -1607,8 +1608,9 @@ class PostProcessingAPI:
                 refuses; ``'protocol_data_unreadable'``, the run's record,
                 its protocol or its post-processing record cannot be read,
                 or the protocol is gone; ``'names_exhausted'``, every
-                numbered name for the results is taken; or the folder has
-                nothing to count (reason ``no_data``).
+                numbered name for the results is taken; reason
+                ``no_images``, the folder holds no image file; or its images
+                hold nothing to count (reason ``no_data``).
             PostProcessingFailedError: the results or the method could not
                 be written, or some images could not be counted; the results
                 hold every image that was, and the error names the rest.

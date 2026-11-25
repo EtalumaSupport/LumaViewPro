@@ -586,8 +586,12 @@ class PostProcessing:
         left_out_sentence = f' Left out: {left_out_words}.' if left_out else ''
         if not results:
             if not listed:
-                message = 'No images were found in the selected folder.'
-            elif not_counted:
+                raise PostProcessingRefusedError(
+                    operation=CELL_COUNT_OPERATION,
+                    reason='no_images',
+                    message='No images were found in the selected folder.',
+                )
+            if not_counted:
                 message = (
                     f'None of the {len(filenames)} image(s) in the folder could be counted: '
                     f'{causes_in_words(not_counted)}.{left_out_sentence}'

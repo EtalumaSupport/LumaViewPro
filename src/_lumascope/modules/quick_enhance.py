@@ -532,7 +532,8 @@ class QuickEnhancer:
         Returns only when every image was enhanced.
 
         Raises:
-            PostProcessingRefusedError: The folder holds no image this can
+            PostProcessingRefusedError: ``'no_images'``, the folder holds no
+                image file to enhance; ``'no_data'``, none of its images is one this can
                 enhance.
             PostProcessingFailedError: Some images could not be enhanced;
                 what was saved rides along.
@@ -545,6 +546,12 @@ class QuickEnhancer:
             and image_utils.is_image(path)
             and '_enhanced' not in path.stem.lower()
         )
+        if not files:
+            raise PostProcessingRefusedError(
+                operation=QUICK_ENHANCE_OPERATION,
+                reason='no_images',
+                message='The folder holds no image Quick Enhance can read.',
+            )
         created = []
         skipped = []
         total = len(files)
@@ -579,8 +586,6 @@ class QuickEnhancer:
                 message=(
                     f'None of the {total} image(s) in the folder can be read by Quick '
                     f'Enhance: {causes_in_words(failures)}.'
-                    if files
-                    else 'The folder holds no image Quick Enhance can read.'
                 ),
             )
         if skipped:
