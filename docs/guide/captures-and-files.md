@@ -191,7 +191,13 @@ facts](../api-reference.md#saved-file-facts). The Plane block keeps its own
 names, OME's and LumaViewPro's, for the readers that parse it, so a view key
 and its Plane name can differ in one file (`camera_timestamp_tick_hz` and
 `TimestampCameraTickHz`). A fact the frame did not know is
-absent, never a stand-in. A few values name a type of the reference.
+absent, never a stand-in. Three keys need their meaning. `channel_display` is
+the unit's name (`Green`) in a capture by a build before `fd8e0a2d4` (beta38
+as shipped, and earlier) and the channel's label (`488 nm`) since; a derived
+file states its inputs' value, so a file's value is its capture's meaning,
+not its own build's. `datetime` is the capture's instant on a still, as
+`timestamp_iso` is, and when a derived file was built. `instrument.serial_number`
+is the motor board's, as the board reports it. A few values name a type of the reference.
 `illumination_timing` is a [`LightTiming`](../api-reference.md#LightTiming),
 when the currents were read. Each `judgments.<n>` (the Plane's `FrameValidity`) is a
 [`Judgment`](../api-reference.md#Judgment) of the frame against one change:

@@ -682,10 +682,17 @@ FILE_FACTS: dict[str, FileFact] = {
     ),
     'stage_moving': FileFact(FactKind.CAPTURE, 'StageMoving'),
     'channel': FileFact(FactKind.FILE),
+    # The channel as a person reads it: a capture by a build before fd8e0a2d4
+    # (beta38 as shipped, and earlier) wrote the unit's name ('Green'), every
+    # capture since the channel's label ('488 nm'). A derived file states its
+    # inputs' value, so one built today from such captures states the name:
+    # a file's value is its capture's meaning, not its own build's.
     'channel_display': FileFact(FactKind.CHANNEL),
     'excitation_nm': FileFact(FactKind.CHANNEL),
     'filterset': FileFact(FactKind.SHARED),
     'pixel_size_um': FileFact(FactKind.SHARED),
+    # serial_number is the motor board's, as the board reports it; the
+    # camera's serial is a recording manifest's camera.serial.
     'instrument': FileFact(
         FactKind.SHARED, fields=('manufacturer', 'model', 'serial_number', 'camera_model')
     ),
@@ -694,6 +701,9 @@ FILE_FACTS: dict[str, FileFact] = {
     'plate': FileFact(
         FactKind.SHARED, fields=('name', 'rows', 'columns', 'standard', 'well_label')
     ),
+    # The TIFF DateTime tag's fact, for the tag's readers: on a still the
+    # capture's instant, the same as timestamp_iso; on a derived file, which
+    # states no timestamp_iso, when it was built.
     'datetime': FileFact(FactKind.FILE),
     'significant_bits': FileFact(FactKind.FILE),
     'algorithm': FileFact(FactKind.FILE),
