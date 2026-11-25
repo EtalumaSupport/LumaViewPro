@@ -206,10 +206,14 @@ def test_a_board_that_does_not_enter_engineering_mode_is_not_measured(session, m
     assert 'SELFTEST was not run' in selftest and 'no Y/N prompt seen' in selftest
 
 
-def test_with_no_led_board_the_api_reads_nothing_and_names_no_command_set(session, monkeypatch):
+def test_with_no_led_board_the_api_refuses_a_current_read_and_names_no_command_set(
+    session, monkeypatch
+):
     monkeypatch.setattr(type(session.scope), 'led_connected', property(lambda self: False))
     monkeypatch.setattr(session.scope._led_driver, 'is_connected', lambda: False)
-    assert session.scope.diagnostics.read_led_currents_ma() == {}
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        session.scope.diagnostics.read_led_currents_ma()
+    assert (refused.value.reason, refused.value.missing) == ('not_connected', MissingPart(Part.LED))
     assert session.scope.diagnostics.led_info.command_set is None
 
 

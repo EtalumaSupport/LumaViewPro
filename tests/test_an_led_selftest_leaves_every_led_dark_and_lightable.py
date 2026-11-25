@@ -1,12 +1,14 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""An LED selftest leaves every LED dark, able to light, and recorded so.
+"""An LED selftest leaves every LED dark, able to light, and recorded so; firmware without one is refused it.
 
 The v2 LED firmware's SELFTEST ramps each channel up to 500 mA, switches it
 off, a channel the API had lit included, and ends with every output
 disabled, which no later light enables. Sent raw by the support report, it
 left the API believing a dark LED lit, and every later light dark.
 ``DiagnosticsAPI.run_led_selftest`` enables the outputs and writes the
-all-off through the LED owner after it.
+all-off through the LED owner after it. Firmware older than v2 has no
+SELFTEST: its reply to the unknown command came back as the selftest's
+output, so the selftest is refused there and nothing is sent.
 """
 
 import functools
@@ -14,7 +16,9 @@ import functools
 import pytest
 
 import _lumascope.drivers.sim_wire.backend as sim_backend
+from _lumascope.modules.exceptions import HardwareCommandRefusedError, MissingPart
 from _lumascope.modules.lumascope_api.illumination import LedState
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.modules.tech_support_report import FirmwareDiagnostics
 from tests.settings_fixtures import complete_settings
@@ -38,24 +42,31 @@ def test_the_support_reports_selftest_leaves_no_led_believed_lit(tmp_path):
         session.shutdown()
 
 
-@pytest.mark.firmware_tier
-def test_after_a_selftest_an_led_lights_again():
+def _on_the_field_firmware():
+    """A session on the firmware-tier simulator, which runs the field LED firmware (older than v2)."""
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(
             sim_backend, 'LedBoardSpec', functools.partial(sim_backend.LedBoardSpec, oracle=True)
         )
-        session = ScopeSession.create(
+        return ScopeSession.create(
             complete_settings(simulator_tier='firmware', microscope='LS850T'),
             simulate=True,
             warn_pre_release=False,
         )
+
+
+@pytest.mark.firmware_tier
+def test_after_a_selftest_an_led_lights_again(monkeypatch):
+    session = _on_the_field_firmware()
     try:
         illumination = session.scope.illumination
         board = session.scope._led_driver._backend.led_board
         illumination.led_on_by_address(0, 10)
-        # A stand-in by design: the field firmware the simulator runs has no
-        # SELFTEST, so the v2 selftest's end, every output disabled behind a
-        # light the API holds, is written to the board directly.
+        # A stand-in by design: the simulator has no v2 LED firmware, so the
+        # driver is told the board is v2, and the v2 selftest's end, every
+        # output disabled behind a light the API holds, is written to the
+        # board directly.
+        monkeypatch.setattr(type(session.scope._led_driver), 'is_v2', property(lambda self: True))
         session.scope._led_driver.leds_disable()
 
         session.scope.diagnostics.run_led_selftest(timeout_s=1)
@@ -64,5 +75,28 @@ def test_after_a_selftest_an_led_lights_again():
         illumination.led_on_by_address(0, 10)
         enabled, powered, code = board.state('DAC')[0]
         assert enabled and powered and code > 0, board.state('DAC')[0]
+    finally:
+        session.shutdown()
+
+
+@pytest.mark.firmware_tier
+def test_firmware_without_a_selftest_is_refused_it_and_sent_nothing():
+    session = _on_the_field_firmware()
+    try:
+        illumination = session.scope.illumination
+        illumination.led_on_by_address(0, 10)
+
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            session.scope.diagnostics.run_led_selftest(timeout_s=1)
+
+        assert (refused.value.reason, refused.value.missing) == (
+            'not_on_this_scope',
+            MissingPart(Part.LED_SELFTEST),
+        )
+        # Nothing went to the board, the selftest's closing all-off included:
+        # the light the API held is still lit, on the board as in the record.
+        assert _lit(illumination) == [0]
+        enabled, powered, code = session.scope._led_driver._backend.led_board.state('DAC')[0]
+        assert enabled and powered and code > 0
     finally:
         session.shutdown()

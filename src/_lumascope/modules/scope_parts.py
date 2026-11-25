@@ -46,8 +46,9 @@ class Part(enum.StrEnum):
     axis's motor (``AXIS``, its axis beside it), the turret, the XY stage;
     a channel and a channel's LED (their channel beside them); an LED board
     address (its address beside it); and the features a board may not
-    have: fan control, LED engineering mode, text commands. A refusal names
-    the one it lacked as a ``MissingPart``.
+    have: fan control, the motor drivers' status, LED engineering mode, the
+    LED selftest, text commands. A refusal names the one it lacked as a
+    ``MissingPart``.
     """
 
     MOTOR = Board.MOTOR.value
@@ -61,7 +62,9 @@ class Part(enum.StrEnum):
     CHANNEL_LED = 'channel_led'
     LED_ADDRESS = 'led_address'
     FAN_CONTROL = 'fan_control'
+    MOTOR_DRIVER_STATUS = 'motor_driver_status'
     LED_ENGINEERING_MODE = 'led_engineering_mode'
+    LED_SELFTEST = 'led_selftest'
     TEXT_COMMANDS = 'text_commands'
 
 
@@ -133,10 +136,21 @@ _WORDS: dict[Part, _Words] = {
         'not_on_this_scope',
         "This microscope's motor controller does not support fan control.",
     ),
+    Part.MOTOR_DRIVER_STATUS: _Words(
+        'motor driver status',
+        'not_on_this_scope',
+        "This microscope's motor controller does not report its motor drivers' status.",
+    ),
     Part.LED_ENGINEERING_MODE: _Words(
         'LED engineering mode',
         'not_on_this_scope',
         "This microscope's LED controller has no engineering mode.",
+    ),
+    # The selftest came with the LED firmware's v2 update; INFO predates it.
+    Part.LED_SELFTEST: _Words(
+        'LED selftest',
+        'not_on_this_scope',
+        "This microscope's LED controller firmware has no selftest (it needs v2 or later).",
     ),
     Part.TEXT_COMMANDS: _Words(
         'text commands',

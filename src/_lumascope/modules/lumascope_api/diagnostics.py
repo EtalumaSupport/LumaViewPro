@@ -359,6 +359,12 @@ def _firmware_identity(driver) -> dict:
     return {'firmware_version': version, 'firmware_date': driver.firmware_date}
 
 
+def _lacking(part: Part, member: str) -> HardwareCommandRefusedError:
+    """The refusal of ``member`` because this scope's board lacks ``part``."""
+    missing = MissingPart(part)
+    return HardwareCommandRefusedError(missing.reason, member, missing=missing)
+
+
 def _refuse_motor_verb(command: str) -> None:
     """Raise if ``command`` would move or stop a motor or rewrite a position."""
     verb = command.strip().upper()
@@ -1442,7 +1448,9 @@ class DiagnosticsAPI:
                 name; nothing was read.
             HardwareCommandRefusedError: ``'not_connected'`` (the motor
                 controller), or ``'axis_absent'``, ``MissingPart(Part.MOTORS)`` on
-                a manual scope; nothing was read.
+                a manual scope; or ``'not_on_this_scope'``,
+                ``MissingPart(Part.MOTOR_DRIVER_STATUS)``, a controller that
+                reports no driver status (the TMCM-6110); nothing was read.
             BoardNoReplyError: the board did not answer.
             BoardReplyUnreadableError: the board answered without the
                 axis's word.
@@ -1450,7 +1458,7 @@ class DiagnosticsAPI:
         self._scope.motion.refuse_absent('read_motor_drv_status')
         drv = self._scope._motion_driver
         if not hasattr(drv, 'read_drv_status'):
-            return None
+            raise _lacking(Part.MOTOR_DRIVER_STATUS, 'read_motor_drv_status')
         return drv.read_drv_status(axis)
 
     @api(in_process=True, reads=True, engineering=True)
@@ -1463,12 +1471,15 @@ class DiagnosticsAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` (the motor
                 controller), or ``'axis_absent'``, ``MissingPart(Part.MOTORS)`` on
-                a manual scope; nothing was read.
+                a manual scope; or ``'not_on_this_scope'``,
+                ``MissingPart(Part.FAN_CONTROL)``, a controller with no fan
+                tachometer read (the TMCM-6110), the part a fan write is
+                refused for on that board; nothing was read.
         """
         self._scope.motion.refuse_absent('read_motor_fan_rpm')
         drv = self._scope._motion_driver
         if not hasattr(drv, 'read_fanspeed'):
-            return None
+            raise _lacking(Part.FAN_CONTROL, 'read_motor_fan_rpm')
         return drv.read_fanspeed()
 
     @api(in_process=True, engineering=True)
@@ -1527,8 +1538,7 @@ class DiagnosticsAPI:
     def _set_motor_fan_duty_impl(drv, duty_pct: int) -> None:
         # Asked on the lane: the support probe is a board exchange.
         if not drv.supports_fan():
-            part = MissingPart(Part.FAN_CONTROL)
-            raise HardwareCommandRefusedError(part.reason, 'set_motor_fan_duty', missing=part)
+            raise _lacking(Part.FAN_CONTROL, 'set_motor_fan_duty')
         drv.set_fan_duty(duty_pct)
 
     # --- LED engineering mode (LEDREADS / SELFTEST handshake) ---
@@ -1548,8 +1558,7 @@ class DiagnosticsAPI:
         """
         self._scope.illumination.refuse_controller_not_connected(member)
         if not hasattr(self._scope._led_driver, 'enter_engineering_mode'):
-            part = MissingPart(Part.LED_ENGINEERING_MODE)
-            raise HardwareCommandRefusedError(part.reason, member, missing=part)
+            raise _lacking(Part.LED_ENGINEERING_MODE, member)
 
     @api(in_process=True, engineering=True)
     def enter_led_engineering_mode(self, timeout_s: float = 5.0) -> None:
@@ -1687,22 +1696,22 @@ class DiagnosticsAPI:
 
         Returns:
             dict: Channel -> mA, or None for every channel of a board with
-                no current sensing. Empty when no LED board is connected.
+                no current sensing.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'`` (the LED
+                controller); nothing was read.
             BoardNoReplyError: the board did not answer a channel's read.
             BoardPortFailedError: the board's port is closed, or failed
                 before a read was sent.
             BoardReplyUnreadableError: the board answered a read with no
                 current in it.
         """
-        drv = self._scope._led_driver
-        if not self._scope.led_connected:
-            return {}
+        self._scope.illumination.refuse_controller_not_connected('read_led_currents_ma')
         return self._scope.motion._dispatch_motion(
             self._read_led_currents_impl,
             'read_led_currents_ma',
-            args=(drv,),
+            args=(self._scope._led_driver,),
             timeout_s=self._BOARD_QUEUE_MARGIN_S,
         )
 
@@ -1734,7 +1743,9 @@ class DiagnosticsAPI:
                 the scope and this call is not made under its taking; or
                 ``'not_connected'`` (the LED controller); or
                 ``'not_on_this_scope'``, ``MissingPart(Part.TEXT_COMMANDS)``: a
-                board that takes no text commands. Nothing was sent.
+                board that takes no text commands; or ``'not_on_this_scope'``,
+                ``MissingPart(Part.LED_SELFTEST)``: firmware older than v2,
+                which has no selftest. Nothing was sent.
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
                 ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
                 sent.
@@ -1746,6 +1757,8 @@ class DiagnosticsAPI:
         """
         refuse_unless_wait_s(timeout_s, 'timeout_s')
         board = self._led_text_board('run_led_selftest')
+        if self.led_info.command_set != LedCommandSet.V2:
+            raise _lacking(Part.LED_SELFTEST, 'run_led_selftest')
         return self._scope.motion._dispatch_motion(
             self._run_led_selftest_impl,
             'run_led_selftest',
@@ -1859,6 +1872,5 @@ class DiagnosticsAPI:
     @staticmethod
     def _text_board(board, member: str):
         if not board.takes_text_commands:
-            part = MissingPart(Part.TEXT_COMMANDS)
-            raise HardwareCommandRefusedError(part.reason, member, missing=part)
+            raise _lacking(Part.TEXT_COMMANDS, member)
         return board

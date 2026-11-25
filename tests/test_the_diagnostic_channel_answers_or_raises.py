@@ -78,6 +78,24 @@ def test_a_board_without_text_commands_is_refused_text(scope_of):
     )
 
 
+def test_a_controller_without_driver_status_or_a_fan_tachometer_is_refused_the_read(scope_of):
+    # The TMCM-6110 reports neither; a None here read as firmware that does
+    # not offer DRVSTAT or FANSPEED, which is a different fact.
+    diagnostics = scope_of('LS720').diagnostics
+    refusals = {}
+    for read, part in (
+        (lambda: diagnostics.read_motor_drv_status('X'), Part.MOTOR_DRIVER_STATUS),
+        (diagnostics.read_motor_fan_rpm, Part.FAN_CONTROL),
+    ):
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            read()
+        refusals[part] = (refused.value.reason, refused.value.missing)
+    assert refusals == {
+        part: ('not_on_this_scope', MissingPart(part))
+        for part in (Part.MOTOR_DRIVER_STATUS, Part.FAN_CONTROL)
+    }
+
+
 def test_an_unknown_target_is_refused_before_anything_is_sent(scope_of):
     with pytest.raises(ValueError, match="unknown target 'camera'"):
         scope_of('LS850').diagnostics.send_diagnostic_command('camera', 'INFO')

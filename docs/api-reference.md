@@ -13477,8 +13477,9 @@ A board, by its board's value; a motion part: the motors, a stage
 axis's motor (`AXIS`, its axis beside it), the turret, the XY stage;
 a channel and a channel's LED (their channel beside them); an LED board
 address (its address beside it); and the features a board may not
-have: fan control, LED engineering mode, text commands. A refusal names
-the one it lacked as a `MissingPart`.
+have: fan control, the motor drivers' status, LED engineering mode, the
+LED selftest, text commands. A refusal names the one it lacked as a
+`MissingPart`.
 
 - `motor`
 - `led`
@@ -13491,7 +13492,9 @@ the one it lacked as a `MissingPart`.
 - `channel_led`
 - `led_address`
 - `fan_control`
+- `motor_driver_status`
 - `led_engineering_mode`
+- `led_selftest`
 - `text_commands`
 
 <a id="PartCause"></a>

@@ -1244,11 +1244,11 @@ class FirmwareDiagnostics:
         the words for why there is none: a board with no text channel
         reports none, and other firmware may not offer FANSPEED.
         """
+        if self._no_motor_text() is not None:
+            return 'Not applicable: this motor board reports no fan speed'
         rpm = _hardware_reading(self._scope.diagnostics.read_motor_fan_rpm)
         if rpm is not None:
             return rpm
-        if self._no_motor_text() is not None:
-            return 'Not applicable: this motor board reports no fan speed'
         return NOT_OFFERED
 
     def get_i2c_scan(self) -> str:
