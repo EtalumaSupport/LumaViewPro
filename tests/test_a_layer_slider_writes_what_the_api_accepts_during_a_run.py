@@ -47,7 +47,7 @@ def _panel(monkeypatch, *, initializing, update_settings=None):
         _layer, key = path.split('.')
         settings[LED0][key] = value
 
-    settings = {'fx2_debug_wire_enabled': False, LED0: dict(_STORED)}
+    settings = {LED0: dict(_STORED)}
     monkeypatch.setattr(
         _app_ctx,
         'ctx',

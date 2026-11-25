@@ -39,7 +39,6 @@ class _Slider:
 def _blue_layer(monkeypatch, *, exposure_ms, illumination_ma):
     settings = {
         LED0: {'exposure_ms': exposure_ms, 'illumination_ma': illumination_ma},
-        'fx2_debug_wire_enabled': False,
     }
     writer = settings_writer(settings)
     monkeypatch.setattr(

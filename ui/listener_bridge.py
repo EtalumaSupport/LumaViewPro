@@ -178,7 +178,6 @@ NOT_SHOWN: frozenset[str] = frozenset(
         'memory_profile_enabled',
         'memory_profile_interval_s',
         'preview_host_downscale',
-        'fx2_debug_wire_enabled',
         'profiling',
         'ag_ae_max_exposure_ms',
         'lvp_lock_port',

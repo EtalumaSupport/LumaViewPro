@@ -845,7 +845,6 @@ def test_the_led_short_write_detector_fires_on_a_zero_byte_write(caplog):
     """
     led = object.__new__(fx2driver.FX2LEDController)
     led._fx2 = SimpleNamespace(i2c_write=lambda addr, data: 0)  # wrote nothing
-    led._wire_debug_enabled = lambda: False
 
     with caplog.at_level(logging.WARNING):
         led._led_write(channel=0, brightness=0x10)
@@ -860,7 +859,6 @@ def test_the_led_detector_stays_quiet_on_a_good_write(caplog):
     """The converse -- the detector must not cry wolf on every LED command."""
     led = object.__new__(fx2driver.FX2LEDController)
     led._fx2 = SimpleNamespace(i2c_write=lambda addr, data: 1)
-    led._wire_debug_enabled = lambda: False
 
     with caplog.at_level(logging.WARNING):
         led._led_write(channel=0, brightness=0x10)

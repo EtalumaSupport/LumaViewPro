@@ -20,11 +20,8 @@ from _lumascope.drivers import fx2driver
 
 
 def _led() -> fx2driver.FX2LEDController:
-    # No USB handle is needed to exercise the pure conversion; the stub
-    # carries the one flag __init__ would have set.
-    led = object.__new__(fx2driver.FX2LEDController)
-    led._debug_wire = False
-    return led
+    # No USB handle is needed to exercise the pure conversion.
+    return object.__new__(fx2driver.FX2LEDController)
 
 
 def test_full_scale_is_the_classic_board_ceiling():

@@ -134,7 +134,6 @@ INSTALLATION_ONLY: typing.Final[frozenset[str]] = frozenset(
         'memory_profile_enabled',
         'memory_profile_interval_s',
         'profiling',
-        'fx2_debug_wire_enabled',
     }
 )
 

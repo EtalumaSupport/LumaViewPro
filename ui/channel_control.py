@@ -35,24 +35,6 @@ _CHANNEL_VALUE_WIDGETS = (
     ('exp_slider', 'exp_text', 'exposure_ms'),
 )
 
-# ------------------------------------------------------------------
-# Diagnostic toggle for the "illumination slider > ~150 mA silently
-# fails to light LED on LS620 FX2" bench investigation
-# (2026-04-16). Logs type + value at the slider vs text entry points
-# so the bench trace can show whether the two code paths diverge
-# here (int vs float) or further downstream. Companion gates live
-# in src/_lumascope/drivers/fx2driver.py (byte-level wire trace) and
-# src/_lumascope/modules/lumascope_api/illumination.py (cache-equality check).
-# Toggle by either:
-#   * set fx2_debug_wire_enabled: true in the settings
-#   * flip _FX2_DEBUG_WIRE = True  below
-# ------------------------------------------------------------------
-_FX2_DEBUG_WIRE = False
-
-
-def _fx2_wire_debug_enabled(settings: dict) -> bool:
-    return _FX2_DEBUG_WIRE or settings['fx2_debug_wire_enabled']
-
 
 class ChannelControl(BoxLayout):
     channel = StringProperty(None)
@@ -336,7 +318,6 @@ class ChannelControl(BoxLayout):
         )
 
     def ill_slider(self):
-        settings = _app_ctx.ctx.settings
         # Early return on programmatic updates (#617): when another code
         # path sets ill_slider.value directly (load_settings, ill_text,
         # set_step_state), on_value fires and re-enters
@@ -348,20 +329,6 @@ class ChannelControl(BoxLayout):
             return
         logger.info('[LVP Main  ] ChannelControl.ill_slider()')
         illumination = round(self.ids['ill_slider'].value)  # Round to integer (step=1)
-        # Slider-vs-text divergence trace for the > ~150 mA silent-
-        # fail bench investigation. See _FX2_DEBUG_WIRE block at top
-        # of this file. INFO level -- this is a key divergence point
-        # (int from slider vs float from text).
-        if _fx2_wire_debug_enabled(settings):
-            logger.info(
-                '[FX2 LED diag] ill_slider ENTRY channel=%s raw_value=%r '
-                'raw_type=%s -> illumination=%r type=%s source=slider',
-                self.channel,
-                self.ids['ill_slider'].value,
-                type(self.ids['ill_slider'].value).__name__,
-                illumination,
-                type(illumination).__name__,
-            )
         gui_logger.slider(f'ILLUMINATION_{self.channel}', illumination)
         self._write_on_lane(
             'illumination_ma', illumination, 'ILLUMINATION', _app_ctx.ctx.io_executor
@@ -373,19 +340,7 @@ class ChannelControl(BoxLayout):
             self.ids['ill_text'].text = new_text
 
     def ill_text(self) -> None:
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] ChannelControl.ill_text()')
-        typed_text = self.ids['ill_text'].text
-        # Text-entry divergence trace for the > ~150 mA silent-fail
-        # bench investigation. See _FX2_DEBUG_WIRE block at top of
-        # this file. INFO level -- this is the other key divergence
-        # point (float from text vs int from slider).
-        if _fx2_wire_debug_enabled(settings):
-            logger.info(
-                '[FX2 LED diag] ill_text ENTRY channel=%s raw_text=%r source=text',
-                self.channel,
-                typed_text,
-            )
         self._validate_and_apply_text_input(
             'ill_text',
             'ill_slider',

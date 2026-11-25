@@ -460,6 +460,9 @@ _RETIRED_PATHS = (
     # third format nowhere to go and let the Sequenced format decide whether
     # a recording was stacked: ``video_recording_format`` is the choice.
     'video_as_frames',
+    # The switch for an FX2 LED byte trace kept for a question since
+    # answered: the I2C write logs every byte the board is sent.
+    'fx2_debug_wire_enabled',
 )
 
 

@@ -848,7 +848,6 @@ class Lumascope:
         warn_pre_release: bool = True,
         configured_model: str | None = None,
         sim_tier: str = 'fast',
-        fx2_debug_wire: bool = False,
         *,
         source_path: 'str | os.PathLike | None' = None,
         sim_camera_stall: 'SimulatedStall | None' = None,
@@ -928,10 +927,6 @@ class Lumascope:
                 tells it nothing and reaches the user as noise on every
                 launch. Defaults True: a new caller that has not thought
                 about it is warned.
-            fx2_debug_wire: Log every byte of each LED command an FX2
-                (Classic) LED board sends, and the illumination cache check
-                in front of it -- a bench diagnostic, off by default. The
-                session passes the ``fx2_debug_wire_enabled`` setting.
             sim_camera_stall: A stall for the simulated camera's stream:
                 frames stop for a while, the camera staying connected and
                 grabbing, so a simulated scope shows a stalled stream without
@@ -1032,7 +1027,6 @@ class Lumascope:
             # One frame deeper than the helper's default: the constructor
             # runs inside _torn_down_if_it_raises.
             _fire_pre_release_warning(stacklevel=4)
-        self._fx2_debug_wire = fx2_debug_wire
 
         # Read before anything is started, so a missing or unusable
         # installation file stops the bring-up with nothing to tear down.
@@ -1346,9 +1340,7 @@ class Lumascope:
                 # Still on the bus, so its faults can still be injected.
                 simulated_camera = sim_fx2
             else:
-                self._led_driver = FX2LEDController(
-                    connection=fx2_connection, debug_wire=fx2_debug_wire
-                )
+                self._led_driver = FX2LEDController(connection=fx2_connection)
                 logger.info(
                     f'[SCOPE API ] Using the FX2 LED driver on a SIMULATED FX2 (model={model})'
                 )
@@ -1360,9 +1352,7 @@ class Lumascope:
             # A simulated scope never reads the host's bus.
             self._read_fx2_bindings = _no_fx2_bindings
         else:
-            self._led_driver, led_fallback = led_registry.create_with_fallback(
-                'auto', debug_wire=fx2_debug_wire
-            )
+            self._led_driver, led_fallback = led_registry.create_with_fallback('auto')
             parts[Board.LED] = _board_status(Board.LED, led_fallback)
 
         # ----- IlluminationAPI, and the LED safety off -----

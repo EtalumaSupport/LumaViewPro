@@ -226,7 +226,6 @@ def test_a_setting_with_a_member_is_refused_naming_it(session, path, owner, memb
         ('profiling.handle_trace_enabled', True),
         ('profiling.open_files_enabled', True),
         ('profiling.metrics_interval_s', 5.0),
-        ('fx2_debug_wire_enabled', True),
     ],
 )
 def test_a_setting_only_the_installation_sets_is_refused(session, path, value):

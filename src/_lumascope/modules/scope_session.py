@@ -2091,7 +2091,6 @@ class ScopeSession:
                 configured_model=settings.get('microscope'),
                 sim_model=simulated.model,
                 sim_tier=cls._simulator_tier(settings) if simulate else 'fast',
-                fx2_debug_wire=settings['fx2_debug_wire_enabled'],
                 source_path=root,
                 sim_camera_stall=simulated.camera_stall,
                 sim_focal_spread_um=simulated.focal_spread_um,

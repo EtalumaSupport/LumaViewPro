@@ -806,30 +806,6 @@ class IlluminationAPI:
         with self._led_state_lock:
             cached_entry = self._led_state.get(address)
         current_ma = None if cached_entry is None else cached_entry.illumination_ma
-        # _led_state cache-equality trace for the slider > ~150 mA
-        # silent-fail bench investigation. Gated by the scope's
-        # fx2_debug_wire, the same flag the FX2 LED driver traces with.
-        if self._scope._fx2_debug_wire:
-            is_enabled = cached_entry is not None
-            try:
-                delta = (
-                    None if current_ma is None else abs(float(illumination_ma) - float(current_ma))
-                )
-            except Exception:
-                delta = 'ERR'
-            _api_log.info(
-                '[FX2 LED diag] led_on cache-check ch=%s '
-                'new_mA=%r (type=%s) cached_mA=%r (type=%s) '
-                'delta=%r enabled=%s cache_entry=%r',
-                address,
-                illumination_ma,
-                type(illumination_ma).__name__,
-                current_ma,
-                type(current_ma).__name__,
-                delta,
-                is_enabled,
-                cached_entry,
-            )
         if current_ma is not None and abs(commanded_ma - float(current_ma)) < 0.01:
             return commanded_ma
 

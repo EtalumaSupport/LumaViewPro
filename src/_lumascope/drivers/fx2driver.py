@@ -61,8 +61,7 @@ bundled copy is not in use the module still imports, logs why, and
 registers neither driver, so auto-detect never offers an FX2 that cannot
 run and non-FX2 scopes are unaffected.
 
-The driver reads no application settings: the one runtime toggle, the LED
-wire trace, arrives as the ``debug_wire`` constructor argument.
+The driver reads no application settings.
 
 References
 ----------
@@ -3239,31 +3238,8 @@ class FX2LEDController:
     # LSB of the wire's resolution.
     _BRIGHTNESS_MAX = 0xFE
 
-    # ------------------------------------------------------------------
-    # Byte-level wire trace for bench investigation of the "illumination
-    # slider > ~150 mA silently fails to light LED on LS620 FX2"
-    # report (2026-04-16). Captures:
-    #   * LED-toggle entry at FX2LEDController.led_on (mA + type)
-    #   * mA->brightness conversion input/output
-    #   * Each of the 3 I2C bytes written (hex dump)
-    #   * PREAMBLE-COLLISION flag when brightness == 0xFF (historically the
-    #     saturated byte; _ma_to_brightness now stops at _BRIGHTNESS_MAX, so
-    #     the flag firing means the ceiling has been bypassed)
-    # Companion gates live in src/_lumascope/modules/lumascope_api/illumination.py
-    # (cache-equality check) and ui/channel_control.py (slider vs text entry
-    # points). Toggle by either:
-    #   * set fx2_debug_wire_enabled: true in the settings, which the
-    #     session passes in as ``debug_wire``
-    #   * flip _FX2_DEBUG_WIRE = True  below
-    # ------------------------------------------------------------------
-    _FX2_DEBUG_WIRE = False
-
-    def _wire_debug_enabled(self) -> bool:
-        return self._FX2_DEBUG_WIRE or self._debug_wire
-
-    def __init__(self, *, connection: _FX2Connection | None = None, debug_wire: bool = False):
+    def __init__(self, *, connection: _FX2Connection | None = None):
         self._enabled = True
-        self._debug_wire = debug_wire
 
         # Attributes the Lumascope API / SerialBoard pattern expects to
         # be able to read directly without method calls. ``driver`` is
@@ -3324,18 +3300,6 @@ class FX2LEDController:
             (i2c_channel, 'channel'),
             (brightness & 0xFF, 'brightness'),
         ]
-        # Byte-level wire trace for the slider > ~150 mA silent-fail
-        # bench investigation. See _FX2_DEBUG_WIRE block above.
-        if self._wire_debug_enabled():
-            wire_hex = ' '.join(f'0x{b:02X}' for b, _ in writes)
-            logger.info(
-                '[FX2 LED diag] _led_write ch=%d i2c_ch=0x%02X brightness=0x%02X wire=[%s]%s',
-                channel,
-                i2c_channel,
-                brightness,
-                wire_hex,
-                ' PREAMBLE-COLLISION' if brightness == 0xFF else '',
-            )
         for byte_val, label in writes:
             try:
                 result = self._fx2.i2c_write(I2C_LED, [byte_val])
@@ -3374,19 +3338,6 @@ class FX2LEDController:
         else:
             nearest = math.floor(float(mA) * 255.0 / self._MAX_MA + 0.5)
             brightness = max(1, min(self._BRIGHTNESS_MAX, nearest))
-        # Workaround trace for mA->byte conversion. See the
-        # _FX2_DEBUG_WIRE block above for the full instrumentation
-        # rationale (LED driver brightness curve verification).
-        if self._wire_debug_enabled():
-            logger.debug(
-                '[FX2 LED diag] _ma_to_brightness mA=%r type=%s -> '
-                'brightness=%d (0x%02X) _MAX_MA=%d',
-                mA,
-                type(mA).__name__,
-                brightness,
-                brightness,
-                self._MAX_MA,
-            )
         return brightness
 
     # -- Channel discovery (B3) --------------------------------------------
@@ -3405,18 +3356,6 @@ class FX2LEDController:
     def led_on(self, channel: int, mA: int, block: bool = False, timeout: float = 5.0):
         if not self._enabled:
             return
-        # Driver-entry trace (mA + type) for the slider > ~150 mA
-        # silent-fail bench investigation. See _FX2_DEBUG_WIRE block
-        # above. INFO level intentionally -- this is one of the two
-        # key divergence points (int vs float entry).
-        if self._wire_debug_enabled():
-            logger.info(
-                '[FX2 LED diag] led_on ENTRY ch=%d mA=%r type=%s block=%s',
-                channel,
-                mA,
-                type(mA).__name__,
-                block,
-            )
         brightness = self._ma_to_brightness(mA)
         self._led_write(channel, brightness)
 

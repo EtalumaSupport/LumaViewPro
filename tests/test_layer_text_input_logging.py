@@ -44,7 +44,7 @@ def _blue_panel(monkeypatch, caplog, typed, *, stored=500.0):
     records already in the log when the write happened.
     """
     caplog.set_level(logging.INFO, logger=_GUI_LOG)
-    settings = {LED0: {'exposure_ms': stored}, 'fx2_debug_wire_enabled': False}
+    settings = {LED0: {'exposure_ms': stored}}
     write = channel_settings_writer(settings)
     writes = []
 
