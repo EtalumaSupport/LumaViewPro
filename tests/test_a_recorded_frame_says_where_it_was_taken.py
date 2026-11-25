@@ -574,7 +574,7 @@ class TestARecordingStatesEachFramesStart:
         manifest = json.loads(next(manual.glob('*_manifest.json')).read_text())
         first = manifest['frame_index'][0]
         stated = wall_time.local_time(round(first['ts_s'] * 1e9))
-        assert manifest['timestamp_grade'] == 'camera_frame_start'
+        assert manifest['timestamp_source'] == 'camera_frame_start'
         assert abs(stated - started[first['chunks']['FrameID']]) <= self._WITHIN
         assert stated >= before, 'a frame started before the recording was kept'
 

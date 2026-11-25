@@ -293,7 +293,7 @@ class RecordingConfig:
             (``TimestampSource``), set once by the controller as it starts:
             the camera's frame start when it took a clock mapping, the
             host's arrival when the camera has no latch. The manifest's
-            ``timestamp_grade`` states it.
+            ``timestamp_source`` states it.
         manifest_extra: Caller-supplied static metadata (provenance,
             camera identity, channel color) merged into the manifest.
             Engine-measured fields always win on key collision -- the
@@ -446,7 +446,7 @@ class RecordingResult:
             says how much it delivered.
         measured_fps: Rate computed from real frame timestamps.
         measured_duration_s: First-to-last-frame span in seconds.
-        timestamp_grade: What every kept frame's time is: the config's
+        timestamp_source: What every kept frame's time is: the config's
             ``timestamp_source``.
         frame_timestamps_s: Per-frame capture timestamps in seconds, in
             frame order.
@@ -474,7 +474,7 @@ class RecordingResult:
     frame_budget: int | None
     measured_fps: float
     measured_duration_s: float
-    timestamp_grade: TimestampSource
+    timestamp_source: TimestampSource
     frame_timestamps_s: tuple
     manifest_path: pathlib.Path | None
     end_reason: RecordingEndReason
@@ -1228,7 +1228,7 @@ class VideoRecordingEngine:
         else:
             measured_duration = 0.0
             measured_fps = 0.0
-        grade = take.config.timestamp_source
+        source = take.config.timestamp_source
         manifest_path = None
         manifest_name = self._manifest_name(take)
         # An aborted recording has no trustworthy measured truth to publish,
@@ -1245,7 +1245,7 @@ class VideoRecordingEngine:
                 name=manifest_name,
                 measured_fps=measured_fps,
                 measured_duration=measured_duration,
-                grade=grade,
+                source=source,
                 timestamps=timestamps,
                 save_wait_s=save_wait_s,
             )
@@ -1262,7 +1262,7 @@ class VideoRecordingEngine:
             frame_budget=take.config.frame_budget,
             measured_fps=measured_fps,
             measured_duration_s=measured_duration,
-            timestamp_grade=grade,
+            timestamp_source=source,
             frame_timestamps_s=timestamps,
             manifest_path=manifest_path,
             end_reason=take.end_reason,
@@ -1296,7 +1296,7 @@ class VideoRecordingEngine:
         name: str,
         measured_fps: float,
         measured_duration: float,
-        grade: TimestampSource,
+        source: TimestampSource,
         timestamps: tuple,
         save_wait_s: float | None,
     ) -> pathlib.Path | None:
@@ -1314,7 +1314,7 @@ class VideoRecordingEngine:
                 'frames_skipped': take.frames_skipped,
                 'frames_lost_at_camera': take.frames_lost_at_camera,
                 'end_reason': take.end_reason,
-                'timestamp_grade': str(grade),
+                'timestamp_source': str(source),
                 'configured_fps': take.config.fps,
                 'frame_budget': take.config.frame_budget,
                 'measured_fps': measured_fps,

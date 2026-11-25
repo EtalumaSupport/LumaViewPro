@@ -245,8 +245,10 @@ channel when `video_recording_format` is hyperstack, whatever the run format.
 The run format stacks only stills.
 
 **A manifest's former words.** A manifest an older build wrote may carry a
-word today's does not. Its `manifest_version` does not tell them apart, so a
-reader of older manifests reads each word below as the one beside it. Each
+word today's does not. Its `manifest_version` has been 1 through every change
+below and has never marked one, so a manifest is told by its keys: a reader of
+older manifests reads each word below as the one beside it, and `timestamp_source`
+is the source a saved file names the same way. Each
 row is the word, the key it was a value of (or *key* for a key), the builds
 that wrote it and the commit that changed it, and the word that replaced it.
 
@@ -257,3 +259,4 @@ that wrote it and the commit that changed it, and the word that replaced it.
 | `user_stop` | `end_reason` | 4.0.0-beta29 through beta47, to `a1f4a6793` | `stopped` |
 | `disk_floor` | `end_reason` | 4.0.0-beta29 through beta47, to `33c0f3b77` | `disk_space_critical` |
 | `short_delivery` | *key* | 4.0.0-beta29 and beta30, to `d869046bc` | removed |
+| `timestamp_grade` | *key* | 4.0.0-beta24 through beta48 | `timestamp_source` |

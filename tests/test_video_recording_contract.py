@@ -49,7 +49,7 @@ REQUIRED_MANIFEST_KEYS = {
     'frames_written',
     'write_failures',
     'frames_unstamped',
-    'timestamp_grade',
+    'timestamp_source',
     'measured_fps',
     'measured_duration_s',
     'frame_index',
@@ -443,9 +443,9 @@ class TestMeasuredTruth:
             feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1, chunks=True)
             engine.stop('stopped')
             assert engine.wait_for_drain(timeout=5)
-            assert engine.result().timestamp_grade is source
+            assert engine.result().timestamp_source is source
             manifest = json.loads(engine.result().manifest_path.read_text())
-            assert manifest['timestamp_grade'] == source.value
+            assert manifest['timestamp_source'] == source.value
 
     def test_an_unstamped_frame_is_counted_and_never_selected(self, tmp_path):
         engine, _writer, clock, _ = make_engine(tmp_path)

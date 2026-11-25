@@ -478,7 +478,7 @@ class TestFramesLeg:
         assert manifest['camera']['serial'] == 'TC9K-001'
         assert manifest['camera']['timestamp_tick_hz'] == TICK_HZ
         assert manifest['provenance']['software']['lvp_version'] is not None
-        assert manifest['timestamp_grade'] == 'camera_frame_start'
+        assert manifest['timestamp_source'] == 'camera_frame_start'
         assert all(entry['chunks'] is not None for entry in manifest['frame_index'])
 
     def test_a_live_folder_moved_while_the_recording_starts_is_the_next_recordings(self, tmp_path):
@@ -577,7 +577,7 @@ class TestFramesLeg:
 
         folder = next((tmp_path / 'Manual').glob('Video_*'))
         manifest = json.loads((folder / 'recording_manifest.json').read_text())
-        assert manifest['timestamp_grade'] == 'host_arrival'
+        assert manifest['timestamp_source'] == 'host_arrival'
         arrivals = [start + 0.1 * (i + 1) + jitter[i] for i in range(3)]
         assert [entry['ts_s'] for entry in manifest['frame_index']] == pytest.approx(
             arrivals, abs=1e-6

@@ -70,7 +70,7 @@ def _report_recording(name, manifest, waited_s):
         'end_reason',
         'measured_fps',
         'measured_duration_s',
-        'timestamp_grade',
+        'timestamp_source',
     ):
         figure(f'{name}.{key}', manifest.get(key))
     check(f'{name}: its budget is {_BUDGET}', manifest['frame_budget'] == _BUDGET)

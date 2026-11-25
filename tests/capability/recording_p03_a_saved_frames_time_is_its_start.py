@@ -244,13 +244,13 @@ def _manual(session, live, as_frames):
         'frames_written',
         'write_failures',
         'frames_unstamped',
-        'timestamp_grade',
+        'timestamp_source',
     ):
         figure(f'{name}.{key}', manifest.get(key))
     check(
         f'{name}: the manifest is graded camera_frame_start',
-        manifest.get('timestamp_grade') == 'camera_frame_start',
-        manifest.get('timestamp_grade'),
+        manifest.get('timestamp_source') == 'camera_frame_start',
+        manifest.get('timestamp_source'),
     )
     check(
         f'{name}: no frame came without its tick',
