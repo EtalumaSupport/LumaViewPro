@@ -1,0 +1,121 @@
+# Builds the libusb the Lumascope Classic runs on under Windows x64:
+# libusb v1.0.30 with the patches in src/_lumascope/drivers/libusb_windows/
+# (that folder's README says why and when it retires). The DLL and its
+# source zip are uploaded as one artifact and committed into that folder
+# by hand.
+name: build-libusb-windows
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/_lumascope/drivers/libusb_windows/*.patch'
+      - '.github/workflows/build-libusb-windows.yml'
+
+permissions:
+  contents: read
+
+env:
+  LIBUSB_TAG: v1.0.30
+  LIBUSB_SHA: 87a55632db62c9bdc58cd31d3ccfa673f1bb017f
+  BUILD_RC: '-etaluma.1'
+  SOURCE_ZIP: libusb-1.0.30-etaluma.1-source.zip
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      # The runner checks out with CRLF line endings, which the patches'
+      # LF context would not match.
+      - name: Check out as committed
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+        with:
+          path: lvp
+
+      - uses: actions/checkout@v4
+        with:
+          repository: libusb/libusb
+          ref: ${{ env.LIBUSB_TAG }}
+          path: libusb
+
+      - name: The tag is the commit the README names
+        shell: pwsh
+        run: |
+          $sha = git -C libusb rev-parse HEAD
+          if ($sha -ne $env:LIBUSB_SHA) { throw "$env:LIBUSB_TAG is $sha, not $env:LIBUSB_SHA" }
+
+      - name: Apply the patches
+        shell: pwsh
+        run: |
+          $patches = Get-ChildItem lvp/src/_lumascope/drivers/libusb_windows/*.patch | Sort-Object Name
+          if ($patches.Count -ne 2) { throw "expected 2 patches, found $($patches.Count)" }
+          foreach ($p in $patches) {
+            git -C libusb apply --check $p.FullName
+            if ($LASTEXITCODE -ne 0) { throw "$($p.Name) does not apply at $env:LIBUSB_TAG" }
+            git -C libusb apply $p.FullName
+            if ($LASTEXITCODE -ne 0) { throw "$($p.Name) failed to apply" }
+          }
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: The source zip, before the build touches the tree
+        shell: python
+        run: |
+          import os, pathlib, subprocess, zipfile
+          root = pathlib.Path('libusb')
+          prefix = 'libusb-1.0.30' + os.environ['BUILD_RC'] + '/'
+          tracked = subprocess.run(
+              ['git', '-C', 'libusb', 'ls-files', '-z'], check=True, capture_output=True
+          ).stdout.decode().split('\0')
+          with zipfile.ZipFile(os.environ['SOURCE_ZIP'], 'w', zipfile.ZIP_DEFLATED) as z:
+              for name in filter(None, tracked):
+                  z.write(root / name, prefix + name)
+              for patch in sorted(pathlib.Path('lvp/src/_lumascope/drivers/libusb_windows').glob('*.patch')):
+                  z.write(patch, prefix + 'etaluma/' + patch.name)
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Build the DLL (x64, Release)
+        shell: pwsh
+        run: |
+          msbuild libusb\msvc\libusb_dll.vcxproj /p:Configuration=Release /p:Platform=x64 /m
+          if ($LASTEXITCODE -ne 0) { throw 'msbuild failed' }
+          $dll = @(Get-ChildItem libusb\build -Recurse -Filter libusb-1.0.dll)
+          if ($dll.Count -ne 1) { throw "expected one libusb-1.0.dll, found $($dll.Count)" }
+          New-Item -ItemType Directory out | Out-Null
+          Copy-Item $dll[0].FullName out\libusb-1.0.dll
+          Move-Item $env:SOURCE_ZIP out\
+
+      - name: python-libusb1 at the pin
+        shell: pwsh
+        run: |
+          $pin = (Select-String -Path lvp\requirements.txt -Pattern '^libusb1==').Line
+          if (-not $pin) { throw 'no libusb1 pin in requirements.txt' }
+          python -m pip install $pin
+          if ($LASTEXITCODE -ne 0) { throw "pip install $pin failed" }
+
+      - name: It loads, and names itself the build
+        shell: python
+        run: |
+          import ctypes, os, sys, usb1
+          path = os.path.abspath(os.path.join('out', 'libusb-1.0.dll'))
+          if not usb1.loadLibrary(ctypes.CDLL(path)):
+              sys.exit('python-libusb1 had already loaded another libusb')
+          version = usb1.getVersion()
+          print(version)
+          if version.rc.decode() != os.environ['BUILD_RC']:
+              sys.exit(f"the build names itself {version.rc!r}, not {os.environ['BUILD_RC']!r}")
+
+      - name: SHA-256 of each file
+        shell: pwsh
+        run: Get-FileHash out\* -Algorithm SHA256 | Format-Table -AutoSize Hash, Path | Out-String -Width 300
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libusb-windows-x64
+          path: out/
+          if-no-files-found: error

@@ -1,0 +1,44 @@
+From c8213ec1c0d3f85be91d94bc7167566e1e02cc6d Mon Sep 17 00:00:00 2001
+From: Eric Weiner <eweiner@etaluma.com>
+Date: Wed, 25 Nov 2026 15:23:59 -0800
+Subject: [PATCH 2/2] etaluma: name the build -etaluma.1 and mark the modified
+ file
+
+LIBUSB_RC is "-etaluma.1", so libusb_get_version() and the DLL's file
+version name this build; windows_winusb.c says it was modified, by whom
+and when (LGPL-2.1 section 2(b)). Etaluma's alone, never sent upstream.
+---
+ libusb/os/windows_winusb.c | 5 +++++
+ libusb/version.h           | 2 +-
+ 2 files changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/libusb/os/windows_winusb.c b/libusb/os/windows_winusb.c
+index 2bcc278..1cbfbf1 100644
+--- a/libusb/os/windows_winusb.c
++++ b/libusb/os/windows_winusb.c
+@@ -8,6 +8,11 @@
+  * Hash table functions adapted from glibc, by Ulrich Drepper et al.
+  * Major code testing contribution by Xiaofan Chen
+  *
++ * Modified by Etaluma, Inc., 2026-11-25: libusb PR #1967 ("windows: ensure
++ * ISO completion callbacks on cancellation and retry failure") applied to
++ * v1.0.30, in winusbx_native_iso_transfer_continue_stream_callback and the
++ * comment in winusbx_submit_iso_transfer.
++ *
+  * This library is free software; you can redistribute it and/or
+  * modify it under the terms of the GNU Lesser General Public
+  * License as published by the Free Software Foundation; either
+diff --git a/libusb/version.h b/libusb/version.h
+index 2a92658..9218339 100644
+--- a/libusb/version.h
++++ b/libusb/version.h
+@@ -14,5 +14,5 @@
+ #endif
+ /* LIBUSB_RC is the release candidate suffix. Should normally be empty. */
+ #ifndef LIBUSB_RC
+-#define LIBUSB_RC ""
++#define LIBUSB_RC "-etaluma.1"
+ #endif
+-- 
+2.50.1 (Apple Git-155)
+
