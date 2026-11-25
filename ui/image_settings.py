@@ -422,10 +422,18 @@ class ImageSettings(BoxLayout):
 
 
 def set_histogram_channel(active_channel):
-    """Draw *active_channel*'s histogram every half second, and no other channel's."""
+    """Draw *active_channel*'s histogram every half second, and no other channel's.
+
+    Every other channel's histogram is blanked, so a channel shown again
+    never shows bars from its last showing before its first draw, nor at
+    all while the picture is frozen or a run holds the scope.
+    """
     image_settings = _app_ctx.ctx.image_settings
     if image_settings._histogram_tick is not None:
         image_settings._histogram_tick.cancel()
+    for channel in common_utils.get_channels():
+        if channel != active_channel:
+            image_settings.channel_control_lookup(channel=channel).ids['histo_id'].blank()
     channel_control = image_settings.channel_control_lookup(channel=active_channel)
     image_settings._histogram_tick = schedule_ui_interval(
         channel_control.ids['histo_id'].histogram, 0.5, f'HISTOGRAM_{active_channel}'

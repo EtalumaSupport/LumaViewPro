@@ -1,24 +1,22 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The live histogram must compute only when it is actually on screen.
+"""The live histogram draws the live frame, only when it is on screen, and never a frame no longer live.
 
 The histogram is a live-image tool with no value off-screen, yet its
-0.5 s Clock keeps ticking in states where the widget is not displayed.
-Beyond the paused / protocol-running guards (#534), the camera-controls
-toggle can hide the histogram while the accordion is still expanded and
-preview playing -- there the old code still did the camera read +
-128-bin mesh build + GPU upload for nothing.
+0.5 s Clock keeps ticking in states where the widget is not displayed;
+Histogram._is_displayed holds the display conditions, and the tick skips
+its work whenever the widget is off-screen.
 
-Histogram._is_displayed centralizes the real display conditions so the
-expensive work is skipped whenever the widget is off-screen.
+While a run holds the scope or the picture is frozen, the tick reads no
+frame (#534). A run, a camera gone and a channel left blank the bars, since
+the live picture goes on (or says the camera is gone) while the bars would
+be a frame from before; a freeze keeps them, the frozen frame's own.
 
 Test approach
 -------------
-The conftest stubs kivy with MagicMock, so ui.histogram (which imports
-kivy.graphics) can't be imported. Instead we extract _is_displayed from
-source and exec it in isolation -- it has no kivy dependency, only
-self.layer + ctx.image_settings -- and exercise the real logic via a
-duck-typed self/ctx. Plus an AST/source lock that the guard runs before
-the camera read.
+_is_displayed runs in isolation over a duck-typed self/ctx. The tick runs
+the real widget over the simulator's session (``gui_ctx``): the conftest's
+Kivy stubs make ui.histogram importable, and the widget's canvas is a
+stand-in that records whether bars are on it.
 """
 
 from __future__ import annotations
@@ -26,6 +24,8 @@ from __future__ import annotations
 import ast
 import pathlib
 import textwrap
+
+import pytest
 from tests.stock_channels import LED1, LED2
 
 
@@ -146,7 +146,9 @@ def _a_panel_with_a_recorded_histogram_schedule(monkeypatch):
 
     monkeypatch.setattr(image_settings, 'schedule_ui_interval', schedule)
     controls = {
-        channel: SimpleNamespace(ids={'histo_id': SimpleNamespace(histogram=lambda *a: None)})
+        channel: SimpleNamespace(
+            ids={'histo_id': SimpleNamespace(histogram=lambda *a: None, blank=lambda: None)}
+        )
         for channel in common_utils.get_channels()
     }
     panel = SimpleNamespace(
@@ -198,3 +200,124 @@ def test_showing_another_channel_stops_the_last_ones_histogram(monkeypatch):
     image_settings.set_histogram_channel(active_channel=LED2)
 
     assert scheduled == {controls[LED2].ids['histo_id'].histogram}
+
+
+class _Canvas:
+    """A stand-in by design: Kivy is stubbed in the test process. Records
+    whether bars are on the widget: drawing into it puts them there, a
+    clear takes them off."""
+
+    def __init__(self):
+        self.holds_bars = False
+
+    def clear(self):
+        self.holds_bars = False
+
+    def __enter__(self):
+        self.holds_bars = True
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _a_histogram(channel):
+    from ui.histogram import Histogram
+
+    histogram = Histogram()
+    histogram.channel = channel
+    histogram.bg_color = (1, 1, 1, 1)
+    histogram.canvas = _Canvas()
+    histogram.x, histogram.y, histogram.width, histogram.height = 0, 0, 256, 100
+    return histogram
+
+
+@pytest.fixture
+def shown(gui_ctx, monkeypatch):
+    """LED1's histogram on screen with bars drawn, over the simulator, its frame reads counted."""
+    from types import SimpleNamespace
+
+    import _lumascope.modules.common_utils as common_utils
+    import ui.image_settings as image_settings
+
+    # a stand-in by design: the Kivy tree never runs here; the panel answers
+    # the histogram's display questions and hands each channel's widgets
+    histograms = {channel: _a_histogram(channel) for channel in common_utils.get_channels()}
+    controls = {
+        channel: SimpleNamespace(
+            show_camera_controls=True,
+            ids={'logHistogram_id': SimpleNamespace(active=False), 'histo_id': widget},
+        )
+        for channel, widget in histograms.items()
+    }
+    gui_ctx.image_settings = SimpleNamespace(
+        ids={'toggle_imagesettings': SimpleNamespace(state='down')},
+        accordion_item_lookup=lambda channel: SimpleNamespace(collapse=False),
+        channel_control_lookup=lambda channel: controls[channel],
+        _histogram_tick=None,
+    )
+    gui_ctx.viewer = SimpleNamespace(black=0.0, white=1.0)
+    monkeypatch.setattr(
+        image_settings,
+        'schedule_ui_interval',
+        lambda callback, _interval, _label: SimpleNamespace(cancel=lambda: None),
+    )
+    gui_ctx.scope.imaging.capture_image()
+    reads = []
+    real_read = gui_ctx.scope.imaging.buffered_image
+
+    def counted_read(*args, **kwargs):
+        reads.append(1)
+        return real_read(*args, **kwargs)
+
+    monkeypatch.setattr(gui_ctx.scope.imaging, 'buffered_image', counted_read)
+    histograms[LED1].histogram()
+    assert histograms[LED1].canvas.holds_bars
+    reads.clear()
+    return SimpleNamespace(
+        ctx=gui_ctx, histograms=histograms, reads=reads, image_settings=image_settings
+    )
+
+
+def test_a_run_holding_the_scope_blanks_the_bars_and_reads_no_frame(shown):
+    with shown.ctx.session.diagnostic_claim():
+        shown.histograms[LED1].histogram()
+
+        assert not shown.histograms[LED1].canvas.holds_bars
+        assert shown.reads == []
+
+
+def test_the_bars_return_on_the_first_tick_after_the_run(shown):
+    with shown.ctx.session.diagnostic_claim():
+        shown.histograms[LED1].histogram()
+
+    shown.histograms[LED1].histogram()
+
+    assert shown.histograms[LED1].canvas.holds_bars
+
+
+def test_a_frozen_picture_keeps_its_frames_bars_and_reads_no_frame(shown):
+    shown.ctx.scope_display_thread.pause()
+
+    shown.histograms[LED1].histogram()
+
+    assert shown.histograms[LED1].canvas.holds_bars
+    assert shown.reads == []
+
+
+def test_a_camera_gone_blanks_the_bars(shown):
+    # a stand-in by design: the simulated camera has no unplug of its own
+    # (a simulator gap); the driver's removal mark is what a USB drop sets
+    shown.ctx.scope._camera_driver._mark_disconnected()
+
+    shown.histograms[LED1].histogram()
+
+    assert not shown.histograms[LED1].canvas.holds_bars
+
+
+def test_a_channel_left_keeps_no_bars_for_its_next_showing(shown):
+    shown.image_settings.set_histogram_channel(active_channel=LED1)
+
+    shown.image_settings.set_histogram_channel(active_channel=LED2)
+
+    assert not shown.histograms[LED1].canvas.holds_bars

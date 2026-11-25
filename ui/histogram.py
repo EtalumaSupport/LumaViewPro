@@ -28,6 +28,12 @@ class Histogram(Widget):
         self._mesh = None
         self._mesh_color = None
 
+    def blank(self) -> None:
+        """Take the bars off: the next draw builds them afresh."""
+        self.canvas.clear()
+        self._mesh = None
+        self._mesh_color = None
+
     def _is_displayed(self, ctx) -> bool:
         """Whether this histogram is actually visible on screen.
 
@@ -59,13 +65,15 @@ class Histogram(Widget):
         if ctx.scope_display_thread.is_paused:
             return
 
-        # Skip during protocol acquisition. The histogram contends with
-        # the capture / protocol pipeline for buffered_image and
-        # the texture isn't user-visible during a run anyway. The run
-        # surface's own holder, not the lockout: an idle control session
-        # locks the controls while the live picture still shows the scope.
+        # Off while a run holds the scope: no frame is read or binned during
+        # a run. Blank, not left standing: the live picture goes on through
+        # the run, and bars left from before it would describe a frame no
+        # longer shown. The run surface's own holder, not the lockout: an
+        # idle control session locks the controls while the live picture
+        # still shows the scope.
         session = getattr(ctx, 'session', None)
         if session is not None and session.controls_lock.run_named is not None:
+            self.blank()
             return
 
         # The histogram is a live-image tool: compute only when it is
@@ -78,84 +86,85 @@ class Histogram(Widget):
 
         bins = 128
 
-        if ctx.scope.camera.active:
-            # Every fourth pixel of every fourth row, about 16x fewer to
-            # convert and count; the sample is the image's own pixels, with
-            # no scale bar drawn into it.
-            sampled, _ = ctx.scope.imaging.buffered_image(force_to_8bit=True, stride=4)
-            if sampled is None:
-                return
+        # Every fourth pixel of every fourth row, about 16x fewer to
+        # convert and count; the sample is the image's own pixels, with
+        # no scale bar drawn into it.
+        sampled, _ = ctx.scope.imaging.buffered_image(force_to_8bit=True, stride=4)
+        # No frame: a camera gone (the read answers none once it is) or none
+        # stored yet. The live picture says so, and bars from the last frame
+        # would describe one no longer there.
+        if sampled is None:
+            self.blank()
+            return
 
-            counts, _ = np.histogram(sampled, bins=bins, range=(0, 256))
+        counts, _ = np.histogram(sampled, bins=bins, range=(0, 256))
 
-            ctx.viewer.black = 0.0
-            ctx.viewer.white = 1.0
+        ctx.viewer.black = 0.0
+        ctx.viewer.white = 1.0
 
-            # Compute bar heights with vectorized numpy
-            channel_control = ctx.image_settings.channel_control_lookup(channel=self.channel)
-            use_log = channel_control.ids['logHistogram_id'].active
+        # Compute bar heights with vectorized numpy
+        channel_control = ctx.image_settings.channel_control_lookup(channel=self.channel)
+        use_log = channel_control.ids['logHistogram_id'].active
 
-            if use_log:
-                heights = np.log(counts.astype(np.float64) + 1)
-            else:
-                heights = counts.astype(np.float64)
+        if use_log:
+            heights = np.log(counts.astype(np.float64) + 1)
+        else:
+            heights = counts.astype(np.float64)
 
-            max_height = heights.max()
-            if max_height <= 0:
-                self.canvas.clear()
-                self._mesh = None
-                self._mesh_color = None
-                return
+        max_height = heights.max()
+        if max_height <= 0:
+            self.blank()
+            return
 
-            x = self.x
-            y = self.y
-            w = self.width
-            h = self.height
-            bin_size = w / bins
-            scale = h / max_height
-            heights = heights * scale
+        x = self.x
+        y = self.y
+        w = self.width
+        h = self.height
+        bin_size = w / bins
+        scale = h / max_height
+        heights = heights * scale
 
-            # Build triangle strip vertices: 2 triangles per bar (bottom-left, top-left, bottom-right, top-right)
-            # Each vertex: (x, y, u, v) where u,v are texture coords (unused but required by Mesh)
-            vertices = []
-            for i in range(bins):
-                bx = x + i * bin_size
-                bar_h = heights[i]
-                vertices.extend(
-                    [
-                        bx,
-                        y,
-                        0,
-                        0,
-                        bx,
-                        y + bar_h,
-                        0,
-                        0,
-                        bx + bin_size,
-                        y,
-                        0,
-                        0,
-                        bx + bin_size,
-                        y + bar_h,
-                        0,
-                        0,
-                    ]
-                )
+        # Build triangle strip vertices: 2 triangles per bar (bottom-left, top-left, bottom-right, top-right)
+        # Each vertex: (x, y, u, v) where u,v are texture coords (unused but required by Mesh)
+        vertices = []
+        for i in range(bins):
+            bx = x + i * bin_size
+            bar_h = heights[i]
+            vertices.extend(
+                [
+                    bx,
+                    y,
+                    0,
+                    0,
+                    bx,
+                    y + bar_h,
+                    0,
+                    0,
+                    bx + bin_size,
+                    y,
+                    0,
+                    0,
+                    bx + bin_size,
+                    y + bar_h,
+                    0,
+                    0,
+                ]
+            )
 
-            # Build indices for individual triangle strips per bar
-            indices = []
-            for i in range(bins):
-                base = i * 4
-                indices.extend([base, base + 1, base + 2, base + 1, base + 2, base + 3])
+        # Build indices for individual triangle strips per bar
+        indices = []
+        for i in range(bins):
+            base = i * 4
+            indices.extend([base, base + 1, base + 2, base + 1, base + 2, base + 3])
 
-            r, b, g, a = self.bg_color
-            self.hist = (counts, None)
-            if self._mesh is None:
-                self.canvas.clear()
-                with self.canvas:
-                    self._mesh_color = Color(r, b, g, a / 2)
-                    self._mesh = Mesh(vertices=vertices, indices=indices, mode='triangles')
-            else:
-                self._mesh_color.rgba = (r, b, g, a / 2)
-                self._mesh.vertices = vertices
-                self._mesh.indices = indices
+        r, b, g, a = self.bg_color
+        self.hist = (counts, None)
+        if self._mesh is None:
+            self.canvas.clear()
+            with self.canvas:
+                self._mesh_color = Color(r, b, g, a / 2)
+                self._mesh = Mesh(vertices=vertices, indices=indices, mode='triangles')
+        else:
+            self._mesh_color.rgba = (r, b, g, a / 2)
+            self._mesh.vertices = vertices
+            self._mesh.indices = indices

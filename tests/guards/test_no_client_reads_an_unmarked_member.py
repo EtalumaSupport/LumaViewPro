@@ -64,7 +64,6 @@ _FORWARDERS = (app_context.AppContext,)
 # the surface for. The four single builds are the GUI's until its builds
 # move onto ``build`` (NEXT_DOCS "A combined post-processing option").
 _PINNED: dict[str, int] = {
-    'CameraAPI.active': 1,
     'CameraAPI.known_setting_limits': 1,
     'DeliveredRate.megabytes_per_s': 1,
     'ImagingAPI.buffered_image': 2,
