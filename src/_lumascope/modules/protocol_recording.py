@@ -242,7 +242,7 @@ class ProtocolVideoStep:
         # The camera's clock as the step took it at start; None on a camera
         # without a latch, whose frames state their arrival.
         self._mapping: ClockMapping | None = None
-        self._tick_freq_hz: float | None = None
+        self._camera_timestamp_tick_hz: float | None = None
         self._camera: RecordingCamera | None = None
         self._output_dir: Path | None = None
         self._frames_seen = 0
@@ -374,7 +374,7 @@ class ProtocolVideoStep:
         # The size the file is made at: held, else read, so an unknown one is
         # asked for (CameraReadFailedError when the camera does not answer).
         frame_size = scope.camera.frame_size or scope.camera.read_frame_size()
-        self._tick_freq_hz = camera.camera_timestamp_tick_hz
+        self._camera_timestamp_tick_hz = camera.camera_timestamp_tick_hz
         # The objective, read once per step alongside the other
         # start-of-recording camera facts: it cannot change while a step
         # records. An unknown one refuses the step (ObjectiveUnknownError): a
@@ -415,7 +415,7 @@ class ProtocolVideoStep:
                 'camera': {
                     'model': camera.camera_model,
                     'serial': camera.camera_serial_number,
-                    'timestamp_tick_hz': self._tick_freq_hz,
+                    'timestamp_tick_hz': self._camera_timestamp_tick_hz,
                 },
                 'provenance': {
                     'host': gather_host_provenance(),

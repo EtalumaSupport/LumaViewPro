@@ -1394,7 +1394,7 @@ def _a_full_still(
         illumination_ma={bf_address: 50.0},
         frame_significant_bits=significant_bits,
         camera_timestamp_ticks=123,
-        camera_tick_hz=1_000_000_000,
+        camera_timestamp_tick_hz=1_000_000_000,
         frame_id=7,
         binning_size=2,
         camera_model='daA3840-45um',

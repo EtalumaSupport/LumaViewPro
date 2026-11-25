@@ -9500,7 +9500,7 @@ middle by the steady clock.
 
 - <a id="ClockMapping.camera_ticks"></a>`camera_ticks`: `int` -- The camera's clock the latch latched.
 - <a id="ClockMapping.host_ns"></a>`host_ns`: `int` -- The scope's steady clock (`ScopeSession.host_steady_ns`) at the middle of the bracket.
-- <a id="ClockMapping.tick_hz"></a>`tick_hz`: `int` -- Ticks per second of the camera's clock.
+- <a id="ClockMapping.tick_hz"></a>`tick_hz`: `int` -- Ticks per second of the camera's clock, the same read of `ScopeCapabilities.camera_timestamp_tick_hz` a frame's record carries as `FrameRecord.camera_timestamp_tick_hz`.
 - <a id="ClockMapping.uncertainty_ns"></a>`uncertainty_ns`: `int` -- Half the bracket.
 - <a id="ClockMapping.wall_ns"></a>`wall_ns`: `int` -- The host's wall clock (`time.time_ns()`) at `host_ns`.
 
@@ -9857,7 +9857,7 @@ Built only by this module's two entries: `grab_record` for a still,
 - <a id="FrameRecord.binning_size"></a>`binning_size`: `int` -- Binning the frame was delivered at.
 - <a id="FrameRecord.black_level"></a>`black_level`: `float | None` -- The camera's black level parameter the frame was taken at, in the camera's own units (`CameraAPI.read_black_level`). None for a recorded frame: no frame reports it.
 - <a id="FrameRecord.camera_model"></a>`camera_model`: `str | None` -- The camera that took it.
-- <a id="FrameRecord.camera_tick_hz"></a>`camera_tick_hz`: `int | None` -- Ticks per second of that clock.
+- <a id="FrameRecord.camera_timestamp_tick_hz"></a>`camera_timestamp_tick_hz`: `int | None` -- Ticks per second of that clock (`ScopeCapabilities.camera_timestamp_tick_hz`, the rate a `ClockMapping` holds as `tick_hz`).
 - <a id="FrameRecord.camera_timestamp_ticks"></a>`camera_timestamp_ticks`: `int | None` -- The camera's own clock for the frame (for a summed capture, the first frame's).
 - <a id="FrameRecord.captured_at"></a>`captured_at`: `FrameTime` -- When the frame was taken, with what that time is (`FrameTime`).
 - <a id="FrameRecord.clock_mapping"></a>`clock_mapping`: `ClockMapping | None` -- The camera's clock mapped onto the host's, latched by the capture at the top of the cycle that grabbed the frame, before its drain (`ClockMapping`); None on a camera without a latch (`capabilities.camera_has_clock_latch`), and when the latch probe failed as the camera came up.

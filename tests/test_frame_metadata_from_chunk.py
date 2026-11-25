@@ -159,7 +159,7 @@ def test_chunk_provenance_fields_recorded():
         _imaging(), {'ExposureTime': 5000.0, 'Gain': 3.0, 'Timestamp': 42, 'FrameID': 7}
     )
     assert record.camera_timestamp_ticks == 42
-    assert record.camera_tick_hz == 1_000_000_000
+    assert record.camera_timestamp_tick_hz == 1_000_000_000
     assert record.frame_id == 7
 
 

@@ -57,7 +57,9 @@ A_LIGHT = Light(channel=LED1, illumination_by_channel_ma={LED1: 100.0})
 A_TIME = FrameTime(
     at=wall_time.local_time(1_755_000_000_000_000_000), source=TimestampSource.HOST_ARRIVAL
 )
-A_CAMERA = RecordingCamera(binning_size=2, camera_model='simulated', camera_tick_hz=1_000_000_000)
+A_CAMERA = RecordingCamera(
+    binning_size=2, camera_model='simulated', camera_timestamp_tick_hz=1_000_000_000
+)
 
 # A simulated manual recording here ends itself at its time limit, the
 # setting's least, and the test waits on its operation. A recording keeps
@@ -208,7 +210,11 @@ class TestTheRecord:
         assert record.captured_at == A_TIME
         assert record.frame_significant_bits == 12
         assert record.frames_summed == 1
-        assert (record.binning_size, record.camera_model, record.camera_tick_hz) == A_CAMERA
+        assert (
+            record.binning_size,
+            record.camera_model,
+            record.camera_timestamp_tick_hz,
+        ) == A_CAMERA
         assert record.illumination_timing is LightTiming.ON_ARRIVAL
         assert record.held_channel == sim_scope.camera.get_held_channel()
 

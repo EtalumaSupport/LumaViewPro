@@ -1259,7 +1259,7 @@ class ImagingAPI:
             frame_significant_bits=frame_significant_bits,
             binning_size=self._camera._held_or_read('binning'),
             camera_model=camera.camera_model,
-            camera_tick_hz=camera.camera_timestamp_tick_hz,
+            camera_timestamp_tick_hz=camera.camera_timestamp_tick_hz,
             clock_mapping=clock_mapping,
             judgments=judgments,
             saturated_fraction=saturated_fraction,

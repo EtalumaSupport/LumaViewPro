@@ -254,7 +254,7 @@ class RecordingCamera(NamedTuple):
 
     binning_size: int
     camera_model: str | None
-    camera_tick_hz: int | None
+    camera_timestamp_tick_hz: int | None
 
 
 def recording_camera(scope: 'Lumascope') -> RecordingCamera:
@@ -268,7 +268,7 @@ def recording_camera(scope: 'Lumascope') -> RecordingCamera:
     return RecordingCamera(
         binning_size=scope.camera.binning or scope.camera.read_binning(),
         camera_model=camera.camera_model,
-        camera_tick_hz=camera.camera_timestamp_tick_hz,
+        camera_timestamp_tick_hz=camera.camera_timestamp_tick_hz,
     )
 
 
@@ -321,7 +321,7 @@ def arrival(
             held_channel=scope.camera.get_held_channel(),
             binning_size=camera.binning_size,
             camera_model=camera.camera_model,
-            camera_tick_hz=camera.camera_tick_hz,
+            camera_timestamp_tick_hz=camera.camera_timestamp_tick_hz,
         ),
     )
 

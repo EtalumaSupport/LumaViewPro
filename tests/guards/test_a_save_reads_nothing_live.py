@@ -45,7 +45,7 @@ def _record(illumination_ma=None):
         frames_summed=2,
         frame_significant_bits=12,
         camera_timestamp_ticks=1000,
-        camera_tick_hz=1_000_000_000,
+        camera_timestamp_tick_hz=1_000_000_000,
         frame_id=7,
         camera_model='simulated',
     )

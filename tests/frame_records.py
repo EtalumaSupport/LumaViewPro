@@ -38,7 +38,7 @@ def frame_record(**overrides) -> FrameRecord:
         'frames_summed': 1,
         'frame_significant_bits': 8,
         'camera_timestamp_ticks': None,
-        'camera_tick_hz': None,
+        'camera_timestamp_tick_hz': None,
         'frame_id': None,
         'binning_size': 1,
         'camera_model': None,

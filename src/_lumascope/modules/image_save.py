@@ -514,8 +514,8 @@ def generate_image_metadata(
     # (Pylon ace 2 / dart; IDS carries no chunk timestamp).
     if frame_record.camera_timestamp_ticks is not None:
         metadata['camera_timestamp_ticks'] = frame_record.camera_timestamp_ticks
-    if frame_record.camera_tick_hz is not None:
-        metadata['camera_timestamp_tick_hz'] = frame_record.camera_tick_hz
+    if frame_record.camera_timestamp_tick_hz is not None:
+        metadata['camera_timestamp_tick_hz'] = frame_record.camera_timestamp_tick_hz
     if frame_record.frame_id is not None:
         metadata['frame_id'] = frame_record.frame_id
     # Whether the frame counts for each change, and how long after it came.

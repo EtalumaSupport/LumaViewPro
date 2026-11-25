@@ -51,7 +51,9 @@ class ClockMapping:
         host_ns: The scope's steady clock (``ScopeSession.host_steady_ns``) at the
             middle of the bracket.
         camera_ticks: The camera's clock the latch latched.
-        tick_hz: Ticks per second of the camera's clock.
+        tick_hz: Ticks per second of the camera's clock, the same read of
+            ``ScopeCapabilities.camera_timestamp_tick_hz`` a frame's record
+            carries as ``FrameRecord.camera_timestamp_tick_hz``.
         uncertainty_ns: Half the bracket.
         wall_ns: The host's wall clock (``time.time_ns()``) at ``host_ns``.
     """
@@ -176,7 +178,7 @@ class LightTiming(enum.StrEnum):
     'black_level',
     'binning_size',
     'camera_model',
-    'camera_tick_hz',
+    'camera_timestamp_tick_hz',
     'camera_timestamp_ticks',
     'captured_at',
     'clock_mapping',
@@ -230,7 +232,9 @@ class FrameRecord:
             from.
         camera_timestamp_ticks: The camera's own clock for the frame
             (for a summed capture, the first frame's).
-        camera_tick_hz: Ticks per second of that clock.
+        camera_timestamp_tick_hz: Ticks per second of that clock
+            (``ScopeCapabilities.camera_timestamp_tick_hz``, the rate a
+            ``ClockMapping`` holds as ``tick_hz``).
         frame_id: The camera's frame counter for the frame.
         binning_size: Binning the frame was delivered at.
         camera_model: The camera that took it.
@@ -273,7 +277,7 @@ class FrameRecord:
     frames_summed: int
     frame_significant_bits: int
     camera_timestamp_ticks: int | None
-    camera_tick_hz: int | None
+    camera_timestamp_tick_hz: int | None
     frame_id: int | None
     binning_size: int
     camera_model: str | None
@@ -344,7 +348,7 @@ def grab_record(
     frame_significant_bits: int,
     binning_size: int,
     camera_model: str | None,
-    camera_tick_hz: int | None,
+    camera_timestamp_tick_hz: int | None,
     clock_mapping: ClockMapping | None,
     judgments: tuple[Judgment, ...],
     saturated_fraction: float | None,
@@ -382,7 +386,7 @@ def grab_record(
         frames_summed=frames_summed,
         frame_significant_bits=frame_significant_bits,
         camera_timestamp_ticks=facts.ticks,
-        camera_tick_hz=camera_tick_hz,
+        camera_timestamp_tick_hz=camera_timestamp_tick_hz,
         frame_id=facts.frame_id,
         binning_size=binning_size,
         camera_model=camera_model,
@@ -404,7 +408,7 @@ def delivered_frame_record(
     held_channel: str | None,
     binning_size: int,
     camera_model: str | None,
-    camera_tick_hz: int | None,
+    camera_timestamp_tick_hz: int | None,
 ) -> FrameRecord:
     """The record of a recorded frame, built on the camera callback as it arrives.
 
@@ -431,7 +435,7 @@ def delivered_frame_record(
         frames_summed=1,
         frame_significant_bits=frame_significant_bits,
         camera_timestamp_ticks=facts.ticks,
-        camera_tick_hz=camera_tick_hz,
+        camera_timestamp_tick_hz=camera_timestamp_tick_hz,
         frame_id=facts.frame_id,
         binning_size=binning_size,
         camera_model=camera_model,
