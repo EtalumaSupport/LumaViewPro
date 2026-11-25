@@ -90,3 +90,23 @@ def test_a_frame_with_nothing_in_it_has_no_score():
     assert np.isnan(af.focus_function(image=black))
     assert np.isnan(af.focus_function(image=blown))
     assert af.focus_function(image=dim) == _reference_vollath4(dim)
+
+
+def test_the_masked_share_is_of_the_pixels_autofocus_scores():
+    """``masked_fraction`` counts the pixels the score's mask zeroes (254
+    and 255) in the centre quarter it scores, and nothing outside it: a
+    sweep's ``masked=`` is the share of what its score left out."""
+    frame = np.full((80, 120), 100, dtype=np.uint8)
+    frame[:20] = 255  # above the centre quarter: not scored
+    centre = frame[20:60, 30:90]  # 40 x 60 = 2400 pixels
+    centre[0, :10] = 253  # under the mask's threshold
+    centre[1, :12] = 254
+    centre[2, :18] = 255
+
+    assert af.masked_fraction(frame) == pytest.approx(30 / 2400)
+
+
+def test_the_masked_share_of_a_frame_that_is_not_8_bit_is_refused():
+    native = np.full((64, 64), 4095, dtype=np.uint16)
+    with pytest.raises(ValueError, match='8-bit frames, got uint16'):
+        af.masked_fraction(native)

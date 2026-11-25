@@ -32,9 +32,8 @@ def set_autofocus_algorithm(algorithm: str) -> None:
         raise NotImplementedError(f'Focus algorithm {algorithm} not implemented.')
 
 
-def _mask_saturated(image: np.ndarray, margin: int = 1) -> np.ndarray:
-    """Zero out saturated pixels so they don't dominate focus scores.
-    Pixels within `margin` of the dtype max are considered saturated."""
+def _saturated(image: np.ndarray, margin: int = 1) -> np.ndarray:
+    """The pixels the score takes as saturated: within `margin` of the dtype max."""
     # Thresholding on the dtype max is correct here only because both callers
     # hand this an already-8-bit frame: the AF sweep and the live focus score
     # both score frames pulled through force_to_8bit (capture_still /
@@ -46,11 +45,34 @@ def _mask_saturated(image: np.ndarray, margin: int = 1) -> np.ndarray:
     # or pass the frame's significant bits.
     max_val = np.iinfo(image.dtype).max
     threshold = max_val - margin
-    mask = image >= threshold
+    return image >= threshold
+
+
+def _mask_saturated(image: np.ndarray) -> np.ndarray:
+    """Zero out saturated pixels so they don't dominate focus scores."""
+    mask = _saturated(image)
     if np.any(mask):
         image = image.copy()
         image[mask] = 0
     return image
+
+
+def scored_region(image: np.ndarray) -> np.ndarray:
+    """The part of a frame autofocus scores: its center quarter.
+
+    A tool that states what the score saw (its mean, its percentiles, how
+    it moved) reads this region, so its figures are of the pixels scored.
+    """
+    height, width = image.shape
+    return image[height // 4 : 3 * height // 4, width // 4 : 3 * width // 4]
+
+
+def _require_8bit(image: np.ndarray) -> None:
+    """Refuse a frame that is not 8-bit: ``_saturated`` takes 255 as
+    saturation, so a native-depth frame's clipped pixels would pass as
+    signal."""
+    if image.dtype != np.uint8:
+        raise ValueError(f'the focus score reads 8-bit frames, got {image.dtype}')
 
 
 def autofocus_score(
@@ -63,9 +85,21 @@ def autofocus_score(
     numbers are autofocus's own. NaN for a center with nothing in it, and
     ``ValueError`` for a frame that is not 8-bit, as ``focus_function``.
     """
-    height, width = image.shape
-    center = image[height // 4 : 3 * height // 4, width // 4 : 3 * width // 4]
-    return focus_function(image=center, skip_score_logging=skip_score_logging)
+    return focus_function(image=scored_region(image), skip_score_logging=skip_score_logging)
+
+
+def masked_fraction(image: np.ndarray) -> float:
+    """The share of the pixels ``autofocus_score`` scores that its mask zeroes.
+
+    The same region and the same threshold as the score, so a sweep can say
+    how much of what it scored was left out as clipped; the frame record's
+    ``saturated_fraction`` measures the whole frame at its own threshold.
+
+    Raises:
+        ValueError: the frame is not 8-bit, as ``focus_function``.
+    """
+    _require_8bit(image)
+    return float(np.mean(_saturated(scored_region(image))))
 
 
 def focus_function(
@@ -83,8 +117,7 @@ def focus_function(
             saturation, so a native-depth frame's clipped pixels would be
             scored as signal.
     """
-    if image.dtype != np.uint8:
-        raise ValueError(f'focus_function scores 8-bit frames, got {image.dtype}')
+    _require_8bit(image)
     image = _mask_saturated(image)
     score = _focus_function(image=image) if image.any() else float('nan')
 

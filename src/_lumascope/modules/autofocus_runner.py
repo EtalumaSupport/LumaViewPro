@@ -959,7 +959,8 @@ class AutofocusRunner:
         )
         _af_log.info(
             f'  Z={current_pos:.2f} score={focus_score:.1f} '
-            f'sat={still.record.saturated_fraction * 100.0:.1f}%'
+            f'sat={still.record.saturated_fraction * 100.0:.1f}% '
+            f'masked={autofocus_functions.masked_fraction(still.image) * 100.0:.1f}%'
         )
 
         if self._abort_event is not None and self._abort_event.is_set():

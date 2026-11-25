@@ -100,11 +100,13 @@ def test_the_scored_frame_is_drained_past_the_step_s_z_move():
     )
 
 
-def test_every_scored_point_states_its_frame_s_saturated_share(caplog):
+def test_every_scored_point_states_its_frame_s_saturated_and_masked_shares(caplog):
     """Each point of a sweep logs the saturated share of the frame it
-    scored, the capture's own measurement (``FrameRecord.saturated_fraction``):
-    a clipped frame scores differently, so a reader of ``autofocus.log``
-    can tell a jump in the curve that saturation made.
+    scored, the capture's own measurement (``FrameRecord.saturated_fraction``),
+    and the share of the scored region the score's mask left out
+    (``masked_fraction``): a clipped frame scores differently, so a reader
+    of ``autofocus.log`` can tell a jump in the curve that saturation made,
+    and whether the score itself saw it.
     """
     with _session_over_the_focus_target() as session:
         session.scope.camera.set_exposure_ms(2.0)
@@ -113,5 +115,5 @@ def test_every_scored_point_states_its_frame_s_saturated_share(caplog):
 
     points = [m for m in caplog.messages if m.lstrip().startswith('Z=')]
     assert points, 'the sweep logged no scored point'
-    unstated = [m for m in points if not re.search(r' sat=\d+\.\d%$', m)]
-    assert not unstated, f'points without their saturated share: {unstated[:3]}'
+    unstated = [m for m in points if not re.search(r' sat=\d+\.\d% masked=\d+\.\d%$', m)]
+    assert not unstated, f'points without their saturated and masked shares: {unstated[:3]}'
