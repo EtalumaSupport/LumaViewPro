@@ -47,7 +47,7 @@ def _the_writers_array(session, mode, sum_count, channel, false_color_on):
     config = image_mode.ImageCaptureConfig.from_image_mode(mode)
     still = session.scope.imaging.capture_still(
         force_to_8bit=config.capture_depth == 8,
-        sum_count=sum_count,
+        frames_summed=sum_count,
         accept_dark=True,
         timeout_s=10.0,
     )

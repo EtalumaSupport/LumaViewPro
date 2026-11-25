@@ -1135,7 +1135,7 @@ class ImagingAPI:
         args: tuple = (),
         waiter: concurrent.futures.Future,
         timeout_s: float,
-        sum_count: int,
+        frames_summed: int,
         sum_delay_s: float,
         write_bound_s: float,
     ) -> concurrent.futures.Future:
@@ -1151,7 +1151,7 @@ class ImagingAPI:
         running.
 
         The caller is told within the capture's own bound for ``timeout_s``,
-        ``sum_count`` and ``sum_delay_s`` (as ``capture_still`` bounds it),
+        ``frames_summed`` and ``sum_delay_s`` (as ``capture_still`` bounds it),
         plus the camera's hold of the shown channel, plus ``write_bound_s``,
         the body's own work past the capture.
 
@@ -1160,7 +1160,7 @@ class ImagingAPI:
             once the bound runs out first.
 
         Raises:
-            ArgumentRefusedError: ``'wrong_kind'``, a ``sum_count`` that is
+            ArgumentRefusedError: ``'wrong_kind'``, a ``frames_summed`` that is
                 not a whole number of at least 1; ``'out_of_range'``, one
                 above ``SUM_COUNT_RANGE``'s 100; ``'not_a_number'`` or
                 ``'out_of_range'``, a ``timeout_s`` or ``sum_delay_s`` that is
@@ -1170,7 +1170,7 @@ class ImagingAPI:
                 under its taking.
         """
         grab_s = self._capture_wait_s(
-            (), timeout_s, sum_count, sum_delay_s, exposed_after_call=False
+            (), timeout_s, frames_summed, sum_delay_s, exposed_after_call=False
         )
         return self._camera._submit_camera(
             body,
@@ -1408,7 +1408,7 @@ class ImagingAPI:
         exclude_sources: tuple[FrameValiditySource, ...] = (),
         all_ones_check: bool = False,
         timeout_s: float = 0.0,
-        sum_count: int = 1,
+        frames_summed: int = 1,
         sum_delay_s: float = 0.0,
         sum_iteration_callback: Callable[[SumProgress], None] | None = None,
         exposed_after_call: bool = False,
@@ -1433,7 +1433,7 @@ class ImagingAPI:
         camera-lane task, so a still is held at no settings but its channel's;
         given None, it captures with the camera as set.
 
-        A ``sum_count`` above 100 (``SUM_COUNT_RANGE``) sums 100 frames, the
+        A ``frames_summed`` above 100 (``SUM_COUNT_RANGE``) sums 100 frames, the
         record's ``frames_summed`` says 100, and the capture, once taken,
         reports one ``ValueClampedNotice``.
 
@@ -1456,7 +1456,7 @@ class ImagingAPI:
             timeout_s: Seconds the grab, and each summed frame, keeps taking
                 frames for one that passes its checks, once the stale ones are
                 passed over; 0, the default, gives each one try.
-            sum_count: Frames summed into the image, for noise reduction; a
+            frames_summed: Frames summed into the image, for noise reduction; a
                 sum's array is uint16.
             sum_delay_s: Seconds between summed frames.
             sum_iteration_callback: Called after each summed frame with how
@@ -1477,7 +1477,7 @@ class ImagingAPI:
             camera and (H, W, 3) for a color one, and its record.
 
         Raises:
-            ArgumentRefusedError: ``'wrong_kind'``, ``sum_count`` is not a
+            ArgumentRefusedError: ``'wrong_kind'``, ``frames_summed`` is not a
                 whole number of at least 1; ``'not_a_number'`` or
                 ``'out_of_range'``, a time is not a wait from 0 to 30 days, or
                 the wait for the capture and every frame of its sum together
@@ -1510,8 +1510,8 @@ class ImagingAPI:
                 one of its settings (its ``reason`` says how); nothing was
                 captured.
         """
-        refuse_unless_count(sum_count, 'sum_count')
-        asked_sum, sum_count = sum_count, self._sum_held_to_range(sum_count)
+        refuse_unless_count(frames_summed, 'frames_summed')
+        asked_sum, sum_count = frames_summed, self._sum_held_to_range(frames_summed)
         wait_s = self._capture_wait_s(
             exclude_sources,
             timeout_s,
@@ -1568,7 +1568,7 @@ class ImagingAPI:
         """
         if summed != asked:
             notifications.report_outcome(
-                ValueClampedNotice([('camera', 'sum_count', float(asked), float(summed))]),
+                ValueClampedNotice([('camera', 'frames_summed', float(asked), float(summed))]),
                 solicited=True,
                 category='Camera',
             )
@@ -1593,8 +1593,8 @@ class ImagingAPI:
             ArgumentRefusedError: ``'wrong_kind'``, ``'not_a_number'`` or
                 ``'out_of_range'``, as ``submit_still`` says.
         """
-        refuse_unless_count(sum_count, 'sum_count')
-        refuse_outside(sum_count, 'sum_count', SUM_COUNT_RANGE)
+        refuse_unless_count(sum_count, 'frames_summed')
+        refuse_outside(sum_count, 'frames_summed', SUM_COUNT_RANGE)
         for name, value in (('timeout_s', timeout_s), ('sum_delay_s', sum_delay_s)):
             refuse_unless_wait_s(value, name)
         # The executor wait is a liveness bound, not a budget, so it scales
@@ -2142,7 +2142,7 @@ class ImagingAPI:
         force_to_8bit: bool = True,
         timeout_s: float = 5.0,
         all_ones_check: bool = False,
-        sum_count: int = 1,
+        frames_summed: int = 1,
         sum_delay_s: float = 0.0,
         sum_iteration_callback: Callable[[SumProgress], None] | None = None,
         new_capture_timeout_s: float = 5.0,
@@ -2166,7 +2166,7 @@ class ImagingAPI:
         so the frame may not reflect a just-changed gain, exposure, LED or
         stage position.
 
-        A ``sum_count`` above 100 (``SUM_COUNT_RANGE``) sums 100 frames, and
+        A ``frames_summed`` above 100 (``SUM_COUNT_RANGE``) sums 100 frames, and
         the grab, once taken, reports one ``ValueClampedNotice``.
 
         Args:
@@ -2175,7 +2175,7 @@ class ImagingAPI:
             timeout_s: Seconds to wait for a frame.
             all_ones_check: Measure each frame's saturation: a blown frame is
                 grabbed again once, then kept.
-            sum_count: Frames summed into the image, for noise reduction; a
+            frames_summed: Frames summed into the image, for noise reduction; a
                 sum's array is uint16.
             sum_delay_s: Seconds between summed frames.
             sum_iteration_callback: Called after each summed frame with how
@@ -2192,7 +2192,7 @@ class ImagingAPI:
             with no channel's false color applied.
 
         Raises:
-            ArgumentRefusedError: ``'wrong_kind'``, ``sum_count`` is not a
+            ArgumentRefusedError: ``'wrong_kind'``, ``frames_summed`` is not a
                 whole number of at least 1; ``'not_a_number'`` or
                 ``'out_of_range'``, a time is not a wait from 0 to 30 days, or
                 the wait for every frame of the sum together is longer.
@@ -2203,8 +2203,8 @@ class ImagingAPI:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, absent at the call or removed during the grab.
         """
-        refuse_unless_count(sum_count, 'sum_count')
-        asked_sum, sum_count = sum_count, self._sum_held_to_range(sum_count)
+        refuse_unless_count(frames_summed, 'frames_summed')
+        asked_sum, sum_count = frames_summed, self._sum_held_to_range(frames_summed)
         for name, value in (
             ('timeout_s', timeout_s),
             ('sum_delay_s', sum_delay_s),

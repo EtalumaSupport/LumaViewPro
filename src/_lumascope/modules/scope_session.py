@@ -3162,7 +3162,7 @@ class ScopeSession:
         exclude_sources: tuple[FrameValiditySource, ...] = (),
         all_ones_check: bool = False,
         timeout_s: float = 0.0,
-        sum_count: int = 1,
+        frames_summed: int = 1,
         sum_delay_s: float = 0.0,
         sum_iteration_callback: Callable[[SumProgress], None] | None = None,
         exposed_after_call: bool = False,
@@ -3202,7 +3202,7 @@ class ScopeSession:
                 the fraction either way. False leaves both None.
             timeout_s: How long, in seconds, each grab keeps taking frames
                 for one that passes its checks, from 0 to 30 days.
-            sum_count: How many frames are summed into the image; above 100
+            frames_summed: How many frames are summed into the image; above 100
                 (``SUM_COUNT_RANGE``), 100 are, the record's ``frames_summed``
                 says 100, and the capture, once taken, reports one
                 ``ValueClampedNotice``.
@@ -3221,7 +3221,7 @@ class ScopeSession:
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
-                channel; ``'wrong_kind'``, ``sum_count`` is not a whole number
+                channel; ``'wrong_kind'``, ``frames_summed`` is not a whole number
                 of at least 1; ``'not_a_number'`` or ``'out_of_range'``, a time is not a wait
                 from 0 to 30 days, or the wait for the capture
                 and every frame of its sum together is longer. Nothing is
@@ -3267,7 +3267,7 @@ class ScopeSession:
             exclude_sources=exclude_sources,
             all_ones_check=all_ones_check,
             timeout_s=timeout_s,
-            sum_count=sum_count,
+            frames_summed=frames_summed,
             sum_delay_s=sum_delay_s,
             sum_iteration_callback=sum_iteration_callback,
             exposed_after_call=exposed_after_call,

@@ -47,7 +47,7 @@ def test_a_summed_capture_survives_a_backwards_clock_step(sim_scope):
 
     driver.grab_new_capture = grab_with_a_clock_that_runs_backwards
     try:
-        result = sim_scope.imaging.capture_still(sum_count=3, timeout_s=3.0).image
+        result = sim_scope.imaging.capture_still(frames_summed=3, timeout_s=3.0).image
     finally:
         driver.grab_new_capture = real_grab_new_capture
 

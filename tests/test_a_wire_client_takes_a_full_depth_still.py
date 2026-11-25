@@ -101,7 +101,7 @@ def test_a_summed_still_is_its_count_of_frames_at_the_depth_it_reaches(client, s
     session.scope.camera.set_image_mode('12bit_scientific')
     session.scope.simulation.light_outside(40.0)
 
-    answer = client.post('/api/v1/still', json={'sum_count': 4, 'sum_delay_s': 0.0})
+    answer = client.post('/api/v1/still', json={'frames_summed': 4, 'sum_delay_s': 0.0})
 
     assert answer.status_code == 200, answer.text
     record, pixels = _still(answer)
@@ -124,11 +124,11 @@ def test_a_still_of_the_shown_channel_holds_its_settings(client, session):
 
 
 def test_a_sum_of_no_frame_is_the_members_refusal_not_a_server_fault(client):
-    refused = client.post('/api/v1/still', json={'sum_count': 0})
+    refused = client.post('/api/v1/still', json={'frames_summed': 0})
 
     assert refused.headers['content-type'] == 'application/problem+json'
     assert refused.json()['reason'] == 'wrong_kind', refused.json()
-    assert refused.json()['argument'] == 'sum_count'
+    assert refused.json()['argument'] == 'frames_summed'
 
 
 def test_a_key_the_still_does_not_take_is_refused(client):

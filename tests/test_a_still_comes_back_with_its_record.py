@@ -80,7 +80,7 @@ class TestTheStillIsHandedBackWithItsRecord:
     def test_its_depth_is_its_own_after_another_capture(self, session):
         """A sum's depth is the bits it can reach, and stays that after a
         single-frame capture replaces the scope's last-capture slots."""
-        summed = session.capture_still('BF', force_to_8bit=False, sum_count=4)
+        summed = session.capture_still('BF', force_to_8bit=False, frames_summed=4)
         session.scope.imaging.capture_still(force_to_8bit=False)
 
         bits = summed.record.frame_significant_bits
@@ -168,7 +168,7 @@ class TestTheStillIsRefusedBeforeAnythingIsCaptured:
                 lighting.join()
 
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            session.capture_still('BF', sum_count=2, sum_iteration_callback=light_another)
+            session.capture_still('BF', frames_summed=2, sum_iteration_callback=light_another)
 
         assert lit
         assert refused.value.reason == 'other_led_lit'

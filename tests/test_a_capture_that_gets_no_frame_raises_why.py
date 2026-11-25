@@ -149,7 +149,7 @@ class TestARemovedCamera:
         # presence question, inside the grab.
         with pytest.raises(HardwareCommandRefusedError) as refused:
             sim_scope.imaging.capture_still(
-                sum_count=2,
+                frames_summed=2,
                 sum_iteration_callback=lambda _progress: sim_scope.simulation.remove_camera(),
                 timeout_s=0.5,
             )
@@ -165,7 +165,7 @@ class TestARemovedCamera:
 
         with pytest.raises(HardwareCommandRefusedError) as refused:
             sim_scope.imaging.capture_still(
-                sum_count=2,
+                frames_summed=2,
                 sum_iteration_callback=lambda _progress: sim_scope.simulation.remove_camera(),
                 timeout_s=0.5,
             )
@@ -225,7 +225,9 @@ def test_a_no_frame_capture_under_a_live_arm_leaves_the_arm_re_armed(sim_scope):
         sim_scope.simulation.stall_stream(0.0, 30.0)
 
     with pytest.raises(CaptureFailedError):
-        sim_scope.imaging.capture_still(sum_count=2, sum_iteration_callback=stall, timeout_s=0.5)
+        sim_scope.imaging.capture_still(
+            frames_summed=2, sum_iteration_callback=stall, timeout_s=0.5
+        )
 
     # A lock takes the arm that stands; with none it locks nothing.
     assert sim_scope.camera.lock_auto_gain().state is not None, 'the arm was not re-armed'

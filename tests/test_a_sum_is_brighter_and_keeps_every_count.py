@@ -112,7 +112,7 @@ def test_a_value_past_what_the_sum_can_reach_is_still_refused():
 def test_an_8bit_cameras_sum_keeps_every_count(sim_camera):
     scope = sim_camera('Mono8')
     still = scope.imaging.capture_still(
-        sum_count=4, force_to_8bit=False, accept_dark=True, timeout_s=2.0
+        frames_summed=4, force_to_8bit=False, accept_dark=True, timeout_s=2.0
     )
     assert still.image.dtype == np.uint16
     assert int(still.image.max()) == 4 * WHITE['Mono8']
@@ -122,8 +122,8 @@ def test_an_8bit_cameras_sum_keeps_every_count(sim_camera):
 
 def test_a_12bit_sum_renders_brighter_not_dimmer(sim_camera):
     scope = sim_camera('Mono12')
-    one = scope.imaging.capture_image(force_to_8bit=True, sum_count=1)
-    two = scope.imaging.capture_image(force_to_8bit=True, sum_count=2)
+    one = scope.imaging.capture_image(force_to_8bit=True, frames_summed=1)
+    two = scope.imaging.capture_image(force_to_8bit=True, frames_summed=2)
     assert int(one.max()) == 255
     assert int(two.max()) == 255
 
@@ -131,7 +131,7 @@ def test_a_12bit_sum_renders_brighter_not_dimmer(sim_camera):
 def test_the_depth_of_a_sum_needs_no_count(sim_camera):
     scope = sim_camera('Mono12')
     still = scope.imaging.capture_still(
-        sum_count=4, force_to_8bit=False, accept_dark=True, timeout_s=2.0
+        frames_summed=4, force_to_8bit=False, accept_dark=True, timeout_s=2.0
     )
     assert int(still.image.max()) == 4 * WHITE['Mono12']
     assert still.significant_bits == 14
@@ -144,10 +144,10 @@ def test_a_sum_holds_its_total_not_every_frame(sim_camera):
     grow with the count: a 30-frame sum peaks near one frame's total and two
     frames, not 30 frames held until the last."""
     imaging = sim_camera('Mono12').imaging
-    frame_bytes = imaging.capture_image(force_to_8bit=False, sum_count=1).nbytes
+    frame_bytes = imaging.capture_image(force_to_8bit=False, frames_summed=1).nbytes
     tracemalloc.start()
     try:
-        imaging.capture_image(force_to_8bit=False, sum_count=30)
+        imaging.capture_image(force_to_8bit=False, frames_summed=30)
         _, peak = tracemalloc.get_traced_memory()
     finally:
         tracemalloc.stop()
@@ -159,7 +159,7 @@ def test_a_sum_holds_its_total_not_every_frame(sim_camera):
 def test_the_record_carries_the_count_and_each_frames_depth(sim_camera):
     scope = sim_camera('Mono12')
     record = scope.imaging.capture_still(
-        sum_count=3, force_to_8bit=False, accept_dark=True, timeout_s=2.0
+        frames_summed=3, force_to_8bit=False, accept_dark=True, timeout_s=2.0
     ).record
     assert record.frames_summed == 3
     assert record.frame_significant_bits == 12
@@ -174,12 +174,12 @@ def test_a_sum_of_fewer_than_one_frame_is_refused(sim_camera):
     for name, member in members.items():
         for count in (0, -1):
             try:
-                member(sum_count=count, force_to_8bit=False)
+                member(frames_summed=count, force_to_8bit=False)
             except ArgumentRefusedError as refusal:
                 taken[name, count] = (refusal.reason, refusal.argument)
             else:
                 taken[name, count] = 'taken'
-    assert taken == dict.fromkeys(taken, ('wrong_kind', 'sum_count'))
+    assert taken == dict.fromkeys(taken, ('wrong_kind', 'frames_summed'))
     assert len(taken) == 4
 
 
@@ -187,14 +187,14 @@ def _clamp_notices(centre_posts):
     return [post.message for post in centre_posts if post.reason == ValueClampedNotice.reason]
 
 
-_SUM_HELD = str(ValueClampedNotice([('camera', 'sum_count', 101.0, 100.0)]))
+_SUM_HELD = str(ValueClampedNotice([('camera', 'frames_summed', 101.0, 100.0)]))
 
 
 def test_a_still_asked_for_more_than_100_frames_sums_100_and_is_told(sim_camera, centre_posts):
     """A sum holds 1 to 100 frames, as a stored sum does; a caller's count
     above it is summed at 100, the record says so, and the still tells it once."""
     still = sim_camera('Mono8').imaging.capture_still(
-        sum_count=101, force_to_8bit=False, accept_dark=True, timeout_s=2.0
+        frames_summed=101, force_to_8bit=False, accept_dark=True, timeout_s=2.0
     )
     assert still.record.frames_summed == 100
     assert int(still.image.max()) == 100 * WHITE['Mono8']
@@ -202,7 +202,7 @@ def test_a_still_asked_for_more_than_100_frames_sums_100_and_is_told(sim_camera,
 
 
 def test_an_image_asked_for_more_than_100_frames_sums_100_and_is_told(sim_camera, centre_posts):
-    image = sim_camera('Mono8').imaging.capture_image(sum_count=101, force_to_8bit=False)
+    image = sim_camera('Mono8').imaging.capture_image(frames_summed=101, force_to_8bit=False)
     assert int(image.max()) == 100 * WHITE['Mono8']
     assert _clamp_notices(centre_posts) == [_SUM_HELD]
 
@@ -211,7 +211,7 @@ def test_a_refused_capture_of_more_than_100_frames_tells_no_clamp(sim_camera, ce
     """The sum is held before the waits are judged, so a still refused by
     its wait was held and never taken: nothing says it was set at 100."""
     with pytest.raises(ArgumentRefusedError) as refused:
-        sim_camera('Mono8').imaging.capture_still(sum_count=101, timeout_s=-1.0)
+        sim_camera('Mono8').imaging.capture_still(frames_summed=101, timeout_s=-1.0)
     assert (refused.value.reason, refused.value.argument) == ('out_of_range', 'timeout_s')
     assert _clamp_notices(centre_posts) == []
 
@@ -228,13 +228,13 @@ def test_a_lane_still_of_more_than_100_frames_is_refused_by_its_range(sim_camera
             'submit_still',
             waiter=waiter,
             timeout_s=0.0,
-            sum_count=101,
+            frames_summed=101,
             sum_delay_s=0.0,
             write_bound_s=1.0,
         )
     assert (refused.value.reason, refused.value.argument, refused.value.limits) == (
         'out_of_range',
-        'sum_count',
+        'frames_summed',
         (1, 100),
     )
 
@@ -245,7 +245,11 @@ def test_a_sum_of_blown_frames_reads_saturated(sim_camera, pixel_format, frames)
     one frame's white, still reads blown."""
     scope = sim_camera(pixel_format)
     record = scope.imaging.capture_still(
-        sum_count=frames, all_ones_check=True, force_to_8bit=False, accept_dark=True, timeout_s=2.0
+        frames_summed=frames,
+        all_ones_check=True,
+        force_to_8bit=False,
+        accept_dark=True,
+        timeout_s=2.0,
     ).record
     assert record.saturated_fraction == 1.0
 
@@ -261,7 +265,9 @@ def ls620_session():
 
 def test_an_ls620_sum_is_16bit_and_tagged_by_its_reach(ls620_session):
     imaging = ls620_session.scope.imaging
-    still = imaging.capture_still(sum_count=4, force_to_8bit=False, accept_dark=True, timeout_s=2.0)
+    still = imaging.capture_still(
+        frames_summed=4, force_to_8bit=False, accept_dark=True, timeout_s=2.0
+    )
     assert still.image.dtype == np.uint16
     assert still.significant_bits == 10
     assert still.record.frame_significant_bits == 8

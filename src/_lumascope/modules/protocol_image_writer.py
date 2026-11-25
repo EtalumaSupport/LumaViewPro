@@ -1756,7 +1756,7 @@ class ProtocolImageWriter:
                             force_to_8bit=capture_depth == 8,
                             all_ones_check=True,
                             timeout_s=1.0,
-                            sum_count=sum_count,
+                            frames_summed=sum_count,
                             sum_iteration_callback=sum_iteration_callback,
                         )
                     except CaptureFailedError as failed:

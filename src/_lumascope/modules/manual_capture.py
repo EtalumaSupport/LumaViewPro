@@ -283,7 +283,7 @@ class ManualCaptureController:
                 args=(request,),
                 waiter=waiter,
                 timeout_s=_CAPTURE_RETRY_BUDGET_S,
-                sum_count=channel_config['sum'],
+                frames_summed=channel_config['sum'],
                 sum_delay_s=channel_config['exposure_ms'] / 1000,
                 write_bound_s=WRITE_STALL_FATAL_S,
             )

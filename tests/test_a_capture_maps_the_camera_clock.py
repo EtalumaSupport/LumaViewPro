@@ -171,7 +171,7 @@ def test_a_summed_still_states_its_first_frames_start_and_its_facts(sim_scope, s
     camera, sim = sim_camera
     camera.set_exposure_ms(20.0)
 
-    still = sim_scope.imaging.capture_still(sum_count=3)
+    still = sim_scope.imaging.capture_still(frames_summed=3)
     returned = datetime.datetime.now().astimezone()
     record = still.record
 

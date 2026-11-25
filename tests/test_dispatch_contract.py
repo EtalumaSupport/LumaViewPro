@@ -284,7 +284,7 @@ def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
             return None
 
     with patch.object(executors['camera'], 'put', return_value=_RecordingFuture()):
-        imaging.capture_still(timeout_s=5.0, sum_count=10, sum_delay_s=0.2)
+        imaging.capture_still(timeout_s=5.0, frames_summed=10, sum_delay_s=0.2)
 
     frame_cost = max(
         camera.exposure_ms / 1000.0,

@@ -466,7 +466,7 @@ _STILL_SENT = (
     'accept_dark',
     'all_ones_check',
     'timeout_s',
-    'sum_count',
+    'frames_summed',
     'sum_delay_s',
     'exposed_after_call',
 )

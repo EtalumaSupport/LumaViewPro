@@ -366,7 +366,7 @@ the top of the picture, as LumaViewPro's window and its saved files have it.
   takes the member's arguments, each its own default when left out. With
   `{"channel": "BF"}` the camera holds the shown channel's stored settings for
   the frame; with no body it takes the camera as set.
-  `{"sum_count": 4, "sum_delay_s": 0.1}` sums four frames. `accept_dark`,
+  `{"frames_summed": 4, "sum_delay_s": 0.1}` sums four frames. `accept_dark`,
   `all_ones_check` and `timeout_s` are the member's.
   `{"exposed_after_call": true}` keeps only a frame exposed after the call, for
   a light or shutter LumaViewPro did not switch. It answers when the still is

@@ -192,7 +192,7 @@ def test_a_count_written_as_a_whole_float_is_stored_as_an_int_and_captured(tmp_p
         stored = session.settings['BF']['sum']
         assert (stored, type(stored)) == (2, int)
         record = session.capture_still(
-            sum_count=stored, force_to_8bit=False, accept_dark=True, timeout_s=2.0
+            frames_summed=stored, force_to_8bit=False, accept_dark=True, timeout_s=2.0
         ).record
         assert record.frames_summed == 2
     finally:
