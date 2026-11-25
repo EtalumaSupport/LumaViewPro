@@ -180,18 +180,22 @@ if __name__ == '__main__':
     # --sim-slide=ronchi puts the bench's 40 lines/mm Ronchi ruling on the
     # simulated stage in place of the cells, so a Ronchi run is shown without
     # a bench; --sim-slide=ronchi:100 a ruling of that pitch. The record
-    # refuses a pitch that is not a ruling's.
-    sim_slide_usage = '--sim-slide=cells|ronchi[:LINES_PER_MM]'
+    # refuses a pitch that is not a ruling's. --sim-slide=images:<folder>
+    # shows each lit channel's own JPG from the folder, for the manual's
+    # screenshots of the live view; the record refuses a folder it cannot show.
+    sim_slide_usage = '--sim-slide=cells|ronchi[:LINES_PER_MM]|images:<folder>'
     sim_slide_fields = {}
     try:
         _slide = take_sim_launch_value(sys.argv, 'sim-slide', simulate=simulate_mode)
         if _slide is not None:
             from _lumascope.drivers.simulated_specimen import Slide
 
-            _slide_name, _, _pitch = _slide.partition(':')
+            _slide_name, _, _given = _slide.partition(':')
             sim_slide_fields['slide'] = Slide(_slide_name)
-            if _pitch:
-                sim_slide_fields['ronchi_lines_per_mm'] = float(_pitch)
+            if _given and sim_slide_fields['slide'] == Slide.IMAGES:
+                sim_slide_fields['slide_images'] = _given
+            elif _given:
+                sim_slide_fields['ronchi_lines_per_mm'] = float(_given)
     except ValueError as _slide_error:
         sys.exit(f'{sim_slide_usage}: {_slide_error}')
     # The GUI simulator's slide drifts a pixel a frame, so its live display
@@ -236,7 +240,7 @@ if __name__ == '__main__':
                 **sim_slide_fields,
             )
         except ValueError as _record_error:
-            # The refusal names the field: the slide's pitch or the focal spread.
+            # The refusal names the field: the slide's pitch or pictures, or the focal spread.
             sys.exit(f'--simulate: {_record_error}')
     # --walk=<file> performs a walk's steps on the GUI once bring-up
     # has finished (ui/walk.py; what it waits on is _bring_up_owes

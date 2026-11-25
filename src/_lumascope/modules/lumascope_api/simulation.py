@@ -35,10 +35,11 @@ from _lumascope.drivers.simulated_camera import SensorExposure, SimulatedCamera,
 from _lumascope.drivers.simulated_fx2 import SimulatedFX2
 from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
 from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
-from _lumascope.drivers.simulated_specimen import RonchiRuling, Slide
+from _lumascope.drivers.simulated_specimen import ImageSlide, RonchiRuling, Slide, read_pictures
 from _lumascope.drivers.simulated_tmcm6110 import SimulatedTmcm6110
 from _lumascope.modules.activity_claim import guarded_write
 from _lumascope.modules.api_surface import Admission, api, api_fields
+from _lumascope.modules.channel_record import refuse_unknown_channel
 from _lumascope.modules.closed_sets import refuse_unless_offered
 from _lumascope.modules.exceptions import ArgumentRefusedError, HoldEndedError
 from _lumascope.modules.finite_number import WAIT_S, refuse_unless_finite_number
@@ -226,6 +227,7 @@ type BoardConfigValue = str | int | float | bool | list | dict | None
     'camera_present',
     'slide',
     'ronchi_lines_per_mm',
+    'slide_images',
     'drift',
     'camera_supports_high_conversion_gain',
     'unit_config',
@@ -284,9 +286,11 @@ class SimulatedScope:
             the camera is the FX2, so its LED board is missing with it.
             True is the camera there.
         slide: The slide on the stage, which the scope's camera images for
-            the session: the cell specimen, or a Ronchi ruling, the target
-            the bench measures a camera's move count on. Either simulated
-            camera takes it. The cell specimen is the default.
+            the session: the cell specimen; a Ronchi ruling, the target the
+            bench measures a camera's move count on; or a set of pictures,
+            one per channel, which the manual's walks show in the live view.
+            Either simulated camera takes it. The cell specimen is the
+            default.
         ronchi_lines_per_mm: The Ronchi ruling's pitch, in lines per mm,
             given only with ``slide`` ``Slide.RONCHI``. None is the bench's
             40. A pitch the objective cannot resolve is drawn, not refused:
@@ -294,6 +298,21 @@ class SimulatedScope:
             or not a positive finite number, the record is not built:
             ``ArgumentRefusedError`` ``'fault_bound'`` or ``'not_a_number'``,
             naming ``ronchi_lines_per_mm``.
+        slide_images: The folder of pictures, given only with ``slide``
+            ``Slide.IMAGES``, and required with it: every file in it a
+            picture (a JPG) named for its channel's key (``BF.jpg``,
+            ``Ex488.jpg``); a hidden file is passed over. A lit channel
+            shows its own picture filling the frame, wherever the stage
+            stands and whatever the objective, at its own levels at the
+            channel's shipped settings on the 20x on the simulated camera
+            (the simulated FX2 shows it brighter, as it shows the cells
+            brighter at the same settings); a lit channel with no
+            picture shows black. The pictures are read as the record is
+            built, and it is not built when the folder is not one, holds no
+            picture, or holds a file that does not decode
+            (``ArgumentRefusedError`` ``'fault_bound'``, naming
+            ``slide_images``), or one named for no channel of the release
+            (``'channel_unknown'``, naming the file).
         drift: Whether the slide drifts a pixel around a circle, a step a
             frame, so a running stream looks alive on a display. Both
             simulated cameras take it. False is a still slide, as a bench
@@ -342,15 +361,18 @@ class SimulatedScope:
     camera_supports_high_conversion_gain: bool = False
     unit_config: Mapping[str, BoardConfigValue] | None = None
     ronchi_lines_per_mm: float | None = None
+    slide_images: str | None = None
     drift: bool = False
     camera_usb_bindings: tuple[SimulatedUsbBinding, ...] = ()
     unidentified_usb_devices: int = 0
 
     @property
-    def slide_on_stage(self) -> Slide | RonchiRuling:
-        """The one value the simulated cameras image: the cells, or the ruling at its pitch."""
+    def slide_on_stage(self) -> Slide | RonchiRuling | ImageSlide:
+        """The one value the simulated cameras image: the cells, the ruling at its pitch, or the pictures."""
         if self.slide == Slide.RONCHI and self.ronchi_lines_per_mm is not None:
             return RonchiRuling(self.ronchi_lines_per_mm)
+        if self.slide == Slide.IMAGES:
+            return ImageSlide(self.slide_images)
         return self.slide
 
     def __post_init__(self) -> None:
@@ -381,6 +403,30 @@ class SimulatedScope:
                 'a pitch above 0, given with slide Slide.RONCHI',
                 self.slide == Slide.RONCHI and self.ronchi_lines_per_mm > 0,
             )
+        if self.slide == Slide.IMAGES or self.slide_images is not None:
+            self._judge_pictures()
+
+    def _judge_pictures(self) -> None:
+        """Refuse an image slide whose folder the cameras could not show, as the record is built."""
+
+        def refuse(value: object, words: str) -> ArgumentRefusedError:
+            return ArgumentRefusedError(
+                'fault_bound', argument='slide_images', value=value, takes=words
+            )
+
+        if self.slide != Slide.IMAGES:
+            raise refuse(self.slide_images, 'given only with slide Slide.IMAGES')
+        if not isinstance(self.slide_images, str):
+            raise refuse(self.slide_images, 'a folder of pictures, one per channel')
+        found = read_pictures(self.slide_images)
+        if found is None:
+            raise refuse(self.slide_images, 'a folder that exists')
+        if not found:
+            raise refuse(self.slide_images, 'a folder holding a picture for at least one channel')
+        for name, picture in found.items():
+            refuse_unknown_channel(name, argument=f'slide_images picture {name!r}')
+            if picture is None:
+                raise refuse(f'{self.slide_images}/{name}', 'a picture that decodes')
 
 
 # A real scope's member refuses ``needs_simulated_scope`` before any claim is

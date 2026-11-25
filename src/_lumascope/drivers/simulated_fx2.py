@@ -61,7 +61,13 @@ from _lumascope.drivers.fx2driver import (
     frame_time_s,
     parse_intel_hex,
 )
-from _lumascope.drivers.simulated_specimen import DRIFT_STEPS, RonchiRuling, Slide, the_slide
+from _lumascope.drivers.simulated_specimen import (
+    DRIFT_STEPS,
+    ImageSlide,
+    RonchiRuling,
+    Slide,
+    the_slide,
+)
 from _lumascope.drivers.usb_driver_binding import (
     FX2_BOOTLOADER,
     FX2_FIRMWARE,
@@ -235,10 +241,10 @@ class SimulatedFX2Device:
         self,
         *,
         timing: str = 'instant',
-        light_of: Callable[[int], float] | None = None,
+        light_of: Callable[[int], tuple[str | None, float]] | None = None,
         stage_xy: Callable[[], tuple[float | None, float | None]] | None = None,
         pixel_size: Callable[[], float | None] | None = None,
-        slide: Slide | RonchiRuling = Slide.CELLS,
+        slide: Slide | RonchiRuling | ImageSlide = Slide.CELLS,
         drift: bool = False,
     ):
         if timing not in TIMINGS:
@@ -251,9 +257,10 @@ class SimulatedFX2Device:
         self._image = bytearray()
         self.sensor = _Mt9p031()
         self.leds = _LedPeripheral()
-        # The light per mA-second at unity gain the layer an LED address
-        # lights renders; unwired, any lit LED shows the field at the
-        # reference exposure's grey levels, whatever its current.
+        # The channel an LED address lights, by its name (None for an address
+        # no channel names), and the light per mA-second at unity gain it
+        # renders; unwired, any lit LED shows the field at the reference
+        # exposure's grey levels, whatever its current.
         self._light_of = light_of
         # Where the stage stands, and the objective's image scale (um of
         # stage per pixel), asked as each frame starts, so the sensor sees
@@ -460,14 +467,31 @@ class SimulatedFX2Device:
         x, y = (None, None) if self._stage_xy is None else self._stage_xy()
         um_per_px = None if self._pixel_size is None else self._pixel_size()
         drift = self._drift_steps[self._frame_index % len(self._drift_steps)]
-        field = self._specimen.view(x, y, h, w, um_per_px, shift=drift)
         self._frame_index += 1
         if self._light_of is None:
             scale = self.sensor.exposure_s() / _REFERENCE_EXPOSURE_S * self.sensor.gain()
-        else:
-            light = sum(ma * self._light_of(address) for address, ma in self.leds.lit_ma().items())
-            scale = self.sensor.exposure_s() * self.sensor.gain() * light
-        return np.clip(field.astype(np.float32) * scale, 0, 255).astype(np.uint8)
+            if self._specimen.per_channel:
+                # Unwired, no LED names a channel, so a per-channel slide shows nothing.
+                return np.zeros((h, w), dtype=np.uint8)
+            field = self._specimen.view(x, y, h, w, um_per_px, shift=drift)
+            return np.clip(field.astype(np.float32) * scale, 0, 255).astype(np.uint8)
+        light_by_channel: dict[str | None, float] = {}
+        for address, ma in self.leds.lit_ma().items():
+            channel, light = self._light_of(address)
+            light_by_channel[channel] = light_by_channel.get(channel, 0.0) + ma * light
+        settings = self.sensor.exposure_s() * self.sensor.gain()
+        if not self._specimen.per_channel:
+            field = self._specimen.view(x, y, h, w, um_per_px, shift=drift)
+            scale = settings * sum(light_by_channel.values())
+            return np.clip(field.astype(np.float32) * scale, 0, 255).astype(np.uint8)
+        # Each lit channel's own picture by its own light, the sum saturated once.
+        total = np.zeros((h, w), dtype=np.float32)
+        for channel, light in light_by_channel.items():
+            if channel is None or light <= 0.0:
+                continue
+            field = self._specimen.view(x, y, h, w, um_per_px, shift=drift, channel=channel)
+            total += field.astype(np.float32) * (settings * light)
+        return np.clip(total, 0, 255).astype(np.uint8)
 
     def _stream_loop(self) -> None:
         """Deliver the frames' packets back to back, a transfer every ``TRANSFER_S``.
@@ -672,11 +696,11 @@ class SimulatedFX2:
         self,
         *,
         timing: str = 'instant',
-        light_of: Callable[[int], float] | None = None,
+        light_of: Callable[[int], tuple[str | None, float]] | None = None,
         stage_xy: Callable[[], tuple[float | None, float | None]] | None = None,
         pixel_size: Callable[[], float | None] | None = None,
         on_bus: bool = True,
-        slide: Slide | RonchiRuling = Slide.CELLS,
+        slide: Slide | RonchiRuling | ImageSlide = Slide.CELLS,
         drift: bool = False,
     ):
         self.device = SimulatedFX2Device(

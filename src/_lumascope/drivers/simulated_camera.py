@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import threading
 import time
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import ClassVar
 
 import cv2
@@ -43,7 +43,13 @@ from _lumascope.drivers.exceptions import (
     PartAbsentError,
 )
 from _lumascope.drivers.registry import camera_registry
-from _lumascope.drivers.simulated_specimen import DRIFT_STEPS, RonchiRuling, Slide, the_slide
+from _lumascope.drivers.simulated_specimen import (
+    DRIFT_STEPS,
+    ImageSlide,
+    RonchiRuling,
+    Slide,
+    the_slide,
+)
 
 # camera.log hookup: simulator records the same per-driver SDK-call
 # trace that real drivers (pyloncamera/idscamera/fx2driver) write, so
@@ -80,6 +86,15 @@ class SimulatedStall:
             )
 
 
+# The LED current a camera built with no scope around it is lit at.
+REFERENCE_ILLUMINATION_MA = 10.0
+
+# The light per mA-second at unity gain when no scope says which layer
+# is lit: it puts the camera's own defaults (10 ms, 1 dB, the reference
+# current) at brightness 1.0, the specimen at its own grey levels.
+UNWIRED_LIGHT_PER_MA_S = 1.0 / (0.010 * 10.0 ** (1.0 / 20.0) * REFERENCE_ILLUMINATION_MA)
+
+
 @dataclass(frozen=True)
 class SensorExposure:
     """What one simulated frame was exposed under: the settings the sensor
@@ -102,9 +117,14 @@ class SensorExposure:
         illumination_ma: The LED current lighting the sample, summed over
             the lit addresses; 0 for an unlit field.
         light: The light on the sample per second of exposure at unity
-            gain: each lit address's current times its layer's light per
-            mA-second, summed, and the light from outside the scope; 0 for
-            an unlit field.
+            gain: every lit channel's and the light from outside the scope;
+            0 for an unlit field.
+        light_by_channel: The light each lit channel puts on the sample per
+            second of exposure at unity gain: each of its lit addresses'
+            current times its layer's light per mA-second, summed, keyed by
+            the channel's name; None keys the light of a camera with no
+            scope around it, which names no channel. Empty for an unlit
+            field. Not published: what a slide drawn per channel reads.
         outside_light_ma: The light from outside the scope on the sample,
             as the camera's reference LED lit at this current would make
             it; 0 when there is none (``SimulationAPI.light_outside``).
@@ -128,7 +148,7 @@ class SensorExposure:
     gain_db: float
     black_level: float
     illumination_ma: float
-    light: float
+    light_by_channel: Mapping[str | None, float]
     outside_light_ma: float
     x_um: float | None
     y_um: float | None
@@ -136,6 +156,16 @@ class SensorExposure:
     z_end_um: float | None
     depth_of_field_um: float | None
     pixel_size_um: float | None
+    # Derived as the record is built, never given, so it cannot disagree
+    # with the light it sums.
+    light: float = dataclasses.field(init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            'light',
+            sum(self.light_by_channel.values()) + self.outside_light_ma * UNWIRED_LIGHT_PER_MA_S,
+        )
 
 
 @dataclass(frozen=True)
@@ -328,8 +358,9 @@ class SimulatedCamera(Camera):
 
     # The sensor's inputs, each recorded in its history when it changes:
     # the registers, Z, the stage's (X, Y), the light as (the lit
-    # current summed over the lit addresses, the light it makes), and a
-    # light from outside the scope, which no scope input tells.
+    # current summed over the lit addresses, the light each lit channel
+    # makes, by its name), and a light from outside the scope, which no
+    # scope input tells.
     _exposure_us = _SensorInput('exposure_us')
     _gain = _SensorInput('gain_db')
     _black_level = _SensorInput('black_level')
@@ -343,13 +374,8 @@ class SimulatedCamera(Camera):
         'illumination': '_illumination',
     }
 
-    # The LED current a camera built with no scope around it is lit at.
-    REFERENCE_ILLUMINATION_MA = 10.0
-
-    # The light per mA-second at unity gain when no scope says which layer
-    # is lit: it puts the camera's own defaults (10 ms, 1 dB, the reference
-    # current) at brightness 1.0, the specimen at its own grey levels.
-    _UNWIRED_LIGHT_PER_MA_S = 1.0 / (0.010 * 10.0 ** (1.0 / 20.0) * REFERENCE_ILLUMINATION_MA)
+    REFERENCE_ILLUMINATION_MA = REFERENCE_ILLUMINATION_MA
+    _UNWIRED_LIGHT_PER_MA_S = UNWIRED_LIGHT_PER_MA_S
 
     # How many delivered frames' exposure records the camera keeps for
     # ``exposed_under``: a bound on memory, far more than a capture's wait
@@ -452,7 +478,7 @@ class SimulatedCamera(Camera):
         focal_spread_um: float = 0.0,
         timing: str = 'fast',
         on_bus: bool = True,
-        slide: Slide | RonchiRuling = Slide.CELLS,
+        slide: Slide | RonchiRuling | ImageSlide = Slide.CELLS,
         conversion_gain_mode: bool = False,
         drift: bool = False,
     ):
@@ -555,7 +581,7 @@ class SimulatedCamera(Camera):
         # The steps the slide is cut at, a frame each: the drift's circle,
         # or the centre alone for a still slide.
         self._drift_steps = DRIFT_STEPS if drift else ((0, 0),)
-        self._specimen_cut: dict[int, tuple] = {}
+        self._specimen_cut: dict[tuple[int, str | None], tuple] = {}
         self._drift_index = 0
         self._defocused: dict[str, tuple] = {}
         self._focus_target_cache: tuple | None = None
@@ -571,12 +597,13 @@ class SimulatedCamera(Camera):
         # XY stage.
         self._stage_xy = (None, None)
         # The light on the sample, told by set_illumination: the lit current
-        # summed over the lit addresses, and the light it makes. A camera
-        # constructed on its own with no scope around it renders as though
-        # the field were lit at the reference current.
+        # summed over the lit addresses, and the light it makes, under no
+        # channel's name. A camera constructed on its own with no scope
+        # around it renders as though the field were lit at the reference
+        # current.
         self._illumination = (
             self.REFERENCE_ILLUMINATION_MA,
-            self.REFERENCE_ILLUMINATION_MA * self._UNWIRED_LIGHT_PER_MA_S,
+            {None: self.REFERENCE_ILLUMINATION_MA * self._UNWIRED_LIGHT_PER_MA_S},
         )
         # The light from outside the scope, told by set_outside_light: none.
         self._outside_light = 0.0
@@ -1487,12 +1514,13 @@ class SimulatedCamera(Camera):
                 addresses; 0 for an unlit field.
             light: Each lit address's current times its layer's light per
                 mA-second, summed. None takes the current at the light of a
-                camera with no scope around it.
+                camera with no scope around it. It names no channel, so a
+                slide drawn per channel shows nothing under it.
         """
         if light is None:
             light = float(lit_ma) * self._UNWIRED_LIGHT_PER_MA_S
         with self._lock:
-            self._illumination = (float(lit_ma), float(light))
+            self._illumination = (float(lit_ma), {None: float(light)})
 
     def set_outside_light(self, illumination_ma: float) -> None:
         """Light the sample from outside the scope, from now on.
@@ -1626,35 +1654,74 @@ class SimulatedCamera(Camera):
         return target
 
     def _specimen_frame(
-        self, exposure: SensorExposure, registers: _DrawingRegisters
+        self,
+        exposure: SensorExposure,
+        registers: _DrawingRegisters,
+        step: int,
+        channel: str | None = None,
     ) -> tuple[np.ndarray, str, tuple]:
-        """The in-focus specimen as this frame sees it, which drift step it is, and where it was cut.
+        """The in-focus specimen as this frame sees it at drift ``step``, its source, and where it was cut.
 
         The frame is a region of the sensor, centered on the stage where
         ``exposure`` started: drawn at binning 1 at the objective's scale,
         then binned, as the sensor sums its pixels. The drift, when the camera
         was built with it, moves it a binned pixel a step; a still slide is
-        cut at the center every frame.
+        cut at the center every frame. A slide drawn per channel is cut for
+        ``channel``, and its cut and blur are kept under the channel's name,
+        so one channel's picture is never served for another's.
         """
-        step = self._drift_index % len(self._drift_steps)
-        self._drift_index += 1
         h, w, b = registers.height, registers.width, registers.binning
         place = (h, w, b, exposure.x_um, exposure.y_um, exposure.pixel_size_um)
-        cached = self._specimen_cut.get(step)
+        slot = (step, channel)
+        cached = self._specimen_cut.get(slot)
         if cached is None or cached[0] != place:
             dy, dx = self._drift_steps[step]
-            frame = self._specimen.view(
-                exposure.x_um,
-                exposure.y_um,
-                h * b,
-                w * b,
-                exposure.pixel_size_um,
-                shift=(dy * b, dx * b),
-            )
+            shift = (dy * b, dx * b)
+            if self._specimen.per_channel:
+                frame = self._specimen.view(
+                    exposure.x_um,
+                    exposure.y_um,
+                    h * b,
+                    w * b,
+                    exposure.pixel_size_um,
+                    shift=shift,
+                    channel=channel,
+                )
+            else:
+                frame = self._specimen.view(
+                    exposure.x_um, exposure.y_um, h * b, w * b, exposure.pixel_size_um, shift=shift
+                )
             if b > 1:
                 frame = cv2.resize(frame, (w, h), interpolation=cv2.INTER_AREA)
-            cached = self._specimen_cut[step] = (place, frame)
-        return cached[1], f'specimen {step}', place
+            cached = self._specimen_cut[slot] = (place, frame)
+        source = f'specimen {step}' if channel is None else f'specimen {step} {channel}'
+        return cached[1], source, place
+
+    def _channels_frame(
+        self,
+        exposure: SensorExposure,
+        registers: _DrawingRegisters,
+        step: int,
+        dtype,
+        max_val: int,
+    ) -> np.ndarray:
+        """A frame of a slide drawn per channel: each lit channel's picture by its own light, summed.
+
+        Each picture is defocused and lit as ``_render_sample`` lights the
+        cells, and the sum saturates once, at full scale. The light from
+        outside the scope names no channel, so it shows nothing here.
+        """
+        exposure_s = exposure.exposure_ms / 1000.0
+        gain = 10.0 ** (exposure.gain_db / 20.0)
+        total = np.zeros((registers.height, registers.width), dtype=np.float32)
+        for channel, light in exposure.light_by_channel.items():
+            brightness = exposure_s * gain * light
+            if channel is None or brightness <= 0.0:
+                continue
+            sharp, source, place = self._specimen_frame(exposure, registers, step, channel)
+            img = self._defocus(sharp, source, place, exposure, registers)
+            total += img.astype(np.float32) * (max_val / 255.0 * brightness)
+        return np.minimum(total, max_val).astype(dtype)
 
     def camera_clock_ticks(self) -> int:
         """The camera's clock now, in ``TIMESTAMP_TICK_HZ`` ticks: what a latch of it answers."""
@@ -1676,7 +1743,7 @@ class SimulatedCamera(Camera):
         """
         self._read_scope_inputs()
         x_um, y_um = self._input_at('stage_xy', started_ns)
-        illumination_ma, light = self._input_at('illumination', started_ns)
+        illumination_ma, light_by_channel = self._input_at('illumination', started_ns)
         outside_light_ma = self._input_at('outside_light_ma', started_ns)
         if self._depth_of_field_func is None:
             dof = self._UNWIRED_DOF_UM
@@ -1691,7 +1758,7 @@ class SimulatedCamera(Camera):
             gain_db=self._input_at('gain_db', started_ns),
             black_level=self._input_at('black_level', started_ns),
             illumination_ma=illumination_ma,
-            light=light + outside_light_ma * self._UNWIRED_LIGHT_PER_MA_S,
+            light_by_channel=dict(light_by_channel),
             outside_light_ma=outside_light_ma,
             x_um=x_um,
             y_um=y_um,
@@ -1854,10 +1921,15 @@ class SimulatedCamera(Camera):
                 logger.warning(
                     f'[SimCamera ] Unknown test pattern {pattern!r} -- rendering the specimen field'
                 )
-            frame, source, place = self._specimen_frame(exposure, registers)
-            img = self._render_sample(
-                frame, source, place, dtype, max_val, brightness, exposure, registers
-            )
+            step = self._drift_index % len(self._drift_steps)
+            self._drift_index += 1
+            if self._specimen.per_channel:
+                img = self._channels_frame(exposure, registers, step, dtype, max_val)
+            else:
+                frame, source, place = self._specimen_frame(exposure, registers, step)
+                img = self._render_sample(
+                    frame, source, place, dtype, max_val, brightness, exposure, registers
+                )
 
         if exposure.black_level:
             # The offset lifts every pixel, and a pixel lifted past full scale

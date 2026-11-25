@@ -59,7 +59,7 @@ from _lumascope.drivers.pyloncamera import PylonCamera  # noqa: F401
 from _lumascope.drivers.simulated_camera import SimulatedCamera  # noqa: F401
 from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard  # noqa: F401
 from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard  # noqa: F401
-from _lumascope.drivers.simulated_specimen import RonchiRuling, Slide, the_slide
+from _lumascope.drivers.simulated_specimen import ImageSlide, RonchiRuling, Slide, the_slide
 from _lumascope.drivers.null_motorboard import NullMotionBoard
 from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
@@ -854,7 +854,7 @@ class Lumascope:
         sim_camera_stall: 'SimulatedStall | None' = None,
         sim_focal_spread_um: float = 0.0,
         sim_camera_present: bool = True,
-        sim_slide: Slide | RonchiRuling = Slide.CELLS,
+        sim_slide: Slide | RonchiRuling | ImageSlide = Slide.CELLS,
         sim_drift: bool = False,
         sim_camera_supports_high_conversion_gain: bool = False,
         sim_unit_config: Mapping[str, object] | None = None,
@@ -949,8 +949,9 @@ class Lumascope:
                 FX2, so its LED board is off the bus with it. Refused on real
                 hardware.
             sim_slide: The slide on the simulated stage, which every simulated
-                camera images for the scope's life: the cell specimen, or a
-                Ronchi ruling at its pitch. Both simulated cameras take it; it lies on the
+                camera images for the scope's life: the cell specimen, a
+                Ronchi ruling at its pitch, or a set of pictures, one per
+                channel (``ImageSlide``). Both simulated cameras take it; it lies on the
                 stage whether or not a camera is there, so with
                 ``sim_camera_present`` False it is accepted and nothing images
                 it. Refused on real hardware.
@@ -1182,28 +1183,40 @@ class Lumascope:
         # came up or none was made.
         fx2_failure: Exception | None = None
 
-        def _sim_light_of(address: int) -> float:
-            """The light per mA-second the channel ``address`` lights renders in
-            the simulators through the slide and the current objective: the
-            catalog's, times the slide's transmittance, falling with the
-            objective's magnification by the channel's power;
+        # The slide's transmittance, read once: an image slide's pictures are
+        # read with it, and a frame is made many times a second.
+        sim_scene = the_slide(sim_slide)
+        sim_transmittance = sim_scene.transmittance
+        if sim_scene.per_channel:
+            # A walk's author sees at once why a channel's shot came out dark.
+            logger.info(
+                f'[SimScope  ] The image slide {sim_slide.folder} shows the channels '
+                f'{", ".join(sim_scene.channels)}; every other channel shows black'
+            )
+
+        def _sim_light_of(address: int) -> tuple[str | None, float]:
+            """The channel ``address`` lights, by its name, and the light per
+            mA-second it renders in the simulators through the slide and the
+            current objective: the catalog's, times the slide's transmittance,
+            falling with the objective's magnification by the channel's power;
             the catalog's own when no objective is known, as
-            ``_sim_pixel_size`` draws at no scale then. 0 for an address no
-            channel names or a channel with no LED. Read while a frame is made,
-            after the illumination API, the identity and runtime_state exist."""
+            ``_sim_pixel_size`` draws at no scale then. The light is 0 for an
+            address no channel names (its name None) or a channel with no
+            LED. Read while a frame is made, after the illumination API, the
+            identity and runtime_state exist."""
             from _lumascope.modules.channel_record import SIM_LIGHT_MAGNIFICATION, release_channel
 
             name = self.channel_identity.key_at(address)
             if name is None:
-                return 0.0
+                return None, 0.0
             channel = release_channel(name)
             if channel.sim_light_per_ma_s is None:
-                return 0.0
-            through_slide = channel.sim_light_per_ma_s * the_slide(sim_slide).transmittance
+                return name, 0.0
+            through_slide = channel.sim_light_per_ma_s * sim_transmittance
             objective = self.runtime_state.get_current_objective()
             if objective is None:
-                return through_slide
-            return (
+                return name, through_slide
+            return name, (
                 through_slide
                 * (SIM_LIGHT_MAGNIFICATION / objective.magnification)
                 ** channel.sim_light_magnification_power
@@ -1245,6 +1258,10 @@ class Lumascope:
 
             led = changes.get(FrameValiditySource.LED)
             lit = live_lit_pairs(self.illumination)
+            light_by_channel: dict[str | None, float] = {}
+            for address, ma in lit:
+                name, light = _sim_light_of(address)
+                light_by_channel[name] = light_by_channel.get(name, 0.0) + ma * light
             return {
                 'z_um': (
                     self.motion.get_current_position('Z'),
@@ -1254,7 +1271,7 @@ class Lumascope:
                 'illumination': (
                     (
                         sum(ma for _, ma in lit),
-                        sum(ma * _sim_light_of(address) for address, ma in lit),
+                        light_by_channel,
                     ),
                     None if led is None else led.written_ns,
                 ),

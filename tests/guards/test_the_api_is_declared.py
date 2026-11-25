@@ -896,6 +896,7 @@ _URL = 'a web address'
 
 OPEN_STRINGS: dict[str, str] = {
     'ArgumentRefusedError.argument field': _MEMBER,
+    'SimulatedScope.slide_images field': _PATH,
     'ArgumentRefusedError.board field': _PROSE,
     'ArgumentRefusedError.member field': _MEMBER,
     'ArgumentRefusedError.plate field': _LABWARE,

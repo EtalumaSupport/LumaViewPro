@@ -1,11 +1,13 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """The simulated scene: the slide lying on the stage, which every simulated sensor images.
 
-A simulated scope is brought up with one of two slides (``Slide``) and its
-cameras image that slide for their life: the cell specimen, which every
-session shows unless it asks otherwise, or a Ronchi ruling, the target the
+A simulated scope is brought up with one of three slides (``Slide``) and
+its cameras image that slide for their life: the cell specimen, which every
+session shows unless it asks otherwise; a Ronchi ruling, the target the
 bench measures a camera's move count on, at the bench's 40 lines/mm or the
-pitch its session gives (``RonchiRuling``).
+pitch its session gives (``RonchiRuling``); or a set of pictures, one per
+channel (``ImageSlide``), which the manual's walks show in the live view in
+place of the synthetic cells.
 
 Both simulated cameras -- the stand-in ``SimulatedCamera`` and the simulated
 FX2's MT9P031 -- draw their frames from one sample, so a simulated
@@ -37,6 +39,7 @@ import collections
 import dataclasses
 import enum
 import math
+import pathlib
 import threading
 
 import cv2
@@ -48,6 +51,7 @@ class Slide(enum.StrEnum):
 
     CELLS = 'cells'
     RONCHI = 'ronchi'
+    IMAGES = 'images'
 
 
 # The bench's ruling, which ``Slide.RONCHI`` is when no pitch is given.
@@ -68,6 +72,17 @@ class RonchiRuling:
     def period_um(self) -> float:
         """One bar and one gap, in um."""
         return 1000.0 / self.lines_per_mm
+
+
+@dataclasses.dataclass(frozen=True)
+class ImageSlide:
+    """A folder of pictures, one per channel, the slide the simulated cameras are handed.
+
+    Built from a session's record, whose own build judges the folder's
+    pictures (``read_pictures``), so every picture here was read.
+    """
+
+    folder: str
 
 
 # The scale a frame is drawn at when no objective's is known: a camera with
@@ -139,6 +154,8 @@ class Specimen:
     # The fraction of the light the sample passes, as the light on it is
     # rendered: its grey levels are what it shows at brightness 1.
     transmittance = 1.0
+    # Every lit channel shows the same picture.
+    per_channel = False
 
     def __init__(self, seed: int = _SEED):
         self._seed = seed
@@ -368,6 +385,7 @@ class Ronchi:
     """
 
     transmittance = _RONCHI_MEAN_GRAY / ((_RONCHI_GAP + _RONCHI_BAR) / 2)
+    per_channel = False
 
     def __init__(self, ruling: RonchiRuling) -> None:
         self._period_um = ruling.period_um
@@ -415,16 +433,120 @@ def _gap_length(rows: np.ndarray, scale: float, period_um: float) -> np.ndarray:
     return periods * period_um / 2 + np.minimum(into, period_um / 2)
 
 
+class Pictures:
+    """A set of pictures on the stage, one per channel, each the camera's whole field.
+
+    What a lit channel shows is its own picture wherever the stage stands
+    and whatever the objective: the slide is for screenshots of the live
+    view, one field a channel, so neither is read. A channel with no
+    picture shows nothing.
+    """
+
+    # Each channel's shipped defaults show its picture at its own levels.
+    transmittance = 1.0
+    per_channel = True
+
+    def __init__(self, pictures: dict[str, np.ndarray]) -> None:
+        self.channels = tuple(pictures)
+        self._pictures = pictures
+        self._lock = threading.Lock()
+        self._fitted: dict[tuple, np.ndarray] = {}
+
+    def view(
+        self,
+        x_um: float | None,
+        y_um: float | None,
+        h: int,
+        w: int,
+        um_per_px: float | None,
+        shift: tuple[int, int] = (0, 0),
+        channel: str | None = None,
+    ) -> np.ndarray:
+        """``channel``'s picture as an ``h`` x ``w`` window, in the sensor's native row order.
+
+        Args are ``Specimen.view``'s; the stage and the scale are not read.
+        The picture is scaled to cover the window and centered, the overflow
+        cropped, so a picture of any size fills the frame at every binning;
+        ``shift`` moves the crop by the drift. Row 0 is the bottom of the
+        picture, as ``Specimen.view``'s window is, so the delivered frame
+        shows it upright.
+
+        Returns:
+            A grayscale uint8 array of shape ``(h, w)``; zeros for a channel
+            with no picture.
+        """
+        picture = self._pictures.get(channel) if channel is not None else None
+        if picture is None:
+            return np.zeros((h, w), dtype=np.uint8)
+        # One pixel of margin each side, which the drift's step uses.
+        key = (channel, h, w)
+        with self._lock:
+            fitted = self._fitted.get(key)
+        if fitted is None:
+            ph, pw = picture.shape
+            scale = max((h + 2) / ph, (w + 2) / pw)
+            fh, fw = max(h + 2, math.ceil(ph * scale)), max(w + 2, math.ceil(pw * scale))
+            resized = cv2.resize(picture, (fw, fh), interpolation=cv2.INTER_AREA)
+            top, left = (fh - h - 2) // 2, (fw - w - 2) // 2
+            fitted = np.ascontiguousarray(resized[top : top + h + 2, left : left + w + 2][::-1])
+            with self._lock:
+                self._fitted[key] = fitted
+        dy, dx = shift
+        return fitted[1 + dy : 1 + dy + h, 1 + dx : 1 + dx + w]
+
+
+def read_pictures(folder: str) -> dict[str, np.ndarray | None] | None:
+    """Every picture in ``folder``, by its file name without the extension, read once for the process.
+
+    The one reader of an image slide's folder, whose every file is a
+    channel's picture (a JPG); a hidden file (``.DS_Store``) is not one.
+    Each picture is held as its brightest color at each pixel, so a gray
+    picture is its own gray and a blue or green fluorescence picture keeps
+    its intensity, which a gray conversion's weights would cut to a third
+    or less. What a caller judges is returned as found: None when
+    ``folder`` is not a folder, an empty dict when it holds no picture,
+    None for a file that does not decode.
+    """
+    with _PICTURE_SETS_LOCK:
+        if folder in _PICTURE_SETS:
+            return _PICTURE_SETS[folder]
+    path = pathlib.Path(folder)
+    if not path.is_dir():
+        found = None
+    else:
+        found = {}
+        for file in sorted(path.iterdir()):
+            if file.name.startswith('.') or not file.is_file():
+                continue
+            color = cv2.imread(str(file), cv2.IMREAD_COLOR)
+            found[file.stem] = None if color is None else color.max(axis=2)
+    with _PICTURE_SETS_LOCK:
+        _PICTURE_SETS[folder] = found
+    return found
+
+
+_PICTURE_SETS: dict[str, dict[str, np.ndarray | None] | None] = {}
+_PICTURE_SETS_LOCK = threading.Lock()
+
 _THE_CELLS = Specimen()
 
 
-def the_slide(slide: Slide | RonchiRuling) -> Specimen | Ronchi:
+def the_slide(slide: Slide | RonchiRuling | ImageSlide) -> Specimen | Ronchi | Pictures:
     """What every simulated camera brought up with ``slide`` images.
 
     The cells are the process's one sample. ``Slide.RONCHI`` is the bench's
     ruling; a ruling holds nothing a camera draws into, so each camera
-    draws its own.
+    draws its own. An image slide's pictures are its folder's, read once
+    for the process.
     """
     if slide == Slide.CELLS:
         return _THE_CELLS
-    return Ronchi(RonchiRuling(BENCH_RONCHI_LINES_PER_MM) if slide == Slide.RONCHI else slide)
+    if isinstance(slide, ImageSlide):
+        found = read_pictures(slide.folder) or {}
+        return Pictures({name: picture for name, picture in found.items() if picture is not None})
+    if slide == Slide.RONCHI:
+        return Ronchi(RonchiRuling(BENCH_RONCHI_LINES_PER_MM))
+    if isinstance(slide, RonchiRuling):
+        return Ronchi(slide)
+    # Slide.IMAGES names no folder: the record hands its ImageSlide.
+    raise TypeError(f'{slide!r} is not a slide a camera can image; an image slide is an ImageSlide')
