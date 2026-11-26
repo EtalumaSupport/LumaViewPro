@@ -75,7 +75,7 @@ ENGINEERING_PLUGIN = 'etaluma_engineering'
 # reads it at its own entry through session.plugin_api_level and refuses
 # below what it needs; a host older than the level has no such member,
 # which the plugin reads as 0.
-PLUGIN_API_LEVEL = 183
+PLUGIN_API_LEVEL = 184
 
 
 class UIMountPoint(enum.StrEnum):
@@ -183,7 +183,7 @@ class PluginStatus:
     namespace: str
 
 
-@api_fields('name', 'version', 'reason')
+@api_fields('name', 'version', 'message')
 @dataclass(frozen=True)
 class PluginNotLoaded:
     """A plugin that did not load, and why.
@@ -194,12 +194,12 @@ class PluginNotLoaded:
     Attributes:
         name: The plugin's name, or its entry point's when it has no spec.
         version: The plugin's version, or '' when it is not known.
-        reason: Why it did not load, in words a person can act on.
+        message: Why it did not load, in words a person can act on.
     """
 
     name: str
     version: str
-    reason: str
+    message: str
 
 
 @api_fields('plugin_name', 'namespace', 'hook', 'exc_type', 'message')
@@ -707,7 +707,7 @@ class PluginRegistry:
         return None
 
     def record_load_failure(
-        self, name: str, version: str, reason: str, cause: BaseException | None = None
+        self, name: str, version: str, message: str, cause: BaseException | None = None
     ) -> None:
         """Record that a plugin did not load, for the discovery's one report.
 
@@ -719,11 +719,11 @@ class PluginRegistry:
         Args:
             name: The plugin's name, or its entry point's when it has no spec.
             version: The plugin's version, or '' when it is not known.
-            reason: Why it did not load, in words a person can act on.
+            message: Why it did not load, in words a person can act on.
             cause: The plugin's own exception, when there is one; its
                 traceback is carried into the one log record.
         """
-        record = PluginNotLoaded(name, version, reason)
+        record = PluginNotLoaded(name, version, message)
         with self._loaded_lock:
             self._not_loaded.append(record)
             self._unreported.append((record, cause))

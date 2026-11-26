@@ -461,14 +461,14 @@ class ProtocolPostProcessor(abc.ABC):
         """
         return (
             f'{len(degraded_outputs)} {self.operation_label} artifact(s) used a fallback '
-            f'method: {self._fallback_reasons(degraded_outputs)}.'
+            f'method: {self._fallback_messages(degraded_outputs)}.'
         )
 
     @staticmethod
-    def _fallback_reasons(degraded_outputs: list[dict]) -> str:
+    def _fallback_messages(degraded_outputs: list[dict]) -> str:
         """Why each degraded output fell back, each reason said once."""
         return causes_in_words(
-            (output['filepath'], output['fallback_reason']) for output in degraded_outputs
+            (output['filepath'], output['fallback_message']) for output in degraded_outputs
         )
 
     @staticmethod
@@ -983,16 +983,16 @@ class ProtocolPostProcessor(abc.ABC):
             logger.info(
                 f'[PostProcPerf] {self._name} group done in {group_ms:.1f}ms: '
                 f'algorithm={alg_metadata.get("algorithm", "")} '
-                f'degraded={bool(alg_metadata.get("fallback_reason"))} {group_label}'
+                f'degraded={bool(alg_metadata.get("fallback_message"))} {group_label}'
             )
-            fallback_reason = alg_metadata.get('fallback_reason')
-            if fallback_reason:
+            fallback_message = alg_metadata.get('fallback_message')
+            if fallback_message:
                 degraded_outputs.append(
                     {
                         'filepath': str(output_file_loc_rel),
                         'algorithm': alg_metadata.get('algorithm', ''),
                         'fallback_from': alg_metadata.get('fallback_from', ''),
-                        'fallback_reason': fallback_reason,
+                        'fallback_message': fallback_message,
                     }
                 )
 

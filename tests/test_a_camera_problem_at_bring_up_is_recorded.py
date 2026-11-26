@@ -99,7 +99,7 @@ def test_a_bf_setting_the_camera_does_not_take_is_recorded_and_the_scope_comes_u
     try:
         camera = _camera_part(session)
         assert session.scope.camera_connected
-        assert (camera.up, camera.cause) == (True, 'settings_not_applied')
+        assert (camera.up, camera.reason) == (True, 'settings_not_applied')
         assert words in camera.detail.lower()
         (notice,) = _told(heard, reason)
         assert notice.solicited is False
@@ -111,7 +111,7 @@ def test_a_camera_that_leaves_during_the_bf_hold_is_recorded_as_left():
     heard = []
     session = _create(heard, Refusal('gain', 'removed'))
     try:
-        assert _camera_part(session).cause == 'camera_left'
+        assert _camera_part(session).reason == 'camera_left'
         assert len(_told(heard, 'not_connected')) == 1
     finally:
         session.shutdown()
@@ -121,7 +121,7 @@ def test_a_camera_that_leaves_during_the_binning_write_is_recorded_as_left():
     heard = []
     session = _create(heard, Refusal('binning', 'removed'))
     try:
-        assert _camera_part(session).cause == 'camera_left'
+        assert _camera_part(session).reason == 'camera_left'
         assert len(_told(heard, 'not_connected')) == 1
     finally:
         session.shutdown()
@@ -132,7 +132,7 @@ def test_a_refused_binning_is_recorded():
     session = _create(heard, Refusal('binning', 'raise'))
     try:
         camera = _camera_part(session)
-        assert camera.cause == 'settings_not_applied'
+        assert camera.reason == 'settings_not_applied'
         assert 'binning' in camera.detail.lower()
         assert len(_told(heard, 'camera_rejected')) == 1
     finally:
@@ -154,7 +154,7 @@ def test_a_camera_that_left_outranks_a_stream_that_did_not_start(monkeypatch):
     session = _create(heard, microscope='LS620', refused_stream_starts=1)
     try:
         camera = _camera_part(session)
-        assert camera.cause == 'camera_left'
+        assert camera.reason == 'camera_left'
         assert 'CameraStreamStartFailedError' in camera.detail
         assert 'HardwareCommandRefusedError' in camera.detail
     finally:
@@ -180,7 +180,7 @@ def test_a_bf_write_that_outlasts_the_lanes_bound_is_recorded(monkeypatch):
         release.set()
     try:
         camera = _camera_part(session)
-        assert camera.cause == 'settings_not_applied'
+        assert camera.reason == 'settings_not_applied'
         assert 'LaneCallStillRunningError' in camera.detail
         assert len(_told(heard, 'call_overran')) == 1
     finally:
@@ -235,7 +235,7 @@ def test_a_camera_range_unread_at_bring_up_is_told_once_and_the_scope_comes_up()
     try:
         camera = session.scope.camera
         assert camera.known_setting_limits is None, 'the fault was armed before bring-up'
-        assert (_camera_part(session).up, _camera_part(session).cause) == (
+        assert (_camera_part(session).up, _camera_part(session).reason) == (
             True,
             'settings_not_applied',
         )
@@ -292,7 +292,7 @@ def test_a_camera_not_on_the_bus_is_recorded_not_detected_and_told_once(microsco
     session = _create(heard, microscope=microscope, camera_present=False)
     try:
         camera = _camera_part(session)
-        assert (camera.up, camera.cause) == (False, 'not_detected')
+        assert (camera.up, camera.reason) == (False, 'not_detected')
         assert not session.scope.camera_connected
         told = [n for n in heard if n.category == 'Camera' and n.severity.level >= logging.WARNING]
         assert [(n.title, n.message) for n in told] == [
@@ -329,7 +329,7 @@ def test_an_fx2_not_on_the_bus_takes_its_camera_and_led_board_and_is_told_as_a_r
     session = _create(heard, microscope=microscope, camera_present=False)
     try:
         parts = {p.part: p for p in session.bring_up_record.parts}
-        assert {part: (parts[part].up, parts[part].cause) for part in ('camera', 'led')} == {
+        assert {part: (parts[part].up, parts[part].reason) for part in ('camera', 'led')} == {
             'camera': (False, 'not_detected'),
             'led': (False, 'not_detected'),
         }

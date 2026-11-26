@@ -66,7 +66,7 @@ def test_the_bring_up_record_names_the_stream_that_did_not_start(refused_at_brin
     (camera,) = [p for p in refused_at_bring_up.bring_up_record.parts if p.part == 'camera']
 
     assert camera.up
-    assert camera.cause == 'stream_not_started'
+    assert camera.reason == 'stream_not_started'
     assert 'refused' in camera.detail
     assert not camera.missing
 

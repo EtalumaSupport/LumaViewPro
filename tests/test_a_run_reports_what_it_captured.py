@@ -164,7 +164,7 @@ class TestARunWithFailedCapturesEndsIncomplete:
         assert len(reported) == 1, reported
         # The cause is said once, with the steps it cost, and nothing is left to the log.
         said = str(reported[0])
-        cause = outcome.captures.failed[0].cause.rstrip('.')
+        cause = outcome.captures.failed[0].message.rstrip('.')
         assert f'{cause} (2: C1, C2)' in said and said.count(cause) == 1, said
         assert 'log' not in said, said
 

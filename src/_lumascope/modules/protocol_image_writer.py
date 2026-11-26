@@ -660,7 +660,7 @@ class _Unfocused(NamedTuple):
     """A step whose autofocus did not focus in the scan in progress, and why."""
 
     step_name: str
-    cause: str
+    message: str
 
 
 def _counted(entries: dict, step_index: int, new):
@@ -713,7 +713,7 @@ class _Settled:
             _counted(
                 self.unfocused,
                 step_index,
-                FocusFailure(step_index, failure.step_name, 1, scan_index, failure.cause),
+                FocusFailure(step_index, failure.step_name, 1, scan_index, failure.message),
             )
 
 
@@ -1118,7 +1118,7 @@ class ProtocolImageWriter:
         capture_failed row here would contradict it.
         """
         self._note_capture_strike(
-            step=step, curr_step=curr_step, scan_count=scan_count, cause=cause
+            step=step, curr_step=curr_step, scan_count=scan_count, message=cause
         )
         # Still record the step with "capture_failed" so the
         # record isn't silently missing this step.
@@ -1193,7 +1193,7 @@ class ProtocolImageWriter:
             if scan_count != self._scan_held:
                 return None
             failure = self._scan_unfocused.get(curr_step)
-        return failure.cause if failure is not None else None
+        return failure.message if failure is not None else None
 
     def _note_captured(self, *, step, curr_step, scan_count, record: FrameRecord | None) -> None:
         """Record the capture in its slot, and tell the first blown and the
@@ -1233,7 +1233,7 @@ class ProtocolImageWriter:
                 f'in this run are counted, not told.'
             )
 
-    def _note_capture_strike(self, *, step, curr_step, scan_count, cause: str) -> None:
+    def _note_capture_strike(self, *, step, curr_step, scan_count, message: str) -> None:
         """The strike counter + the 3-strike fatal abort, row-free.
 
         A failure whose camera the driver has declared removed ends the run
@@ -1247,7 +1247,7 @@ class ProtocolImageWriter:
                 scan_index=scan_count,
                 step_index=curr_step,
                 step_name=str(step.get('Name', '?')),
-                cause=cause,
+                message=message,
             )
         if self._scope.camera.camera_removed:
             logger.error(
@@ -1260,7 +1260,7 @@ class ProtocolImageWriter:
         self._consecutive_capture_failures += 1
         logger.error(
             f'[PROTOCOL] Capture failed for step {curr_step + 1} ({step.get("Name", "?")}), '
-            f'scan {scan_count + 1} -- {cause} (failure '
+            f'scan {scan_count + 1} -- {message} (failure '
             f'{self._consecutive_capture_failures}/{self._MAX_CONSECUTIVE_CAPTURE_FAILURES})'
         )
         aborting = self._consecutive_capture_failures >= self._MAX_CONSECUTIVE_CAPTURE_FAILURES
@@ -1276,7 +1276,7 @@ class ProtocolImageWriter:
                     RunStatus.FAILED,
                     'camera_failure',
                     f'The camera failed {self._consecutive_capture_failures} steps in a row; '
-                    f'the last: {cause}',
+                    f'the last: {message}',
                 ),
                 'Protocol',
             )
@@ -1678,7 +1678,7 @@ class ProtocolImageWriter:
                             step=step,
                             curr_step=curr_step,
                             scan_count=scan_count,
-                            cause='camera went inactive mid-video-step; kept frames are on disk',
+                            message='camera went inactive mid-video-step; kept frames are on disk',
                         )
                         _proto_outcome = 'video_camera_lost'
                         return False

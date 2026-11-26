@@ -422,6 +422,6 @@ def test_a_plugin_that_never_loaded_is_in_no_namespace(harness_ctx, centre_posts
 
     not_loaded = harness_ctx.plugins.not_loaded()
     assert [entry.name for entry in not_loaded] == ['no_register']
-    assert not_loaded[0].reason
+    assert not_loaded[0].message
     for health in harness_ctx.plugins.all_health():
         assert 'no_register' not in [status.name for status in health.loaded]

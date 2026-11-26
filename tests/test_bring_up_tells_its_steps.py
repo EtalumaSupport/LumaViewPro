@@ -47,7 +47,7 @@ def _bring_up(model, heard):
 def _what_came_up(session):
     record = session.bring_up_record
     return (
-        [(p.part, p.up, p.cause) for p in record.parts],
+        [(p.part, p.up, p.reason) for p in record.parts],
         session.scope.imaging.read_streaming(),
     )
 

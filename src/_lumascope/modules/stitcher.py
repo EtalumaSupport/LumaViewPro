@@ -41,7 +41,7 @@ class Stitcher(ProtocolPostProcessor):
         # unregistered edge-to-edge placement.
         return (
             f'{len(degraded_outputs)} {self.operation_label} artifact(s) used geometry-only '
-            f'fallback stitching: {self._fallback_reasons(degraded_outputs)}. Review the '
+            f'fallback stitching: {self._fallback_messages(degraded_outputs)}. Review the '
             'mosaic geometry.'
         )
 

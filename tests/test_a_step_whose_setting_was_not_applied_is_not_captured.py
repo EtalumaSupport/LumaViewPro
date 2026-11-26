@@ -60,7 +60,7 @@ def test_a_manual_step_whose_exposure_was_not_taken_is_not_captured(tmp_path):
     ), outcome
     [failed] = outcome.captures.failed
     assert (failed.step_index, failed.step_name) == (0, 'C0')
-    assert failed.cause.startswith('The camera rejected the exposure change to 2.5 ms.'), failed
+    assert failed.message.startswith('The camera rejected the exposure change to 2.5 ms.'), failed
     images = _images(tmp_path / 'runs')
     assert len(images) == 1 and 'C1' in images[0], images
 
@@ -95,7 +95,7 @@ def test_an_auto_gain_step_whose_arm_was_refused_is_not_captured(tmp_path):
         )
 
     [failed] = outcome.captures.failed
-    assert (failed.step_index, failed.cause) == (
+    assert (failed.step_index, failed.message) == (
         0,
         'The camera did not take the auto-gain change. Its auto-gain is Off.',
     )
@@ -118,7 +118,7 @@ def test_a_video_step_whose_one_shot_was_refused_is_not_captured(tmp_path):
         outcome = _run(runner, tmp_path / 'runs', [video])
 
     [failed] = outcome.captures.failed
-    assert failed.cause == (
+    assert failed.message == (
         'The camera did not take the one-shot auto-gain change. Its auto-gain is Off.'
     )
     assert outcome.captures.captured == 0

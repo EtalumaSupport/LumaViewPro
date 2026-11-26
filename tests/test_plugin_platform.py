@@ -651,7 +651,7 @@ def test_load_plugins_refuses_a_plugin_older_than_the_hosts_minimum(harness_ctx,
     outcome = report.call_args.args[0]
     assert isinstance(outcome, PluginNotLoadedError)
     assert outcome.reason == 'plugin_not_loaded'
-    assert [(f.name, f.reason) for f in outcome.failures] == [('etaluma_engineering', reason)]
+    assert [(f.name, f.message) for f in outcome.failures] == [('etaluma_engineering', reason)]
 
 
 def test_a_known_plugin_with_no_spec_is_refused_as_older_than_the_hosts_minimum(harness_ctx):
@@ -674,7 +674,7 @@ def test_a_known_plugin_with_no_spec_is_refused_as_older_than_the_hosts_minimum(
         harness_ctx.plugins.load(harness_ctx, '4.0.0')
     report.assert_called_once()
     outcome = report.call_args.args[0]
-    assert [(f.name, f.reason) for f in outcome.failures] == [
+    assert [(f.name, f.message) for f in outcome.failures] == [
         ('etaluma_engineering', 'it is older than the 1.0.6 this LumaViewPro needs')
     ]
 

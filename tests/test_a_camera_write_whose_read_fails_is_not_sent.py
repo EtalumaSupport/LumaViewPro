@@ -318,7 +318,7 @@ def test_bring_up_with_a_binning_write_whose_read_fails_comes_up_and_records_it(
     )
     try:
         part = _camera_part(session)
-        assert part.cause == 'settings_not_applied'
+        assert part.reason == 'settings_not_applied'
         assert 'binning change was not made' in part.detail, part.detail
     finally:
         session.shutdown()
@@ -342,7 +342,7 @@ def test_bring_up_whose_binning_is_unoffered_and_unreadable_comes_up_and_records
     )
     try:
         part = _camera_part(session)
-        assert part.cause == 'settings_not_applied'
+        assert part.reason == 'settings_not_applied'
         assert 'a read of the camera it needs failed' in part.detail
     finally:
         session.shutdown()

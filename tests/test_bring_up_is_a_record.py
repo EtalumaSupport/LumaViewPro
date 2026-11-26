@@ -41,7 +41,7 @@ from _lumascope.modules.exceptions import (
     MotorBoardUnavailableError,
 )
 from _lumascope.modules.lumascope_api.bring_up import (
-    CAUSE_PHRASES,
+    REASON_PHRASES,
     PartStatus,
     SettingsSetAside,
 )
@@ -130,22 +130,22 @@ class TestEachPartNamesItsCause:
     def test_every_camera_cause_has_its_words_in_a_list_of_parts(self):
         # A part's label reads its cause's phrase; a camera reason without
         # one would raise where bring-up reports the camera that failed.
-        missing = sorted(set(CameraNotAvailableError._WORDS) - set(CAUSE_PHRASES))
+        missing = sorted(set(CameraNotAvailableError._WORDS) - set(REASON_PHRASES))
         assert missing == []
-        assert PartStatus(Board.CAMERA, up=False, cause='camera_firmware_missing').describe() == (
+        assert PartStatus(Board.CAMERA, up=False, reason='camera_firmware_missing').describe() == (
             'Camera (firmware file missing)'
         )
 
     def test_a_cause_is_a_member_of_the_published_set_and_any_other_word_is_refused(self):
         # A client branches on a part's cause, so it is one closed set the
         # reference lists, judged as the record is built.
-        status = PartStatus(Board.CAMERA, up=False, cause='camera_firmware_missing')
+        status = PartStatus(Board.CAMERA, up=False, reason='camera_firmware_missing')
         with pytest.raises(ArgumentRefusedError) as refused:
-            PartStatus(Board.CAMERA, up=False, cause='camera_usb_driver_unusable')
+            PartStatus(Board.CAMERA, up=False, reason='camera_usb_driver_unusable')
         assert refused.value.reason == 'not_offered'
-        from lumascope import PartCause
+        from lumascope import PartReason
 
-        assert status.cause is PartCause.CAMERA_FIRMWARE_MISSING
+        assert status.reason is PartReason.CAMERA_FIRMWARE_MISSING
 
     def test_a_motor_board_whose_port_is_held_is_on_the_record_and_told_once_with_its_remedy(
         self, monkeypatch, tmp_path, centre_posts
@@ -158,7 +158,7 @@ class TestEachPartNamesItsCause:
         )
         try:
             motor = _status(s.bring_up_record, Board.MOTOR)
-            assert (motor.up, motor.expected, motor.cause) == (False, True, 'port_in_use')
+            assert (motor.up, motor.expected, motor.reason) == (False, True, 'port_in_use')
             assert motor.missing
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
             assert [(n.title, n.reason, n.category) for n in faults] == [
@@ -233,7 +233,7 @@ class TestEachPartNamesItsCause:
         )
         try:
             motor = _status(s.bring_up_record, Board.MOTOR)
-            assert (motor.up, motor.expected, motor.cause) == (False, False, 'not_detected')
+            assert (motor.up, motor.expected, motor.reason) == (False, False, 'not_detected')
             assert not motor.missing
             assert s.bring_up_record.missing == ()
             assert _outcomes(centre_posts, OutcomeKind.FAULT) == []
@@ -258,7 +258,7 @@ class TestEachPartNamesItsCause:
         try:
             assert s.scope.channel_identity.source == 'stock'
             led = _status(s.bring_up_record, Board.LED)
-            assert (led.up, led.expected, led.cause) == (False, True, 'port_in_use')
+            assert (led.up, led.expected, led.reason) == (False, True, 'port_in_use')
             assert led in s.bring_up_record.missing
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
             assert [(n.title, n.reason) for n in faults] == [
@@ -279,7 +279,7 @@ class TestEachPartNamesItsCause:
         )
         try:
             led = _status(s.bring_up_record, Board.LED)
-            assert (led.up, led.cause) == (False, 'not_responding')
+            assert (led.up, led.reason) == (False, 'not_responding')
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
             assert [(n.title, n.reason) for n in faults] == [
                 (LedBoardUnavailableError.titles['not_responding'], 'not_responding')
@@ -300,7 +300,7 @@ class TestEachPartNamesItsCause:
         )
         try:
             camera = _status(s.bring_up_record, Board.CAMERA)
-            assert (camera.up, camera.cause) == (False, 'port_in_use')
+            assert (camera.up, camera.reason) == (False, 'port_in_use')
             assert 'PermissionError' in camera.detail
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
             assert [(n.title, n.reason, n.category) for n in faults] == [
@@ -356,7 +356,7 @@ class TestASimulatedManualScope:
         )
         try:
             motor = _status(s.bring_up_record, Board.MOTOR)
-            assert (motor.up, motor.expected, motor.cause) == (False, False, None)
+            assert (motor.up, motor.expected, motor.reason) == (False, False, None)
             assert s.bring_up_record.missing == ()
             assert centre_posts == []
         finally:
@@ -379,8 +379,8 @@ class TestAClassicRefusedItsDriver:
         try:
             record = s.bring_up_record
             assert s.scope.no_hardware
-            assert _status(record, Board.CAMERA).cause == 'camera_driver_unusable'
-            assert _status(record, Board.LED).cause == 'fx2_failed'
+            assert _status(record, Board.CAMERA).reason == 'camera_driver_unusable'
+            assert _status(record, Board.LED).reason == 'fx2_failed'
             assert [n.reason for n in centre_posts] == ['camera_driver_unusable']
             # Which driver, and Windows' own sentence for its code, never the log.
             said = centre_posts[0].message
@@ -412,7 +412,7 @@ class TestAClassicRefusedItsDriver:
             microscope='LS620',
         )
         try:
-            assert _status(s.bring_up_record, Board.LED).cause == 'fx2_failed'
+            assert _status(s.bring_up_record, Board.LED).reason == 'fx2_failed'
             assert [n.reason for n in centre_posts] == ['camera_driver_unusable']
         finally:
             s.shutdown()
@@ -475,7 +475,7 @@ class TestADeclinedFx2IsToldOnlyWhereItCouldBeTheBoard:
         )
         try:
             camera = _status(s.bring_up_record, Board.CAMERA)
-            assert camera.cause == 'not_detected'
+            assert camera.reason == 'not_detected'
             # The record still names the driver that did not load.
             assert (
                 'fx2: bundled libusb not in use: libusb-package is not installed' in camera.detail
@@ -519,8 +519,8 @@ class TestADeclinedFx2IsToldOnlyWhereItCouldBeTheBoard:
         )
         try:
             record = s.bring_up_record
-            assert _status(record, Board.CAMERA).cause == 'camera_driver_unavailable'
-            assert _status(record, Board.LED).cause == 'led_driver_unavailable'
+            assert _status(record, Board.CAMERA).reason == 'camera_driver_unavailable'
+            assert _status(record, Board.LED).reason == 'led_driver_unavailable'
             assert _told(centre_posts) == [
                 ('Camera', 'camera_driver_unavailable'),
                 ('Illumination', 'led_driver_unavailable'),
@@ -543,7 +543,7 @@ class TestADeclinedFx2IsToldOnlyWhereItCouldBeTheBoard:
             microscope='LS850T',
         )
         try:
-            assert _status(s.bring_up_record, Board.LED).cause == 'not_detected'
+            assert _status(s.bring_up_record, Board.LED).reason == 'not_detected'
             assert _told(centre_posts) == [('Illumination', 'not_detected')]
         finally:
             s.shutdown()
@@ -563,8 +563,8 @@ class TestADeclinedFx2IsToldOnlyWhereItCouldBeTheBoard:
         )
         try:
             record = s.bring_up_record
-            assert _status(record, Board.LED).cause == 'port_in_use'
-            assert _status(record, Board.CAMERA).cause == 'not_detected'
+            assert _status(record, Board.LED).reason == 'port_in_use'
+            assert _status(record, Board.CAMERA).reason == 'not_detected'
             assert _told(centre_posts) == [
                 ('Camera', 'not_detected'),
                 ('Illumination', 'port_in_use'),
@@ -581,7 +581,7 @@ class TestAProblemOnAPartThatCameUp:
         s = _bring_up(monkeypatch, tmp_path, led=_FirstAllOffUnanswered(), microscope='LS850T')
         try:
             led = _status(s.bring_up_record, Board.LED)
-            assert (led.up, led.cause) == (True, 'safety_off_failed')
+            assert (led.up, led.reason) == (True, 'safety_off_failed')
             assert led.detail == 'BoardNoReplyError: LEDS_OFF: no reply from the board'
             assert not led.missing
             safety = [n for n in centre_posts if n.reason == 'safety_off_failed']
@@ -601,7 +601,7 @@ class TestAProblemOnAPartThatCameUp:
         s = _bring_up(monkeypatch, tmp_path, motor=board, microscope='LS850T')
         try:
             motor = _status(s.bring_up_record, Board.MOTOR)
-            assert (motor.up, motor.cause) == (True, 'acceleration_not_set')
+            assert (motor.up, motor.reason) == (True, 'acceleration_not_set')
             assert motor.detail == 'BoardNoReplyError: AMAXX: no reply from the board'
             assert not motor.missing
             told = [n for n in centre_posts if n.reason == BoardNoReplyError.reason]
@@ -802,7 +802,7 @@ class TestTheSettingsFileSetAside:
         fn = find_def('lumaviewpro.py', '_ask_about_rejected_settings', class_name='LumaViewProApp')
         source = ast.unparse(fn)
         assert 'set_aside = ctx.session.bring_up_record.settings_set_aside' in source
-        assert 'reason = set_aside.reason' in source
+        assert 'reason = set_aside.message' in source
         assert 'rejected_current_json' not in source
 
 

@@ -149,7 +149,7 @@ class TestInsideAStep:
         assert outcome.status == 'incomplete', outcome
         assert outcome.captures.captured == 3, outcome.captures
         (failed,) = outcome.captures.failed
-        assert failed.cause == str(CaptureFailedError('record_read_failed')), failed
+        assert failed.message == str(CaptureFailedError('record_read_failed')), failed
 
     def test_record_reads_that_keep_failing_end_the_run_as_a_camera_failure(self, run_session):
         session, runner, run_parent = run_session

@@ -44,7 +44,7 @@ def test_the_logs_zip_carries_the_bring_up_record(session, tmp_path):
     assert [part['up'] for part in body['parts']] == [part.up for part in record.parts]
 
 
-def test_a_part_that_did_not_come_up_is_in_the_zip_with_its_cause(monkeypatch, tmp_path):
+def test_a_part_that_did_not_come_up_is_in_the_zip_with_its_reason(monkeypatch, tmp_path):
     session = _bring_up(
         monkeypatch,
         tmp_path,
@@ -59,11 +59,28 @@ def test_a_part_that_did_not_come_up_is_in_the_zip_with_its_cause(monkeypatch, t
     motor = next(
         part for part in _read(saved.path, 'bring_up.json')['parts'] if part['part'] == Board.MOTOR
     )
-    assert (motor['up'], motor['cause'], motor['cause_words']) == (
+    assert (motor['up'], motor['reason'], motor['reason_words']) == (
         False,
         'port_in_use',
         'port in use',
     )
+
+
+def test_a_settings_file_set_aside_is_in_the_zip_with_its_message(monkeypatch, tmp_path):
+    from _lumascope.modules import settings_init
+
+    monkeypatch.setattr(
+        settings_init, 'rejected_current_json', ('/x/data/current.json', 'not valid JSON')
+    )
+    session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+    try:
+        saved = session.make_logs_zip(output_dir=tmp_path / 'out')
+    finally:
+        session.shutdown()
+    assert _read(saved.path, 'bring_up.json')['settings_set_aside'] == {
+        'path': '/x/data/current.json',
+        'message': 'not valid JSON',
+    }
 
 
 class _BrokenEntryPoint:
@@ -88,7 +105,7 @@ def test_a_plugin_that_did_not_load_is_in_the_zip(tmp_path):
         {
             'name': 'broken',
             'version': '',
-            'reason': "it could not be imported (ModuleNotFoundError: No module named 'numpy2')",
+            'message': "it could not be imported (ModuleNotFoundError: No module named 'numpy2')",
         }
     ]
     assert sorted(ns['namespace'] for ns in body['namespaces']) == [

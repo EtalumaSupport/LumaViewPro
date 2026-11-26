@@ -2521,7 +2521,7 @@ class SequencedCaptureRunner:
         incomplete = RunIncompleteError(
             asked=tally.asked,
             captured=tally.captured,
-            failed=[(failed.step_name, failed.cause) for failed in tally.failed],
+            failed=[(failed.step_name, failed.message) for failed in tally.failed],
         )
         if self._run_mode is not SequencedCaptureRunMode.SINGLE_COMPOSITE:
             from _lumascope.modules.notification_center import notifications
@@ -2914,7 +2914,7 @@ class SequencedCaptureRunner:
             incomplete = RunIncompleteError(
                 asked=tally.asked,
                 captured=tally.captured,
-                failed=[(failed.step_name, failed.cause) for failed in tally.failed],
+                failed=[(failed.step_name, failed.message) for failed in tally.failed],
             )
 
         def _settle(

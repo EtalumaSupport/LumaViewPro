@@ -47,7 +47,7 @@ def test_an_autofocus_scan_names_the_step_whose_focus_was_not_updated(tmp_path, 
         'The scan finished; autofocus did not focus 1 step, whose focus was not updated.'
     )
     assert [
-        (f.step_index, f.step_name, f.count, f.first_scan_index, f.cause)
+        (f.step_index, f.step_name, f.count, f.first_scan_index, f.message)
         for f in outcome.focus_failures
     ] == [(0, 'AF_test', 1, 0, NO_SCORES)]
 
@@ -68,7 +68,7 @@ def test_a_capture_protocol_captures_the_step_at_its_fallback_and_names_it(
         'The run finished; autofocus did not focus 1 step, which was captured at its '
         'fallback focus.'
     )
-    assert [(f.step_index, f.step_name, f.cause) for f in outcome.focus_failures] == [
+    assert [(f.step_index, f.step_name, f.message) for f in outcome.focus_failures] == [
         (0, 'C0', NO_SCORES)
     ]
 
@@ -108,7 +108,7 @@ def test_a_step_that_did_not_focus_in_every_scan_is_one_step(tmp_path, every_sco
         'fallback focus.'
     )
     assert [
-        (f.step_index, f.step_name, f.count, f.first_scan_index, f.cause)
+        (f.step_index, f.step_name, f.count, f.first_scan_index, f.message)
         for f in outcome.focus_failures
     ] == [(0, 'C0', 2, 0, NO_SCORES)]
 
@@ -163,7 +163,7 @@ def test_every_settle_path_carries_the_focus_failures():
     from _lumascope.modules.run_outcome import FocusFailure
 
     failures = (
-        FocusFailure(step_index=1, step_name='B', count=1, first_scan_index=0, cause='flat'),
+        FocusFailure(step_index=1, step_name='B', count=1, first_scan_index=0, message='flat'),
     )
     ending = RunEnding('completed', 'completed', 'm')
     for settle in (

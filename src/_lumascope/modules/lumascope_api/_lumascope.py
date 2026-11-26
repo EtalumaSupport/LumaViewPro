@@ -465,7 +465,7 @@ def _host_usb_census() -> 'UsbCensus':
 def _board_status(part: Board, fallback) -> 'PartStatus':
     """The record of a board the registry built, real or null by its ``fallback``."""
     if fallback is not None:
-        return PartStatus(part, up=False, cause=fallback.cause, detail=fallback.detail)
+        return PartStatus(part, up=False, reason=fallback.cause, detail=fallback.detail)
     return PartStatus(part, up=True)
 
 
@@ -1376,7 +1376,7 @@ class Lumascope:
         except Fault as fault:
             parts[Board.LED] = dataclasses.replace(
                 parts[Board.LED],
-                cause='safety_off_failed',
+                reason='safety_off_failed',
                 detail=f'{type(fault).__name__}: {fault}',
             )
 
@@ -1449,7 +1449,7 @@ class Lumascope:
         # the FX2's own failure took the LED board with it, and the camera's
         # notice tells both.
         if not camera_up and fx2_failure is not None and self._camera_failure is fx2_failure:
-            parts[Board.LED] = dataclasses.replace(parts[Board.LED], cause='fx2_failed')
+            parts[Board.LED] = dataclasses.replace(parts[Board.LED], reason='fx2_failed')
         # Decided once, from the camera and the LED board; the camera's cause,
         # the LED board's and the no-hardware notice each read it.
         self._declined_fx2 = _the_declined_fx2_that_could_be_this_scope(camera_up, led_fallback)
@@ -1457,11 +1457,13 @@ class Lumascope:
             parts[Board.CAMERA] = PartStatus(
                 Board.CAMERA,
                 up=False,
-                cause=_camera_failure_cause(self._camera_failure, self._declined_fx2 is not None),
+                reason=_camera_failure_cause(self._camera_failure, self._declined_fx2 is not None),
                 detail=f'{type(self._camera_failure).__name__}: {self._camera_failure}',
             )
         if self._declined_fx2 is not None:
-            parts[Board.LED] = dataclasses.replace(parts[Board.LED], cause='led_driver_unavailable')
+            parts[Board.LED] = dataclasses.replace(
+                parts[Board.LED], reason='led_driver_unavailable'
+            )
         self._bring_up_parts = parts
         self._bring_up_substitutions: list[Substitution] = []
 
@@ -1871,7 +1873,7 @@ class Lumascope:
             except HardwareError as fault:
                 self._bring_up_parts[Board.MOTOR] = dataclasses.replace(
                     self._bring_up_parts[Board.MOTOR],
-                    cause='acceleration_not_set',
+                    reason='acceleration_not_set',
                     detail=f'{type(fault).__name__}: {fault}',
                 )
                 notifications.report_outcome(fault, solicited=False, category='Motion')
@@ -1963,12 +1965,12 @@ class Lumascope:
         """
         camera = self._bring_up_parts[Board.CAMERA]
         words = f'{type(fault).__name__}: {fault}'
-        held = camera.cause
+        held = camera.reason
         if held is not None and _CAMERA_CAUSE_ORDER.index(held) > _CAMERA_CAUSE_ORDER.index(cause):
             cause = held
         self._bring_up_parts[Board.CAMERA] = dataclasses.replace(
             camera,
-            cause=cause,
+            reason=cause,
             detail=f'{camera.detail}; {words}' if camera.detail else words,
         )
 
@@ -2123,25 +2125,25 @@ class Lumascope:
             return
         self._report_camera()
         led = parts[Board.LED]
-        if led.missing and led.cause != 'fx2_failed':
+        if led.missing and led.reason != 'fx2_failed':
             notifications.report_outcome(
                 LedBoardUnavailableError(
-                    led.cause,
+                    led.reason,
                     declined_words=(
-                        self._declined_words() if led.cause == 'led_driver_unavailable' else None
+                        self._declined_words() if led.reason == 'led_driver_unavailable' else None
                     ),
                 ),
                 solicited=False,
                 category='Illumination',
             )
-        elif led.cause == 'safety_off_failed':
+        elif led.reason == 'safety_off_failed':
             notifications.report_outcome(
                 LedSafetyOffNotTakenError(led.detail), solicited=False, category='Illumination'
             )
         motor = parts[Board.MOTOR]
         if motor.missing:
             notifications.report_outcome(
-                MotorBoardUnavailableError(motor.cause), solicited=False, category='Motion'
+                MotorBoardUnavailableError(motor.reason), solicited=False, category='Motion'
             )
 
     def _log_usb_census(self) -> None:
@@ -2182,9 +2184,9 @@ class Lumascope:
             reported = failure
         else:
             reported = CameraNotAvailableError(
-                camera.cause,
-                repairable=camera.cause == 'camera_driver_unusable' and repair_refusal() is None,
-                detail=_camera_detail(camera.cause, failure, self._declined_words()),
+                camera.reason,
+                repairable=camera.reason == 'camera_driver_unusable' and repair_refusal() is None,
+                detail=_camera_detail(camera.reason, failure, self._declined_words()),
             )
             reported.__cause__ = failure
         notifications.report_outcome(reported, solicited=False, category='Camera')

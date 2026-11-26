@@ -66,7 +66,7 @@ def test_a_body_whose_orientation_cannot_be_known_is_down_naming_the_step(monkey
         )
         try:
             (camera,) = [p for p in session.bring_up_record.parts if p.part == 'camera']
-            if (camera.up, camera.cause) != (False, 'camera_setup_failed') or (
+            if (camera.up, camera.reason) != (False, 'camera_setup_failed') or (
                 'the image orientation (ReverseY)' not in camera.detail
             ):
                 wrong.append(f'{fails}: {camera}')

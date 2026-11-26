@@ -280,7 +280,7 @@ _RECORDED_FACTS = (
         CaptureTally(
             asked=4,
             captured=3,
-            failed=(FailedCapture(scan_index=0, step_index=2, step_name='C1', cause='timeout'),),
+            failed=(FailedCapture(scan_index=0, step_index=2, step_name='C1', message='timeout'),),
             saturated=(StepFrames(step_index=1, step_name='B1', count=1, first_scan_index=0),),
             dark=(),
         ),
@@ -291,7 +291,7 @@ _RECORDED_FACTS = (
     ('record_focus_written', True, 'focus_written'),
     (
         'record_focus_failures',
-        (FocusFailure(step_index=0, step_name='A1', count=1, first_scan_index=0, cause='flat'),),
+        (FocusFailure(step_index=0, step_name='A1', count=1, first_scan_index=0, message='flat'),),
         'focus_failures',
     ),
 )

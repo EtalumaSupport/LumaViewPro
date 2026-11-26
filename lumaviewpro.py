@@ -864,7 +864,7 @@ class LumaViewProApp(TooltipMixin, App):
         if set_aside is None:
             return
 
-        reason = set_aside.reason
+        reason = set_aside.message
 
         def _after_revert():
             # The retire is a file rename that can fail under a Windows

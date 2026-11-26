@@ -73,7 +73,7 @@ if TYPE_CHECKING:
     from _lumascope.modules.tiling_config import TilingGrids
 
 
-@api_fields('path', 'algorithm', 'fallback_from', 'fallback_reason')
+@api_fields('path', 'algorithm', 'fallback_from', 'fallback_message')
 @dataclasses.dataclass(frozen=True)
 class DegradedOutput:
     """A file a build made by its fallback algorithm, and why.
@@ -82,13 +82,13 @@ class DegradedOutput:
         path: The file.
         algorithm: The algorithm that made it.
         fallback_from: The algorithm it fell back from.
-        fallback_reason: Why the first could not make it.
+        fallback_message: Why the first could not make it.
     """
 
     path: pathlib.Path
     algorithm: StitchAlgorithm
     fallback_from: StitchAlgorithm
-    fallback_reason: str
+    fallback_message: str
 
 
 @api_fields(
@@ -446,7 +446,7 @@ def _build_result(answer: dict) -> BuildResult:
                 path=root / degraded['filepath'],
                 algorithm=degraded['algorithm'],
                 fallback_from=degraded['fallback_from'],
-                fallback_reason=degraded['fallback_reason'],
+                fallback_message=degraded['fallback_message'],
             )
             for degraded in answer.get('degraded_outputs', ())
         ),

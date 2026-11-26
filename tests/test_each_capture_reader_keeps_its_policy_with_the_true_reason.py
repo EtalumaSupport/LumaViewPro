@@ -41,7 +41,7 @@ class TestAProtocolRun:
             outcome = _run(runner, tmp_path / 'runs', _steps(4))
 
         assert (outcome.status, outcome.reason) == ('failed', 'camera_failure'), outcome
-        assert [failed.cause for failed in outcome.captures.failed] == [
+        assert [failed.message for failed in outcome.captures.failed] == [
             str(CaptureFailedError('no_frame'))
         ] * 3
 

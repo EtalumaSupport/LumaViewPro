@@ -357,7 +357,7 @@ class TestSimplePositionStitcher:
                     'center': {'x': 0.5, 'y': 0.0},
                     'algorithm': 'simple_position_stitcher',
                     'fallback_from': 'quality_local_ncc',
-                    'fallback_reason': 'quality_local_ncc: registration failed',
+                    'fallback_message': 'quality_local_ncc: registration failed',
                 },
             )
 
@@ -373,7 +373,7 @@ class TestSimplePositionStitcher:
                 'filepath': 'Stitched/stitched.tiff',
                 'algorithm': 'simple_position_stitcher',
                 'fallback_from': 'quality_local_ncc',
-                'fallback_reason': 'quality_local_ncc: registration failed',
+                'fallback_message': 'quality_local_ncc: registration failed',
             }
         ]
 
@@ -383,7 +383,7 @@ class TestSimplePositionStitcher:
         # review, for every caller, not only the GUI.
         reason = 'overlap matching could not match the tiles where they overlap'
         summary = Stitcher(has_turret=False)._degraded_summary(
-            [{'filepath': name, 'fallback_reason': reason} for name in ('a.tiff', 'b.tiff')]
+            [{'filepath': name, 'fallback_message': reason} for name in ('a.tiff', 'b.tiff')]
         )
 
         assert 'geometry-only fallback' in summary
@@ -801,7 +801,9 @@ class TestStitchOutputAlgorithmStamp:
         assert structured['Algorithm'] == 'simple_position_stitcher'
 
 
-_TWO_DEGRADED = [{'filepath': name, 'fallback_reason': 'a reason'} for name in ('a.tiff', 'b.tiff')]
+_TWO_DEGRADED = [
+    {'filepath': name, 'fallback_message': 'a reason'} for name in ('a.tiff', 'b.tiff')
+]
 
 
 class TestDegradedSummaryDeleaked:

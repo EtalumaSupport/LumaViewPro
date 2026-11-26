@@ -4252,7 +4252,7 @@ class PluginNotLoadedError(Fault, PluginError):
 
     def __init__(self, failures: 'Sequence[PluginNotLoaded]'):
         super().__init__(
-            ' '.join(f'The "{f.name}" plugin did not load: {f.reason}.' for f in failures)
+            ' '.join(f'The "{f.name}" plugin did not load: {f.message}.' for f in failures)
             + ' The rest of LumaViewPro is unaffected.'
         )
         self.failures = tuple(failures)

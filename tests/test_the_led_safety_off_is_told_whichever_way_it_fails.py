@@ -110,7 +110,7 @@ def test_a_safety_off_not_taken_is_told_once_and_leaves_every_led_unknown(
     )
     try:
         led = next(p for p in session.bring_up_record.parts if p.part == Board.LED)
-        assert (led.up, led.cause) == (True, 'safety_off_failed')
+        assert (led.up, led.reason) == (True, 'safety_off_failed')
         assert led.detail.startswith(f'{fault.__name__}: ')
         told = [n for n in centre_posts if n.reason == 'safety_off_failed']
         assert [n.title for n in told] == [LedSafetyOffNotTakenError.title]

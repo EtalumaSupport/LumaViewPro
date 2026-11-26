@@ -63,7 +63,7 @@ from _lumascope.modules.exceptions import (
     MoveNotCompletedError,
     SupportReportNotSavedError,
 )
-from _lumascope.modules.lumascope_api.bring_up import CAUSE_PHRASES
+from _lumascope.modules.lumascope_api.bring_up import REASON_PHRASES
 from _lumascope.modules.lumascope_api.diagnostics import LedCommandSet
 from _lumascope.modules.path_utils import (
     CaptureLocationError,
@@ -2876,7 +2876,7 @@ class TechSupportReport:
         record = self._session.bring_up_record
         body = dataclasses.asdict(record)
         for part in body['parts']:
-            part['cause_words'] = CAUSE_PHRASES.get(part['cause']) if part['cause'] else None
+            part['reason_words'] = REASON_PHRASES.get(part['reason']) if part['reason'] else None
         (tmp / 'bring_up.json').write_text(json.dumps(body, indent=2, default=str))
 
     def _step_plugins(self, tmp):

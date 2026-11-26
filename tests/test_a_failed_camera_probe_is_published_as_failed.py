@@ -114,7 +114,7 @@ def test_a_failed_toggle_probe_keeps_the_saved_setting_and_is_on_the_record(togg
     assert toggles.written == []
 
     camera_part = next(p for p in toggles.session.bring_up_record.parts if p.part == Board.CAMERA)
-    assert camera_part.cause == 'settings_not_applied'
+    assert camera_part.reason == 'settings_not_applied'
     assert (
         "CameraReadFailedError: The camera's conversion gain probe failed when it came up; "
         'the saved setting is kept and was not applied'

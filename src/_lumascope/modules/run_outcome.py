@@ -382,7 +382,7 @@ class EndingLatch:
             return self._shown
 
 
-@api_fields('scan_index', 'step_index', 'step_name', 'cause')
+@api_fields('scan_index', 'step_index', 'step_name', 'message')
 @dataclasses.dataclass(frozen=True)
 class FailedCapture:
     """One capture a run was asked for that produced no image.
@@ -391,13 +391,13 @@ class FailedCapture:
         scan_index: The scan it belonged to, counting from 0.
         step_index: The step's row in the protocol, counting from 0.
         step_name: The step's name, as the protocol has it.
-        cause: Why no image came, in the words the log records.
+        message: Why no image came, in the words the log records.
     """
 
     scan_index: int
     step_index: int
     step_name: str
-    cause: str
+    message: str
 
 
 @api_fields('step_index', 'step_name', 'count', 'first_scan_index')
@@ -419,7 +419,7 @@ class StepFrames:
     first_scan_index: int
 
 
-@api_fields('step_index', 'step_name', 'count', 'first_scan_index', 'cause')
+@api_fields('step_index', 'step_name', 'count', 'first_scan_index', 'message')
 @dataclasses.dataclass(frozen=True)
 class FocusFailure:
     """One step whose autofocus did not focus; the run went on at its fallback Z.
@@ -429,7 +429,7 @@ class FocusFailure:
         step_name: The step's name, as the protocol has it.
         count: In how many scans it did not focus.
         first_scan_index: The first scan it did not focus in, counting from 0.
-        cause: Why it did not focus in that scan, in the autofocus failure's
+        message: Why it did not focus in that scan, in the autofocus failure's
             words.
     """
 
@@ -437,7 +437,7 @@ class FocusFailure:
     step_name: str
     count: int
     first_scan_index: int
-    cause: str
+    message: str
 
 
 @api_fields('asked', 'captured', 'failed', 'saturated', 'dark')

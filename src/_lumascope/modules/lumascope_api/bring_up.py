@@ -47,7 +47,7 @@ def report_step(on_progress: ProgressCallback | None, step: str) -> None:
         on_progress(percent, step)
 
 
-class PartCause(enum.StrEnum):
+class PartReason(enum.StrEnum):
     """Why a part is not up, or the problem a part that is up met coming up.
 
     Each has the phrase a list of parts names it by: "Motor Controller
@@ -56,7 +56,7 @@ class PartCause(enum.StrEnum):
 
     _phrase: str
 
-    def __new__(cls, value: str, phrase: str) -> PartCause:
+    def __new__(cls, value: str, phrase: str) -> PartReason:
         member = str.__new__(cls, value)
         member._value_ = value
         member._phrase = phrase
@@ -85,11 +85,11 @@ class PartCause(enum.StrEnum):
     ACCELERATION_NOT_SET = 'acceleration_not_set', 'acceleration limit not set'
 
 
-# A cause's words inside a list of parts.
-CAUSE_PHRASES: dict[str, str] = {cause: cause._phrase for cause in PartCause}
+# A reason's words inside a list of parts.
+REASON_PHRASES: dict[str, str] = {reason: reason._phrase for reason in PartReason}
 
 
-@api_fields('cause', 'detail', 'expected', 'part', 'up')
+@api_fields('detail', 'expected', 'part', 'reason', 'up')
 @dataclass(frozen=True)
 class PartStatus:
     """One part of the scope at bring-up.
@@ -100,7 +100,7 @@ class PartStatus:
         expected: Whether this scope's model has one. A manual scope has no
             motor board, so its absence is not a failure; until the model is
             known every part is expected.
-        cause: Why it is not up; or, on a
+        reason: Why it is not up; or, on a
             part that is up, a problem it met coming up (the LED board's
             safety LEDs-off not confirmed; the camera's stream that did not
             start, which a later start that succeeds does not clear, a
@@ -116,7 +116,7 @@ class PartStatus:
     part: Board
     up: bool
     expected: bool = True
-    cause: PartCause | None = None
+    reason: PartReason | None = None
     detail: str = ''
 
     @property
@@ -129,15 +129,15 @@ class PartStatus:
         return self.expected and not self.up
 
     def describe(self) -> str:
-        """The part's label with its cause: ``Motor Controller (port in use)``.
+        """The part's label with its reason: ``Motor Controller (port in use)``.
 
         Raises:
             Nothing.
         """
         label = self.part.label
-        if self.cause is None:
+        if self.reason is None:
             return label
-        return f'{label} ({CAUSE_PHRASES[self.cause]})'
+        return f'{label} ({REASON_PHRASES[self.reason]})'
 
 
 @api_fields('saved', 'setting', 'used')
@@ -166,7 +166,7 @@ class Substitution:
     used: SettingValue
 
 
-@api_fields('path', 'reason')
+@api_fields('path', 'message')
 @dataclass(frozen=True)
 class SettingsSetAside:
     """The user's settings file that could not be used, and why.
@@ -177,11 +177,11 @@ class SettingsSetAside:
     Attributes:
         path: The settings file (``current.json``) that was set aside,
             untouched.
-        reason: Why it could not be used, in words a person reads.
+        message: Why it could not be used, in words a person reads.
     """
 
     path: pathlib.Path
-    reason: str
+    message: str
 
 
 @api_fields('parts', 'settings_set_aside', 'substitutions')

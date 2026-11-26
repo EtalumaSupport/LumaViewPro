@@ -192,7 +192,7 @@ def _failure(algorithm: str, error: str, center: dict | None = None) -> dict:
     }
 
 
-def _failure_reason(failures: list[dict[str, str]]) -> str:
+def _failure_message(failures: list[dict[str, str]]) -> str:
     # Each failure's words name its method as a person reads it; the
     # algorithm's id stays in ``fallback_failures`` for a program.
     return '; '.join(item['error'] for item in failures)
@@ -226,7 +226,7 @@ def _run_fallback_chain(
             if failures:
                 metadata['fallback_from'] = failures[0]['algorithm']
                 metadata['fallback_failures'] = failures
-                metadata['fallback_reason'] = _failure_reason(failures)
+                metadata['fallback_message'] = _failure_message(failures)
                 logger.warning(
                     '[Stitch] %s failed; using %s for well=%s color=%s tile_group=%s. Reason: %s',
                     failures[0]['algorithm'],
@@ -234,7 +234,7 @@ def _run_fallback_chain(
                     context.get('well', ''),
                     context.get('color', ''),
                     context.get('tile_group_id', ''),
-                    metadata['fallback_reason'],
+                    metadata['fallback_message'],
                 )
             return result
 
@@ -248,7 +248,7 @@ def _run_fallback_chain(
     if last_result is None:
         return _failure('channel_aware_stitcher', 'no stitching algorithms configured')
     last_result.setdefault('metadata', {})['fallback_failures'] = failures
-    last_result['metadata']['fallback_reason'] = _failure_reason(failures)
+    last_result['metadata']['fallback_message'] = _failure_message(failures)
     return last_result
 
 

@@ -15,9 +15,9 @@ built, whichever class builds it.
 
 Two record vocabularies carry reasons outside any class: the run's endings
 (``run_outcome.ENDING_KINDS``, each with its kind) and the bring-up record's
-causes (``bring_up.CAUSE_PHRASES``, why a part is not up). A string in
+reasons (``bring_up.REASON_PHRASES``, why a part is not up). A string in
 either that a class also carries is carried with the record's kind: a
-failed run's ending and a part's cause by a fault, a stopped run's ending by
+failed run's ending and a part's reason by a fault, a stopped run's ending by
 a notice or a quiet outcome, and a completed run's by no class; and a class
 carrying a run's ending states the ending's heading as its title.
 
@@ -51,7 +51,7 @@ from _lumascope.modules.exceptions import (
     SessionClosingError,
     SettingRefusedError,
 )
-from _lumascope.modules.lumascope_api.bring_up import CAUSE_PHRASES
+from _lumascope.modules.lumascope_api.bring_up import REASON_PHRASES
 from _lumascope.modules.path_utils import CaptureLocationError
 from _lumascope.modules.plugins import PluginRegistrationError
 from _lumascope.modules.run_outcome import ENDING_KINDS, ENDING_TITLES, EndingKind
@@ -451,7 +451,7 @@ def _endings_kinds():
 
 
 def _part_causes_kinds():
-    return dict.fromkeys(map(str, CAUSE_PHRASES), _KINDS_OF_PART_CAUSE)
+    return dict.fromkeys(map(str, REASON_PHRASES), _KINDS_OF_PART_CAUSE)
 
 
 def test_a_run_ending_a_class_carries_is_carried_with_the_ending_s_kind():

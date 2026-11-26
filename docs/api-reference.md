@@ -227,7 +227,7 @@ NaN stays a NaN, and a key keeps its type.
 - [`OutcomeKind`](#OutcomeKind)
 - [`OutputFormat`](#OutputFormat)
 - [`Part`](#Part)
-- [`PartCause`](#PartCause)
+- [`PartReason`](#PartReason)
 - [`PostProcessingOperation`](#PostProcessingOperation)
 - [`RecordingEndReason`](#RecordingEndReason)
 - [`RefusalCause`](#RefusalCause)
@@ -9600,7 +9600,7 @@ A file a build made by its fallback algorithm, and why.
 
 - <a id="DegradedOutput.algorithm"></a>`algorithm`: `StitchAlgorithm` -- The algorithm that made it.
 - <a id="DegradedOutput.fallback_from"></a>`fallback_from`: `StitchAlgorithm` -- The algorithm it fell back from.
-- <a id="DegradedOutput.fallback_reason"></a>`fallback_reason`: `str` -- Why the first could not make it.
+- <a id="DegradedOutput.fallback_message"></a>`fallback_message`: `str` -- Why the first could not make it.
 - <a id="DegradedOutput.path"></a>`path`: `pathlib.Path` -- The file.
 
 <a id="DeliveredRate"></a>
@@ -9714,7 +9714,7 @@ One capture a run was asked for that produced no image.
 
 **Fields**
 
-- <a id="FailedCapture.cause"></a>`cause`: `str` -- Why no image came, in the words the log records.
+- <a id="FailedCapture.message"></a>`message`: `str` -- Why no image came, in the words the log records.
 - <a id="FailedCapture.scan_index"></a>`scan_index`: `int` -- The scan it belonged to, counting from 0.
 - <a id="FailedCapture.step_index"></a>`step_index`: `int` -- The step's row in the protocol, counting from 0.
 - <a id="FailedCapture.step_name"></a>`step_name`: `str` -- The step's name, as the protocol has it.
@@ -9768,9 +9768,9 @@ One step whose autofocus did not focus; the run went on at its fallback Z.
 
 **Fields**
 
-- <a id="FocusFailure.cause"></a>`cause`: `str` -- Why it did not focus in that scan, in the autofocus failure's words.
 - <a id="FocusFailure.count"></a>`count`: `int` -- In how many scans it did not focus.
 - <a id="FocusFailure.first_scan_index"></a>`first_scan_index`: `int` -- The first scan it did not focus in, counting from 0.
+- <a id="FocusFailure.message"></a>`message`: `str` -- Why it did not focus in that scan, in the autofocus failure's words.
 - <a id="FocusFailure.step_index"></a>`step_index`: `int` -- The step's row in the protocol, counting from 0.
 - <a id="FocusFailure.step_name"></a>`step_name`: `str` -- The step's name, as the protocol has it.
 
@@ -10629,10 +10629,10 @@ One part of the scope at bring-up.
 
 **Fields**
 
-- <a id="PartStatus.cause"></a>`cause`: `PartCause | None` -- Why it is not up; or, on a part that is up, a problem it met coming up (the LED board's safety LEDs-off not confirmed; the camera's stream that did not start, which a later start that succeeds does not clear, a setting it did not take, or its leaving, the camera keeping the one of these a person acts on first; the motor controller's stored acceleration limit not taken). None when nothing is wrong.
 - <a id="PartStatus.detail"></a>`detail`: `str` -- The driver's or the error's own words, for the log and the record, each problem's joined with "; "; empty when there are none.
 - <a id="PartStatus.expected"></a>`expected`: `bool` -- Whether this scope's model has one. A manual scope has no motor board, so its absence is not a failure; until the model is known every part is expected.
 - <a id="PartStatus.part"></a>`part`: `Board` -- Which board.
+- <a id="PartStatus.reason"></a>`reason`: `PartReason | None` -- Why it is not up; or, on a part that is up, a problem it met coming up (the LED board's safety LEDs-off not confirmed; the camera's stream that did not start, which a later start that succeeds does not clear, a setting it did not take, or its leaving, the camera keeping the one of these a person acts on first; the motor controller's stored acceleration limit not taken). None when nothing is wrong.
 - <a id="PartStatus.up"></a>`up`: `bool` -- Whether a real driver came up for it.
 
 <a id="PlateLocation"></a>
@@ -10679,8 +10679,8 @@ which a plugin that never loaded did not do.
 
 **Fields**
 
+- <a id="PluginNotLoaded.message"></a>`message`: `str` -- Why it did not load, in words a person can act on.
 - <a id="PluginNotLoaded.name"></a>`name`: `str` -- The plugin's name, or its entry point's when it has no spec.
-- <a id="PluginNotLoaded.reason"></a>`reason`: `str` -- Why it did not load, in words a person can act on.
 - <a id="PluginNotLoaded.version"></a>`version`: `str` -- The plugin's version, or '' when it is not known.
 
 <a id="PluginRegistry"></a>
@@ -12103,8 +12103,8 @@ save over the file until the person decides what happens to it.
 
 **Fields**
 
+- <a id="SettingsSetAside.message"></a>`message`: `str` -- Why it could not be used, in words a person reads.
 - <a id="SettingsSetAside.path"></a>`path`: `pathlib.Path` -- The settings file (`current.json`) that was set aside, untouched.
-- <a id="SettingsSetAside.reason"></a>`reason`: `str` -- Why it could not be used, in words a person reads.
 
 <a id="ShownChannel"></a>
 ## `lumascope.ShownChannel`
@@ -13489,10 +13489,10 @@ LED selftest, text commands. A refusal names the one it lacked as a
 - `led_selftest`
 - `text_commands`
 
-<a id="PartCause"></a>
-### `lumascope.PartCause`
+<a id="PartReason"></a>
+### `lumascope.PartReason`
 
-Held in: [`PartStatus.cause`](#PartStatus.cause).
+Held in: [`PartStatus.reason`](#PartStatus.reason).
 
 Why a part is not up, or the problem a part that is up met coming up.
 
