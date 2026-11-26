@@ -83,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     # Imported at the call, after the lock. ``python -m lumascope.rest`` has
     # loaded the whole API, the server's dependencies with it, before this runs.
     from _lumascope.modules.exceptions import CatalogNameRefusedError, RestServerNotStartedError
+    from _lumascope.modules.notification_center import notifications
     from _lumascope.modules.scope_session import ScopeSession
     from _lumascope.modules.settings_init import SettingsFileError
     from _lumascope.rest.server import build_server
@@ -135,7 +136,8 @@ def main(argv: list[str] | None = None) -> int:
             session.shutdown()
             return 1
         if server.close_failed is not None:
-            logger.error(f'[REST     ] The session did not close cleanly: {server.close_failed!r}')
+            # Its flight stops here, so this is its one report.
+            notifications.report_outcome(server.close_failed, solicited=False, category='Hardware')
             return 1
         return 0
     except BaseException:

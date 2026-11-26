@@ -252,3 +252,53 @@ def test_a_failed_bring_up_keeps_its_fault_and_reports_the_disconnect(monkeypatc
 
     assert excinfo.value is configure_error
     assert [type(e) for e in reported] == [ScopeDisconnectError]
+
+
+# parametrize-justified: each model is its own motor driver over its own simulated board
+@pytest.mark.parametrize('model', ['LS720', 'LS850T'])
+def test_a_stop_that_finds_the_controller_gone_is_nothing_to_stop(model, caplog):
+    """A cable pulled while the stage is idle is found by the shutdown STOP's own write.
+
+    Nothing writes to an idle motor controller, so the STOP is the exchange
+    that finds it gone; a controller gone is nothing to stop, as when the
+    presence question before the STOP finds it gone. The shutdown raises
+    nothing for it and says so once, as a warning.
+    """
+    scope = build_scope(simulate=True, sim_model=model, warn_pre_release=False)
+    scope.simulation.unplug(Board.MOTOR)
+    assert scope.motor_connected
+
+    scope.disconnect()
+
+    gone = [r for r in caplog.records if 'already gone at shutdown' in r.getMessage()]
+    assert [r.levelname for r in gone] == ['WARNING']
+    assert not [r for r in caplog.records if 'did not complete' in r.getMessage()]
+
+
+def test_each_failed_steps_traceback_is_logged_once(sim_scope, caplog):
+    """The step the raise is chained from rides the chain to its reporter; every other step is logged where it was caught."""
+    from _lumascope.modules.notification_center import notifications
+
+    # a stand-in by design: the simulator has no fault that fails a board's
+    # off or its own disconnect with a marked error.
+    sim_scope._led_driver.leds_off = MagicMock(side_effect=RuntimeError('LED_OFF_MARKER'))
+    sim_scope._motion_driver.disconnect = MagicMock(side_effect=RuntimeError('MOTOR_PORT_MARKER'))
+
+    with pytest.raises(ScopeDisconnectError) as excinfo:
+        sim_scope.disconnect()
+    notifications.report_outcome(excinfo.value, solicited=False, category='Hardware')
+
+    assert caplog.text.count('RuntimeError: LED_OFF_MARKER') == 1
+    assert caplog.text.count('RuntimeError: MOTOR_PORT_MARKER') == 1
+
+
+def test_the_exit_hook_logs_the_disconnect_it_swallows(sim_scope, caplog):
+    """No reporter runs at exit, so the hook's own line carries the raise and its chain."""
+    # a stand-in by design: as above.
+    sim_scope._motion_driver.disconnect = MagicMock(side_effect=RuntimeError('EXIT_MARKER'))
+
+    sim_scope._emergency_shutdown()
+
+    [hooked] = [r for r in caplog.records if 'the disconnect did not complete' in r.getMessage()]
+    assert isinstance(hooked.exc_info[1], ScopeDisconnectError)
+    assert caplog.text.count('RuntimeError: EXIT_MARKER') == 1

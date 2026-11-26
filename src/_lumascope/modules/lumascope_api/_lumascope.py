@@ -92,6 +92,7 @@ from _lumascope.modules.exceptions import (
     LedSafetyOffNotTakenError,
     MissingPart,
     MotorBoardUnavailableError,
+    MotorStopFailedError,
     NoHardwareDetectedNotice,
     ScopeDisconnectError,
 )
@@ -2500,12 +2501,17 @@ class Lumascope:
         One runs at a time: a call on another thread while one runs waits
         for it, then finds nothing left.
 
+        A motor controller already gone has nothing to stop, whether it was
+        found gone before the STOP or by the STOP's own write: that STOP is
+        logged as a warning, not raised.
+
         Raises:
             ScopeDisconnectError: after every step has run, naming each
                 step that did not complete on its board (the LEDs' off, the
                 motor STOP, each board's disconnect), chained from the first
-                one's error. Nothing is logged or shown here; the caller
-                reports it where it stops.
+                one's error. Each step is logged here, the first without the
+                traceback its chain carries; nothing is shown, and the
+                caller reports it where it stops.
         """
         with self._disconnect_lock:
             try:
@@ -2607,7 +2613,6 @@ class Lumascope:
         try:
             self.illumination._leds_off_emergency()
         except Exception as ex:
-            logger.exception(f'[SCOPE API ] LED shutoff during disconnect failed: {ex}')
             failures[Board.LED, DisconnectStep.LEDS_OFF] = ex
 
         # LVP-A-1: stop motors before tearing down the serial port so we
@@ -2618,10 +2623,22 @@ class Lumascope:
         # carries on whatever it raised: the ports still have to close.
         # Asked first, as the scope's own write: with no motor controller
         # connected -- a manual scope, a pulled cable, a second disconnect --
-        # there is nothing to stop.
+        # there is nothing to stop. Asked again after a STOP that failed:
+        # nothing writes to an idle controller, so the STOP's own write can
+        # be what finds the cable pulled, and a controller gone is nothing
+        # to stop whichever exchange found it. A move the loss ended was
+        # told by the motion monitor, which polls a moving axis.
         if self.motor_connected:
             try:
                 self.motion._stop()
+            except MotorStopFailedError as e:
+                if self.motor_connected:
+                    failures[Board.MOTOR, DisconnectStep.MOTOR_STOP] = e
+                else:
+                    logger.warning(
+                        '[SCOPE API ] the motor controller was already gone at shutdown; '
+                        f'its STOP did not reach it: {e.__cause__!r}'
+                    )
             except Exception as e:
                 failures[Board.MOTOR, DisconnectStep.MOTOR_STOP] = e
 
@@ -2700,11 +2717,16 @@ class Lumascope:
             logger.warning(f'[SCOPE API ] atexit unregister failed: {_e}')
 
         if failures:
+            cause = next(iter(failures.values()))
             for (board, step), error in failures.items():
+                # The cause's traceback rides the raise's chain to whoever
+                # reports the raise; the other steps' have no carrier but
+                # this line.
                 logger.error(
-                    f'[SCOPE API ] {board.noun} {step} did not complete: {error!r}', exc_info=error
+                    f'[SCOPE API ] {board.noun} {step} did not complete: {error!r}',
+                    exc_info=None if error is cause else error,
                 )
-            raise ScopeDisconnectError(failures) from next(iter(failures.values()))
+            raise ScopeDisconnectError(failures) from cause
 
     def _emergency_shutdown(self):
         """LVP-A-7: best-effort safety shutdown for atexit / abnormal exit.
@@ -2737,7 +2759,13 @@ class Lumascope:
         try:
             self.disconnect()
         except Exception:
-            pass
+            # No reporter runs at exit: this line is the raise's one record.
+            try:
+                logger.exception(
+                    '[SCOPE API ] _emergency_shutdown: the disconnect did not complete'
+                )
+            except Exception:
+                pass
         finally:
             self._disconnect_lock.release()
         try:
