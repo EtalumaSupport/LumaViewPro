@@ -414,9 +414,9 @@ if ($ids_files) {
 
 # The FX2's driver package (LS460/LS560/LS620/LS720) is not a dependency here:
 # the signed INF and catalog are in the repo (build_exe\fx2_driver\), checked
-# and carried by every build. Its libusb library
-# comes from the libusb-package wheel, with the firmware hex, through the
-# release spec, which refuses a build without either.
+# and carried by every build. Its libusb library is the driver's own
+# (src\_lumascope\drivers\libusb_windows\), with the firmware hex, through
+# the release spec, which refuses a build without either.
 $fx2_dir = Join-Path $deps "fx2"
 
 # VC++ Redistributable (x64). REQUIRED for the bundle: the app no longer
@@ -469,10 +469,10 @@ foreach ($f in @(Get-ChildItem -Path @($deps, $fx2_dir) -File -ErrorAction Silen
     $near_misses += "$($f.FullName) is no longer bundled: the FX2's INF ships from the repo (scripts\appBuild\build_exe\fx2_driver\). Remove the file"
 }
 # A libusb DLL in either place was the old route and is now read by nothing:
-# the build takes the library from the libusb-package wheel.
+# the build takes the library from the driver's libusb_windows folder.
 foreach ($f in @(Get-ChildItem -Path @($deps, $fx2_dir) -File -ErrorAction SilentlyContinue |
                  Where-Object { $_.Name -match '(?i)^libusb.*\.dll$' })) {
-    $near_misses += "$($f.FullName) is no longer bundled: the FX2's libusb comes from the libusb-package wheel (requirements.txt). Remove the file"
+    $near_misses += "$($f.FullName) is no longer bundled: the FX2's libusb comes from the repo (src\_lumascope\drivers\libusb_windows\). Remove the file"
 }
 
 if ($near_misses.Count -gt 0) {

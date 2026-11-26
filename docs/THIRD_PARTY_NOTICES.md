@@ -36,7 +36,6 @@ This NOTICE file is maintained by Etaluma, Inc. in accordance with Apache-2.0 §
 | Starlette | 1.7.0 | BSD-3-Clause | https://github.com/Kludex/starlette |
 | pyusb | 1.3.1 | BSD-3-Clause | https://github.com/pyusb/pyusb |
 | libusb1 (python-libusb1) | 3.4.0 | LGPL-2.1-or-later | https://github.com/vpelletier/python-libusb1 |
-| libusb-package | 1.0.30.0 | Apache-2.0 (packaging; carries the LGPL-2.1 libusb library below) | https://github.com/pyocd/libusb-package |
 | annotated-doc | 0.0.5 | MIT | https://github.com/fastapi/annotated-doc |
 | annotated-types | 0.8.0 | MIT | https://github.com/annotated-types/annotated-types |
 | AnyIO | 4.16.0 | MIT | https://github.com/agronholm/anyio |
@@ -118,7 +117,7 @@ These ship inside the application folder after PyInstaller builds the Windows in
 | OpenBLAS | BSD-3-Clause | https://www.openblas.net/ | Bundled inside NumPy/SciPy wheels. |
 | Basler pylon runtime (`PylonBase`, `PylonUtility`, the USB and GigE transport layers, the GenICam `GenApi` / `GCBase` libraries) | Proprietary, Basler's: the wheel's metadata declares Other/Proprietary and it carries no license text for them | https://www.baslerweb.com/pylon | Shipped inside the pypylon wheel and collected with it. |
 | IDS peak libraries (`ids_peak.dll`, `ids_peak_ipl.dll`, their GenICam libraries and TBB) | IDS license terms (proprietary); the open-source components' licenses as each wheel lists them | https://en.ids-imaging.com/ids-peak.html | Shipped inside the two ids-peak wheels, each collected whole. |
-| libusb-1.0 (`libusb-1.0.dll` / `.dylib` / `.so`) | LGPL-2.1-or-later | https://libusb.info/ | The USB library the Lumascope Classic (LS460, LS560, LS620, LS720) drivers run on, through pyusb and python-libusb1. Shipped unmodified from the `libusb-package` wheel, in the application's `libusb_package/` folder, and loaded at run time, so it is user-replaceable per LGPL §6. |
+| libusb-1.0 (`libusb-1.0.dll` / `.dylib` / `.so`) | LGPL-2.1-or-later | https://libusb.info/ | The USB library the Lumascope Classic (LS460, LS560, LS620, LS720) drivers run on, through pyusb and python-libusb1. libusb 1.0.30 modified by Etaluma, Inc. on 2026-11-25: libusb PR #1967 applied, which makes the Windows isochronous path report every transfer's end to its caller, and the build named `-etaluma.1`. Shipped in the application's `_lumascope/drivers/libusb_windows/` folder and loaded at run time, so it is user-replaceable per LGPL §6; its source is libusb's `v1.0.30` tag with the two patch files in the installation's `docs/licenses/` applied. |
 
 ## Installed by their own installers
 

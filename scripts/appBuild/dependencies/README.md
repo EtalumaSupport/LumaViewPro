@@ -47,7 +47,8 @@ version-checks the extension. If it is absent the build stops and says so.
 | `ids_peak_*.exe` plus `setup.iss` | `ids_peak_*.exe`, `setup.iss` | IDS cameras need a manual driver install on customer machines |
 Nothing for the FX2 (LS460, LS560, LS620, LS720) goes here: its driver INF is in
 the repo (`scripts\appBuild\build_exe\fx2_driver\`), and its libusb library
-and firmware come with the clone and the `libusb-package` wheel. An `.inf` or
+and firmware come with the clone (`src\_lumascope\drivers\libusb_windows\`,
+`firmware\`). An `.inf` or
 a `libusb*.dll` left here or in an `fx2\` subfolder from the old route
 refuses the build.
 

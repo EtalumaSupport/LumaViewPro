@@ -70,20 +70,17 @@ hiddenimports = [
 # below does not reach it. The licence gate after COLLECT checks it arrived.
 datas += collect_data_files('imagecodecs', includes=['licenses/*'])
 
-# The FX2's firmware hex and libusb-package's library, each where the
+# The FX2's firmware hex and the driver's Windows libusb, each where the
 # frozen app looks for it; the build is refused without either
 # (fx2_bundle.py says where and why).
 import os as _os
 import sys as _sys
 
-import libusb_package
-
 _sys.path.insert(0, _os.path.join(SPECPATH, 'scripts', 'appBuild', 'config'))
 from fx2_bundle import check_fx2_dist, fx2_bundle_entries
 from licence_bundle import bundled_distributions
 
-_libusb_path = libusb_package.get_library_path()
-_fx2_datas, binaries = fx2_bundle_entries(SPECPATH, _libusb_path)
+_fx2_datas, binaries = fx2_bundle_entries(SPECPATH)
 datas += _fx2_datas
 
 # The build ID lives in its own file, never in version.txt. version.txt
@@ -466,4 +463,4 @@ if _licence_missing:
 print(f'Licence gate: {len(_licence_sources)} dist-info and codec licence files of '
       f'{len(_bundled_dist_infos)} distributions present in the dist tree')
 
-check_fx2_dist(_dist_root, _os.path.basename(str(_libusb_path)))
+check_fx2_dist(_dist_root, SPECPATH)

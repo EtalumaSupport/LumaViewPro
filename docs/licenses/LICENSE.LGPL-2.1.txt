@@ -4,8 +4,9 @@ The following third-party components bundled with LumaViewPro are distributed
 under the GNU Lesser General Public License, version 2.1 or later:
 
   - FFmpeg (https://ffmpeg.org/) — shared libraries bundled via the PyAV wheel
-  - libusb-1.0 (https://libusb.info/) — the shared library bundled via the
-    libusb-package wheel, in the application's libusb_package/ folder
+  - libusb-1.0 (https://libusb.info/) — the shared library, modified by
+    Etaluma, Inc., in the application's _lumascope/drivers/libusb_windows/
+    folder
   - python-libusb1 (https://github.com/vpelletier/python-libusb1) — a
     pure-Python binding to libusb-1.0, bundled as Python modules
 
@@ -21,13 +22,19 @@ Upstream FFmpeg source code is available at:
 The PyAV project (BSD-3 wrapper over FFmpeg) is at:
   https://github.com/PyAV-Org/PyAV
 
-libusb-1.0 is loaded at run time from the application's libusb_package/
-folder and can be replaced by the end user with a compatible build, in
-accordance with LGPL-2.1 Section 6; its source is at
-https://github.com/libusb/libusb, and the exact release bundled is the one
-the libusb-package wheel names (https://github.com/pyocd/libusb-package).
-python-libusb1's source is at https://pypi.org/project/libusb1/. Etaluma,
-Inc. modifies neither.
+libusb-1.0 is libusb 1.0.30 (https://github.com/libusb/libusb, tag v1.0.30)
+modified by Etaluma, Inc. on 2026-11-25: libusb pull request #1967
+(https://github.com/libusb/libusb/pull/1967) is applied to
+libusb/os/windows_winusb.c, so every isochronous transfer's end reaches the
+caller's callback, and the release suffix in libusb/version.h is
+"-etaluma.1". Its source is libusb's v1.0.30 tag (commit
+87a55632db62c9bdc58cd31d3ccfa673f1bb017f) with the two patch files in this
+folder applied, 0001-windows-ensure-iso-completion-callbacks-on-cancellation-
+and-retry-failure.patch and 0002-etaluma-build-identity.patch. It is
+loaded at run time from the application's _lumascope/drivers/libusb_windows/
+folder and can be replaced by the end user with an interface-compatible
+build, in accordance with LGPL-2.1 Section 6. python-libusb1's source is at
+https://pypi.org/project/libusb1/; Etaluma, Inc. does not modify it.
 
 Etaluma, Inc. does not modify the FFmpeg libraries bundled via PyAV. If you
 require the exact FFmpeg source corresponding to the bundled binaries, see

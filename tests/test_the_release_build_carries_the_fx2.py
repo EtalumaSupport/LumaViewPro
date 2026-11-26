@@ -8,7 +8,9 @@ variable, where ``libusb_package.get_library_path()`` -- the one library the
 driver runs on -- never looks. Both were silent: the build succeeded.
 
 The spec now takes both through ``fx2_bundle``: the hex files into
-``firmware/`` and libusb-package's own library into ``libusb_package/``,
+``firmware/`` and the driver's Windows libusb into its module's folder,
+``_lumascope/drivers/libusb_windows/`` (the path the driver's own
+``library_path()`` names), with its patches beside the LGPL text,
 refusing the build before PyInstaller runs and again on the built tree when
 either is missing. PyInstaller does not run here, so the gate is run on
 temporary trees.
@@ -33,7 +35,7 @@ import subprocess
 
 import pytest
 
-from _lumascope.drivers import fx2driver
+from _lumascope.drivers import fx2driver, libusb_windows
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONFIG = REPO_ROOT / 'scripts' / 'appBuild' / 'config'
@@ -55,18 +57,24 @@ fx2_bundle = _load_config_module('fx2_bundle')
 fx2_driver_package = _load_config_module('fx2_driver_package')
 
 
-def _library(tmp_path) -> pathlib.Path:
-    library = tmp_path / 'wheel' / 'libusb-1.0.dll'
-    library.parent.mkdir()
-    library.write_bytes(b'dll')
-    return library
+LIBUSB_DEST = str(pathlib.Path('_lumascope', 'drivers', 'libusb_windows'))
+PATCHES = ('0001-a.patch', '0002-b.patch')
 
 
-def _source_tree(tmp_path, hex_names) -> pathlib.Path:
+def _source_tree(tmp_path, hex_names, *, library=True) -> pathlib.Path:
+    """A clone with the hex files named, and the driver's libusb module, DLL and patches."""
     root = tmp_path / 'clone'
     (root / 'firmware').mkdir(parents=True)
     for name in hex_names:
         (root / 'firmware' / name).write_text(':00000001FF\n')
+    folder = root / 'src' / LIBUSB_DEST
+    folder.mkdir(parents=True)
+    module = pathlib.Path(libusb_windows.__file__)
+    (folder / module.name).write_bytes(module.read_bytes())
+    if library:
+        (folder / libusb_windows.LIBRARY_NAME).write_bytes(b'dll')
+    for patch in PATCHES:
+        (folder / patch).write_text('diff\n')
     return root
 
 
@@ -82,67 +90,81 @@ def _dist(tmp_path, datas, binaries) -> pathlib.Path:
     return dist
 
 
-def test_the_entries_put_both_hex_files_in_firmware_and_the_library_in_its_package(tmp_path):
-    library = _library(tmp_path)
+def test_the_entries_put_the_hex_in_firmware_the_library_beside_its_module_and_its_source_with_the_licences(
+    tmp_path,
+):
     root = _source_tree(tmp_path, fx2_bundle.FX2_HEX_FILES)
 
-    datas, binaries = fx2_bundle.fx2_bundle_entries(str(root), library)
+    datas, binaries = fx2_bundle.fx2_bundle_entries(str(root))
 
-    assert sorted(pathlib.Path(source).name for source, _ in datas) == sorted(
-        fx2_bundle.FX2_HEX_FILES
+    assert sorted((pathlib.Path(source).name, dest) for source, dest in datas) == sorted(
+        [(name, 'firmware') for name in fx2_bundle.FX2_HEX_FILES]
+        + [(patch, str(pathlib.Path('docs', 'licenses'))) for patch in PATCHES]
     )
-    assert {dest for _, dest in datas} == {'firmware'}
-    assert binaries == [(str(library), 'libusb_package')]
+    ((library, dest),) = binaries
+    assert pathlib.Path(library).name == libusb_windows.LIBRARY_NAME
+    assert dest == LIBUSB_DEST
 
 
-def test_the_shipped_clone_has_both_hex_files(tmp_path):
-    datas, _ = fx2_bundle.fx2_bundle_entries(str(REPO_ROOT), _library(tmp_path))
+def test_the_shipped_clone_ships_the_drivers_own_libusb_where_its_module_looks():
+    # Frozen, the module's folder keeps its place under src/, so the library
+    # the frozen driver asks for is the one the build put there.
+    datas, binaries = fx2_bundle.fx2_bundle_entries(str(REPO_ROOT))
 
-    assert len(datas) == len(fx2_bundle.FX2_HEX_FILES)
+    assert len(datas) == len(fx2_bundle.FX2_HEX_FILES) + len(
+        list(pathlib.Path(libusb_windows.__file__).parent.glob('*.patch'))
+    )
+    assert binaries == [
+        (
+            str(libusb_windows.library_path()),
+            str(
+                pathlib.Path(libusb_windows.__file__)
+                .resolve()
+                .parent.relative_to(REPO_ROOT / 'src')
+            ),
+        )
+    ]
 
 
 def test_a_missing_hex_refuses_the_build_naming_it(tmp_path):
     root = _source_tree(tmp_path, ['LumascopeClassic.hex'])
 
     with pytest.raises(SystemExit, match=r'Lumascope600\.hex'):
-        fx2_bundle.fx2_bundle_entries(str(root), _library(tmp_path))
+        fx2_bundle.fx2_bundle_entries(str(root))
 
 
-def test_a_wheel_with_no_library_refuses_the_build(tmp_path):
-    root = _source_tree(tmp_path, fx2_bundle.FX2_HEX_FILES)
+def test_a_clone_without_the_windows_libusb_refuses_the_build_naming_it(tmp_path):
+    root = _source_tree(tmp_path, fx2_bundle.FX2_HEX_FILES, library=False)
 
-    with pytest.raises(SystemExit, match='holds no library'):
-        fx2_bundle.fx2_bundle_entries(str(root), None)
+    with pytest.raises(SystemExit, match=r'libusb_windows.libusb-1\.0\.dll'):
+        fx2_bundle.fx2_bundle_entries(str(root))
 
 
 def test_a_built_tree_with_the_library_at_its_root_is_refused(tmp_path):
-    library = _library(tmp_path)
     root = _source_tree(tmp_path, fx2_bundle.FX2_HEX_FILES)
-    datas, _ = fx2_bundle.fx2_bundle_entries(str(root), library)
-    # Where the old route put it: the app root, not the package's folder.
-    dist = _dist(tmp_path, datas, [(str(library), '.')])
+    datas, ((library, _dest),) = fx2_bundle.fx2_bundle_entries(str(root))
+    # Where an old route put it: the app root, not the driver's folder.
+    dist = _dist(tmp_path, datas, [(library, '.')])
 
-    with pytest.raises(SystemExit, match='libusb_package'):
-        fx2_bundle.check_fx2_dist(str(dist), library.name)
+    with pytest.raises(SystemExit, match='libusb_windows'):
+        fx2_bundle.check_fx2_dist(str(dist), str(root))
 
 
 def test_a_built_tree_laid_out_from_the_entries_passes(tmp_path):
-    library = _library(tmp_path)
     root = _source_tree(tmp_path, fx2_bundle.FX2_HEX_FILES)
-    datas, binaries = fx2_bundle.fx2_bundle_entries(str(root), library)
+    datas, binaries = fx2_bundle.fx2_bundle_entries(str(root))
 
-    fx2_bundle.check_fx2_dist(str(_dist(tmp_path, datas, binaries)), library.name)
+    fx2_bundle.check_fx2_dist(str(_dist(tmp_path, datas, binaries)), str(root))
 
 
 def test_a_built_tree_without_the_driver_step_is_refused(tmp_path):
-    library = _library(tmp_path)
     root = _source_tree(tmp_path, fx2_bundle.FX2_HEX_FILES)
-    datas, binaries = fx2_bundle.fx2_bundle_entries(str(root), library)
+    datas, binaries = fx2_bundle.fx2_bundle_entries(str(root))
     dist = _dist(tmp_path, datas, binaries)
     (dist / fx2_bundle.DRIVER_STEP_EXE).unlink()
 
     with pytest.raises(SystemExit, match=r'lvp_fx2_driver_step\.exe'):
-        fx2_bundle.check_fx2_dist(str(dist), library.name)
+        fx2_bundle.check_fx2_dist(str(dist), str(root))
 
 
 def test_repair_runs_the_driver_step_and_package_the_build_ships():
@@ -153,9 +175,8 @@ def test_repair_runs_the_driver_step_and_package_the_build_ships():
 
 
 def test_the_frozen_driver_finds_the_hex_where_the_build_puts_it(tmp_path, monkeypatch):
-    library = _library(tmp_path)
     root = _source_tree(tmp_path, fx2_bundle.FX2_HEX_FILES)
-    datas, binaries = fx2_bundle.fx2_bundle_entries(str(root), library)
+    datas, binaries = fx2_bundle.fx2_bundle_entries(str(root))
     dist = _dist(tmp_path, datas, binaries)
     # Frozen, the build root is the bundle's folder the spec collects into.
     monkeypatch.setattr(fx2driver, 'build_root', lambda: dist)
@@ -165,13 +186,14 @@ def test_the_frozen_driver_finds_the_hex_where_the_build_puts_it(tmp_path, monke
     assert pathlib.Path(found) == dist / 'firmware' / 'LumascopeClassic.hex'
 
 
-def test_the_spec_runs_the_gate_and_reads_no_dll_from_the_environment():
+def test_the_spec_runs_the_gate_and_reads_no_dll_from_the_environment_or_the_wheel():
     # pin-justified: the spec is executed by PyInstaller, not imported.
     spec = (CONFIG / 'lumaviewpro_win_release.spec').read_text(encoding='utf-8')
 
-    assert 'fx2_bundle_entries(SPECPATH, _libusb_path)' in spec
-    assert 'check_fx2_dist(_dist_root,' in spec
+    assert '_fx2_datas, binaries = fx2_bundle_entries(SPECPATH)' in spec
+    assert 'check_fx2_dist(_dist_root, SPECPATH)' in spec
     assert 'FX2_LIBUSB_DLL' not in spec
+    assert 'libusb_package' not in spec
     assert "['scripts\\\\appBuild\\\\build_exe\\\\fx2_driver\\\\lvp_fx2_driver_step.py']" in spec
     assert "name='lvp_fx2_driver_step'" in spec
 

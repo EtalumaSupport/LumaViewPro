@@ -293,8 +293,10 @@ LumaViewPro is installed again; an upgrade leaves the driver installed.
 
 The rest of what the FX2 needs is not a dependency to drop in either: the release
 spec ships the firmware hex from the clone's `firmware\` folder and the
-native libusb library from the `libusb-package` wheel (`requirements.txt`),
-inside the bundle's `libusb_package\` folder where the driver looks for it.
+native libusb library from the clone's `src\_lumascope\drivers\libusb_windows\`
+(libusb 1.0.30 built with libusb PR #1967; that folder's README says why),
+inside the bundle's `_lumascope\drivers\libusb_windows\` folder where the
+driver looks for it, with its two patches in `docs\licenses\`.
 The build is refused, naming the file, when either is missing, before
 PyInstaller runs and again in the built tree. A `libusb*.dll` or an `.inf`
 left in `dependencies\` or `dependencies\fx2\` from the old route also refuses
@@ -367,7 +369,7 @@ The script then:
    visible to Windows Installer / Burn.
 2. Installs build dependencies into `buildvenv`.
 3. Builds the app folder with PyInstaller, with the FX2's firmware hex and
-   `libusb-package`'s library.
+   the driver's Windows libusb.
 4. Checks the committed Lumascope Classic driver package and builds
    `LumaViewPro-<version>.msi`, which carries it and runs the FX2 driver
    step at uninstall.
