@@ -1109,7 +1109,12 @@ class VideoRecordingEngine:
 
         The second refusal in a row ends the recording, once: a frame
         written between two refusals says the save location still takes
-        frames. A take already ended by a lane's death is not ended again.
+        frames. The row is the order the lanes finish their writes, not the
+        frames' order: a refusal that finishes while earlier frames are
+        still being written on other lanes follows the last refusal
+        directly. A drive that went away refuses every frame after it, so
+        the two orders end it alike. A take already ended by a lane's death
+        is not ended again.
         The refusal that ends it is recorded here; the caller ends it.
         """
         with self._lock:

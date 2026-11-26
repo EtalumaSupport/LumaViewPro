@@ -793,6 +793,11 @@ class TestARunsLostVideoFramesAreToldOnceAtItsEnd:
             return real_write(*args, **kwargs)
 
         monkeypatch.setattr(protocol_recording, 'write_frame', _every_third_write_fails)
+        # One writer lane, so the writes finish in the frames' order: a
+        # refusal is counted in a row in the order the lanes finish, and on
+        # several lanes a quick refusal can finish before the two good writes
+        # taken ahead of it, ending the step at its second refusal.
+        monkeypatch.setattr(protocol_recording, 'RECORDED_FRAME_WRITERS', 1)
         protocol = _make_multi_step_protocol(
             [
                 {'acquire': 'video', 'video_config': {'duration': 0.5}},
