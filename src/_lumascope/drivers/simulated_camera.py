@@ -48,6 +48,7 @@ from _lumascope.drivers.simulated_specimen import (
     ImageSlide,
     RonchiRuling,
     Slide,
+    in_focus,
     the_slide,
 )
 
@@ -303,6 +304,47 @@ class _SensorInput:
         """Set the input on ``obj``, changed at ``changed_ns`` (None for now)."""
         obj.__dict__[self._slot] = value
         obj._input_changed(self.name, value, changed_ns)
+
+
+def _binned(drawn: np.ndarray, h: int, w: int, binning: int) -> np.ndarray:
+    """``drawn``, made at binning 1, as a sensor binning ``binning`` sums it into ``h`` x ``w``."""
+    if binning == 1:
+        return drawn
+    return cv2.resize(drawn, (w, h), interpolation=cv2.INTER_AREA)
+
+
+def _focus_target_drawing(h: int, w: int) -> np.ndarray:
+    """The focus target as drawn, ``h`` x ``w`` sensor pixels, before the optics.
+
+    Edges at several spatial frequencies, so Vollath F4 (and other focus
+    metrics) produce a smooth, peaked response as it is defocused.
+    """
+    img = np.zeros((h, w), dtype=np.float32)
+
+    # Grid of fine lines (high frequency -- most sensitive to defocus)
+    grid_spacing = 8
+    img[::grid_spacing, :] = 255 * 0.4
+    img[:, ::grid_spacing] = 255 * 0.4
+
+    # Scattered bright spots (simulates point-like features)
+    rng = np.random.RandomState(42)  # deterministic
+    n_spots = max(20, (h * w) // 5000)
+    ys = rng.randint(0, h, n_spots)
+    xs = rng.randint(0, w, n_spots)
+    for y, x in zip(ys, xs, strict=False):
+        y0 = max(0, y - 2)
+        y1 = min(h, y + 3)
+        x0 = max(0, x - 2)
+        x1 = min(w, x + 3)
+        img[y0:y1, x0:x1] = 255 * 0.8
+
+    # Medium-frequency checkerboard (16px blocks)
+    block = 16
+    yy = np.arange(h) // block
+    xx = np.arange(w) // block
+    checker = (yy[:, None] + xx[None, :]) % 2
+    img += checker * 255 * 0.2
+    return np.clip(img, 0, 255).astype(np.uint8)
 
 
 def _gaussian_blur(image: np.ndarray, sigma: float) -> np.ndarray:
@@ -1613,43 +1655,18 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     # Image generation
     # ------------------------------------------------------------------
-    def _make_focus_target(self, h: int, w: int) -> np.ndarray:
-        """A sharp focus target with multi-scale features, in 8-bit gray levels.
+    def _make_focus_target(self, h: int, w: int, binning: int) -> np.ndarray:
+        """The focus target in focus, ``h`` x ``w`` at ``binning``, in 8-bit gray levels.
 
-        Edges at several spatial frequencies, so Vollath F4 (and other focus
-        metrics) produce a smooth, peaked response as it is defocused.
+        Drawn at binning 1 through the objective's in-focus resolution and
+        binned, as the specimen is, so its features and their blur are in
+        sensor pixels at every binning.
         """
-        key = (h, w)
+        key = (h, w, binning)
         if self._focus_target_cache is not None and self._focus_target_cache[0] == key:
             return self._focus_target_cache[1]
-
-        img = np.zeros((h, w), dtype=np.float32)
-
-        # Grid of fine lines (high frequency -- most sensitive to defocus)
-        grid_spacing = 8
-        img[::grid_spacing, :] = 255 * 0.4
-        img[:, ::grid_spacing] = 255 * 0.4
-
-        # Scattered bright spots (simulates point-like features)
-        rng = np.random.RandomState(42)  # deterministic
-        n_spots = max(20, (h * w) // 5000)
-        ys = rng.randint(0, h, n_spots)
-        xs = rng.randint(0, w, n_spots)
-        for y, x in zip(ys, xs, strict=False):
-            y0 = max(0, y - 2)
-            y1 = min(h, y + 3)
-            x0 = max(0, x - 2)
-            x1 = min(w, x + 3)
-            img[y0:y1, x0:x1] = 255 * 0.8
-
-        # Medium-frequency checkerboard (16px blocks)
-        block = 16
-        yy = np.arange(h) // block
-        xx = np.arange(w) // block
-        checker = (yy[:, None] + xx[None, :]) % 2
-        img += checker * 255 * 0.2
-
-        target = np.clip(img, 0, 255).astype(np.uint8)
+        drawn = in_focus(_focus_target_drawing(h * binning, w * binning))
+        target = _binned(drawn, h, w, binning)
         self._focus_target_cache = (key, target)
         return target
 
@@ -1691,8 +1708,7 @@ class SimulatedCamera(Camera):
                 frame = self._specimen.view(
                     exposure.x_um, exposure.y_um, h * b, w * b, exposure.pixel_size_um, shift=shift
                 )
-            if b > 1:
-                frame = cv2.resize(frame, (w, h), interpolation=cv2.INTER_AREA)
+            frame = _binned(frame, h, w, b)
             cached = self._specimen_cut[slot] = (place, frame)
         source = f'specimen {step}' if channel is None else f'specimen {step} {channel}'
         return cached[1], source, place
@@ -1906,7 +1922,7 @@ class SimulatedCamera(Camera):
             img = np.random.randint(0, int(max_val * min(1.0, brightness)) + 1, (h, w), dtype=dtype)
         elif pattern == 'focus_target':
             img = self._render_sample(
-                self._make_focus_target(h, w),
+                self._make_focus_target(h, w, registers.binning),
                 'focus_target',
                 None,
                 dtype,

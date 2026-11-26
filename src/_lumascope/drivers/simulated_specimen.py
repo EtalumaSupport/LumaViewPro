@@ -90,6 +90,20 @@ class ImageSlide:
 # declared. It is the scene's own, never a value written into an image.
 NOMINAL_UM_PER_PX = 2.0
 
+# The objective's own resolution: even in focus an edge is not a step. A
+# Gaussian's sigma in sensor pixels at binning 1, so every drawing is made
+# at binning 1 and binned after, as the sensor sums it. It is what puts a
+# drawing's focus score at its highest at focus: one-pixel lines left sharp
+# score higher slightly blurred, and 0.5 left the focus target's peak off
+# focus at 20x where 0.6 did not.
+_IN_FOCUS_SIGMA_PX = 0.8
+
+
+def in_focus(drawing: np.ndarray) -> np.ndarray:
+    """``drawing``, drawn at binning 1, as the objective images it in focus."""
+    return cv2.GaussianBlur(drawing, (0, 0), _IN_FOCUS_SIGMA_PX)
+
+
 # The drift: a step a frame around a circle one pixel across, which closes
 # the loop so the wrap is the same size step as the others. One pixel was
 # set by watching the live display: larger reads as the sample being
@@ -299,8 +313,7 @@ class Specimen:
             cv2.circle(
                 canvas, (int(point[0]), int(point[1])), _ONE, 215, -1, cv2.LINE_8, _SHIFT_BITS
             )
-        # The objective's own resolution: even in focus an edge is not a step.
-        return cv2.GaussianBlur(canvas, (0, 0), 0.8)
+        return in_focus(canvas)
 
     def _cells(self, gx: int, gy: int) -> tuple[np.ndarray, np.ndarray]:
         """The cells grid square (``gx``, ``gy``) holds, the same every time it is asked.
@@ -417,7 +430,7 @@ class Ronchi:
         ) / scale
         profile = (_RONCHI_BAR + (_RONCHI_GAP - _RONCHI_BAR) * gap_share).astype(np.float32)
         # A column blurred down its length: the ruling's rows are each one grey.
-        profile = cv2.GaussianBlur(profile.reshape(-1, 1), (0, 0), 0.8)[:, 0]
+        profile = in_focus(profile.reshape(-1, 1))[:, 0]
         profile = np.rint(profile[_TILE_MARGIN_PX:-_TILE_MARGIN_PX]).astype(np.uint8)
         return np.repeat(profile[:, None], w, axis=1)
 
