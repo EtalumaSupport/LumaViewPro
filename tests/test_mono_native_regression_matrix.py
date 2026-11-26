@@ -253,7 +253,7 @@ def test_a_composite_from_a_folder_keeps_each_channel_on_its_own_plane(session, 
     """
     built = session.post_processing.composite(rgb_run_folder)
 
-    assert built.new_count == 1
+    assert len(built.artifact_paths) == 1
     result = tf.imread(str(built.artifact_paths[0]))
     assert result.dtype == np.uint8
     assert result.shape == (16, 16, 3)
@@ -309,7 +309,7 @@ def test_a_composite_from_a_folder_in_ome_tiff_has_yxs_axes(session, tmp_path):
     """
     built = session.post_processing.composite(_write_rgb_run_folder(tmp_path, ome=True))
 
-    assert built.new_count == 1
+    assert len(built.artifact_paths) == 1
     with tf.TiffFile(str(built.artifact_paths[0])) as t:
         assert t.ome_metadata is not None, 'composite OME-TIFF missing OME metadata block'
         assert t.series[0].axes == 'YXS'

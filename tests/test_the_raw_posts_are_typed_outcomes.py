@@ -52,7 +52,7 @@ _NOTICES = [
     (
         exc.HyperstacksSavedNotice(
             {
-                'new_count': 3,
+                'artifact_paths': ['/data/run/hyperstack.ome.tiff'],
                 'nothing_to_combine': False,
                 'output_root': '/data/run',
                 'accounting_note': '',

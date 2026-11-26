@@ -104,7 +104,6 @@ def _built(message, folder):
 
     return BuildResult(
         message=message,
-        new_count=0,
         output_root=pathlib.Path(folder),
         artifact_paths=(),
         degraded_outputs=(),

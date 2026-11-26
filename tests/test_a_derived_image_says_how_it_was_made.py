@@ -248,7 +248,7 @@ def test_a_stitched_projection_is_a_projection_already_made(session, run_folder)
 
     again = session.post_processing.zproject(run_folder, method='Sum')
 
-    assert again.new_count == 0
+    assert len(again.artifact_paths) == 0
     assert [(left.kind, left.count) for left in again.excluded_inputs] == [
         (PostProcessingOperation.STITCH, len(slice_mosaics))
     ]
@@ -266,9 +266,9 @@ def test_a_composite_rebuilt_with_a_new_threshold_is_built_and_one_with_the_same
     rebuilt = session.post_processing.composite(run_folder)
     again = session.post_processing.composite(run_folder)
 
-    assert rebuilt.new_count == first.new_count == 12
+    assert len(rebuilt.artifact_paths) == len(first.artifact_paths) == 12
     assert not set(rebuilt.artifact_paths) & set(first.artifact_paths)
-    assert again.new_count == 0
+    assert len(again.artifact_paths) == 0
 
 
 def _as_written_by_release_3(folder) -> None:
@@ -330,7 +330,7 @@ def test_a_folder_saved_before_times_stated_their_offset_builds_and_keeps_its_ti
 
     stitched = session.post_processing.stitch(run_folder)
 
-    assert stitched.new_count > 0
+    assert len(stitched.artifact_paths) > 0
     assert f'Version\t{ProtocolPostRecord.CURRENT_VERSION}' in record.read_text()
     times = list(ProtocolPostRecord.from_file(record).records()['Timestamp'])
     assert times
@@ -396,4 +396,4 @@ def test_steps_inserted_without_a_tile_name_are_stitched_by_their_position(sessi
 
     stitched = session.post_processing.stitch(run_folder)
 
-    assert stitched.new_count == 6
+    assert len(stitched.artifact_paths) == 6

@@ -285,7 +285,7 @@ def test_channels_added_together_without_a_stage_are_one_composite(make_session,
 
     built = session.post_processing.composite(run_folder)
 
-    assert built.new_count == 1, built.message
+    assert len(built.artifact_paths) == 1, built.message
 
 
 def test_update_step_keeps_a_loaded_steps_x_and_y_without_a_stage(make_session, tmp_path):

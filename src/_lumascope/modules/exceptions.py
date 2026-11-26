@@ -483,7 +483,7 @@ class HyperstacksSavedNotice(Notice, Exception):  # noqa: N818 -- a notice, not 
             )
         else:
             message = (
-                f'{result["new_count"]} hyperstack(s) saved to {result["output_root"]}.'
+                f'{len(result["artifact_paths"])} hyperstack(s) saved to {result["output_root"]}.'
                 f'{result["accounting_note"]}'
             )
         super().__init__(message)

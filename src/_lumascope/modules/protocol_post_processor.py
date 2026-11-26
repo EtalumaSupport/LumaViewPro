@@ -1190,7 +1190,6 @@ class ProtocolPostProcessor(abc.ABC):
                 'message': f'Success with degraded output: {summary}{accounting_note}',
                 'degraded': True,
                 'degraded_outputs': degraded_outputs,
-                'new_count': new_count,
                 'output_root': str(root_path),
                 'artifact_paths': artifact_paths,
                 'carried_forward': frozenset(carried),
@@ -1200,7 +1199,6 @@ class ProtocolPostProcessor(abc.ABC):
         return {
             'status': True,
             'message': f'Success.{accounting_note}',
-            'new_count': new_count,
             'nothing_to_combine': nothing_to_combine,
             'output_root': str(root_path),
             'artifact_paths': artifact_paths,

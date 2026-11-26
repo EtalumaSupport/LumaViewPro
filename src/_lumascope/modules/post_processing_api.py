@@ -91,16 +91,13 @@ class DegradedOutput:
     fallback_message: str
 
 
-@api_fields(
-    'message', 'new_count', 'output_root', 'artifact_paths', 'degraded_outputs', 'excluded_inputs'
-)
+@api_fields('message', 'output_root', 'artifact_paths', 'degraded_outputs', 'excluded_inputs')
 @dataclasses.dataclass(frozen=True)
 class BuildResult:
     """What a stitch, z-projection, composite or video build made.
 
     Attributes:
         message: The outcome in words, with what was skipped and why.
-        new_count: How many files it made.
         output_root: The folder it read and wrote under.
         artifact_paths: Each file it made, where it landed.
         degraded_outputs: The files a fallback algorithm made; empty when
@@ -112,7 +109,6 @@ class BuildResult:
     """
 
     message: str
-    new_count: int
     output_root: pathlib.Path
     artifact_paths: tuple[pathlib.Path, ...]
     degraded_outputs: tuple[DegradedOutput, ...]
@@ -438,7 +434,6 @@ def _build_result(answer: dict) -> BuildResult:
     root = pathlib.Path(answer['output_root'])
     return BuildResult(
         message=answer['message'],
-        new_count=answer['new_count'],
         output_root=root,
         artifact_paths=tuple(pathlib.Path(path) for path in answer['artifact_paths']),
         degraded_outputs=tuple(

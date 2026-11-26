@@ -267,7 +267,7 @@ def test_an_old_folder_per_channel_is_read_from_its_old_names_folders(old_sessio
     result = old_session.post_processing.zproject(run_folder, method='Max')
 
     assert len(moved) == 24
-    assert result.new_count == 8
+    assert len(result.artifact_paths) == 8
 
 
 def _bake_blue(run_folder: pathlib.Path) -> dict[str, np.ndarray]:

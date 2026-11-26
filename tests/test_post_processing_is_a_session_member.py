@@ -54,7 +54,6 @@ def _spy_build(monkeypatch, cls, method_name):
         return {
             'status': True,
             'message': 'Success.',
-            'new_count': 0,
             'output_root': str(path),
             'artifact_paths': [],
             'excluded_inputs': (),

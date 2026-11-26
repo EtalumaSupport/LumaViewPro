@@ -148,7 +148,7 @@ def test_a_composite_of_an_ome_run_is_ome_whatever_the_settings_say_when_built(s
 
     built = session.post_processing.composite(folder)
 
-    assert built.new_count > 0
+    assert len(built.artifact_paths) > 0
     assert all(_is_ome(path) and path.name.endswith('.ome.tiff') for path in built.artifact_paths)
 
 
@@ -187,7 +187,7 @@ def test_an_ome_folder_built_plain_before_builds_its_ome_chain_beside_it(
     assert {name.replace('.tiff', '.ome.tiff') for name in old} <= made
     assert 'Stitched-ZProject/custom0000_BF_0000_zproj_max_stitched.ome.tiff' in made
     again = session.post_processing.build(folder, zproject=ZProject(), stitch=Stitch())
-    assert [step.result.new_count for step in again.built] == [0, 0]
+    assert [len(step.result.artifact_paths) for step in again.built] == [0, 0]
 
 
 def test_a_deleted_projection_is_built_again_and_the_stitch_takes_it(session, tmp_path):

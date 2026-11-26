@@ -79,7 +79,7 @@ def test_the_same_call_again_makes_nothing_new(session, run_folder):
 
     again = session.post_processing.build(run_folder, **chain)
 
-    assert [step.result.new_count for step in again.built] == [0, 0, 0]
+    assert [len(step.result.artifact_paths) for step in again.built] == [0, 0, 0]
 
 
 def test_an_earlier_derivation_in_the_folder_is_no_input_of_the_chain(session, run_folder):

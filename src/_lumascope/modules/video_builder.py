@@ -881,7 +881,6 @@ class VideoBuilder(ProtocolPostProcessor):
         return {
             'status': True,
             'message': 'Success.',
-            'new_count': 1,
             'output_root': str(path),
             'artifact_paths': [str(result['actual_output_file_loc'])],
             'excluded_inputs': (),

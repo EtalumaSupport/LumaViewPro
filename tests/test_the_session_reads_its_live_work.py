@@ -310,7 +310,13 @@ def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session,
     answers = {}
 
     def built(folder):
-        return BuildResult('built', 0, pathlib.Path(folder), (), (), ())
+        return BuildResult(
+            message='built',
+            output_root=pathlib.Path(folder),
+            artifact_paths=(),
+            degraded_outputs=(),
+            excluded_inputs=(),
+        )
 
     def slow_build(folder, *, on_progress):
         on_progress(10, 'Image 1 of 10')

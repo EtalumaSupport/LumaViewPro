@@ -170,7 +170,7 @@ def test_a_complete_build_returns_and_posts_nothing(tmp_path, monkeypatch, centr
     result = _drive(_Processor([_ok(), _ok()]), tmp_path, monkeypatch)
 
     assert result['status'] is True
-    assert result['new_count'] == 2
+    assert len(result['artifact_paths']) == 2
     assert centre_posts == []
 
 
@@ -256,7 +256,6 @@ def test_the_post_run_build_announces_then_answers_under_one_key(
     answer = {
         'status': True,
         'message': 'Success.',
-        'new_count': 4,
         'nothing_to_combine': False,
         'output_root': str(tmp_path),
         'artifact_paths': [],

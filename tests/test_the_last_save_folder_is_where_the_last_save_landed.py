@@ -76,7 +76,7 @@ def test_a_run_that_saves_no_image_leaves_it(scanning, tmp_path):
 def test_a_stitch_moves_it_to_the_subfolder_it_wrote(sim_session, run_folder):
     stitched = sim_session.post_processing.stitch(run_folder)
 
-    assert stitched.new_count > 0
+    assert len(stitched.artifact_paths) > 0
     assert sim_session.last_save_folder == stitched.artifact_paths[-1].parent
     assert sim_session.last_save_folder != run_folder, 'a stitch writes under its own subfolder'
 
@@ -94,7 +94,7 @@ def test_a_stitch_that_makes_nothing_new_leaves_it(sim_session, run_folder):
 
     again = sim_session.post_processing.stitch(run_folder)
 
-    assert again.new_count == 0
+    assert len(again.artifact_paths) == 0
     assert sim_session.last_save_folder == still_folder
 
 

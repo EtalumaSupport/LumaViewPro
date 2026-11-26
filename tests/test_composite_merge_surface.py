@@ -153,7 +153,6 @@ class TestAFailedMergeTellsTheUserOnce:
             return {
                 'status': True,
                 'message': 'Success.',
-                'new_count': 0,
                 'output_root': str(path),
                 'artifact_paths': artifact_paths,
             }

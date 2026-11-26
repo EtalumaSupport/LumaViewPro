@@ -136,7 +136,7 @@ def test_a_well_cut_short_in_its_last_scan_stacks_the_scans_before_it(session, t
 
     answer = _build(_run_folder(tmp_path, protocol, captured))
 
-    assert answer['new_count'] == 2
+    assert len(answer['artifact_paths']) == 2
     assert sorted(_stack_shapes(answer['artifact_paths'])) == [(3, 4, 8, 8), (4, 4, 8, 8)]
     assert f'well {cut} (3 image(s))' in answer['message']
     assert 'ended partway through its last scan' in answer['message']

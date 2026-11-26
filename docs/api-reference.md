@@ -9092,7 +9092,6 @@ What a stitch, z-projection, composite or video build made.
 - <a id="BuildResult.degraded_outputs"></a>`degraded_outputs`: `tuple[DegradedOutput, ...]` -- The files a fallback algorithm made; empty when none.
 - <a id="BuildResult.excluded_inputs"></a>`excluded_inputs`: `tuple[ExcludedInput, ...]` -- The files of each kind in the folder the build did not take (a stitch's per-tile composites), not counting its own earlier outputs; empty when none. The message names them, with the route to their output where there is one.
 - <a id="BuildResult.message"></a>`message`: `str` -- The outcome in words, with what was skipped and why.
-- <a id="BuildResult.new_count"></a>`new_count`: `int` -- How many files it made.
 - <a id="BuildResult.output_root"></a>`output_root`: `pathlib.Path` -- The folder it read and wrote under.
 
 <a id="BuildStep"></a>

@@ -390,7 +390,9 @@ def _built_from(s: Scope, run: str, build: str) -> pathlib.Path:
 
 def _made(result, count: int) -> str | None:
     """What the build's answer does not show of *count* new outputs, each on disk, or None."""
-    if result.new_count == count and all(path.is_file() for path in result.artifact_paths):
+    if len(result.artifact_paths) == count and all(
+        path.is_file() for path in result.artifact_paths
+    ):
         return None
     return f'{result}'
 

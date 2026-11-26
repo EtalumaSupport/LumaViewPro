@@ -126,11 +126,11 @@ def test_a_stitch_names_the_composites_it_left_out_and_the_route_to_them(session
     """Per-tile composites in the folder are left out of the stitch, named,
     with the route: Composite builds them from the stitched channels."""
     composited = session.post_processing.composite(run_folder)
-    assert composited.new_count == 4
+    assert len(composited.artifact_paths) == 4
 
     stitched = session.post_processing.stitch(run_folder)
 
-    assert stitched.new_count == 2
+    assert len(stitched.artifact_paths) == 2
     assert stitched.excluded_inputs == (
         ExcludedInput(kind=PostProcessingOperation.COMPOSITE, count=4),
     )
@@ -148,7 +148,7 @@ def test_composite_after_stitch_builds_the_stitched_composite_and_leaves_nothing
 
     again = session.post_processing.composite(run_folder)
 
-    assert again.new_count == 1
+    assert len(again.artifact_paths) == 1
     assert [path.parent.name for path in again.artifact_paths] == ['Composite-Stitched']
     assert again.excluded_inputs == ()
     assert 'Excluded' not in again.message

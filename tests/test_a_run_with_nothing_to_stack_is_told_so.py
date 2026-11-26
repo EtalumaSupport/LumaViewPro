@@ -55,7 +55,7 @@ def test_a_one_scan_run_of_single_stills_is_told_nothing_to_stack(session, tmp_p
 
     answer = _build(folder)
 
-    assert answer['new_count'] == 0
+    assert len(answer['artifact_paths']) == 0
     assert answer['artifact_paths'] == []
     words = str(HyperstacksSavedNotice(answer))
     assert words.startswith('Nothing to stack: no place in ')
@@ -70,7 +70,7 @@ def test_a_one_scan_tiled_run_of_single_stills_is_told_nothing_to_stack(session,
 
     answer = _build(folder)
 
-    assert answer['new_count'] == 0
+    assert len(answer['artifact_paths']) == 0
     assert str(HyperstacksSavedNotice(answer)).startswith('Nothing to stack: ')
 
 
@@ -82,7 +82,7 @@ def test_a_place_whose_one_capture_failed_is_counted_as_having_no_image(session,
     answer = _build(folder)
 
     words = str(HyperstacksSavedNotice(answer))
-    assert answer['new_count'] == 0
+    assert len(answer['artifact_paths']) == 0
     assert f'{len(steps) - 1} single-image group(s) skipped.' in words
     # The place is named, never left to the log to name.
     assert '1 single-image group(s) have no image in the folder: ' in words, words
@@ -97,7 +97,7 @@ def test_a_run_with_one_place_to_stack_stacks_it_and_counts_the_singles(session,
 
     answer = _build(folder)
 
-    assert answer['new_count'] == 1
+    assert len(answer['artifact_paths']) == 1
     assert _stack_shapes(answer['artifact_paths'])[0][0] == 2
     words = str(HyperstacksSavedNotice(answer))
     assert words.startswith('1 hyperstack(s) saved to ')

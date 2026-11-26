@@ -69,7 +69,7 @@ def test_a_deleted_output_is_built_again_and_recorded_once(session, run_folder):
 
     again = session.post_processing.zproject(run_folder, method='Max')
 
-    assert again.new_count == 1
+    assert len(again.artifact_paths) == 1
     assert [path.name for path in again.artifact_paths] == [gone.name]
     assert gone.is_file()
     assert _record_rows(run_folder, gone.name) == 1
@@ -84,7 +84,7 @@ def test_a_build_whose_inputs_were_all_removed_is_complete_and_names_them(sessio
 
     stitched = session.post_processing.stitch(run_folder / 'ZProject')
 
-    assert stitched.new_count == 0
+    assert len(stitched.artifact_paths) == 0
     assert '2 group(s) not built: their Z-Projection images were removed from the folder.' in (
         stitched.message
     )

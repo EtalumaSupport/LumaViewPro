@@ -106,7 +106,7 @@ def test_success_message_carries_single_image_skip_census(tmp_path, monkeypatch)
     )
 
     assert result['status'] is True
-    assert result['new_count'] == 1
+    assert len(result['artifact_paths']) == 1
     message = result['message']
     assert message.startswith('Success.'), 'census must append, never prepend'
     assert 'single' in message.lower() and '1' in message, (

@@ -34,7 +34,6 @@ def session(monkeypatch):
     ctx = MagicMock()
     built = BuildResult(
         message='done',
-        new_count=0,
         output_root=pathlib.Path('folder'),
         artifact_paths=(),
         degraded_outputs=(),
@@ -195,7 +194,6 @@ _EXCLUDED = ExcludedInput(kind=PostProcessingOperation.STITCH, count=2)
         (
             BuildResult(
                 message='Built 1, left out 2 mosaics.',
-                new_count=1,
                 output_root=pathlib.Path('folder'),
                 artifact_paths=(),
                 degraded_outputs=(),

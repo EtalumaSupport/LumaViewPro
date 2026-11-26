@@ -186,7 +186,6 @@ def test_a_running_and_a_queued_build_both_finish(sim_session, tmp_path):
         time.sleep(0.5)
         return BuildResult(
             message=f'built {pathlib.Path(folder).name}',
-            new_count=0,
             output_root=pathlib.Path(folder),
             artifact_paths=(),
             degraded_outputs=(),

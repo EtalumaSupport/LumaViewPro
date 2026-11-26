@@ -324,7 +324,6 @@ def test_post_processor_resume_skip_unaffected_by_collision_check(tmp_path, monk
     assert result == {
         'status': True,
         'message': 'Success.',
-        'new_count': 0,
         # Outputs already made, not single images: there was something to
         # combine, and it was combined before.
         'nothing_to_combine': False,
@@ -587,7 +586,7 @@ def test_a_run_groups_video_is_written_onto_its_planned_name(tmp_path):
     assert rebuilt['artifact_paths'] == [planned]
     assert [video.name for video in folder.rglob('*.mp4')] == [pathlib.Path(planned).name]
     assert pathlib.Path(planned).name in (folder / 'protocol_post_record.tsv').read_text()
-    assert (again['new_count'], again['artifact_paths']) == (0, [])
+    assert again['artifact_paths'] == []
 
 
 def test_a_run_groups_video_whose_encode_raises_leaves_no_file(tmp_path, monkeypatch):
