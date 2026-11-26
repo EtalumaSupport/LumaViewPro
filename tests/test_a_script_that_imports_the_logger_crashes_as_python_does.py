@@ -67,13 +67,17 @@ def test_a_threads_uncaught_exception_prints_its_traceback():
     assert 'ValueError: kettle boiled dry' in result.stderr
 
 
-def _program(tmp_path: Path, body: str) -> tuple[subprocess.CompletedProcess, Path]:
+def _program(
+    tmp_path: Path, body: str, before_logging: str = ''
+) -> tuple[subprocess.CompletedProcess, Path]:
     """Run ``body`` after ``start_program_logging()``, its log folder under ``tmp_path``.
 
     A frozen process with no installer marker keeps its data beside its
     executable, so pointing the executable into ``tmp_path`` moves the log
     folder there; the root carries the shipped ``settings.json``, which the
-    logger reads ``debug_mode`` from.
+    logger reads ``debug_mode`` from. ``before_logging`` runs before the
+    logging starts, so a handler it installs is the one the logger's own
+    handlers find already there.
     """
     (tmp_path / 'data').mkdir()
     shutil.copy(REPO / 'data' / 'settings.json', tmp_path / 'data' / 'settings.json')
@@ -82,6 +86,7 @@ def _program(tmp_path: Path, body: str) -> tuple[subprocess.CompletedProcess, Pa
         sys.frozen = True
         sys._MEIPASS = {str(REPO)!r}
         sys.executable = {str(tmp_path / 'LumaViewPro.exe')!r}
+        {textwrap.indent(textwrap.dedent(before_logging), ' ' * 8).strip()}
         import _lumascope.lvp_logger
         _lumascope.lvp_logger.start_program_logging()
         """
@@ -132,12 +137,16 @@ def test_an_error_in_an_objects_cleanup_is_logged_with_its_traceback(tmp_path):
 
 def test_a_fatal_error_in_native_code_leaves_every_threads_stack_under_its_process_line(tmp_path):
     # A fatal abort ends the process before any log record can be written:
-    # faulthandler's dump is the only record. The abort stands in for a
-    # native library's (Tcl's "async handler deleted by the wrong thread").
+    # faulthandler's dump is the only record. The SIGABRT stands in for a
+    # native library's abort (Tcl's "async handler deleted by the wrong
+    # thread"). faulthandler dumps, then hands the signal to the handler it
+    # found at enable, which here exits the child itself: a child killed by
+    # the signal is a real crash to the host's OS (a macOS crash report and
+    # dialog on every suite run), and the dump is written before either.
     result, log_dir = _program(
         tmp_path,
         """
-        import faulthandler, os, threading
+        import os, signal, threading
         print(os.getpid(), flush=True)
         ready, never = threading.Event(), threading.Event()
 
@@ -147,7 +156,11 @@ def test_a_fatal_error_in_native_code_leaves_every_threads_stack_under_its_proce
 
         threading.Thread(target=simmer, name='kettle', daemon=True).start()
         ready.wait()
-        faulthandler._sigabrt()
+        signal.raise_signal(signal.SIGABRT)
+        """,
+        before_logging="""
+        import os, signal
+        signal.signal(signal.SIGABRT, lambda signum, frame: os._exit(134))
         """,
     )
 
