@@ -911,8 +911,8 @@ class AutofocusRunner:
         num_retries = 5
         for attempt in range(1, num_retries + 1):
             # accept_dark: AF consumes focus scores, not saved truth,
-            # and a hard dark-reject mid-sweep would stall the scan; the
-            # mean-intensity retry below handles dark frames. The Z move is
+            # and a hard dark-reject mid-sweep would stall the scan; a dark
+            # frame is scored as it is, below. The Z move is
             # waited out like any other change: a frame already on its way
             # when the move went out shows the previous step's Z, and its
             # score would be recorded at this one. A capture that got no
@@ -932,19 +932,13 @@ class AutofocusRunner:
             self._is_focusing_event.clear()
             return
 
-        # Detect dark/blank frames: one may be a frame taken before the
-        # light came up. Retry once; if still dark, accept (may be genuinely
-        # dark sample): one with nothing in it scores NaN, no point.
-        # accept_dark here for the same reason as the grab loop above:
-        # AF must accept a genuinely dark sample rather than reject the
-        # frame.
+        # A dark frame is the sample's: the capture waited out the light's
+        # change (frame_validity), so it is no frame taken before the light
+        # came up. It is scored as it is; one with nothing in it scores NaN,
+        # no point.
         mean_intensity = float(np.mean(still.image))
         if mean_intensity < 1.0:
-            _af_log.warning(f'  DARK FRAME: mean={mean_intensity:.2f}, retrying')
-            try:
-                still = self._scope.imaging.capture_still(accept_dark=True, all_ones_check=True)
-            except CaptureFailedError as failed:
-                _af_log.warning(f'  DARK FRAME kept: its retry failed ({failed.reason})')
+            _af_log.warning(f'  DARK FRAME: mean={mean_intensity:.2f}, scored as it is')
 
         focus_score = autofocus_functions.autofocus_score(image=still.image)
         current_pos = round(

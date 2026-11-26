@@ -239,6 +239,43 @@ def test_a_sweep_with_dark_frames_and_a_lit_final_pass_focuses_on_that_pass(ronc
     assert settled_z(ronchi_scope) == pytest.approx(focus, abs=0.01)
 
 
+def test_a_dark_frame_is_scored_as_it_is_with_one_capture_per_point(ronchi_scope, monkeypatch):
+    """A capture waits out the light's change itself (``frame_validity``), so
+    a dark frame is the sample's, not one taken before the light came up:
+    the sweep scores it as it is and captures once per point, however dark
+    every frame is."""
+    captured = []
+    scored = []
+    capture_still = ronchi_scope.imaging.capture_still
+
+    def counted_capture(**kwargs):
+        captured.append(None)
+        return capture_still(**kwargs)
+
+    from _lumascope.modules import autofocus_functions
+
+    real_score = autofocus_functions.autofocus_score
+
+    def counted_score(image):
+        scored.append(float(np.mean(image)))
+        return real_score(image=image)
+
+    monkeypatch.setattr(ronchi_scope.imaging, 'capture_still', counted_capture)
+    monkeypatch.setattr(autofocus_functions, 'autofocus_score', counted_score)
+
+    sweep(
+        AutofocusRunner(scope=ronchi_scope),
+        ronchi_scope,
+        objective_id=_RONCHI_OBJECTIVE,
+        led_illumination=5.0,
+        camera_exposure=2.0,
+        camera_gain=1.0,
+    )
+
+    assert any(mean < 1.0 for mean in scored)
+    assert len(captured) == len(scored)
+
+
 def test_the_same_ruling_lit_focuses_on_it(ronchi_scope):
     """Lit at the 40x Ronchi's start band (25 mA, 25 ms, 0 dB), the same sweep
     finds the ruling's focus."""
