@@ -2065,8 +2065,9 @@ class SettingRefusedError(Refusal, ConfigError):
             argument by a setting's rule says it in the argument's own words.
 
     ``path``, ``member`` and ``limits`` are published, so a REST problem
-    names the setting refused, the member to call instead and the range,
-    beside the words.
+    names the setting refused, the member and the range, beside the words:
+    for ``'has_member'`` the member to call instead, for ``'host_only'``
+    the one only the host calls.
     """
 
     path: str

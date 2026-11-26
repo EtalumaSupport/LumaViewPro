@@ -10248,7 +10248,7 @@ The LED board's firmware, as it reported it at connect.
 
 Each field is None when it is unknown: no board, a board that did not
 answer, or one with no firmware of its own (an FX2 scope's LED
-peripheral). Whether a board is connected is `led_connected`.
+peripheral).
 
 **Fields**
 
@@ -17529,8 +17529,9 @@ responses branches on `reason`; a person reads the message.
 - `takes`: The range the value is outside, as a clause (`'at least 0'`, `'above 0 and at most 1'`), for an `'out_of_range'` refused by a range's bound; otherwise None. A caller judging an argument by a setting's rule says it in the argument's own words.
 
 `path`, `member` and `limits` are published, so a REST problem
-names the setting refused, the member to call instead and the range,
-beside the words.
+names the setting refused, the member and the range, beside the words:
+for `'has_member'` the member to call instead, for `'host_only'`
+the one only the host calls.
 
 **Fields**
 

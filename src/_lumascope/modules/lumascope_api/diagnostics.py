@@ -347,7 +347,7 @@ class LedBoardInfo:
 
     Each field is None when it is unknown: no board, a board that did not
     answer, or one with no firmware of its own (an FX2 scope's LED
-    peripheral). Whether a board is connected is ``led_connected``.
+    peripheral).
 
     Attributes:
         firmware_version: As ``MotorBoardInfo.firmware_version``.
