@@ -64,7 +64,7 @@ class _Controller:
     def __init__(self, error=None):
         self.error = error
         self.is_recording = False
-        self.save_folder = None
+        self.recording_dir = None
         self.stop_calls = 0
         self.start_calls = 0
 

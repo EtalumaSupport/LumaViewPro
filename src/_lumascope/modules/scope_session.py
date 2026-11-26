@@ -7654,9 +7654,9 @@ class ScopeSession:
         opened, self._host_opened = self._host_opened, None
         if opened is None:
             return
-        save_folder = self.setting('live_folder')
-        settled = host_resources.read_host(save_folder, read_gpus=True)
-        reading = host_resources.reading_between(opened, settled, save_folder, self._drawing_gpu)
+        live_folder = self.setting('live_folder')
+        settled = host_resources.read_host(live_folder, read_gpus=True)
+        reading = host_resources.reading_between(opened, settled, live_folder, self._drawing_gpu)
         self._host_reading = reading
         logger.info(host_resources.log_line(reading, settled.read_s))
         notice = host_resources.judge(reading)

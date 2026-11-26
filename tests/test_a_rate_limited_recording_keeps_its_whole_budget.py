@@ -76,5 +76,5 @@ def test_a_manual_recordings_last_frame_held_on_its_way_is_kept(
     finally:
         scheduler.shutdown()
 
-    manifest = _the_manifest(controller.save_folder)
+    manifest = _the_manifest(controller.recording_dir)
     assert (manifest['end_reason'], manifest['frames_written']) == ('frame_budget_filled', 20)

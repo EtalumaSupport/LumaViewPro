@@ -217,6 +217,7 @@ RENAMED = [
         'scope/labware',
         {'labware_id': '96 well microplate'},
     ),
+    ('GET', 'manual_recording/save_folder', {}, 'manual_recording/recording_dir', {}),
 ]
 
 

@@ -60,7 +60,7 @@ def _reading(**changed) -> HostReading:
     """A reading inside every line, with ``changed`` applied."""
     roomy = HostReading(
         ram_available_bytes=16 * GB,
-        save_folder='/data',
+        live_folder='/data',
         disk_free_bytes=500 * GB,
         cpu_pct=20.0,
         programs=(),
@@ -127,7 +127,7 @@ def test_each_line_is_past_only_beyond_it():
 
 def test_a_save_drive_that_could_not_be_read_is_not_judged_and_memory_still_is():
     notice = judge(
-        _reading(ram_available_bytes=2 * GB, disk_free_bytes=None, save_folder='E:\\data')
+        _reading(ram_available_bytes=2 * GB, disk_free_bytes=None, live_folder='E:\\data')
     )
 
     assert (notice.ram_low, notice.disk_low) == (True, False)

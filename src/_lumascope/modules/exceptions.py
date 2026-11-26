@@ -643,7 +643,7 @@ def _gb(size_bytes: int) -> str:
 def _the_host_read(reading: 'HostReading') -> str:
     """The readings of ``LowSystemResourcesNotice`` as one sentence."""
     if reading.disk_free_bytes is None:
-        disk = f'the free space of {reading.save_folder} could not be read'
+        disk = f'the free space of {reading.live_folder} could not be read'
     else:
         disk = f'{_gb(reading.disk_free_bytes)} free on the save drive'
     cpu = (

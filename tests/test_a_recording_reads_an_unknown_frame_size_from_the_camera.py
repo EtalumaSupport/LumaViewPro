@@ -72,7 +72,7 @@ def test_a_manual_recording_is_made_at_the_frame_the_camera_delivers(session):
     finished = session.manual_recording.start().result(timeout=COMPLETION_TIMEOUT)
     assert finished.end_reason == 'duration_elapsed'
 
-    frames = sorted(session.manual_recording.save_folder.glob('ManualVideo_Frame_*.tiff'))
+    frames = sorted(session.manual_recording.recording_dir.glob('ManualVideo_Frame_*.tiff'))
     assert frames, 'the recording wrote no frame'
     assert tifffile.imread(frames[0]).shape == _DELIVERED
 

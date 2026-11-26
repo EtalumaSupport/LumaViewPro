@@ -311,7 +311,7 @@ class ManualRecordingController:
 
     @api
     @property
-    def save_folder(self) -> Path | None:
+    def recording_dir(self) -> Path | None:
         """The active (or last) recording's output folder.
 
         Raises:

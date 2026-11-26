@@ -1090,7 +1090,7 @@ class TestDurationCap:
         assert controller.is_recording, 'the cap ended the recording before its last frame'
         feed_frames(scope, clock, 1, fps=10.0, start_id=19)
         finish(controller)
-        manifest = json.loads((controller.save_folder / 'recording_manifest.json').read_text())
+        manifest = json.loads((controller.recording_dir / 'recording_manifest.json').read_text())
         assert (manifest['end_reason'], manifest['frames_written']) == ('frame_budget_filled', 20)
 
     def test_a_feed_that_never_reaches_its_end_is_ended_at_the_backstop(
@@ -1483,7 +1483,7 @@ class TestFeedLossDetection:
         assert 'Recording Stopped' in errors[0][1]
         finish(controller)
         manifest = json.loads(
-            next((controller.save_folder).glob('recording_manifest.json')).read_text()
+            next((controller.recording_dir).glob('recording_manifest.json')).read_text()
         )
         assert manifest['end_reason'] == 'camera_stalled'
 
@@ -1527,7 +1527,7 @@ class TestFeedLossDetection:
         finish(controller)
 
         manifest = json.loads(
-            next((controller.save_folder).glob('recording_manifest.json')).read_text()
+            next((controller.recording_dir).glob('recording_manifest.json')).read_text()
         )
         assert (manifest['frames_written'], manifest['frames_unstamped']) == (3, 4)
         errors = [c for c in notify.calls if c[0] == 'error']
@@ -1972,7 +1972,7 @@ class TestTheSessionIsToldWhereItSaved:
         controller.stop()
         finish(controller)
 
-        assert told == [controller.save_folder]
+        assert told == [controller.recording_dir]
 
     def test_a_recording_of_no_frames_tells_nothing(self, tmp_path):
         told = []
@@ -2018,7 +2018,7 @@ class TestARecordingsLanesAreItsOwn:
         finish(controller)
 
         controller.start()
-        next_folder = controller.save_folder
+        next_folder = controller.recording_dir
         release.set()
         assert landed.wait(5)
         feed_frames(scope, clock, 2, fps=10.0)

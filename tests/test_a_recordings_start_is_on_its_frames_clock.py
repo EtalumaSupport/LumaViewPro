@@ -113,7 +113,7 @@ def test_a_manual_recordings_first_frame_is_not_moved_by_a_step_of_the_wall_cloc
     operation.stop()
     operation.result(timeout=30)
 
-    first = _first_kept_frame_time(controller.save_folder)
+    first = _first_kept_frame_time(controller.recording_dir)
     assert before <= first <= began + LATEST_FIRST_FRAME_S, (
         f'the first kept frame started {first - began:+.4f} s after the recording began'
     )

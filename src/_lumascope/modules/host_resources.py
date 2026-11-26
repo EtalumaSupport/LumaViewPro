@@ -385,7 +385,7 @@ class ProgramCpu:
 
 @api_fields(
     'ram_available_bytes',
-    'save_folder',
+    'live_folder',
     'disk_free_bytes',
     'cpu_pct',
     'programs',
@@ -404,7 +404,7 @@ class HostReading:
 
     Attributes:
         ram_available_bytes: The memory available at the window's end.
-        save_folder: The save folder (``live_folder``) whose drive was read.
+        live_folder: The live folder whose drive was read.
         disk_free_bytes: Its drive's free space at the window's end; None
             when the folder did not exist or could not be read.
         cpu_pct: The whole machine's CPU busy over the window, LumaViewPro's
@@ -424,7 +424,7 @@ class HostReading:
     """
 
     ram_available_bytes: int
-    save_folder: str
+    live_folder: str
     disk_free_bytes: int | None
     cpu_pct: float | None
     programs: tuple[ProgramCpu, ...]
@@ -437,15 +437,15 @@ class HostReading:
 def reading_between(
     opened: HostSnapshot,
     settled: HostSnapshot,
-    save_folder: str,
+    live_folder: str,
     drawing_gpu: DrawingGpu | None,
 ) -> HostReading:
     """The reading of the window from ``opened`` to ``settled``.
 
     Args:
         opened: The read at the window's start.
-        settled: The read at its end, of ``save_folder`` and the GPUs.
-        save_folder: The folder ``settled`` read the free space of.
+        settled: The read at its end, of ``live_folder`` and the GPUs.
+        live_folder: The folder ``settled`` read the free space of.
         drawing_gpu: The GPU the host's window draws on; None with no window.
     """
     # This process is LumaViewPro; on Windows pid 0 is the System Idle
@@ -458,7 +458,7 @@ def reading_between(
     )
     return HostReading(
         ram_available_bytes=settled.ram_available_bytes,
-        save_folder=save_folder,
+        live_folder=live_folder,
         disk_free_bytes=settled.disk_free_bytes,
         cpu_pct=common_utils.cpu_busy_percent(opened.cpu_times, settled.cpu_times),
         programs=tuple(ProgramCpu(name, pid, pct) for name, pid, pct in shares[:PROGRAMS_KEPT]),
@@ -559,7 +559,7 @@ def log_line(reading: HostReading, read_s: float) -> str:
     )
     return (
         f'[HOST RESOURCES] RAM available: {reading.ram_available_bytes / 2**30:.1f} GB | '
-        f'save drive ({reading.save_folder}): {disk} | '
+        f'save drive ({reading.live_folder}): {disk} | '
         f'CPU over {reading.window_s:.1f} s, LumaViewPro included: {cpu} | '
         f'top other programs: {programs or "none"} | '
         f'{reading.unread_processes} processes unread | '

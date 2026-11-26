@@ -3959,15 +3959,15 @@ Raises nothing.
 
 Frames enqueued but not yet on disk.
 
-<a id="ManualRecordingController.save_folder"></a>
-### `ManualRecordingController.save_folder`
+<a id="ManualRecordingController.recording_dir"></a>
+### `ManualRecordingController.recording_dir`
 
 ```python
-save_folder: Path | None  # property
+recording_dir: Path | None  # property
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/manual_recording/save_folder`.  
+Route: `GET /api/v1/manual_recording/recording_dir`.  
 Raises nothing.
 
 The active (or last) recording's output folder.
@@ -10005,9 +10005,9 @@ home.
 - <a id="HostReading.disk_free_bytes"></a>`disk_free_bytes`: `int | None` -- Its drive's free space at the window's end; None when the folder did not exist or could not be read.
 - <a id="HostReading.drawing_gpu"></a>`drawing_gpu`: `DrawingGpu | None` -- The GPU LumaViewPro's window draws on; None when nothing draws (no window: the REST server, a script).
 - <a id="HostReading.gpus"></a>`gpus`: `tuple[GpuAdapter, ...] | None` -- This PC's GPUs, each typed (`GpuAdapter.hybrid`), in the order Windows offers them to LumaViewPro, its own Graphics setting's choice first; None off Windows, or on a Windows that cannot list them so (before Windows 10 1803).
+- <a id="HostReading.live_folder"></a>`live_folder`: `str` -- The live folder whose drive was read.
 - <a id="HostReading.programs"></a>`programs`: `tuple[ProgramCpu, ...]` -- The other programs with the largest shares of the CPU over the window, up to three, largest first. LumaViewPro is not one; a process the OS would not let LumaViewPro read is not either.
 - <a id="HostReading.ram_available_bytes"></a>`ram_available_bytes`: `int` -- The memory available at the window's end.
-- <a id="HostReading.save_folder"></a>`save_folder`: `str` -- The save folder (`live_folder`) whose drive was read.
 - <a id="HostReading.unread_processes"></a>`unread_processes`: `int` -- How many processes the OS would not let LumaViewPro read.
 - <a id="HostReading.window_s"></a>`window_s`: `float` -- The window's length.
 
@@ -17809,7 +17809,7 @@ reading the run's outcome reads what the person was shown.
 | `GET` | `/api/v1/manual_recording/is_draining` | [`ManualRecordingController.is_draining`](#ManualRecordingController.is_draining) |
 | `GET` | `/api/v1/manual_recording/is_recording` | [`ManualRecordingController.is_recording`](#ManualRecordingController.is_recording) |
 | `GET` | `/api/v1/manual_recording/pending_writes` | [`ManualRecordingController.pending_writes`](#ManualRecordingController.pending_writes) |
-| `GET` | `/api/v1/manual_recording/save_folder` | [`ManualRecordingController.save_folder`](#ManualRecordingController.save_folder) |
+| `GET` | `/api/v1/manual_recording/recording_dir` | [`ManualRecordingController.recording_dir`](#ManualRecordingController.recording_dir) |
 | `POST` | `/api/v1/manual_recording/start` | [`ManualRecordingController.start`](#ManualRecordingController.start) |
 | `POST` | `/api/v1/manual_recording/stop` | [`ManualRecordingController.stop`](#ManualRecordingController.stop) |
 | `GET` | `/api/v1/model_at_next_start` | [`ScopeSession.model_at_next_start`](#ScopeSession.model_at_next_start) |

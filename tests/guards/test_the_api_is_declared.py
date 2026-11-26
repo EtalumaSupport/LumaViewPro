@@ -962,7 +962,7 @@ OPEN_STRINGS: dict[str, str] = {
     'IlluminationAPI.remove_led_listener parameter listener': _CHANNEL,
     'ImagingAPI.add_frame_listener parameter name': _LISTENER,
     'ImagingAPI.capture_still parameter channel': _CHANNEL,
-    'HostReading.save_folder field': _PATH,
+    'HostReading.live_folder field': _PATH,
     'InjectedFault.arguments field': _MEMBER,
     'InjectedFault.member field': _MEMBER,
     'Labware.id field': _LABWARE,

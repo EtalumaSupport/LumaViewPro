@@ -57,11 +57,11 @@ def test_manual_recording_ends_within_the_stall_bound(
     # The feed dies only once the recording has a frame on disk to keep.
     deadline = time.monotonic() + 30.0
     while (
-        not list(controller.save_folder.glob('ManualVideo_Frame_*.tiff'))
+        not list(controller.recording_dir.glob('ManualVideo_Frame_*.tiff'))
         and time.monotonic() < deadline
     ):
         time.sleep(0.05)
-    assert list(controller.save_folder.glob('ManualVideo_Frame_*.tiff')), (
+    assert list(controller.recording_dir.glob('ManualVideo_Frame_*.tiff')), (
         'precondition: the recording wrote a frame before the feed died'
     )
     sim_scope.imaging.disable_streaming()
@@ -78,11 +78,11 @@ def test_manual_recording_ends_within_the_stall_bound(
         time.sleep(0.1)
     assert not controller.is_busy, 'the recording never finished its files'
 
-    manifest_path = controller.save_folder / 'recording_manifest.json'
+    manifest_path = controller.recording_dir / 'recording_manifest.json'
     assert manifest_path.exists()
     manifest = json.loads(manifest_path.read_text())
     assert manifest['end_reason'] == 'camera_stalled'
-    frames = list(controller.save_folder.glob('ManualVideo_Frame_*.tiff'))
+    frames = list(controller.recording_dir.glob('ManualVideo_Frame_*.tiff'))
     assert len(frames) == manifest['frames_written']
     assert frames, 'frames captured before the death must stay on disk'
     scheduler.shutdown()
