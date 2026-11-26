@@ -19,7 +19,11 @@ it was).
 The check at each step: the camera takes the API's floor, so the API refuses
 nothing the camera would take and passes nothing it would refuse. The figure
 `the_floor_moved` records whether any step's floor differs from the first's:
-the bench record of which settings move it.
+the bench record of which settings move it. The figure
+`S4_exposure_held_across_the_mode_change` records the exposure the camera
+holds just before and just after the image-mode change, read from the camera
+before S4 writes anything: whether the camera clamps an exposure below the
+floor the new mode raises.
 
     python tests/capability/camera_p20_the_exposure_floor_follows_the_frame.py             # simulator
     python tests/capability/camera_p20_the_exposure_floor_follows_the_frame.py --hardware  # the connected scope
@@ -112,7 +116,19 @@ def _measure(session):
     cam.set_binning(held_binning)
     cam.set_frame_size(held_frame.width, held_frame.height)
     other_mode = ImageMode.SCIENTIFIC if held_mode == ImageMode.EIGHT_BIT else ImageMode.EIGHT_BIT
+    # What the camera itself does with the exposure it holds when the mode
+    # change moves its floor: a mode change writes only the pixel format, so
+    # the read after it is the camera's own answer, before S4 writes the floor.
+    held_before = cam.read_exposure_ms()
     cam.set_image_mode(other_mode)
+    figure(
+        'S4_exposure_held_across_the_mode_change',
+        {
+            'before_ms': held_before,
+            'after_ms': cam.read_exposure_ms(),
+            'floor_after_ms': cam.setting_limits.exposure_min_ms,
+        },
+    )
     _step(scope, f'S4_{other_mode.value}', rows)
     cam.set_image_mode(held_mode)
     check(
