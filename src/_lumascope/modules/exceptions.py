@@ -2450,8 +2450,8 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             ``'tiling_scale_unknown'`` -- the scope cannot report its pixel
             size, so a tile grid's spacing is unknown.
             ``'zstack_not_configured'`` -- a z-stack's range or step size is
-            not greater than zero. ``'already_tiled'`` -- the protocol is
-            tiled already, and a second grid cannot be laid over it.
+            not greater than zero. ``'already_tiled'`` -- every step of the
+            protocol is tiled already, so a grid has no step to tile.
             ``'objective_not_in_catalog'`` -- a step being tiled names an
             objective the scope's catalog does not hold, so its tile
             spacing is unknown.

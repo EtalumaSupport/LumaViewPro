@@ -186,6 +186,17 @@ class TilingGrids:
         """
         return '1x1'
 
+    @staticmethod
+    def mixed_tiling_label() -> str:
+        """The label for a protocol whose steps do not all carry one grid.
+
+        Tiled steps beside untiled ones, or two grids: no one grid's name
+        is true of what such a protocol acquires. Static for the reason
+        ``no_tiling_label`` is, and never a grid this installation offers,
+        so a build asked for it is refused as one.
+        """
+        return 'Mixed'
+
     def _calc_range(
         self,
         config_label: str,

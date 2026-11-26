@@ -156,12 +156,18 @@ field, from 1x1 (one field, the default) to 10x10. The grid is centered on
 the position. Select its size in the [Tiling]{.guilabel} list, then:
 
 - click [New]{.guilabel} to make a protocol tiled at every well; or
-- click [Apply]{.guilabel} beside the list to tile every step of the
-  current protocol, for example a protocol of added steps.
+- click [Apply]{.guilabel} beside the list to tile the steps of the
+  current protocol not yet tiled, for example a protocol of added steps.
 
-A protocol can only be tiled once. If any of its steps is already tiled,
-[Apply]{.guilabel} won't run ("Protocol Already Tiled"); to change the tiling, make the
-protocol again with [New]{.guilabel}, or load the untiled protocol.
+Steps already tiled keep their tiles, so steps added to a tiled protocol
+can be tiled with a different grid: add them, select their grid, and click
+[Apply]{.guilabel}, as many times as you add steps. When every step is
+already tiled, [Apply]{.guilabel} won't run ("Protocol Already Tiled"); to
+change a step's tiling, make the protocol again with [New]{.guilabel}, or
+load the untiled protocol. A loaded protocol whose steps carry more than
+one grid, or tiled steps beside untiled ones, shows `Mixed` in the
+[Tiling]{.guilabel} list; select a grid before clicking [New]{.guilabel}
+or [Apply]{.guilabel}.
 
 Tiles are named by row and column: `TA1` is the first row's first tile,
 `TA2` the tile beside it, and `TB1` the first tile of the second row. A

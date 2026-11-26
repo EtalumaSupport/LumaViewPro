@@ -860,6 +860,7 @@ _OBJECTIVE = 'an objective catalog key'
 _LABWARE = 'a labware catalog key'
 _MODEL = 'a model catalog key'
 _TILING = 'a tiling catalog key'
+_TILING_READ = 'a tiling catalog key, or the mixed label for steps of more than one grid'
 _FILTERSET = 'a filterset, as the catalog or the board names it'
 _CATALOGUE_TEXT = 'catalog text, as the installation file writes it'
 _WELL = 'a well label of the selected plate'
@@ -1036,7 +1037,7 @@ OPEN_STRINGS: dict[str, str] = {
     'Protocol.capture_root return': _PATH,
     'Protocol.channel_settings return': _CHANNEL,
     'Protocol.labware_id return': _LABWARE,
-    'Protocol.tiling return': _TILING,
+    'Protocol.tiling return': _TILING_READ,
     'ProtocolRunner.run_autofocus parameter channel': _CHANNEL,
     'ProtocolRunner.run_autofocus parameter sequence_name': _SEQUENCE,
     'ProtocolRunner.run_composite parameter sequence_name': _SEQUENCE,

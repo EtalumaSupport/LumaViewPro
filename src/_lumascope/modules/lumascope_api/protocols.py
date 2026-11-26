@@ -161,7 +161,8 @@ class ProtocolsAPI:
         What a caller needs to choose a grid: ``available`` lists the
         labels ``create_protocol`` and ``Protocol.apply_tiling`` accept,
         and ``default`` is the one to preselect; ``Protocol.tiling``
-        names the grid a protocol's steps already carry. Read once with the
+        names the grid a protocol's steps already carry, or says they carry
+        more than one. Read once with the
         installation's other catalogs, so a tiling.json edited while the
         program runs is seen at the next start; a file no reader can use
         refuses the bring-up (``InstallationFileError``, naming it). The
@@ -758,14 +759,16 @@ class ProtocolsAPI:
         binning_size: int,
         overlap_percent: float,
     ) -> None:
-        """Expand every step of ``protocol`` into the tile grid ``tiling``.
+        """Expand each step of ``protocol`` not yet tiled into the tile grid ``tiling``.
 
-        The tiles are laid out on the protocol's own plate, at the scope's
-        stage offset, and ordered as a run visits them.
+        Steps already tiled keep their tiles. The tiles are laid out on the
+        protocol's own plate, at the scope's stage offset, and ordered as a
+        run visits them.
 
         Raises:
             ProtocolRunRefusedError: ``tiling`` is not a grid this
-                installation offers, the protocol is already tiled, a step's
+                installation offers, every step of the protocol is already
+                tiled, a step's
                 objective is not in the catalog, the scope has no X/Y
                 motor, a step has no position on an axis this scope moves
                 (``'step_position_missing'``), or a tile falls outside the

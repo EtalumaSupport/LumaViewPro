@@ -1775,18 +1775,31 @@ class Protocol:
     def tiling(self) -> str | None:
         """The tile grid this protocol's steps carry.
 
-        The no-tiling label when no step carries a tile; the grid's label
-        when the steps' tiles form a grid this installation offers; None
-        when they are tiled in a layout it does not offer, which only a
-        hand-edited file produces, since every offered grid is square.
+        Each tile group (the tiles one Apply or New made from one step) is
+        read for its grid, and each untiled step counts as untiled: a step
+        is untiled when its tile is empty, whatever its tile group says.
+        One answer for every step is the protocol's: the no-tiling label
+        when no step carries a tile; the grid's label when every group
+        forms that grid; None when every group is tiled in the one layout
+        this installation does not offer, which only a hand-edited file
+        produces, since every offered grid is square. More than one answer
+        is ``'Mixed'``: tiled steps beside untiled ones, two grids, or
+        a group missing tiles (a protocol made before a tile outside the
+        travel was refused, whose edge wells' tiles were skipped).
 
         Raises:
             Nothing.
         """
-        tiles = [t for t in self._config['steps']['Tile'] if t not in (None, '')]
-        if not tiles:
+        steps = self._config['steps']
+        untiled = steps['Tile'].isin((None, ''))
+        labels = {self._tiling_grids.no_tiling_label()} if untiled.any() else set()
+        for _, group in steps[~untiled].groupby('Tile Group ID'):
+            labels.add(self._tiling_grids.determine_tiling_label_from_tiles(list(group['Tile'])))
+        if not labels:
             return self._tiling_grids.no_tiling_label()
-        return self._tiling_grids.determine_tiling_label_from_tiles(tiles)
+        if len(labels) > 1:
+            return self._tiling_grids.mixed_tiling_label()
+        return labels.pop()
 
     @staticmethod
     def sanitize_step_name(input: str) -> str:
@@ -3315,38 +3328,42 @@ class Protocol:
         capabilities: 'ScopeCapabilities',
         objective_helper: 'ObjectiveLoader',
     ) -> None:
-        """Expand every step into a tile grid, in the order a run visits them.
+        """Expand each step not yet tiled into a tile grid, in the order a run visits them.
 
-        The tile spacing derives from each step's objective and the scope's
-        optics, so the caller that owns the scope hands its capabilities and
-        its objective catalog in; a protocol is a data object handed a
-        scale, never one that finds a scope. *axis_limits* holds the travel
-        of each axis the scope has a motor for, and only those.
+        Steps already tiled keep their tiles, so steps added to a tiled
+        protocol can be given a grid of their own. The tile spacing derives
+        from each step's objective and the scope's optics, so the caller
+        that owns the scope hands its capabilities and its objective catalog
+        in; a protocol is a data object handed a scale, never one that finds
+        a scope. *axis_limits* holds the travel of each axis the scope has a
+        motor for, and only those.
 
         Raises:
             ProtocolRunRefusedError: the grid is not one this installation
-                offers, the protocol is already tiled, a step's objective is
-                not in the catalog, the scope has no X/Y motor, or a tile
-                falls outside the stage's travel. Each is refused before any
-                step changes, and reported once.
+                offers, every step of the protocol is already tiled, a
+                step's objective is not in the catalog, the scope has no X/Y
+                motor, or a tile falls outside the stage's travel. Each is
+                refused before any step changes, and reported once.
         """
 
         # Every refusal comes before anything below touches the steps: a
         # refused build leaves the protocol as it was.
         _refuse_unless_tiling_offered(self._tiling_grids, tiling)
 
-        # Tiled steps are carried over as they are, so a second grid over a
-        # tiled protocol would change nothing while reporting success. There is
-        # no un-tile path; the untiled protocol has to be reloaded.
+        # Tiled steps are carried over as they are, so a grid over a protocol
+        # with no untiled step would change nothing while reporting success.
+        # There is no un-tile path; the untiled protocol has to be reloaded.
         no_tiling = self._tiling_grids.no_tiling_label()
-        current_tiling = self.tiling
-        if current_tiling != no_tiling:
+        steps = self._config['steps']
+        if len(steps) and not steps['Tile'].isin((None, '')).any():
+            current_tiling = self.tiling
             grid = f' ({current_tiling})' if current_tiling else ''
             _refuse_build(
                 reason='already_tiled',
                 message=(
-                    f'This protocol is already tiled{grid}. Reload the '
-                    f'original (untiled) protocol before changing the tiling.'
+                    f'Every step of this protocol is already tiled{grid}. Add '
+                    f'the steps to tile, or reload the original (untiled) '
+                    f'protocol before changing the tiling.'
                 ),
             )
 

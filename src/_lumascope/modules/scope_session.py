@@ -4081,7 +4081,8 @@ class ScopeSession:
         What a caller needs to choose a grid: ``available`` lists the
         labels ``new_protocol`` and ``apply_tiling`` accept, and
         ``default`` is the one to preselect; ``Protocol.tiling`` names
-        the grid a protocol's steps already carry. Read once with the
+        the grid a protocol's steps already carry, or says they carry more
+        than one. Read once with the
         installation's other catalogs, so a tiling.json edited while the
         program runs is seen at the next start, and every protocol is built
         against the same grids. The record is frozen: a caller cannot change
@@ -4095,10 +4096,11 @@ class ScopeSession:
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def apply_tiling(self, protocol: 'Protocol', tiling: str) -> None:
-        """Expand every step of ``protocol`` into the tile grid ``tiling``, as Apply does.
+        """Expand each step of ``protocol`` not yet tiled into the tile grid ``tiling``, as Apply does.
 
-        The tiles are spaced for the configured frame, binning and tile
-        overlap, laid out on the protocol's own plate.
+        Steps already tiled keep their tiles. The tiles are spaced for the
+        configured frame, binning and tile overlap, laid out on the
+        protocol's own plate.
 
         Args:
             protocol: The protocol whose steps are tiled.
@@ -4107,9 +4109,10 @@ class ScopeSession:
 
         Raises:
             ProtocolRunRefusedError: ``'tiling_unknown'``, ``tiling`` is not
-                a grid this installation offers; ``'already_tiled'``, the
-                protocol is; ``'step_position_missing'``, a step has no
-                position on an axis the tiles move; ``'objective_not_in_catalog'``,
+                a grid this installation offers; ``'already_tiled'``, every
+                step of the protocol is; ``'step_position_missing'``, a step
+                has no position on an axis the tiles move;
+                ``'objective_not_in_catalog'``,
                 a step's objective is not in the catalog;
                 ``'tiling_scale_unknown'``, the optics give no field of view
                 to space the tiles by; ``'positions_unreachable'``, the scope

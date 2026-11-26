@@ -466,9 +466,9 @@ class ProtocolSettings(FloatLayout):
     def _apply_tiling(self) -> None:
         """Ask the Session for the chosen grid, then show the steps it built.
 
-        Every refusal (an unknown grid, an already-tiled protocol, an unknown
-        objective, a scope with no X/Y motor, a tile outside the stage's
-        travel) is the API's, raised before any step changes; the boundary
+        Every refusal (an unknown grid, a protocol with no untiled step, an
+        unknown objective, a scope with no X/Y motor, a tile outside the
+        stage's travel) is the API's, raised before any step changes; the boundary
         reports it, so nothing here decides it.
         """
         ctx = _app_ctx.ctx

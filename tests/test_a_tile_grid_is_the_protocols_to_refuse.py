@@ -18,12 +18,15 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from _lumascope.modules.coord_transformations import StageOffset
+from _lumascope.modules.coord_transformations import PlateLocation, StageOffset
 from _lumascope.modules.exceptions import ProtocolRunRefusedError, RefusalCause
 from _lumascope.modules.labware_loader import WellPlateLoader
 from _lumascope.modules.objectives_loader import ObjectiveLoader
 from tests.ast_seams import find_def
+from tests.protocol_fixtures import protocol_from_file
+from tests.test_adding_a_step_is_an_api_capability import _only_acquiring
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
+from tests.test_protocol_overwrite_guard import _build_tsv, _step_row
 from tests.test_step_label_ssot import _build_protocol, _labeled_step
 from tests.test_zstack_group_identity import _WIDE_XY
 
@@ -56,7 +59,7 @@ def _refused(proto, capabilities, tiling):
 
 
 @pytest.mark.parametrize('second', ['2x2', '3x3', '1x1'])
-def test_a_tiled_protocol_refuses_another_grid(scale_capabilities, second):
+def test_a_protocol_whose_every_step_is_tiled_refuses_another_grid(scale_capabilities, second):
     proto = _build_protocol([_labeled_step()])
     _tile(proto, scale_capabilities, '2x2')
     assert proto.num_steps == 4
@@ -135,7 +138,98 @@ def test_the_protocol_names_the_grid_its_steps_carry(scale_capabilities):
     assert proto.tiling == '1x1'
     _tile(proto, scale_capabilities, '2x2')
     assert proto.tiling == '2x2'
+    # Two steps tiled by one Apply are two tile groups in one grid.
+    two_steps = _build_protocol([_labeled_step(), _labeled_step(label='B')])
+    _tile(two_steps, scale_capabilities, '2x2')
+    assert two_steps.tiling == '2x2'
+    # A hand-edited file's tiles carry tile group -1 on both steps; they are
+    # still tiles, in a layout no grid offers.
     assert _tiled_in_no_offered_grid().tiling is None
+
+
+def _partly_tiled(session):
+    """The reporter's protocol: a step tiled 2x2, then a step added untiled."""
+    _only_acquiring(session, 'BF')
+    proto = session.scope.protocols.create_protocol(
+        empty_config=session.get_sequenced_capture_config()
+    )
+    session.add_step(proto, at=PlateLocation(x_mm=20.0, y_mm=15.0, z_um=5000.0))
+    session.apply_tiling(proto, '2x2')
+    session.add_step(proto, at=PlateLocation(x_mm=40.0, y_mm=30.0, z_um=5000.0))
+    return proto
+
+
+def _tiles(steps):
+    return {(row['Tile'], row['X'], row['Y'], row['Tile Group ID']) for _, row in steps.iterrows()}
+
+
+class TestApplyTilesTheStepsNotYetTiled:
+    """A step added to a tiled protocol takes the grid Apply is given; the
+    steps already tiled keep their tiles (#805's report: 2x2, Add, 3x3)."""
+
+    def test_an_added_step_takes_its_own_grid(self, session):
+        proto = _partly_tiled(session)
+        before = proto.steps()
+        tiled_before = _tiles(before[before['Tile'] != ''])
+
+        session.apply_tiling(proto, '3x3')
+
+        steps = proto.steps()
+        assert proto.num_steps == 4 + 9
+        assert tiled_before <= _tiles(steps)
+        new = steps[~steps['Tile Group ID'].isin(before['Tile Group ID'])]
+        assert sorted(new['Tile']) == ['A1', 'A2', 'A3', 'B1', 'B2', 'B3', 'C1', 'C2', 'C3']
+        assert new['Tile Group ID'].nunique() == 1
+        assert (steps['Tile'] != '').all()
+
+    def test_a_protocol_tiled_in_two_grids_refuses_another_and_names_it_mixed(self, session):
+        proto = _partly_tiled(session)
+        session.apply_tiling(proto, '3x3')
+        before = proto.steps().copy()
+        with (
+            patch('_lumascope.modules.protocol.notifications.report_outcome') as report,
+            pytest.raises(ProtocolRunRefusedError) as refusal,
+        ):
+            session.apply_tiling(proto, '2x2')
+        assert refusal.value.reason == 'already_tiled'
+        assert 'Mixed' in str(refusal.value)
+        pd.testing.assert_frame_equal(proto.steps(), before)
+        report.assert_not_called()
+
+    def test_one_tile_over_a_partly_tiled_protocol_changes_nothing(self, session):
+        proto = _partly_tiled(session)
+        before = proto.steps().copy()
+        session.apply_tiling(proto, '1x1')
+        pd.testing.assert_frame_equal(proto.steps(), before)
+
+
+class TestAProtocolOfMoreThanOneGridSaysMixed:
+    """``Protocol.tiling`` names one grid only when every step carries it
+    (Eric's ruling on #805, 2026-09-03: a partly tiled protocol is not
+    reported as one grid)."""
+
+    def test_a_grid_beside_an_untiled_step(self, session):
+        assert _partly_tiled(session).tiling == 'Mixed'
+
+    def test_two_grids(self, session):
+        proto = _partly_tiled(session)
+        session.apply_tiling(proto, '3x3')
+        assert proto.tiling == 'Mixed'
+
+    def test_a_grid_clipped_at_the_edge_of_the_travel(self, tmp_path):
+        # Until 4.0.0-beta31 a tile outside the travel was skipped, so a
+        # protocol made in one grid can hold an edge well's group with a
+        # column missing; it is not that grid (Eric 2026-11-26).
+        full = ['A1', 'A2', 'A3', 'B1', 'B2', 'B3', 'C1', 'C2', 'C3']
+        clipped = [t for t in full if not t.endswith('3')]
+        rows = ''.join(
+            _step_row(f'{well}_BF_T{tile}', well, tile, -1, group, x0 + i * 0.5, 30.0, 5000.0)
+            for well, tiles, group, x0 in (('A1', full, 0, 10.0), ('A12', clipped, 1, 100.0))
+            for i, tile in enumerate(tiles)
+        )
+        path = tmp_path / 'clipped.tsv'
+        path.write_text(_build_tsv(rows))
+        assert protocol_from_file(file_path=path).tiling == 'Mixed'
 
 
 def test_the_panel_decides_nothing_about_a_grid():
