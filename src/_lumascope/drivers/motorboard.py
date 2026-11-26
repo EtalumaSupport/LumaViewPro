@@ -1341,33 +1341,6 @@ class MotorBoard(SerialBoard):
             results.append(entry)
         return results
 
-    def get_current(self) -> list:
-        """Send CURRENT and return parsed motor current info.
-
-        Returns:
-            list: One dict per axis with keys ``axis``, ``CS_ACTUAL``,
-                ``IRUN``, ``IHOLD``, ``SG_RESULT`` (all int), and
-                ``raw_line``.
-
-        Raises:
-            HardwareError: the board did not answer, or its port failed.
-        """
-        resp = self.exchange_multiline('CURRENT', timeout=5, end_markers=['T:'])
-        import re as _re
-
-        lines = [ln.strip() for ln in resp.split('\n') if ln.strip()]
-        results = []
-        for line in lines:
-            entry = {'raw_line': line}
-            if ':' in line:
-                entry['axis'] = line.split(':')[0].strip()
-            for key in ('CS_ACTUAL', 'IRUN', 'IHOLD', 'SG_RESULT'):
-                m = _re.search(rf'{key}=(\d+)', line)
-                if m:
-                    entry[key] = int(m.group(1))
-            results.append(entry)
-        return results
-
     def wait_for_position(self, axis: str, timeout: float = 5.0) -> bool:
         """Wait until an axis reaches its target position.
 

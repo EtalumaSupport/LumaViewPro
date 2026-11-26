@@ -655,7 +655,7 @@ class SimulatedMotorBoard:
             return '30000'
 
         # Tech-support diagnostic commands. The Python-level helpers
-        # (get_current / get_motordetect / read_status)
+        # (get_drvstat / get_motordetect)
         # already return realistic shapes -- but tech_support_report
         # talks to the board via raw exchange_command (LV-24 layer), so
         # the raw-text branches need to mirror the same content.
@@ -1417,25 +1417,6 @@ class SimulatedMotorBoard:
                 'detected': True,
                 'configured': True,
                 'raw_line': f'{a}: detected=True configured=True',
-            }
-            for a in ['X', 'Y', 'Z', 'T']
-        ]
-
-    def get_current(self) -> list:
-        """Simulated CURRENT.
-
-        Returns:
-            list: One dict per axis with ``CS_ACTUAL``, ``IRUN``,
-                ``IHOLD``, ``SG_RESULT`` keys.
-        """
-        return [
-            {
-                'axis': a,
-                'CS_ACTUAL': 0,
-                'IRUN': 10,
-                'IHOLD': 3,
-                'SG_RESULT': 0,
-                'raw_line': f'{a}: CS_ACTUAL=0 IRUN=10 IHOLD=3 SG_RESULT=0',
             }
             for a in ['X', 'Y', 'Z', 'T']
         ]
