@@ -48,16 +48,18 @@ Dependencies
 - ``pyusb``  (firmware upload + control transfers)
 - ``libusb1`` (isochronous streaming, and control while it runs -- python-libusb1 binding)
 - ``_lumascope.drivers.windows_usb`` (Windows only: which driver Windows bound, through SetupAPI)
-- ``libusb-package`` (the native ``libusb-1.0`` library itself, one
-  versioned copy on every platform; never a host copy)
+- the native ``libusb-1.0`` library itself, one versioned copy per host and
+  never a host copy: on Windows x64 ``_lumascope.drivers.libusb_windows``'s
+  DLL (libusb 1.0.30 with libusb PR #1967, which the wheel lacks), elsewhere
+  ``libusb-package``'s
 
 Import-time safety
 ------------------
 
 pyusb and python-libusb1 are pinned on every host and imported here
 unconditionally; a run without them is refused before this module loads.
-What can still be missing is the native library: when libusb-package's
-bundled copy is not in use the module still imports, logs why, and
+What can still be missing is the native library: when the bundled copy
+is not in use the module still imports, logs why, and
 registers neither driver, so auto-detect never offers an FX2 that cannot
 run and non-FX2 scopes are unaffected.
 
@@ -100,6 +102,7 @@ from _lumascope.lib.log_helpers import camera_logger as _cam_log
 from _lumascope.lib.log_helpers import logger
 from _lumascope.lib.log_helpers import VERBOSE
 
+from _lumascope.drivers import libusb_windows
 from _lumascope.drivers.camera import (
     Camera,
     FrameGrid,
@@ -236,18 +239,52 @@ _ANOTHER_LIBRARY_FIRST = (
 
 
 def _no_wheel_for(system: str, machine: str) -> bool:
-    """Whether libusb-package ships no library for a computer: 32-bit ARM Linux, Windows on ARM.
+    """Whether libusb-package ships no library for a computer outside Windows: 32-bit ARM Linux.
 
     *system* is ``sys.platform``, *machine* ``platform.machine()``.
     """
     machine = machine.lower()
-    if system.startswith('linux'):
-        return machine.startswith('arm') and not machine.startswith('arm64')
-    return system == 'win32' and machine == 'arm64'
+    return (
+        system.startswith('linux') and machine.startswith('arm') and not machine.startswith('arm64')
+    )
+
+
+def _library_for(system: str, machine: str):
+    """The bundled libusb file this computer runs the Classic on.
+
+    *system* is ``sys.platform``, *machine* ``platform.machine()``. Windows
+    x64 runs on ``libusb_windows``'s DLL, any other Windows on none, every
+    other host on libusb-package's library.
+
+    Returns ``(path, None, None)``, or ``(None, reason, person_words)`` when
+    there is no file to load: the reason for the log, the words for the person.
+    """
+    if system == 'win32':
+        if machine.lower() != 'amd64':
+            return None, f'no libusb is built for Windows on {machine}', _NO_CLASSIC_HERE
+        path = libusb_windows.library_path()
+        if not path.is_file():
+            return None, f'the Windows libusb is not in this install: {path}', _LIBRARY_NOT_LOADED
+        return str(path), None, None
+    try:
+        import libusb_package
+    except ImportError:
+        return (
+            None,
+            (
+                'libusb-package is not installed (pip install -r requirements.txt; '
+                'it has no wheel for 32-bit ARM Linux)'
+            ),
+            _NO_CLASSIC_HERE if _no_wheel_for(system, machine) else _LIBRARY_NOT_LOADED,
+        )
+    lib_path = libusb_package.get_library_path()
+    if lib_path is None:
+        return None, 'libusb-package holds no library file in this install', _LIBRARY_NOT_LOADED
+    return str(lib_path), None, None
 
 
 def _load_bundled_libusb(usb1_module):
-    """Bind pyusb and python-libusb1 to libusb-package's library.
+    """Bind pyusb and python-libusb1 to the bundled libusb (``_library_for``).
 
     ``usb1_module`` is python-libusb1.
 
@@ -265,23 +302,9 @@ def _load_bundled_libusb(usb1_module):
     already loaded). This must run before anything else in the process
     touches either binding; the checks below catch it if something did.
     """
-    try:
-        import libusb_package
-    except ImportError:
-        return (
-            None,
-            (
-                'libusb-package is not installed (pip install -r requirements.txt; '
-                'it has no wheel for 32-bit ARM Linux or Windows on ARM)'
-            ),
-            _NO_CLASSIC_HERE
-            if _no_wheel_for(sys.platform, platform.machine())
-            else _LIBRARY_NOT_LOADED,
-        )
-    lib_path = libusb_package.get_library_path()
-    if lib_path is None:
-        return None, 'libusb-package holds no library file in this install', _LIBRARY_NOT_LOADED
-    path = str(lib_path)
+    path, reason, words = _library_for(sys.platform, platform.machine())
+    if path is None:
+        return None, reason, words
     try:
         import usb.backend.libusb1
 
@@ -330,8 +353,8 @@ class _Fx2Gate(NamedTuple):
             is not in use.
         library_refusal: Why the bundled libusb is not in use; None when it is.
         refusal_words: The same, as a person reads it; None when it is in use.
-        library_version: The bundled libusb's version as python-libusb1
-            reads it; None where it is not in use.
+        library_version: The bundled libusb's version as libusb names itself
+            (``1.0.30.12037-etaluma.1``); None where it is not in use.
     """
 
     library_path: str | None
@@ -363,8 +386,17 @@ def _fx2_gate(usb1_module) -> _Fx2Gate:
         library_path=library_path,
         library_refusal=library_refusal,
         refusal_words=refusal_words,
-        library_version=None if library_path is None else usb1_module.getVersion(),
+        library_version=None if library_path is None else _version_text(usb1_module.getVersion()),
     )
+
+
+def _version_text(version) -> str:
+    """python-libusb1's ``getVersion()`` as libusb names itself: ``1.0.30.12037-etaluma.1``.
+
+    Its ``rc`` is bytes, so a Windows build's tag reads in the gate line as
+    the tag and not as a bytes literal.
+    """
+    return f'{version.major}.{version.minor}.{version.micro}.{version.nano}{version.rc.decode()}'
 
 
 def _gate_lines(gate: _Fx2Gate) -> list[tuple[int, str]]:

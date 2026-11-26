@@ -9,7 +9,7 @@ environment walked up from its own ``__file__`` or the interpreter's path,
 the FX2 search computed a fifth answer of its own, and a reader took
 whichever answer was nearest. This walk refuses, in production code, a read
 of ``__file__`` outside the two owners, the simulated board package's own
-folder, the REST app's own Swagger UI folder and the entry's own ``src/`` line, and a folder made from ``sys.executable`` outside ``launch_root``
+folder, the REST app's own Swagger UI folder, the Windows libusb's own folder and the entry's own ``src/`` line, and a folder made from ``sys.executable`` outside ``launch_root``
 and the support report's listing of the interpreter's own folder.
 """
 
@@ -29,6 +29,9 @@ _FILE_READERS = {
     # The interactive reference's script, style and icon, which ship inside
     # the rest package beside the module that serves them.
     ('src/_lumascope/rest/app.py', '<module>'),
+    # The Classic's Windows libusb, which ships inside the package beside
+    # the module that names it.
+    ('src/_lumascope/drivers/libusb_windows/__init__.py', 'library_path'),
     # The entry puts its own checkout's src/ first, before any import could
     # reach an owner, so it reads its own path.
     ('lumaviewpro.py', '<module>'),

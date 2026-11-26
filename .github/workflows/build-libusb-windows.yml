@@ -1,8 +1,7 @@
 # Builds the libusb the Lumascope Classic runs on under Windows x64:
 # libusb v1.0.30 with the patches in src/_lumascope/drivers/libusb_windows/
-# (that folder's README says why and when it retires). The DLL and its
-# source zip are uploaded as one artifact and committed into that folder
-# by hand.
+# (that folder's README says why and when it retires). The DLL is
+# uploaded as an artifact and committed into that folder by hand.
 name: build-libusb-windows
 
 on:
@@ -19,7 +18,6 @@ env:
   LIBUSB_TAG: v1.0.30
   LIBUSB_SHA: 87a55632db62c9bdc58cd31d3ccfa673f1bb017f
   BUILD_RC: '-etaluma.1'
-  SOURCE_ZIP: libusb-1.0.30-etaluma.1-source.zip
 
 jobs:
   build:
@@ -62,21 +60,6 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: The source zip, before the build touches the tree
-        shell: python
-        run: |
-          import os, pathlib, subprocess, zipfile
-          root = pathlib.Path('libusb')
-          prefix = 'libusb-1.0.30' + os.environ['BUILD_RC'] + '/'
-          tracked = subprocess.run(
-              ['git', '-C', 'libusb', 'ls-files', '-z'], check=True, capture_output=True
-          ).stdout.decode().split('\0')
-          with zipfile.ZipFile(os.environ['SOURCE_ZIP'], 'w', zipfile.ZIP_DEFLATED) as z:
-              for name in filter(None, tracked):
-                  z.write(root / name, prefix + name)
-              for patch in sorted(pathlib.Path('lvp/src/_lumascope/drivers/libusb_windows').glob('*.patch')):
-                  z.write(patch, prefix + 'etaluma/' + patch.name)
-
       - uses: microsoft/setup-msbuild@v2
 
       - name: Build the DLL (x64, Release)
@@ -88,7 +71,6 @@ jobs:
           if ($dll.Count -ne 1) { throw "expected one libusb-1.0.dll, found $($dll.Count)" }
           New-Item -ItemType Directory out | Out-Null
           Copy-Item $dll[0].FullName out\libusb-1.0.dll
-          Move-Item $env:SOURCE_ZIP out\
 
       - name: python-libusb1 at the pin
         shell: pwsh
@@ -110,9 +92,9 @@ jobs:
           if version.rc.decode() != os.environ['BUILD_RC']:
               sys.exit(f"the build names itself {version.rc!r}, not {os.environ['BUILD_RC']!r}")
 
-      - name: SHA-256 of each file
+      - name: SHA-256 of the DLL
         shell: pwsh
-        run: Get-FileHash out\* -Algorithm SHA256 | Format-Table -AutoSize Hash, Path | Out-String -Width 300
+        run: Get-FileHash out\libusb-1.0.dll -Algorithm SHA256 | Format-Table -AutoSize Hash, Path | Out-String -Width 300
 
       - uses: actions/upload-artifact@v4
         with:

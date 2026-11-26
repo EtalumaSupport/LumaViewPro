@@ -16,3 +16,6 @@ docs/manual export-ignore
 # package Windows refuses. Both are committed as signed, byte for byte.
 scripts/appBuild/build_exe/fx2_driver/Lumascope_Classic.inf -text
 scripts/appBuild/build_exe/fx2_driver/Lumascope_Classic.cat -text
+# The Classic's Windows libusb is committed as the build workflow produced
+# it; the folder's README names its SHA-256.
+src/_lumascope/drivers/libusb_windows/libusb-1.0.dll -text

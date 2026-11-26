@@ -48,8 +48,10 @@ def test_pyusb_keeps_its_own_declarations_after_the_driver_loads_libusb():
     answers = _answers()
     assert answers['refusal'] == 'None'
     assert answers['own-declarations'] == 'True', answers
-    assert answers['file'].endswith('libusb_package/libusb-1.0' + _suffix()), answers
+    library = Path(answers['file'])
+    assert (library.parent.name, library.stem) == (_folder(), 'libusb-1.0'), answers
 
 
-def _suffix() -> str:
-    return {'darwin': '.dylib', 'win32': '.dll'}.get(sys.platform, '.so')
+def _folder() -> str:
+    # Windows runs on the DLL LumaViewPro builds, every other host on the wheel's.
+    return 'libusb_windows' if sys.platform == 'win32' else 'libusb_package'

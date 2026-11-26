@@ -3,7 +3,7 @@
 
 pyusb keeps one libusb backend per process, bound by whichever call loads
 first, and python-libusb1 loads its library once. The FX2 driver binds both
-to libusb-package's copy at import and refuses when something else got
+to the bundled copy at import and refuses when something else got
 there first -- but that refusal turns FX2 off; it cannot put the right
 library back. The load is first only while no other production module can
 reach either binding: a bare ``usb.core.find()`` anywhere else, run before

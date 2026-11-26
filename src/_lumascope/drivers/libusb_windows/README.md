@@ -22,11 +22,17 @@ unretried, and a retry that fails is reported to it.
 | `0001-windows-ensure-iso-completion-callbacks-on-cancellation-and-retry-failure.patch` | libusb PR #1967 (https://github.com/libusb/libusb/pull/1967), head `12a249cca857860bcff1ad59424d87a7d66ed394`, backported to v1.0.30: one context line changed for a macro renamed on master since the tag |
 | `0002-etaluma-build-identity.patch` | Etaluma's: `LIBUSB_RC` is `-etaluma.1`, so the library names itself, and `windows_winusb.c` says it was modified |
 | `libusb-1.0.dll` | The x64 build of libusb `v1.0.30` (`87a55632db62c9bdc58cd31d3ccfa673f1bb017f`) with both patches |
-| `libusb-1.0.30-etaluma.1-source.zip` | The complete source the DLL was built from (LGPL-2.1 section 4) |
 
-The DLL and the source zip come from one run of
-`.github/workflows/build-libusb-windows.yml`, committed by hand from its
-artifact.
+The DLL comes from one run of `.github/workflows/build-libusb-windows.yml`,
+committed by hand from its artifact: run 45722690898, at LumaViewPro
+`c7ad8aa29`, 2026-11-25.
+
+| File | SHA-256 |
+|---|---|
+| `libusb-1.0.dll` | `e6c5c2c726972a26428aff3febf8e6bcdda7d78870bdd36d5d2464765e5cff0b` |
+
+Its source is libusb's `v1.0.30` tag with the two patches applied; the
+installer ships the patches beside the LGPL text in `docs/licenses/`.
 
 ## Retire-by
 

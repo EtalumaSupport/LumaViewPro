@@ -993,8 +993,9 @@ def test_a_frame_size_the_fx2_does_not_answer_stores_frames_as_they_arrive(
 class TestFx2DriverLibusbBackendProbe:
     """The FX2 gate resolves its libusb so a host without a usable one is
     classified as 'FX2 not applicable to this install' rather than crashing
-    with NoBackendError mid-_connect. The library is libusb-package's bundled
-    copy and never a host copy: each way the bundled load can fail --
+    with NoBackendError mid-_connect. The library is the bundled copy (on
+    macOS and Linux libusb-package's, on Windows x64 ``libusb_windows``'s) and
+    never a host copy: each way the bundled load can fail --
     package absent, no library file, the backend bound to another file,
     python-libusb1 already holding another -- classifies unavailable, and
     the log says why.
@@ -1022,8 +1023,9 @@ class TestFx2DriverLibusbBackendProbe:
         library_path=_BUNDLED,
         usb1_loads=True,
         usb1_opens=True,
+        rc=b'',
     ):
-        """The gate over a fake binding tree, with what the bindings were handed."""
+        """The gate on a Mac over a fake binding tree, with what the bindings were handed."""
         import ctypes
         import types
 
@@ -1049,7 +1051,10 @@ class TestFx2DriverLibusbBackendProbe:
             return usb1_loads
 
         usb1_mod.loadLibrary = load_library
-        usb1_mod.getVersion = lambda: '1.0.30'
+        # python-libusb1's Version, rc as bytes.
+        usb1_mod.getVersion = lambda: SimpleNamespace(
+            major=1, minor=0, micro=30, nano=12037, rc=rc, describe=b'https://libusb.info'
+        )
 
         # The fake library path cannot be opened; python-libusb1's own
         # handle is recorded by the path it was opened on instead.
@@ -1073,7 +1078,10 @@ class TestFx2DriverLibusbBackendProbe:
             # None in sys.modules makes the import raise ImportError.
             monkeypatch.setitem(sys.modules, 'libusb_package', None)
 
-        gate = fx2driver._fx2_gate(usb1_mod)
+        # The host decides which library; these cases are libusb-package's.
+        with monkeypatch.context() as on_a_mac:
+            on_a_mac.setattr(sys, 'platform', 'darwin')
+            gate = fx2driver._fx2_gate(usb1_mod)
         return gate, found, handed_to_usb1
 
     @staticmethod
@@ -1162,15 +1170,53 @@ class TestFx2DriverLibusbBackendProbe:
                 ('linux', 'armv7l'),
                 ('linux', 'aarch64'),
                 ('linux', 'x86_64'),
-                ('win32', 'ARM64'),
-                ('win32', 'AMD64'),
                 ('darwin', 'arm64'),
             )
         }
-        assert [where for where, none in said.items() if none] == [
-            ('linux', 'armv7l'),
-            ('win32', 'ARM64'),
-        ], said
+        assert [where for where, none in said.items() if none] == [('linux', 'armv7l')], said
+
+    def test_windows_x64_runs_on_the_folders_dll_and_never_on_libusb_package(self, monkeypatch):
+        # libusb-package's Windows DLL loses ISO transfers at every stop, so
+        # an installed wheel must not be what Windows runs on.
+        import types
+
+        from _lumascope.drivers import libusb_windows
+
+        package_mod = types.ModuleType('libusb_package')
+        package_mod.get_library_path = lambda: 'C:/site-packages/libusb_package/libusb-1.0.dll'
+        monkeypatch.setitem(sys.modules, 'libusb_package', package_mod)
+        assert fx2driver._library_for('win32', 'AMD64') == (
+            str(libusb_windows.library_path()),
+            None,
+            None,
+        )
+        assert libusb_windows.library_path().is_file(), 'the DLL is committed in the folder'
+
+    def test_windows_on_arm_is_told_it_cannot_run_a_classic(self):
+        path, reason, words = fx2driver._library_for('win32', 'ARM64')
+        assert path is None
+        assert reason == 'no libusb is built for Windows on ARM64'
+        assert words == fx2driver._NO_CLASSIC_HERE
+
+    def test_a_windows_install_without_the_dll_is_told_to_reinstall(self, monkeypatch, tmp_path):
+        from _lumascope.drivers import libusb_windows
+
+        gone = tmp_path / 'libusb-1.0.dll'
+        monkeypatch.setattr(libusb_windows, 'library_path', lambda: gone)
+        path, reason, words = fx2driver._library_for('win32', 'AMD64')
+        assert path is None
+        assert reason == f'the Windows libusb is not in this install: {gone}'
+        assert words == fx2driver._LIBRARY_NOT_LOADED
+
+    def test_the_banner_names_the_builds_tag_as_text(self, monkeypatch):
+        # A support read tells our Windows build from a stock one by its tag.
+        gate, _found, _handed = self._gate(
+            monkeypatch, backend=self._backend_on(self._BUNDLED), rc=b'-etaluma.1'
+        )
+        assert (
+            'INFO',
+            f'[FX2 Driver] libusb 1.0.30.12037-etaluma.1 loaded from {self._BUNDLED}',
+        ) in self._stated(gate)
 
     def test_the_bundled_library_binds_both_bindings_and_is_named(self, monkeypatch):
         """The backend is asked for the bundled file and nothing else, the
@@ -1185,9 +1231,10 @@ class TestFx2DriverLibusbBackendProbe:
         )
         assert gate.library_path == self._BUNDLED
         assert gate.available is True
-        assert ('INFO', f'[FX2 Driver] libusb 1.0.30 loaded from {self._BUNDLED}') in self._stated(
-            gate
-        )
+        assert (
+            'INFO',
+            f'[FX2 Driver] libusb 1.0.30.12037 loaded from {self._BUNDLED}',
+        ) in self._stated(gate)
         assert self._registered(monkeypatch, gate) == ['fx2'], (
             'FX2 drivers must register when prerequisites are met'
         )

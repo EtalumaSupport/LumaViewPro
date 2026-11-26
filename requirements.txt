@@ -45,7 +45,8 @@ starlette==1.7.0
 # itself, so no host copy (Homebrew, distro, a DLL) is ever used; the
 # marker lists the hosts it has wheels for, so the install still succeeds
 # elsewhere and the FX2 gate (src/_lumascope/drivers/fx2driver.py) says
-# why FX2 is off.
+# why FX2 is off. Windows is not among them: it runs on the DLL in
+# src/_lumascope/drivers/libusb_windows/ (that folder's README says why).
 pyusb==1.3.1
 libusb1==3.4.0
-libusb-package==1.0.30.0; sys_platform == "darwin" or (sys_platform == "linux" and (platform_machine == "x86_64" or platform_machine == "aarch64")) or (sys_platform == "win32" and (platform_machine == "AMD64" or platform_machine == "x86"))
+libusb-package==1.0.30.0; sys_platform == "darwin" or (sys_platform == "linux" and (platform_machine == "x86_64" or platform_machine == "aarch64"))
