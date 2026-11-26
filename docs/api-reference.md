@@ -13765,8 +13765,11 @@ Held in: [`SupportReportSaved.report`](#SupportReportSaved.report).
 
 Which ZIP a support request saved: the full support report, or the logs alone.
 
-- `support report` (`SUPPORT_REPORT`)
-- `logs zip` (`LOGS_ZIP`)
+Each member carries the phrase a sentence names it by and the title
+its saved notice is shown under.
+
+- `support_report`
+- `logs_zip`
 
 <a id="TimestampSource"></a>
 ### `lumascope.TimestampSource`

@@ -6182,7 +6182,7 @@ class SupportReportNotSavedError(Fault, Exception):
     def __init__(self, report: 'SupportReportKind', cause: BaseException):
         words = str(cause) or type(cause).__name__
         super().__init__(
-            f'The {report} was not saved: {words}\n\nContact {SUPPORT_ADDRESS} directly.'
+            f'The {report.phrase} was not saved: {words}\n\nContact {SUPPORT_ADDRESS} directly.'
         )
         self.report = report
 

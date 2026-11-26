@@ -50,7 +50,7 @@ def test_a_logs_zip_that_cannot_be_written_says_why(session, monkeypatch, tmp_pa
     with pytest.raises(SupportReportNotSavedError) as raised:
         session.make_logs_zip(output_dir=tmp_path / 'out')
     assert isinstance(raised.value.__cause__, OSError)
-    assert 'the disk is full' in str(raised.value)
+    assert str(raised.value).startswith('The logs zip was not saved: the disk is full')
 
 
 def test_a_support_report_that_fails_says_why(session, monkeypatch, tmp_path):
@@ -65,7 +65,7 @@ def test_a_support_report_that_fails_says_why(session, monkeypatch, tmp_path):
 
 
 def test_the_person_is_shown_the_reports_own_words(centre_posts):
-    error = SupportReportNotSavedError('logs zip', OSError('the disk is full'))
+    error = SupportReportNotSavedError(SupportReportKind.LOGS_ZIP, OSError('the disk is full'))
     notifications.report_outcome(error, solicited=True, category='ZIP_LOGS')
     shown = [post for post in centre_posts if post.title == 'Support Report Not Saved']
     assert len(shown) == 1
@@ -79,6 +79,22 @@ def test_a_saved_logs_zip_says_where_it_is(session, tmp_path):
     assert type(saved.report) is SupportReportKind
     assert saved.title == 'Logs Zip Saved'
     assert str(tmp_path / 'out') in saved.message
+
+
+def test_a_saved_zip_is_named_by_the_kind_of_work_it_ran_as(session, monkeypatch, tmp_path):
+    # A REST client reads one report's kind twice, in the live work while
+    # it runs and in the result once it is saved; the two spell it once.
+    seen = []
+    generate = TechSupportReport.generate_logs_only
+
+    def _read_the_live_work(self, **kwargs):
+        seen.extend(item.kind for item in session.live_work.work)
+        return generate(self, **kwargs)
+
+    monkeypatch.setattr(TechSupportReport, 'generate_logs_only', _read_the_live_work)
+    saved = session.make_logs_zip(output_dir=tmp_path / 'out')
+
+    assert seen == [saved.report]
 
 
 def test_a_started_logs_zip_ends_with_where_it_is(session, tmp_path):
@@ -114,7 +130,9 @@ def test_a_started_report_returns_before_it_ends_and_its_operation_raises_why(
 
 
 def test_a_saved_report_names_the_folder_it_is_in_not_the_desktop():
-    saved = SupportReportSaved(pathlib.Path('/home/someone/SN1-TSR.zip'), 'support report')
+    saved = SupportReportSaved(
+        pathlib.Path('/home/someone/SN1-TSR.zip'), SupportReportKind.SUPPORT_REPORT
+    )
     assert saved.message.startswith('Saved to /home/someone:')
     assert 'Desktop' not in saved.message
 

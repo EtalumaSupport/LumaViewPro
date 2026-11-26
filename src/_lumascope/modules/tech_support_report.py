@@ -1573,16 +1573,24 @@ class FirmwareDiagnostics:
 
 
 class SupportReportKind(enum.StrEnum):
-    """Which ZIP a support request saved: the full support report, or the logs alone."""
+    """Which ZIP a support request saved: the full support report, or the logs alone.
 
-    SUPPORT_REPORT = 'support report'
-    LOGS_ZIP = 'logs zip'
+    Each member carries the phrase a sentence names it by and the title
+    its saved notice is shown under.
+    """
 
+    phrase: str
+    notice_title: str
 
-_REPORT_TITLES = {
-    SupportReportKind.SUPPORT_REPORT: 'Support Report Saved',
-    SupportReportKind.LOGS_ZIP: 'Logs Zip Saved',
-}
+    def __new__(cls, value: str, phrase: str, notice_title: str) -> 'SupportReportKind':
+        member = str.__new__(cls, value)
+        member._value_ = value
+        member.phrase = phrase
+        member.notice_title = notice_title
+        return member
+
+    SUPPORT_REPORT = 'support_report', 'support report', 'Support Report Saved'
+    LOGS_ZIP = 'logs_zip', 'logs zip', 'Logs Zip Saved'
 
 
 @api_fields('path', 'report')
@@ -1606,7 +1614,7 @@ class SupportReportSaved:
         Raises:
             Nothing.
         """
-        return _REPORT_TITLES[self.report]
+        return self.report.notice_title
 
     @api
     @property
