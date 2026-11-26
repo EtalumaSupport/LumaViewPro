@@ -74,7 +74,8 @@ matplotlib.use('Agg')  # Must be set before pyplot import to avoid Tk/macOS conf
 
 if __name__ == '__main__':
     # LumaViewPro owns this process, so it starts the logging first, the
-    # bundle on the root logger, before anything below can write a record.
+    # bundle on the root logger and the crash hooks with it, before anything
+    # below can write a record or raise.
     from _lumascope.lvp_logger import start_program_logging
 
     start_program_logging()
@@ -273,11 +274,7 @@ if __name__ == '__main__':
     # ---------------------Module Imports---------------------------------------#
     ############################################################################
 
-    from _lumascope.lvp_logger import debug, install_crash_hooks, log_dir, logger
-
-    # LumaViewPro's crash policy: an uncaught exception is recorded in the
-    # log, before settings, Kivy, the plugins or the app can raise one.
-    install_crash_hooks()
+    from _lumascope.lvp_logger import debug, log_dir, logger
 
     DEBUG_MODE = debug
 

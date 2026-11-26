@@ -3,16 +3,20 @@
 
 Importing ``lvp_logger`` -- which every SDK module does -- installs no hook,
 so a script's uncaught exception, on its main thread or one it started,
-prints Python's own traceback on stderr. ``install_crash_hooks()`` is how an
-application (LumaViewPro, the REST server) takes LumaViewPro's crash policy:
-the crash recorded in its log.
+prints Python's own traceback on stderr. A program that owns its process
+(the GUI, the REST server, a tool, a Script) takes LumaViewPro's crash policy
+with ``start_program_logging()``: an uncaught exception logged as a crash, an
+exception in an object's cleanup logged as an error, and a fatal error in
+native code leaving every thread's stack in ``fatal_errors.log``.
 
 Each runs in a child Python: what a script's process does at a crash is the
 process's own, and the suite's process is the suite's (``tests/conftest.py``).
+A program's child keeps its logs under ``tmp_path``, not this checkout's.
 """
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -63,19 +67,36 @@ def test_a_threads_uncaught_exception_prints_its_traceback():
     assert 'ValueError: kettle boiled dry' in result.stderr
 
 
-def test_an_application_that_stops_on_a_crash_says_why_on_its_terminal():
-    # The application's log, reduced to a handler that keeps nothing: the
-    # crash record would otherwise land in this checkout's own log, and with
-    # no handler at all Python's last-resort handler prints the record,
-    # traceback and all, which is not what the hook writes.
-    result = _child(
-        """
-        import logging
+def _program(tmp_path: Path, body: str) -> tuple[subprocess.CompletedProcess, Path]:
+    """Run ``body`` after ``start_program_logging()``, its log folder under ``tmp_path``.
+
+    A frozen process with no installer marker keeps its data beside its
+    executable, so pointing the executable into ``tmp_path`` moves the log
+    folder there; the root carries the shipped ``settings.json``, which the
+    logger reads ``debug_mode`` from.
+    """
+    (tmp_path / 'data').mkdir()
+    shutil.copy(REPO / 'data' / 'settings.json', tmp_path / 'data' / 'settings.json')
+    prefix = f"""
+        import sys
+        sys.frozen = True
+        sys._MEIPASS = {str(REPO)!r}
+        sys.executable = {str(tmp_path / 'LumaViewPro.exe')!r}
         import _lumascope.lvp_logger
-        logging.getLogger().addHandler(logging.NullHandler())
-        _lumascope.lvp_logger.install_crash_hooks()
-        raise ValueError('kettle boiled dry')
+        _lumascope.lvp_logger.start_program_logging()
         """
+    return _child(textwrap.dedent(prefix) + textwrap.dedent(body)), tmp_path / 'logs' / 'LVP_Log'
+
+
+def test_a_program_that_stops_on_a_crash_says_why_on_its_terminal_and_logs_the_traceback(tmp_path):
+    result, log_dir = _program(
+        tmp_path,
+        """
+        def boil():
+            raise ValueError('kettle boiled dry')
+
+        boil()
+        """,
     )
 
     assert result.returncode == 1
@@ -83,20 +104,58 @@ def test_an_application_that_stops_on_a_crash_says_why_on_its_terminal():
     assert lines, 'the terminal was told nothing'
     assert lines[-1] == 'ValueError: kettle boiled dry'
     assert 'Traceback' not in result.stderr, 'the traceback is the log record, not the terminal'
+    log = (log_dir / 'lumaviewpro.log').read_text(encoding='utf-8')
+    assert 'CRASH - Uncaught Exception' in log
+    assert 'in boil' in log
 
 
-def test_an_application_takes_the_crash_policy_by_installing_it():
-    # Read as which hooks are set, not by raising through them: a raise
-    # would write its crash record into this checkout's own log.
-    result = _child(
+def test_an_error_in_an_objects_cleanup_is_logged_with_its_traceback(tmp_path):
+    # The shape SN 12078's runs died after: a Tk object's __del__ raised where
+    # Python can only ignore it, and the record reached the console alone.
+    result, log_dir = _program(
+        tmp_path,
         """
-        import sys, threading
-        import _lumascope.lvp_logger
-        _lumascope.lvp_logger.install_crash_hooks()
-        print(sys.excepthook is _lumascope.lvp_logger.custom_except_hook,
-              threading.excepthook is _lumascope.lvp_logger._thread_except_hook)
-        """
+        class Kettle:
+            def __del__(self):
+                raise ValueError('kettle boiled dry')
+
+        kettle = Kettle()
+        del kettle
+        """,
     )
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.split() == ['True', 'True']
+    errors = (log_dir / 'lumaviewpro_errors.log').read_text(encoding='utf-8')
+    assert 'Exception ignored' in errors and 'Kettle.__del__' in errors
+    assert 'Traceback' in errors and 'ValueError: kettle boiled dry' in errors
+
+
+def test_a_fatal_error_in_native_code_leaves_every_threads_stack_under_its_process_line(tmp_path):
+    # A fatal abort ends the process before any log record can be written:
+    # faulthandler's dump is the only record. The abort stands in for a
+    # native library's (Tcl's "async handler deleted by the wrong thread").
+    result, log_dir = _program(
+        tmp_path,
+        """
+        import faulthandler, os, threading
+        print(os.getpid(), flush=True)
+        ready, never = threading.Event(), threading.Event()
+
+        def simmer():
+            ready.set()
+            never.wait()
+
+        threading.Thread(target=simmer, name='kettle', daemon=True).start()
+        ready.wait()
+        faulthandler._sigabrt()
+        """,
+    )
+
+    assert result.returncode != 0
+    pid = result.stdout.split()[0]
+    dump = (log_dir / 'fatal_errors.log').read_text(encoding='utf-8')
+    started = [line for line in dump.splitlines() if line.endswith(f'process {pid} started')]
+    assert len(started) == 1, dump
+    after = dump[dump.index(started[0]) :]
+    assert 'Fatal Python error' in after
+    assert 'in simmer' in after, "the other thread's stack is not in the dump"

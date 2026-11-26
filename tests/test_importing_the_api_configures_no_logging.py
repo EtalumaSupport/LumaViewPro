@@ -198,10 +198,11 @@ def test_a_program_takes_root_with_the_files_the_gui_opens_and_a_second_start_ad
     assert state['refused'] == []
     assert state['started'] == 'root'
     assert state['root_handlers'] == ['RotatingFileHandler', 'RotatingFileHandler']
-    # The files opened at the start; the REST, protocol, autofocus and api
-    # logs open at their first write.
+    # The files opened at the start, the crash hooks' fatal_errors.log with
+    # them; the REST, protocol, autofocus and api logs open at their first write.
     assert state['files'] == [
         'camera.log',
+        'fatal_errors.log',
         'gui_interactions.log',
         'lumaviewpro.log',
         'lumaviewpro_errors.log',

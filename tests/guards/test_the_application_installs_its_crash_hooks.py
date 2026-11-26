@@ -1,11 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """LumaViewPro installs its crash hooks before it runs.
 
-Importing ``lvp_logger`` installs none (a script crashes as Python does), so
-the GUI calls ``install_crash_hooks()`` itself; without the call a core
-defect leaving ``LumaViewProApp().run()`` -- which ``_PluginCrashGuard``
-re-raises during the start, for its post-mortem -- would leave no crash
-record in the log.
+Importing ``lvp_logger`` installs none (a script crashes as Python does); the
+GUI takes them with ``start_program_logging()``. Without that call before
+``LumaViewProApp().run()`` a core defect leaving the run -- which
+``_PluginCrashGuard`` re-raises during the start, for its post-mortem -- would
+leave no crash record in the log.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ def _calls(tree: ast.AST, name: str) -> list[int]:
 def test_the_gui_installs_its_crash_hooks_before_it_runs():
     tree = parse_module('lumaviewpro.py')
 
-    installs = _calls(tree, 'install_crash_hooks')
+    installs = _calls(tree, 'start_program_logging')
     runs = [
         node.lineno
         for node in ast.walk(tree)
@@ -41,6 +41,6 @@ def test_the_gui_installs_its_crash_hooks_before_it_runs():
         and getattr(node.func.value.func, 'id', None) == 'LumaViewProApp'
     ]
 
-    assert installs, 'lumaviewpro.py never calls install_crash_hooks()'
+    assert installs, 'lumaviewpro.py never calls start_program_logging()'
     assert runs
     assert min(installs) < min(runs)

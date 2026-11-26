@@ -685,14 +685,13 @@ def a_host_in_this_process(monkeypatch):
     """A host's ``main()`` run inside the test process takes none of the process's logging or crash hooks.
 
     A stand-in by design: a host owns its process, so its ``main()`` starts
-    the program's logging and installs the crash hooks; the test process is
-    the suite's, whose logging is declined once at its start, so the real
-    start is refused there and the real hooks would outlive the test.
+    the program's logging, the crash hooks with it; the test process is the
+    suite's, whose logging is declined once at its start, so the real start
+    is refused there and the real hooks would outlive the test.
     """
     import _lumascope.lvp_logger
 
     monkeypatch.setattr(_lumascope.lvp_logger, 'start_program_logging', lambda: None)
-    monkeypatch.setattr(_lumascope.lvp_logger, 'install_crash_hooks', lambda: None)
 
 
 @pytest.fixture

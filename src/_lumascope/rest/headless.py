@@ -43,17 +43,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    from _lumascope.lvp_logger import (
-        install_crash_hooks,
-        log_dir,
-        logger,
-        start_program_logging,
-    )
+    from _lumascope.lvp_logger import log_dir, logger, start_program_logging
 
     # The server owns its process, so it starts the logging first, the bundle
-    # on the root logger; importing the API before this wrote nothing.
+    # on the root logger and the crash hooks with it; importing the API before
+    # this wrote nothing.
     start_program_logging()
-    install_crash_hooks()
 
     # An installed server takes the installer's logs from TEMP, as the GUI
     # does; any other run captures nothing.

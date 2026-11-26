@@ -10,6 +10,7 @@ program, ``start_session_logging`` from a session's first call, or an
 integrator's own ``configure_logging`` -- and at most once.
 """
 
+import faulthandler
 import os
 import logging
 from logging.handlers import RotatingFileHandler
@@ -42,7 +43,13 @@ from _lumascope.modules.path_utils import (
 )
 
 from _lumascope.modules.api_surface import api
-from _lumascope.modules.log_stamp import MAIN_LAYOUT, TRACE_LAYOUT, WINDOW_LAYOUT, make_formatter
+from _lumascope.modules.log_stamp import (
+    MAIN_LAYOUT,
+    TRACE_LAYOUT,
+    WINDOW_LAYOUT,
+    make_formatter,
+    now_stamp,
+)
 
 # The main and camera loggers are named in src/_lumascope/lib/log_helpers, where the drivers
 # and src/_lumascope/lib/ take them without importing this module; this module's start configures them.
@@ -76,6 +83,10 @@ METRICS_LOG_FILE = os.path.join(log_dir, 'metrics.log')
 PROTOCOL_LOG_FILE = os.path.join(log_dir, 'protocol.log')
 BRINGUP_LOG_FILE = os.path.join(log_dir, log_helpers.LogWindow.BRING_UP.value)
 RUN_START_LOG_FILE = os.path.join(log_dir, log_helpers.LogWindow.RUN_START.value)
+# Every thread's stack at a fatal error in native code, which ends the
+# process before any log record can be written. Not a rotating log: it is
+# appended to only at a process start (one line) and at a fatal error.
+FATAL_ERRORS_LOG_FILE = os.path.join(log_dir, 'fatal_errors.log')
 
 _MB = 1024 * 1024
 
@@ -160,12 +171,13 @@ def custom_except_hook(exc_type, exc_value, exc_traceback):
     logger.critical(f'Logger ] CRASH - Uncaught Exception:\n{tb_text}')
     # The process is stopping: whoever started it from a terminal is told
     # why in the exception's own words, the message the installed build's
-    # bootloader dialog shows; the traceback stays in the log. The process's
-    # own stream, since Kivy replaces sys.stderr with one that logs each
-    # line; a windowed build has none.
-    if sys.__stderr__ is not None:
-        sys.__stderr__.write(''.join(_traceback.format_exception_only(exc_type, exc_value)))
-        sys.__stderr__.flush()
+    # bootloader dialog shows; the traceback stays in the log. Written to the
+    # stream the program set, so a probe's console record keeps it; under
+    # Kivy, whose stream logs each line, that line is logged once more after
+    # the crash record. A windowed build has no stream.
+    if sys.stderr is not None:
+        sys.stderr.write(''.join(_traceback.format_exception_only(exc_type, exc_value)))
+        sys.stderr.flush()
 
 
 def rotated_log_name(name: str) -> str:
@@ -328,7 +340,11 @@ def start_program_logging() -> None:
     harnesses own their process, so the bundle's files hang on the root
     logger: a third-party library's and the program's own root records reach
     the bundle, Kivy's warnings with them, the debug console echoes them, and
-    on Windows the console window is minimized.
+    on Windows the console window is minimized. The program takes
+    LumaViewPro's crash policy with it: an uncaught exception on any thread
+    is logged as a crash, an exception raised where Python can only ignore it
+    (an object's cleanup) is logged as an error, and a fatal error in native
+    code writes every thread's stack to ``fatal_errors.log``.
 
     Raises:
         LoggingConfigurationRefusedError: ``'logging_configured_otherwise'``, a session
@@ -364,6 +380,7 @@ def _start(asked: str, *, refuse_otherwise: bool) -> None:
                 _write_the_process_line()
             if asked == 'root':
                 minimize_logger_window()
+                _install_crash_hooks()
         elif _started != asked and refuse_otherwise:
             from _lumascope.modules.exceptions import LoggingConfigurationRefusedError
 
@@ -939,16 +956,40 @@ def _thread_except_hook(args):
     )
 
 
-def install_crash_hooks() -> None:
-    """Record every uncaught exception, on the main thread or any other, in the log as a crash.
+# An exception Python cannot raise to anyone -- in a __del__, a finalizer, a
+# garbage-collected Tk variable -- reaches only stderr by default, which a
+# windowed build lacks and a script's terminal does not keep.
+def _unraisable_hook(unraisable):
+    tb_text = ''.join(
+        _traceback.format_exception(
+            unraisable.exc_type, unraisable.exc_value, unraisable.exc_traceback
+        )
+    )
+    where = unraisable.err_msg or 'Exception ignored in'
+    if unraisable.object is not None:
+        where = f'{where}: {unraisable.object!r}'
+    logger.error(f'Logger ] {where}\n{tb_text}')
 
-    The application's choice, made by the program that owns the process
-    (LumaViewPro, the REST server) as it starts: importing this module
-    installs nothing, so a script that imports the SDK crashes as any
-    Python program does, its traceback on stderr. A process that imports
-    Kivy has its stderr redirected into Kivy's logger, so there the default
-    traceback reaches the log rather than the terminal; only ``ui/``
-    imports Kivy.
+
+# Open for the whole process: faulthandler writes to its descriptor at the
+# fatal error, when nothing can be opened.
+_fatal_errors_log = None
+
+
+def _install_crash_hooks() -> None:
+    """Take LumaViewPro's crash policy for a process a LumaViewPro program owns.
+
+    Called once, by ``start_program_logging``: importing this module installs
+    nothing, so a script that imports the SDK crashes as any Python program
+    does, its traceback on stderr. Each process start appends one stamped
+    line to ``fatal_errors.log``, so a stack dumped below it is that
+    process's.
     """
+    global _fatal_errors_log
     sys.excepthook = custom_except_hook
     threading.excepthook = _thread_except_hook
+    sys.unraisablehook = _unraisable_hook
+    _fatal_errors_log = open(FATAL_ERRORS_LOG_FILE, 'a', encoding='utf-8')  # noqa: SIM115 -- open for the process's life
+    _fatal_errors_log.write(f'{now_stamp()} process {os.getpid()} started\n')
+    _fatal_errors_log.flush()
+    faulthandler.enable(file=_fatal_errors_log, all_threads=True)
