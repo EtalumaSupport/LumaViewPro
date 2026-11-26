@@ -485,14 +485,6 @@ class QuickEnhancer:
             # display-only component for these composite inputs, so retain
             # the enhanced RGB data and preserve the Composite metadata.
             output_for_write = output_for_write[..., :3]
-        if not image_utils.is_tiff(source_path) and output_for_write.ndim == 3:
-            # cv2 loads PNG/JPEG in BGR(A), whereas TIFF metadata and the
-            # project's TIFF writer are RGB-native. Convert the alpha-free
-            # display payload so a Composite PNG cannot reintroduce RGBA.
-            output_for_write = cv2.cvtColor(
-                output_for_write,
-                cv2.COLOR_BGR2RGB,
-            )
         # Judged as a run's write is, on the pixels it will write, before
         # anything is: a disk short of room for this image is short for the
         # images after it too.

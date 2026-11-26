@@ -679,6 +679,45 @@ def test_metadata_less_legacy_green_rgb_with_numeric_prefix_exports_green(tmp_pa
     assert metadata['channel'] == 'Green'
 
 
+def test_a_red_png_exports_red_and_states_red(tmp_path):
+    source = tmp_path / 'red_picture.png'
+    red = np.zeros((32, 32, 3), dtype=np.uint8)
+    red[..., 0] = np.arange(32, dtype=np.uint8)[:, np.newaxis] * 8
+    # cv2 writes the planes it is given as blue-green-red: reversed, the file
+    # holds a red picture.
+    assert cv2.imwrite(str(source), red[..., ::-1])
+
+    exported = QuickEnhancer().export_file(
+        source, quick_enhance_settings(), channel_colors=release_colors()
+    )
+    output, _bits, _ = image_utils.load_pixels(
+        exported['output_path'], collapse_legacy_false_color=False
+    )
+
+    assert image_utils.read_file_record(exported['output_path'])['channel'] == 'Red'
+    assert output[..., 0].any()
+    assert not output[..., 1].any()
+    assert not output[..., 2].any()
+
+
+def test_a_mono_png_named_for_blue_exports_blue(tmp_path):
+    source = tmp_path / 'cells_Blue.png'
+    mono = (np.arange(32, dtype=np.uint8)[:, np.newaxis] * 8).repeat(32, axis=1)
+    assert cv2.imwrite(str(source), mono)
+
+    exported = QuickEnhancer().export_file(
+        source, quick_enhance_settings(), channel_colors=release_colors()
+    )
+    output, _bits, _ = image_utils.load_pixels(
+        exported['output_path'], collapse_legacy_false_color=False
+    )
+
+    assert output.shape == (32, 32, 3)
+    assert output[..., 2].any()
+    assert not output[..., 0].any(), 'the blue picture was written red'
+    assert not output[..., 1].any()
+
+
 def test_fixed_recipe_deepens_a_close_bead_pair_saddle_without_lifting_background():
     yy, xx = np.mgrid[:256, :256]
     image = np.clip(

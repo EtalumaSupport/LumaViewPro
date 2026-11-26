@@ -402,7 +402,8 @@ def test_a_merged_composite_is_held_the_users_time_in_its_own_colours(
     rgb, _bits, _white = image_utils.load_pixels(merged, collapse_legacy_false_color=False)
     ((image,),) = [drawn]
     assert image.shape == (8, 8, 3)
-    assert (image == rgb[..., ::-1]).all(), 'the composite drawn is not its file'
+    # The display edge turns a red-green-blue image into Kivy's order itself.
+    assert (image == rgb).all(), 'the composite drawn is not its file'
     assert gui_ctx.viewer.show_drawn.call_args.args == ('bgr',)
     assert gui_ctx.scope_display_thread.named_hold == ('the composite', 4.0)
     assert _held_for(gui_ctx, clock, seconds=4) == (True, False)

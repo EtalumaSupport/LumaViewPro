@@ -1006,13 +1006,17 @@ def _load_pixels_and_timestamp(
         return image, sig, white, timestamp
 
     # Non-TIFF (PNG / JPEG): no depth carrier, so the container width is the
-    # depth, and no per-frame timestamp metadata to recover. cv2 returns color
-    # files in BGR channel order; the depth-sensitive payloads are mono, where
-    # channel order is moot.
+    # depth, and no per-frame timestamp metadata to recover. cv2 decodes a
+    # colour file blue-green-red; it is turned red-green-blue here, so a colour
+    # image in memory has one order whatever file it came from.
     _refuse_unless_present(path)
     image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
     if image is None:
         raise _unreadable(path)
+    if image.ndim == 3 and image.shape[2] in (3, 4):
+        image = cv2.cvtColor(
+            image, cv2.COLOR_BGR2RGB if image.shape[2] == 3 else cv2.COLOR_BGRA2RGBA
+        )
     sig = image.dtype.itemsize * 8
     if not _is_frame_depth(sig):
         low, high = FRAME_DEPTH_BITS
@@ -2132,24 +2136,6 @@ def add_false_color(array: np.ndarray, color: Color) -> np.ndarray:
     return mono_to_rgb_falsecolor(array, color)
 
 
-def image_file_to_image(image_file):
-    logger.info(f'[LVP image_utils  ] Loading: {image_file}')
-    if not cv2.haveImageReader(image_file):
-        logger.error('[LVP image_utils  ] - Image not supported by OpenCV')
-        return
-
-    num_images = cv2.imcount(image_file)
-    logger.info(f'[LVP image_utils  ] - {num_images} images detected')
-
-    image = cv2.imread(image_file, cv2.IMREAD_UNCHANGED)
-
-    if image is None:
-        logger.error('[LVP image_utils  ] - Unable to load file')
-        return
-
-    return image
-
-
 def get_used_color_planes(image) -> list:
     if not is_color_image(image=image):
         return []
@@ -2190,7 +2176,7 @@ def rgb_image_to_gray(image: np.ndarray, baked: bool = False) -> np.ndarray:
     if baked or _values_in_one_plane(image=image):
         return np.amax(image, axis=2)
 
-    return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    return cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
 
 
 def preview_jpeg(

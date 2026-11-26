@@ -73,14 +73,14 @@ def load(path):
 
 class TestRule31aExemptsCanonicalOwners:
     def test_image_utils_py_is_exempt(self):
-        # image_utils.py owns image_file_to_image (the multi-format L1
-        # reader) plus the capability-flag wrappers; cv2 use here is
+        # image_utils.py owns load_pixels (the one read of a saved
+        # picture) plus the capability-flag wrappers; cv2 use here is
         # boundary-correct by construction.
         src = """
 import cv2
 
-def image_file_to_image(image_file):
-    return cv2.imread(image_file, cv2.IMREAD_UNCHANGED)
+def load_pixels(path):
+    return cv2.imread(path, cv2.IMREAD_UNCHANGED)
 """
         assert _violations(src, 'src/_lumascope/modules/image_utils.py') == []
 
@@ -108,8 +108,8 @@ def test_helper(path):
         assert _violations(src, 'tests/test_image_utils.py') == []
 
     def test_top_level_script_does_not_fire(self):
-        # Files outside src/_lumascope/modules/ and ui/ are not in scope -- e.g.
-        # ad-hoc scripts at the repo root, tools/ helpers, src/_lumascope/lib/ files.
+        # Files outside src/_lumascope/ and ui/ are not in scope -- e.g.
+        # ad-hoc scripts at the repo root and tools/ helpers.
         src = """
 import cv2
 
@@ -118,6 +118,42 @@ def main():
 """
         assert _violations(src, 'tools/some_helper.py') == []
         assert _violations(src, 'lib/some_lib.py') == []
+
+    def test_a_read_anywhere_in_the_package_blocks(self):
+        # A colour image in memory is red-green-blue only while every file
+        # read goes through image_utils, wherever in the package it is.
+        src = """
+import cv2
+
+def load(path):
+    return cv2.imread(path)
+"""
+        for path in (
+            'src/_lumascope/rest/app.py',
+            'src/_lumascope/lib/some_lib.py',
+            'src/_lumascope/drivers/some_driver.py',
+        ):
+            assert len(_violations(src, path)) == 1, path
+
+    def test_a_decode_from_bytes_blocks(self):
+        src = """
+import cv2
+
+def load(buf):
+    return cv2.imdecode(buf, cv2.IMREAD_UNCHANGED)
+"""
+        assert len(_violations(src, 'src/_lumascope/modules/some_processor.py')) == 1
+
+    def test_the_simulated_specimen_is_exempt(self):
+        # It keeps only a picture's brightest plane, which no channel order
+        # changes.
+        src = """
+import cv2
+
+def pictures(file):
+    return cv2.imread(str(file), cv2.IMREAD_COLOR).max(axis=2)
+"""
+        assert _violations(src, 'src/_lumascope/drivers/simulated_specimen.py') == []
 
 
 class TestRule31aIgnoresNonCv2Calls:

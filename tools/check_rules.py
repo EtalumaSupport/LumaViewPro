@@ -514,14 +514,17 @@ def _check_rule_27d(tree: ast.AST, path: str) -> list[Violation]:
 
 _TIFFFILE_OWNER = 'src/_lumascope/modules/image_utils.py'
 
-_CV2_CHANNEL_IO_PATH_SCOPE = ('src/_lumascope/modules/', 'ui/')
+_CV2_CHANNEL_IO_PATH_SCOPE = ('src/_lumascope/', 'ui/')
 _CV2_CHANNEL_IO_FILE_EXEMPT = frozenset(
     {
-        # image_utils.py owns image_file_to_image (multi-format L1 file
-        # loader called from the post-processing UI + Kivy display path)
-        # plus the imread_color / imwrite_color / videowriter_color
-        # capability-flag wrappers. cv2 use is by definition boundary code.
+        # image_utils.py owns load_pixels, the one read of a saved picture,
+        # which turns a decoded colour file red-green-blue, plus the
+        # imread_color / imwrite_color / videowriter_color capability-flag
+        # wrappers. cv2 use is by definition boundary code.
         'src/_lumascope/modules/image_utils.py',
+        # The simulated specimen keeps only a picture's brightest plane,
+        # which no channel order changes.
+        'src/_lumascope/drivers/simulated_specimen.py',
         # video_writer.py owns the cv2.VideoWriter XVID fallback for the
         # canonical VideoWriter class -- the wrapper that surrounding
         # callers consume; direct cv2.VideoWriter outside this class swaps
@@ -529,7 +532,7 @@ _CV2_CHANNEL_IO_FILE_EXEMPT = frozenset(
         'src/_lumascope/modules/video_writer.py',
     }
 )
-_CV2_CHANNEL_IO_BANNED_ATTRS = frozenset({'imread', 'imwrite', 'VideoWriter'})
+_CV2_CHANNEL_IO_BANNED_ATTRS = frozenset({'imread', 'imdecode', 'imwrite', 'VideoWriter'})
 
 _CV2_CHANNEL_FALSE_COLOR_BOUNDARY_PATHS = frozenset(
     {
@@ -599,22 +602,23 @@ def _check_tifffile_one_importer(tree: ast.AST, path: str) -> list[Violation]:
 
 
 def _check_cv2_channel_io(tree: ast.AST, path: str) -> list[Violation]:
-    """Block bare ``cv2.imread`` / ``cv2.imwrite`` / ``cv2.VideoWriter``
-    in production ``src/_lumascope/modules/`` and ``ui/`` outside the canonical owner
-    files.
+    """Block bare ``cv2.imread`` / ``cv2.imdecode`` / ``cv2.imwrite`` /
+    ``cv2.VideoWriter`` in production ``src/_lumascope/`` and ``ui/``
+    outside the canonical owner files.
 
     Bug shape this prevents: callers reach for ``cv2.imread`` /
     ``cv2.imwrite`` directly to read or write image files. cv2 is
     BGR-native; viewers (tifffile, FIJI, OS preview) and the rest of
     the pipeline are RGB-native, so a bare cv2 call swaps channels at
     the file boundary and silently corrupts color order. The canonical
-    routes are the ``image_utils.imread_color`` /
-    ``image_utils.imwrite_color`` / ``image_utils.videowriter_color``
-    capability-flag wrappers (which live in ``src/_lumascope/modules/image_utils.py``)
-    plus the ``_lumascope.modules.video_writer.VideoWriter`` wrapper class
+    routes are ``image_utils.load_pixels``, the
+    ``image_utils.imread_color`` / ``image_utils.imwrite_color`` /
+    ``image_utils.videowriter_color`` capability-flag wrappers (which
+    live in ``src/_lumascope/modules/image_utils.py``) and the
+    ``_lumascope.modules.video_writer.VideoWriter`` wrapper class
     (which owns the cv2.VideoWriter XVID fallback).
 
-    Path scope: only fires on ``src/_lumascope/modules/`` and ``ui/`` sources. File-
+    Path scope: only fires on ``src/_lumascope/`` and ``ui/`` sources. File-
     level exempt for the canonical owner files in
     ``_CV2_CHANNEL_IO_FILE_EXEMPT``. Test files exempt via
     ``_is_test_path``.
@@ -644,7 +648,7 @@ def _check_cv2_channel_io(tree: ast.AST, path: str) -> list[Violation]:
                     node.lineno,
                     node.col_offset,
                     'cv2_channel_io',
-                    f'bare cv2.{f.attr} in src/_lumascope/modules/ or ui/; route through '
+                    f'bare cv2.{f.attr} in src/_lumascope/ or ui/; route through '
                     f'image_utils.imread_color / imwrite_color / '
                     f'videowriter_color (capability-flag wrappers) or the '
                     f'canonical _lumascope.modules.video_writer.VideoWriter class. '

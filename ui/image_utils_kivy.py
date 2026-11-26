@@ -33,9 +33,11 @@ def image_to_texture(image, existing: Texture | None = None) -> Texture:
         )
 
     if image.ndim == 3 and image.shape[2] == 4:
-        # TIFF data is RGB-native. Kivy's reusable display texture is BGR,
-        # so discard alpha while converting the RGB components to BGR.
+        # A colour image in memory is red-green-blue. Kivy's reusable display
+        # texture is BGR, so discard alpha while converting to BGR.
         image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
+    elif image.ndim == 3 and image.shape[2] == 3:
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
     elif not image_utils.is_color_image(image=image):
         image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
 
@@ -50,13 +52,3 @@ def image_to_texture(image, existing: Texture | None = None) -> Texture:
     image_texture.flip_vertical()
     image_texture.blit_buffer(buf, colorfmt='bgr', bufferfmt='ubyte')
     return image_texture
-
-
-def image_file_to_texture(image_file) -> Texture:
-    image = image_utils.image_file_to_image(image_file=image_file)
-
-    if image is None:
-        return None
-
-    texture = image_to_texture(image=image)
-    return texture

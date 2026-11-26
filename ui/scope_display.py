@@ -1293,10 +1293,9 @@ class ScopeDisplay(Image):
         ``label`` is what the status line says is shown while it is held,
         None for an image the line does not name.
 
-        Derived color TIFFs are RGB-native, while the Kivy helper accepts BGR
-        display bytes. This path is intentionally separate from the live-camera
-        render loop and uses the same bounded display hold as a saved protocol
-        frame, so a just-created output is visible before live frames resume.
+        This path is intentionally separate from the live-camera render loop
+        and uses the same bounded display hold as a saved protocol frame, so
+        a just-created output is visible before live frames resume.
         """
         if image is None or getattr(image, 'size', 0) == 0:
             return
@@ -1305,8 +1304,6 @@ class ScopeDisplay(Image):
         display = image
         if display.dtype != np.uint8:
             display = image_utils.convert_to_8bit(display, significant_bits)
-        if display.ndim == 3:
-            display = display[..., :3][..., ::-1].copy()
         self._hold_from_now(held_s, label)
         self.texture = image_to_texture(display)
         _app_ctx.ctx.viewer.show_drawn('bgr')
