@@ -33,6 +33,12 @@ Then every simulated scope's slide drifted a pixel a frame, so a running
 stream looked alive on the GUI's display, and a measurement on the
 simulator read that drift as a scene that never held still. The slide now
 holds still unless the scope's record asks for the drift.
+
+Then the cells were drawn one way under every light, bright parts on a dark
+field, so brightfield, the default channel, showed them brighter than the
+clear slide around them. A channel whose field is bright now shows the
+cells as transmitted light: the clear field is the brightest part of the
+frame, and more light saturates it before the cells.
 """
 
 from __future__ import annotations
@@ -384,20 +390,62 @@ def test_each_slider_moves_the_image_from_the_layer_s_shipped_settings(model, la
     assert not dimmer, f'raising each slider from {at_shipped:.1f} did not brighten: {brighter}'
 
 
-# A bright modality and a dim one.
-@pytest.mark.parametrize('layer', ['BF', LED1])
-def test_a_layer_at_its_shipped_settings_shows_the_field_unsaturated(layer):
+def test_a_dark_field_layer_at_its_shipped_settings_shows_its_bright_parts_unsaturated():
     with _scope('LS850') as scope:
-        frame = _shown(scope, layer, *_SHIPPED[layer])
-    assert 0.75 * 255 < frame.max() < 255, (layer, int(frame.min()), int(frame.max()))
+        frame = _shown(scope, LED1, *_SHIPPED[LED1])
+    assert 0.75 * 255 < frame.max() < 255, (int(frame.min()), int(frame.max()))
+
+
+# The two simulated cameras: the stand-in and the FX2's sensor.
+@pytest.mark.parametrize('model', ['LS850', 'LS720'])
+def test_a_bright_field_layer_at_its_shipped_settings_shows_the_clear_field_brightest_and_unsaturated(
+    model,
+):
+    """The clear slide, most of the field and its median, is the brightest part of a brightfield frame; the cells are darker."""
+    with _scope(model) as scope:
+        frame = _shown(scope, 'BF', *_SHIPPED['BF'])
+    clear_field = float(np.median(frame))
+    assert frame.max() < 255, int(frame.max())
+    assert clear_field >= 0.75 * frame.max(), (clear_field, int(frame.max()))
 
 
 def test_more_light_saturates_the_brightest_pixels_first():
+    """In brightfield the brightest pixels are the clear field's: six times the shipped exposure saturates it and leaves the cells' darkest parts under full scale."""
     ma, ms, db = _SHIPPED['BF']
     with _scope('LS850') as scope:
-        frame = _shown(scope, 'BF', ma, ms * 1.5, db)
+        frame = _shown(scope, 'BF', ma, ms * 6, db)
     saturated = float((frame == 255).mean())
-    assert 0 < saturated < 0.5, f'{saturated:.1%} of the field is at full scale'
+    assert saturated > 0.5, f'{saturated:.1%} of the field is at full scale'
+    assert np.percentile(frame, 5) < 255, 'the cells saturated with the clear field'
+
+
+# The two simulated cameras: the stand-in and the FX2's sensor.
+@pytest.mark.parametrize('model', ['LS850', 'LS720'])
+def test_a_bright_and_a_dark_field_lit_together_show_the_sum_of_each(model):
+    """Brightfield and a fluorescence channel lit at once show the cells as each shows them, added.
+
+    On the 40x, where brightfield's light is a sixteenth of the 10x's and
+    fluorescence's is the same, so one exposure shows both well inside the
+    sensor's range.
+    """
+    with _session(model) as session:
+        scope = session.scope
+        session.select_objective('40x Meiji')
+        scope.camera.set_exposure_ms(40.0)
+        scope.camera.set_gain_db(1.0)
+        alone = {}
+        for layer, current in (('BF', 1.0), (LED1, 250.0)):
+            scope.illumination.leds_off()
+            scope.illumination.led_on(layer, current)
+            alone[layer] = scope.imaging.capture_still(accept_dark=True).image.astype(int)
+        scope.illumination.led_on('BF', 1.0)
+        together = scope.imaging.capture_still(accept_dark=True).image.astype(int)
+
+    assert alone[LED1].max() >= 20, f'the fluorescence channel showed {alone[LED1].max()} at most'
+    assert alone['BF'].max() < 255 - alone[LED1].max(), 'the sum would saturate'
+    expected = alone['BF'] + alone[LED1]
+    # Each frame alone is rounded once, and the sum once.
+    assert np.abs(together - expected).max() <= 2
 
 
 def test_the_ronchi_reads_at_the_move_count_s_start_as_the_bench_s_did():

@@ -8,6 +8,12 @@ about half a depth of field off focus at 20x and 40x, and the simulator
 could not show an autofocus landing at focus. Every drawing now goes
 through the one in-focus resolution, at binning 1, and is binned after,
 as the sensor sums it.
+
+Then the cells showed in brightfield as a dark field shows them, and at
+10x the bright parts clipped and pulled the score off focus. In a bright
+field they now pass a share of the light, and an autofocus on them in
+brightfield finds a curve that falls on both sides of focus by well more
+than the drift changes a score.
 """
 
 from __future__ import annotations
@@ -31,19 +37,23 @@ _FOCAL_Z_UM = 5000.0
 _OFF_FOCUS_DOF = (-2.0, -1.0, -0.5, 0.5, 1.0, 2.0)
 
 
-@pytest.mark.parametrize('objective', ['20x Oly', '40x Meiji'])
-def test_the_focus_target_scores_highest_at_the_focal_z(objective):
+def _brightfield_scores(
+    pattern: str, objective: str, ma: float
+) -> tuple[float, dict[float, float]]:
+    """The focus score of ``pattern`` in BF at ``ma`` at the focal Z, and at each of ``_OFF_FOCUS_DOF``.
+
+    Each frame is checked unclipped: a clipped frame's score is pulled off
+    focus on the hardware as here.
+    """
     session = ScopeSession.create(complete_settings(), simulate=True)
     try:
         scope = session.scope
         scope.imaging.enable_streaming()
         home_sim_scope(scope)
         camera = scope._camera_driver
-        camera.set_test_pattern(enabled=True, pattern='focus_target')
+        camera.set_test_pattern(enabled=True, pattern=pattern)
         session.select_objective(objective)
-        # A light at which the target does not clip: a clipped frame's
-        # score is pulled off focus on the hardware as here.
-        scope.illumination.led_on('BF', 2.0)
+        scope.illumination.led_on('BF', ma)
         camera.set_focal_z(_FOCAL_Z_UM)
         dof = camera._depth_of_field_func()
 
@@ -53,13 +63,27 @@ def test_the_focus_target_scores_highest_at_the_focal_z(objective):
             assert image.max() < np.iinfo(image.dtype).max, f'clipped at {dz_dof} DOF'
             return autofocus_functions.autofocus_score(image=image)
 
-        at_focus = score_at(0.0)
-        off_focus = {dz: score_at(dz) for dz in _OFF_FOCUS_DOF}
+        return score_at(0.0), {dz: score_at(dz) for dz in _OFF_FOCUS_DOF}
     finally:
         session.shutdown()
 
+
+@pytest.mark.parametrize('objective', ['20x Oly', '40x Meiji'])
+def test_the_focus_target_scores_highest_at_the_focal_z(objective):
+    # A light at which the target does not clip.
+    at_focus, off_focus = _brightfield_scores('focus_target', objective, 2.0)
     higher = {dz: s for dz, s in off_focus.items() if s >= at_focus}
     assert not higher, (objective, at_focus, off_focus)
+
+
+@pytest.mark.parametrize('objective', ['10x Oly', '20x Oly'])
+def test_the_cells_in_brightfield_score_highest_at_the_focal_z_by_a_margin(objective):
+    """At BF's shipped current the cells' score falls at least 1 % by half a depth of field off focus and 2 % by one: the drift moves it 0.03 %."""
+    at_focus, off_focus = _brightfield_scores('specimen', objective, 5.0)
+    too_close = {
+        dz: s for dz, s in off_focus.items() if s > at_focus * (1 - 0.02 * min(abs(dz), 1))
+    }
+    assert not too_close, (objective, at_focus, off_focus)
 
 
 def test_a_binned_focus_target_is_the_unbinned_one_summed():

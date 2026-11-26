@@ -64,8 +64,10 @@ from _lumascope.drivers.fx2driver import (
 from _lumascope.drivers.simulated_specimen import (
     DRIFT_STEPS,
     ImageSlide,
+    Lit,
     RonchiRuling,
     Slide,
+    light_by_form,
     the_slide,
 )
 from _lumascope.drivers.usb_driver_binding import (
@@ -241,7 +243,7 @@ class SimulatedFX2Device:
         self,
         *,
         timing: str = 'instant',
-        light_of: Callable[[int], tuple[str | None, float]] | None = None,
+        light_of: Callable[[int], tuple[Lit, float]] | None = None,
         stage_xy: Callable[[], tuple[float | None, float | None]] | None = None,
         pixel_size: Callable[[], float | None] | None = None,
         slide: Slide | RonchiRuling | ImageSlide = Slide.CELLS,
@@ -258,9 +260,10 @@ class SimulatedFX2Device:
         self.sensor = _Mt9p031()
         self.leds = _LedPeripheral()
         # The channel an LED address lights, by its name (None for an address
-        # no channel names), and the light per mA-second at unity gain it
-        # renders; unwired, any lit LED shows the field at the reference
-        # exposure's grey levels, whatever its current.
+        # no channel names) and whether its field is bright, and the light
+        # per mA-second at unity gain it renders; unwired, any lit LED shows
+        # the field at the reference exposure's grey levels, whatever its
+        # current, under the light no channel names.
         self._light_of = light_of
         # Where the stage stands, and the objective's image scale (um of
         # stage per pixel), asked as each frame starts, so the sensor sees
@@ -469,27 +472,38 @@ class SimulatedFX2Device:
         drift = self._drift_steps[self._frame_index % len(self._drift_steps)]
         self._frame_index += 1
         if self._light_of is None:
+            # Unwired, no LED names a channel: the slide shows what it shows
+            # under the light no channel names.
             scale = self.sensor.exposure_s() / _REFERENCE_EXPOSURE_S * self.sensor.gain()
-            if self._specimen.per_channel:
-                # Unwired, no LED names a channel, so a per-channel slide shows nothing.
-                return np.zeros((h, w), dtype=np.uint8)
             field = self._specimen.view(x, y, h, w, um_per_px, shift=drift)
             return np.clip(field.astype(np.float32) * scale, 0, 255).astype(np.uint8)
-        light_by_channel: dict[str | None, float] = {}
+        light_by_channel: dict[Lit, float] = {}
         for address, ma in self.leds.lit_ma().items():
             channel, light = self._light_of(address)
             light_by_channel[channel] = light_by_channel.get(channel, 0.0) + ma * light
         settings = self.sensor.exposure_s() * self.sensor.gain()
-        if not self._specimen.per_channel:
-            field = self._specimen.view(x, y, h, w, um_per_px, shift=drift)
-            scale = settings * sum(light_by_channel.values())
-            return np.clip(field.astype(np.float32) * scale, 0, 255).astype(np.uint8)
-        # Each lit channel's own picture by its own light, the sum saturated once.
+        # Each picture the slide shows under the lit channels, with its light
+        # and what it is drawn for.
+        if self._specimen.per_channel:
+            pictures = [
+                (light, {'channel': lit.channel}) for lit, light in light_by_channel.items()
+            ]
+        elif self._specimen.per_field:
+            pictures = [
+                (light, {'form': form}) for form, light in light_by_form(light_by_channel).items()
+            ]
+        else:
+            pictures = [(sum(light_by_channel.values()), {})]
+        if len(pictures) == 1:
+            ((light, drawn_for),) = pictures
+            field = self._specimen.view(x, y, h, w, um_per_px, shift=drift, **drawn_for)
+            return np.clip(field.astype(np.float32) * (settings * light), 0, 255).astype(np.uint8)
+        # Each picture by its own light, the sum saturated once.
         total = np.zeros((h, w), dtype=np.float32)
-        for channel, light in light_by_channel.items():
-            if channel is None or light <= 0.0:
+        for light, drawn_for in pictures:
+            if light <= 0.0:
                 continue
-            field = self._specimen.view(x, y, h, w, um_per_px, shift=drift, channel=channel)
+            field = self._specimen.view(x, y, h, w, um_per_px, shift=drift, **drawn_for)
             total += field.astype(np.float32) * (settings * light)
         return np.clip(total, 0, 255).astype(np.uint8)
 
@@ -696,7 +710,7 @@ class SimulatedFX2:
         self,
         *,
         timing: str = 'instant',
-        light_of: Callable[[int], tuple[str | None, float]] | None = None,
+        light_of: Callable[[int], tuple[Lit, float]] | None = None,
         stage_xy: Callable[[], tuple[float | None, float | None]] | None = None,
         pixel_size: Callable[[], float | None] | None = None,
         on_bus: bool = True,

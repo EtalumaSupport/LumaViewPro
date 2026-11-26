@@ -45,10 +45,14 @@ from _lumascope.drivers.exceptions import (
 from _lumascope.drivers.registry import camera_registry
 from _lumascope.drivers.simulated_specimen import (
     DRIFT_STEPS,
+    UNNAMED_LIGHT,
+    Form,
     ImageSlide,
+    Lit,
     RonchiRuling,
     Slide,
     in_focus,
+    light_by_form,
     the_slide,
 )
 
@@ -123,9 +127,11 @@ class SensorExposure:
         light_by_channel: The light each lit channel puts on the sample per
             second of exposure at unity gain: each of its lit addresses'
             current times its layer's light per mA-second, summed, keyed by
-            the channel's name; None keys the light of a camera with no
-            scope around it, which names no channel. Empty for an unlit
-            field. Not published: what a slide drawn per channel reads.
+            the channel's name and whether its field is bright;
+            ``UNNAMED_LIGHT`` keys the light of a camera with no scope
+            around it, which names no channel. Empty for an unlit field.
+            Not published: what a slide drawn per channel or per field
+            reads.
         outside_light_ma: The light from outside the scope on the sample,
             as the camera's reference LED lit at this current would make
             it; 0 when there is none (``SimulationAPI.light_outside``).
@@ -149,7 +155,7 @@ class SensorExposure:
     gain_db: float
     black_level: float
     illumination_ma: float
-    light_by_channel: Mapping[str | None, float]
+    light_by_channel: Mapping[Lit, float]
     outside_light_ma: float
     x_um: float | None
     y_um: float | None
@@ -639,13 +645,13 @@ class SimulatedCamera(Camera):
         # XY stage.
         self._stage_xy = (None, None)
         # The light on the sample, told by set_illumination: the lit current
-        # summed over the lit addresses, and the light it makes, under no
-        # channel's name. A camera constructed on its own with no scope
+        # summed over the lit addresses, and the light it makes, under the
+        # light no channel names. A camera constructed on its own with no scope
         # around it renders as though the field were lit at the reference
         # current.
         self._illumination = (
             self.REFERENCE_ILLUMINATION_MA,
-            {None: self.REFERENCE_ILLUMINATION_MA * self._UNWIRED_LIGHT_PER_MA_S},
+            {UNNAMED_LIGHT: self.REFERENCE_ILLUMINATION_MA * self._UNWIRED_LIGHT_PER_MA_S},
         )
         # The light from outside the scope, told by set_outside_light: none.
         self._outside_light = 0.0
@@ -1557,12 +1563,13 @@ class SimulatedCamera(Camera):
             light: Each lit address's current times its layer's light per
                 mA-second, summed. None takes the current at the light of a
                 camera with no scope around it. It names no channel, so a
-                slide drawn per channel shows nothing under it.
+                slide drawn per channel shows nothing under it, and the
+                cells show as a dark field shows them.
         """
         if light is None:
             light = float(lit_ma) * self._UNWIRED_LIGHT_PER_MA_S
         with self._lock:
-            self._illumination = (float(lit_ma), {None: float(light)})
+            self._illumination = (float(lit_ma), {UNNAMED_LIGHT: float(light)})
 
     def set_outside_light(self, illumination_ma: float) -> None:
         """Light the sample from outside the scope, from now on.
@@ -1676,6 +1683,7 @@ class SimulatedCamera(Camera):
         registers: _DrawingRegisters,
         step: int,
         channel: str | None = None,
+        form: Form = Form.EMITTED,
     ) -> tuple[np.ndarray, str, tuple]:
         """The in-focus specimen as this frame sees it at drift ``step``, its source, and where it was cut.
 
@@ -1684,60 +1692,74 @@ class SimulatedCamera(Camera):
         then binned, as the sensor sums its pixels. The drift, when the camera
         was built with it, moves it a binned pixel a step; a still slide is
         cut at the center every frame. A slide drawn per channel is cut for
-        ``channel``, and its cut and blur are kept under the channel's name,
-        so one channel's picture is never served for another's.
+        ``channel``, and one drawn per field in ``form``; its cut and blur
+        are kept under the channel's name and the form, so one channel's or
+        form's picture is never served for another's.
         """
         h, w, b = registers.height, registers.width, registers.binning
         place = (h, w, b, exposure.x_um, exposure.y_um, exposure.pixel_size_um)
-        slot = (step, channel)
+        if self._specimen.per_channel:
+            drawn_for = {'channel': channel}
+        elif self._specimen.per_field:
+            drawn_for = {'form': form}
+        else:
+            drawn_for = {}
+        slot = (step, *drawn_for.values())
         cached = self._specimen_cut.get(slot)
         if cached is None or cached[0] != place:
             dy, dx = self._drift_steps[step]
             shift = (dy * b, dx * b)
-            if self._specimen.per_channel:
-                frame = self._specimen.view(
-                    exposure.x_um,
-                    exposure.y_um,
-                    h * b,
-                    w * b,
-                    exposure.pixel_size_um,
-                    shift=shift,
-                    channel=channel,
-                )
-            else:
-                frame = self._specimen.view(
-                    exposure.x_um, exposure.y_um, h * b, w * b, exposure.pixel_size_um, shift=shift
-                )
+            frame = self._specimen.view(
+                exposure.x_um,
+                exposure.y_um,
+                h * b,
+                w * b,
+                exposure.pixel_size_um,
+                shift=shift,
+                **drawn_for,
+            )
             frame = _binned(frame, h, w, b)
             cached = self._specimen_cut[slot] = (place, frame)
-        source = f'specimen {step}' if channel is None else f'specimen {step} {channel}'
+        source = ' '.join(['specimen', *(str(each) for each in slot)])
         return cached[1], source, place
 
-    def _channels_frame(
+    def _summed_frame(
         self,
         exposure: SensorExposure,
         registers: _DrawingRegisters,
         step: int,
         dtype,
         max_val: int,
+        lights: Mapping[tuple[str | None, Form], float],
     ) -> np.ndarray:
-        """A frame of a slide drawn per channel: each lit channel's picture by its own light, summed.
+        """A frame of several pictures of the slide, each by its own light, summed.
 
-        Each picture is defocused and lit as ``_render_sample`` lights the
-        cells, and the sum saturates once, at full scale. The light from
-        outside the scope names no channel, so it shows nothing here.
+        ``lights`` keys each picture by the channel it is drawn for and its
+        form. Each picture is defocused and lit as ``_render_sample`` lights
+        one, and the sum saturates once, at full scale.
         """
         exposure_s = exposure.exposure_ms / 1000.0
         gain = 10.0 ** (exposure.gain_db / 20.0)
         total = np.zeros((registers.height, registers.width), dtype=np.float32)
-        for channel, light in exposure.light_by_channel.items():
+        for (channel, form), light in lights.items():
             brightness = exposure_s * gain * light
-            if channel is None or brightness <= 0.0:
+            if brightness <= 0.0:
                 continue
-            sharp, source, place = self._specimen_frame(exposure, registers, step, channel)
+            sharp, source, place = self._specimen_frame(exposure, registers, step, channel, form)
             img = self._defocus(sharp, source, place, exposure, registers)
             total += img.astype(np.float32) * (max_val / 255.0 * brightness)
         return np.minimum(total, max_val).astype(dtype)
+
+    def _lit_forms(self, exposure: SensorExposure) -> dict[Form, float]:
+        """The light on each of the cells' forms: a bright field's on the transmitted form, every other on the emitted.
+
+        The light from outside the scope names no channel, so it lights the
+        cells as a dark field does.
+        """
+        lights = dict(exposure.light_by_channel)
+        outside = exposure.outside_light_ma * self._UNWIRED_LIGHT_PER_MA_S
+        lights[UNNAMED_LIGHT] = lights.get(UNNAMED_LIGHT, 0.0) + outside
+        return light_by_form(lights)
 
     def camera_clock_ticks(self) -> int:
         """The camera's clock now, in ``TIMESTAMP_TICK_HZ`` ticks: what a latch of it answers."""
@@ -1830,7 +1852,7 @@ class SimulatedCamera(Camera):
 
         Its signal follows exposure, gain, light and focus, and each pixel
         saturates at full scale on its own, as a sensor's does: the
-        specimen's bright parts first. Zero stays zero: no light reached
+        specimen's brightest parts first. Zero stays zero: no light reached
         the sample.
         """
         if brightness <= 0.0:
@@ -1940,12 +1962,28 @@ class SimulatedCamera(Camera):
             step = self._drift_index % len(self._drift_steps)
             self._drift_index += 1
             if self._specimen.per_channel:
-                img = self._channels_frame(exposure, registers, step, dtype, max_val)
+                # The light from outside the scope names no channel, so it
+                # shows nothing on a slide drawn per channel.
+                lights = {
+                    (lit.channel, Form.EMITTED): light
+                    for lit, light in exposure.light_by_channel.items()
+                }
+                img = self._summed_frame(exposure, registers, step, dtype, max_val, lights)
             else:
-                frame, source, place = self._specimen_frame(exposure, registers, step)
-                img = self._render_sample(
-                    frame, source, place, dtype, max_val, brightness, exposure, registers
-                )
+                forms = self._lit_forms(exposure) if self._specimen.per_field else {}
+                if len(forms) > 1:
+                    lights = {(None, form): light for form, light in forms.items()}
+                    img = self._summed_frame(exposure, registers, step, dtype, max_val, lights)
+                else:
+                    # One form lit, or none: the frame lit in one step by
+                    # all the light, as a slide drawn one way is.
+                    form = next(iter(forms), Form.EMITTED)
+                    frame, source, place = self._specimen_frame(
+                        exposure, registers, step, form=form
+                    )
+                    img = self._render_sample(
+                        frame, source, place, dtype, max_val, brightness, exposure, registers
+                    )
 
         if exposure.black_level:
             # The offset lifts every pixel, and a pixel lifted past full scale

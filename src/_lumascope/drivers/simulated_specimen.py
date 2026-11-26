@@ -41,6 +41,8 @@ import enum
 import math
 import pathlib
 import threading
+from collections.abc import Mapping
+from typing import NamedTuple
 
 import cv2
 import numpy as np
@@ -104,6 +106,42 @@ def in_focus(drawing: np.ndarray) -> np.ndarray:
     return cv2.GaussianBlur(drawing, (0, 0), _IN_FOCUS_SIGMA_PX)
 
 
+class Lit(NamedTuple):
+    """A light on the slide: the channel it lights, and whether that channel's field is bright.
+
+    A channel whose field is bright (brightfield, phase contrast) shines
+    through the slide into the camera; one whose field is dark
+    (fluorescence, darkfield, luminescence) shows only the light the sample
+    gives off or scatters. ``channel`` is None for a light no channel
+    names: a camera's with no scope around it, and the light from outside
+    the scope (``UNNAMED_LIGHT``).
+    """
+
+    channel: str | None
+    bright_field: bool
+
+
+# The light no channel names, which shows the sample as a dark field does.
+UNNAMED_LIGHT = Lit(None, False)
+
+
+class Form(enum.StrEnum):
+    """How the cells look under a light: the light they give off on a dark field, or what they pass of a bright one."""
+
+    EMITTED = 'emitted'
+    TRANSMITTED = 'transmitted'
+
+
+def light_by_form(lights: Mapping[Lit, float]) -> dict[Form, float]:
+    """The light ``lights`` put on each of the cells' forms; a form no light reaches is left out."""
+    by_form: dict[Form, float] = {}
+    for lit, light in lights.items():
+        if light > 0.0:
+            form = Form.TRANSMITTED if lit.bright_field else Form.EMITTED
+            by_form[form] = by_form.get(form, 0.0) + light
+    return by_form
+
+
 # The drift: a step a frame around a circle one pixel across, which closes
 # the loop so the wrap is the same size step as the others. One pixel was
 # set by watching the live display: larger reads as the sample being
@@ -147,6 +185,18 @@ _TILES_KEPT = 512
 # into: a few hundred bytes each.
 _SQUARES_KEPT = 65536
 
+# A cell's parts, as the drawing labels its pixels: the medium (0), the
+# membrane, the cytoplasm, the nucleus and a punctum. Each part's gray as it
+# gives off light under a dark field, and the share of a bright field's
+# light it passes, the medium passing all of it so a clear part of the
+# slide is the bright field itself. The shares are stated, not measured:
+# dark enough that an autofocus on the cells in brightfield finds a curve
+# well above the drift's change of score, until a bench still of a cell
+# slide in brightfield measures them.
+_EMITTED_GRAY = np.array([0, 150, 85, 175, 215], dtype=np.uint8)
+_PASSED = np.array([1.0, 0.6, 0.85, 0.7, 0.5], dtype=np.float32)
+_MEMBRANE, _CYTOPLASM, _NUCLEUS, _PUNCTUM = 1, 2, 3, 4
+
 # cv2 draws at sub-pixel positions in fixed point with this many fraction
 # bits, so a cell lands where its micrometres put it at every scale.
 _SHIFT_BITS = 4
@@ -168,8 +218,9 @@ class Specimen:
     # The fraction of the light the sample passes, as the light on it is
     # rendered: its grey levels are what it shows at brightness 1.
     transmittance = 1.0
-    # Every lit channel shows the same picture.
+    # A lit channel shows the cells in its field's form.
     per_channel = False
+    per_field = True
 
     def __init__(self, seed: int = _SEED):
         self._seed = seed
@@ -185,8 +236,9 @@ class Specimen:
         w: int,
         um_per_px: float | None,
         shift: tuple[int, int] = (0, 0),
+        form: Form = Form.EMITTED,
     ) -> np.ndarray:
-        """The in-focus ``h`` x ``w`` window centered on the stage at (``x_um``, ``y_um``).
+        """The in-focus ``h`` x ``w`` window centered on the stage at (``x_um``, ``y_um``), in ``form``.
 
         Stage X runs along the columns and Y along the rows, so as the stage
         moves to higher X and Y the sample moves toward lower column and
@@ -206,14 +258,18 @@ class Specimen:
             um_per_px: The image scale; None draws at ``NOMINAL_UM_PER_PX``.
             shift: (rows, columns) the window is moved by on the sample:
                 the drift.
+            form: The cells as a dark field shows them, giving off light,
+                or as a bright field shows them, passing it.
 
         Returns:
-            A grayscale uint8 array of shape ``(h, w)``: cells with a bright
-            membrane, a fainter cytoplasm, a bright nucleus and small bright
-            puncta, with edges at several scales, so a focus metric has a
-            sharp peak at focus and falls away on either side. Gray values
-            stay inside a mid band, so no frame is fully black or blown out
-            and a caller's brightness scaling reads as exposure.
+            A grayscale uint8 array of shape ``(h, w)``: cells with a
+            membrane, a cytoplasm, a nucleus and small puncta, with edges at
+            several scales, so a focus metric has a sharp peak at focus and
+            falls away on either side. Emitted, the parts are brighter than
+            the medium; transmitted, each is the medium beneath it dimmed by
+            the share it passes, never above the clear field beside it. Gray
+            values stay inside a mid band, so no frame is fully black or
+            blown out and a caller's brightness scaling reads as exposure.
         """
         scale = NOMINAL_UM_PER_PX if um_per_px is None else float(um_per_px)
         top = round((y_um or 0.0) / scale) - h // 2 + shift[0]
@@ -221,7 +277,7 @@ class Specimen:
         out = np.empty((h, w), dtype=np.uint8)
         for ty in range(top // _TILE_PX, (top + h - 1) // _TILE_PX + 1):
             for tx in range(left // _TILE_PX, (left + w - 1) // _TILE_PX + 1):
-                tile = self._tile(ty, tx, scale)
+                tile = self._tile(ty, tx, scale, form)
                 r0, c0 = ty * _TILE_PX, tx * _TILE_PX
                 r1, c1 = max(top, r0), max(left, c0)
                 r2, c2 = min(top + h, r0 + _TILE_PX), min(left + w, c0 + _TILE_PX)
@@ -230,32 +286,39 @@ class Specimen:
                 ]
         return out
 
-    def _tile(self, ty: int, tx: int, scale: float) -> np.ndarray:
-        """Tile (``ty``, ``tx``) of the plane at ``scale``, drawn once and kept while it is in use."""
-        key = (scale, ty, tx)
+    def _tile(self, ty: int, tx: int, scale: float, form: Form) -> np.ndarray:
+        """Tile (``ty``, ``tx``) of the plane at ``scale`` in ``form``, drawn once and kept while it is in use.
+
+        Both forms are drawn together, from one layout, and kept together.
+        """
+        key = (scale, ty, tx, form)
         with self._lock:
             tile = self._tiles.get(key)
             if tile is not None:
                 self._tiles.move_to_end(key)
                 return tile
-        tile = self._draw(ty * _TILE_PX - _TILE_MARGIN_PX, tx * _TILE_PX - _TILE_MARGIN_PX, scale)
-        tile = tile[_TILE_MARGIN_PX:-_TILE_MARGIN_PX, _TILE_MARGIN_PX:-_TILE_MARGIN_PX]
+        drawn = self._draw(ty * _TILE_PX - _TILE_MARGIN_PX, tx * _TILE_PX - _TILE_MARGIN_PX, scale)
         with self._lock:
-            self._tiles[key] = tile
-            if len(self._tiles) > _TILES_KEPT:
+            for each, canvas in drawn.items():
+                self._tiles[(scale, ty, tx, each)] = canvas[
+                    _TILE_MARGIN_PX:-_TILE_MARGIN_PX, _TILE_MARGIN_PX:-_TILE_MARGIN_PX
+                ]
+            while len(self._tiles) > _TILES_KEPT:
                 self._tiles.popitem(last=False)
-        return tile
+            return self._tiles[key]
 
-    def _draw(self, top: int, left: int, scale: float) -> np.ndarray:
-        """The plane's pixels from (``top``, ``left``), a tile and its margin square.
+    def _draw(self, top: int, left: int, scale: float) -> dict[Form, np.ndarray]:
+        """The plane's pixels from (``top``, ``left``), a tile and its margin square, in each form.
 
         Plane pixel (r, c) covers the stage from (c, r) x ``scale`` to the
-        next pixel's start.
+        next pixel's start. The cells are laid out once, as each pixel's
+        part, and each form is that layout's grays.
         """
         size = _TILE_PX + 2 * _TILE_MARGIN_PX
         rows_um = (top + np.arange(size) + 0.5) * scale
         cols_um = (left + np.arange(size) + 0.5) * scale
-        canvas = (45.0 + self._medium(rows_um, cols_um) * 12.0).astype(np.uint8)
+        medium = (45.0 + self._medium(rows_um, cols_um) * 12.0).astype(np.uint8)
+        parts = np.zeros(medium.shape, dtype=np.uint8)
 
         y0, y1 = top * scale - _REACH_UM, (top + size) * scale + _REACH_UM
         x0, x1 = left * scale - _REACH_UM, (left + size) * scale + _REACH_UM
@@ -300,20 +363,24 @@ class Specimen:
         # there, whatever order a tile meets them in. One polygon a call:
         # cv2 fills a list of polygons by parity, which would cut a hole
         # where two overlap.
-        for parts, gray in (
-            (outlines(rx, ry), 150),
-            (outlines(rx - membrane, ry - membrane), 85),
-            (outlines(nucleus_x, nucleus_y), 175),
+        for each, part in (
+            (outlines(rx, ry), _MEMBRANE),
+            (outlines(rx - membrane, ry - membrane), _CYTOPLASM),
+            (outlines(nucleus_x, nucleus_y), _NUCLEUS),
         ):
-            for outline in parts:
-                cv2.fillPoly(canvas, [outline], gray, cv2.LINE_8, _SHIFT_BITS)
-        # A punctum is a pixel's size at every scale: the brightest parts a
-        # layer at its shipped settings shows.
+            for outline in each:
+                cv2.fillPoly(parts, [outline], part, cv2.LINE_8, _SHIFT_BITS)
+        # A punctum is a pixel's size at every scale: under a dark field the
+        # brightest parts a layer at its shipped settings shows.
         for point in fixed(puncta[:, 0], puncta[:, 1]):
             cv2.circle(
-                canvas, (int(point[0]), int(point[1])), _ONE, 215, -1, cv2.LINE_8, _SHIFT_BITS
+                parts, (int(point[0]), int(point[1])), _ONE, _PUNCTUM, -1, cv2.LINE_8, _SHIFT_BITS
             )
-        return in_focus(canvas)
+        emitted = np.where(parts == 0, medium, _EMITTED_GRAY[parts])
+        # Truncated as the medium is, so a part is never above the clear
+        # field beside it by a rounding the medium did not get.
+        transmitted = (medium * _PASSED[parts]).astype(np.uint8)
+        return {Form.EMITTED: in_focus(emitted), Form.TRANSMITTED: in_focus(transmitted)}
 
     def _cells(self, gx: int, gy: int) -> tuple[np.ndarray, np.ndarray]:
         """The cells grid square (``gx``, ``gy``) holds, the same every time it is asked.
@@ -399,6 +466,7 @@ class Ronchi:
 
     transmittance = _RONCHI_MEAN_GRAY / ((_RONCHI_GAP + _RONCHI_BAR) / 2)
     per_channel = False
+    per_field = False
 
     def __init__(self, ruling: RonchiRuling) -> None:
         self._period_um = ruling.period_um
@@ -458,6 +526,7 @@ class Pictures:
     # Each channel's shipped defaults show its picture at its own levels.
     transmittance = 1.0
     per_channel = True
+    per_field = False
 
     def __init__(self, pictures: dict[str, np.ndarray]) -> None:
         self.channels = tuple(pictures)

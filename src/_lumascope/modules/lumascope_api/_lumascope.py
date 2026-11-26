@@ -59,7 +59,14 @@ from _lumascope.drivers.pyloncamera import PylonCamera  # noqa: F401
 from _lumascope.drivers.simulated_camera import SimulatedCamera  # noqa: F401
 from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard  # noqa: F401
 from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard  # noqa: F401
-from _lumascope.drivers.simulated_specimen import ImageSlide, RonchiRuling, Slide, the_slide
+from _lumascope.drivers.simulated_specimen import (
+    UNNAMED_LIGHT,
+    ImageSlide,
+    Lit,
+    RonchiRuling,
+    Slide,
+    the_slide,
+)
 from _lumascope.drivers.null_motorboard import NullMotionBoard
 from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
@@ -1189,29 +1196,35 @@ class Lumascope:
                 f'{", ".join(sim_scene.channels)}; every other channel shows black'
             )
 
-        def _sim_light_of(address: int) -> tuple[str | None, float]:
-            """The channel ``address`` lights, by its name, and the light per
+        def _sim_light_of(address: int) -> tuple[Lit, float]:
+            """The channel ``address`` lights, by its name and whether its
+            field is bright, as its release record states, and the light per
             mA-second it renders in the simulators through the slide and the
             current objective: the catalog's, times the slide's transmittance,
             falling with the objective's magnification by the channel's power;
             the catalog's own when no objective is known, as
             ``_sim_pixel_size`` draws at no scale then. The light is 0 for an
-            address no channel names (its name None) or a channel with no
+            address no channel names (``UNNAMED_LIGHT``) or a channel with no
             LED. Read while a frame is made, after the illumination API, the
             identity and runtime_state exist."""
-            from _lumascope.modules.channel_record import SIM_LIGHT_MAGNIFICATION, release_channel
+            from _lumascope.modules.channel_record import (
+                SIM_LIGHT_MAGNIFICATION,
+                Background,
+                release_channel,
+            )
 
             name = self.channel_identity.key_at(address)
             if name is None:
-                return None, 0.0
+                return UNNAMED_LIGHT, 0.0
             channel = release_channel(name)
+            lit = Lit(name, channel.background == Background.BRIGHT)
             if channel.sim_light_per_ma_s is None:
-                return name, 0.0
+                return lit, 0.0
             through_slide = channel.sim_light_per_ma_s * sim_transmittance
             objective = self.runtime_state.get_current_objective()
             if objective is None:
-                return name, through_slide
-            return name, (
+                return lit, through_slide
+            return lit, (
                 through_slide
                 * (SIM_LIGHT_MAGNIFICATION / objective.magnification)
                 ** channel.sim_light_magnification_power
@@ -1253,10 +1266,10 @@ class Lumascope:
 
             led = changes.get(FrameValiditySource.LED)
             lit = live_lit_pairs(self.illumination)
-            light_by_channel: dict[str | None, float] = {}
+            light_by_channel: dict[Lit, float] = {}
             for address, ma in lit:
-                name, light = _sim_light_of(address)
-                light_by_channel[name] = light_by_channel.get(name, 0.0) + ma * light
+                channel, light = _sim_light_of(address)
+                light_by_channel[channel] = light_by_channel.get(channel, 0.0) + ma * light
             return {
                 'z_um': (
                     self.motion.get_current_position('Z'),
