@@ -9077,11 +9077,10 @@ The result of locking an auto-gain arm.
 
 - <a id="AutoGainLock.ceiling_ms"></a>`ceiling_ms`: `float | None` -- The exposure ceiling the camera was armed with, in ms, the arm's `max_exposure_ms` within the camera's range; None when the arm had none.
 - <a id="AutoGainLock.exposure_ms"></a>`exposure_ms`: `float | None` -- The exposure the auto loop reached, in ms, written back as the manual exposure; None when `state` is None or `FAILED`.
-- <a id="AutoGainLock.floor_ms"></a>`floor_ms`: `float | None` -- The arm's `min_exposure_ms`, the exposure at or below which the lock is `AT_MINIMUM`; None when the arm had none.
 - <a id="AutoGainLock.gain_db"></a>`gain_db`: `float | None` -- The gain the auto loop reached, in dB, written back as the manual gain; None exactly when `exposure_ms` is.
 - <a id="AutoGainLock.settings"></a>`settings`: `AutoGainSettings | None` -- The auto-gain settings the arm was armed with, used to re-arm it; None when no arm was recorded.
 - <a id="AutoGainLock.state"></a>`state`: `AutoGainConvergence | None` -- Where the arm landed; None when no arm was recorded, so nothing was locked and nothing was written to the camera.
-- <a id="AutoGainLock.stored_exposure_ms"></a>`stored_exposure_ms`: `float | None` -- The exposure a caller stores as the channel's manual setting after the lock: `exposure_ms` raised to `floor_ms`. The loop can drive the camera below that floor on a bright scene, and a setting stored that low makes near-black captures of ordinary scenes, so the store keeps the floor while `exposure_ms` keeps what the camera reached. None when `exposure_ms` is.
+- <a id="AutoGainLock.stored_exposure_ms"></a>`stored_exposure_ms`: `float | None` -- The exposure a caller stores as the channel's manual setting after the lock: `exposure_ms` raised to the arm's `min_exposure_ms`. The loop can drive the camera below that floor on a bright scene, and a setting stored that low makes near-black captures of ordinary scenes, so the store keeps the floor while `exposure_ms` keeps what the camera reached. None when `exposure_ms` is.
 
 <a id="AutoGainSettings"></a>
 ## `lumascope.AutoGainSettings`

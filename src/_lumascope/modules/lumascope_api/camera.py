@@ -266,7 +266,6 @@ class _HeldChannel:
 @api_fields(
     'ceiling_ms',
     'exposure_ms',
-    'floor_ms',
     'gain_db',
     'settings',
     'state',
@@ -284,8 +283,6 @@ class AutoGainLock:
             ``FAILED``.
         gain_db: The gain the auto loop reached, in dB, written back as the
             manual gain; None exactly when ``exposure_ms`` is.
-        floor_ms: The arm's ``min_exposure_ms``, the exposure at or below
-            which the lock is ``AT_MINIMUM``; None when the arm had none.
         ceiling_ms: The exposure ceiling the camera was armed with, in ms,
             the arm's ``max_exposure_ms`` within the camera's range; None
             when the arm had none.
@@ -295,8 +292,8 @@ class AutoGainLock:
         settings: The auto-gain settings the arm was armed with, used to
             re-arm it; None when no arm was recorded.
         stored_exposure_ms: The exposure a caller stores as the channel's
-            manual setting after the lock: ``exposure_ms`` raised to
-            ``floor_ms``. The loop can drive the camera below that floor on a
+            manual setting after the lock: ``exposure_ms`` raised to the
+            arm's ``min_exposure_ms``. The loop can drive the camera below that floor on a
             bright scene, and a setting stored that low makes near-black
             captures of ordinary scenes, so the store keeps the floor while
             ``exposure_ms`` keeps what the camera reached. None when
@@ -306,7 +303,6 @@ class AutoGainLock:
     state: AutoGainConvergence | None
     exposure_ms: float | None = None
     gain_db: float | None = None
-    floor_ms: float | None = None
     ceiling_ms: float | None = None
     resume_after_capture: bool = False
     settings: AutoGainSettings | None = None
@@ -2387,12 +2383,9 @@ class CameraAPI:
             )
             lock = AutoGainLock(
                 AutoGainConvergence.FAILED,
-                None,
-                None,
-                floor,
-                ceiling,
-                arm.resume_after_capture,
-                settings,
+                ceiling_ms=ceiling,
+                resume_after_capture=arm.resume_after_capture,
+                settings=settings,
             )
             self._notify_auto_gain_outcome(lock)
             return lock
@@ -2424,12 +2417,11 @@ class CameraAPI:
         logger.info(line)
         lock = AutoGainLock(
             state,
-            exp_ms,
-            gain,
-            floor,
-            ceiling,
-            arm.resume_after_capture,
-            settings,
+            exposure_ms=exp_ms,
+            gain_db=gain,
+            ceiling_ms=ceiling,
+            resume_after_capture=arm.resume_after_capture,
+            settings=settings,
             stored_exposure_ms=stored_exposure_after_lock(exp_ms, floor),
         )
         self._notify_auto_gain_outcome(lock)
@@ -2453,7 +2445,7 @@ class CameraAPI:
         if lock.state == AutoGainConvergence.AT_MAXIMUM:
             outcome = ExposureAtMaximumNotice(lock.ceiling_ms)
         elif lock.state == AutoGainConvergence.AT_MINIMUM:
-            outcome = ExposureAtMinimumNotice(lock.exposure_ms, lock.floor_ms)
+            outcome = ExposureAtMinimumNotice(lock.exposure_ms, lock.settings.min_exposure_ms)
         elif lock.state == AutoGainConvergence.FAILED:
             outcome = AutoGainNotSettledError()
         else:

@@ -139,7 +139,11 @@ class TestTheAutoGainLimitsAreShown:
             s.shutdown()
 
     def _lock(self, state, *, resume_after_capture=True):
-        from _lumascope.modules.lumascope_api.camera import AutoGainConvergence, AutoGainLock
+        from _lumascope.modules.lumascope_api.camera import (
+            AutoGainConvergence,
+            AutoGainLock,
+            AutoGainSettings,
+        )
 
         # A FAILED lock reached no values, so it carries none.
         reached = state != AutoGainConvergence.FAILED
@@ -147,9 +151,15 @@ class TestTheAutoGainLimitsAreShown:
             state=state,
             exposure_ms=0.01 if reached else None,
             gain_db=0.0 if reached else None,
-            floor_ms=0.05,
             ceiling_ms=200.0,
             resume_after_capture=resume_after_capture,
+            settings=AutoGainSettings(
+                target_brightness=0.5,
+                min_gain_db=0.0,
+                max_gain_db=10.0,
+                max_exposure_ms=200.0,
+                min_exposure_ms=0.05,
+            ),
         )
 
     def test_a_live_view_lock_at_either_limit_is_a_shown_notice(self, session):
