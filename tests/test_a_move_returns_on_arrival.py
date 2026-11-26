@@ -77,6 +77,23 @@ def _pull_the_cable_mid_move(session, axes, monkeypatch) -> threading.Thread:
     return puller
 
 
+def _once_the_wait_has_its_axes(motion, monkeypatch) -> threading.Event:
+    """Set once ``wait_until_finished_moving`` has taken the axes it waits for,
+    as it starts on the first. It waits for the axes moving when it is
+    called, so an event staged against the wait comes after this one, or a
+    loaded host lands the event first and leaves the wait nothing to wait
+    for. The wrapper calls through; it is the wait's one per-axis call."""
+    taken = threading.Event()
+    wait_for_axis = motion._wait_for_axis_to_stop
+
+    def waiting(axis, timeout_s):
+        taken.set()
+        return wait_for_axis(axis, timeout_s)
+
+    monkeypatch.setattr(motion, '_wait_for_axis_to_stop', waiting)
+    return taken
+
+
 def _far_x(motion) -> float:
     """An X target across most of the travel: seconds of motion in realistic timing."""
     limits = motion.axis_limits('X')
@@ -191,13 +208,22 @@ class TestTheWaitIsOffTheLane:
 
 
 class TestWaitingForMotionTheCallerDidNotStart:
-    def test_an_axis_a_failed_home_leaves_unknown_raises(self, session):
+    def test_an_axis_a_failed_home_leaves_unknown_raises(self, session, monkeypatch):
         motion = session.scope.motion
         motion._set_axis_state('Z', AxisState.HOMING)
-        threading.Timer(0.1, motion._set_axis_state, ('Z', AxisState.UNKNOWN)).start()
+        taken = _once_the_wait_has_its_axes(motion, monkeypatch)
+        failed_home = threading.Thread(
+            target=lambda: (
+                taken.wait(_TRAVEL_WAIT_S) and motion._set_axis_state('Z', AxisState.UNKNOWN)
+            ),
+            name='failed-home',
+            daemon=True,
+        )
+        failed_home.start()
 
         with pytest.raises(MoveNotCompletedError) as exc:
-            motion.wait_until_finished_moving(timeout_s=5.0)
+            motion.wait_until_finished_moving(timeout_s=_TRAVEL_WAIT_S)
+        failed_home.join(_TRAVEL_WAIT_S)
 
         assert exc.value.axis == 'Z'
         assert exc.value.reason == 'faulted'
@@ -208,15 +234,21 @@ class TestWaitingForMotionTheCallerDidNotStart:
         """It raised 'faulted', a fault inferred from the state, for a move
         the close's STOP ended. X's arrival reads go unanswered, so the move
         is still in flight when the close writes UNKNOWN; the stall window is
-        lengthened so the unanswered reads do not give it up first."""
+        lengthened so the unanswered reads do not give it up first. The close
+        waits for the wait to take X."""
         motion = session.scope.motion
         motion._driver.set_timing_mode('realistic')
         monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', _TRAVEL_WAIT_S)
         session.scope.simulation.drop_replies('motor', count=None, command='STATUS_RX')
         held = session.scope.simulation.hold_axis('X')
         motion.start_move_xy(x_um=_far_x(motion))
+        taken = _once_the_wait_has_its_axes(motion, monkeypatch)
         closer = threading.Thread(
-            target=lambda: held.exception(_TRAVEL_WAIT_S) is None and session.scope.disconnect(),
+            target=lambda: (
+                held.exception(_TRAVEL_WAIT_S) is None
+                and taken.wait(_TRAVEL_WAIT_S)
+                and session.scope.disconnect()
+            ),
             name='close',
             daemon=True,
         )
@@ -234,7 +266,9 @@ class TestWaitingForMotionTheCallerDidNotStart:
         position: X arrived, then the close left it UNKNOWN while the wait
         was still on Y, so the wait raises for X, 'faulted', though X's
         move reads arrived. Y's arrival reads go unanswered so it is in
-        flight until the close."""
+        flight until the close. X is held until the wait has taken both
+        axes, then a new target ends the hold and X arrives before the
+        close."""
         motion = session.scope.motion
         motion._driver.set_timing_mode('realistic')
         monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', _TRAVEL_WAIT_S)
@@ -242,12 +276,17 @@ class TestWaitingForMotionTheCallerDidNotStart:
         session.scope.simulation.hold_axis('Y')
         limits = motion.axis_limits('Y')
         motion.start_move_xy(y_um=limits.max_um * 0.9)
-        x_move = motion.start_move_xy(x_um=motion.get_current_position('X') + 2000.0)
-        closer = threading.Thread(
-            target=lambda: (x_move.result(timeout=_TRAVEL_WAIT_S), session.scope.disconnect()),
-            name='close',
-            daemon=True,
-        )
+        x_start = motion.get_current_position('X')
+        held_x = session.scope.simulation.hold_axis('X')
+        motion.start_move_xy(x_um=x_start + 2000.0)
+        taken = _once_the_wait_has_its_axes(motion, monkeypatch)
+
+        def close_once_x_arrived():
+            if held_x.exception(_TRAVEL_WAIT_S) is None and taken.wait(_TRAVEL_WAIT_S):
+                motion.start_move_xy(x_um=x_start + 3000.0).result(timeout=_TRAVEL_WAIT_S)
+                session.scope.disconnect()
+
+        closer = threading.Thread(target=close_once_x_arrived, name='close', daemon=True)
         closer.start()
 
         with pytest.raises(MoveNotCompletedError) as exc:
