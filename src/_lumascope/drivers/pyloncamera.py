@@ -1086,7 +1086,16 @@ class PylonCamera(Camera):
             _strategy = _strategy_map.get(_strategy_name, pylon.GrabStrategy_LatestImageOnly)
             # A cap not written fails the start: a camera never runs uncapped,
             # owing a stop that stalls.
-            self._cap_the_frame_rate_under_the_link(camera)
+            from _lumascope.lib import diag_847  # [DIAG-847]
+
+            if diag_847.FRAME_RATE_CAP:  # [DIAG-847]
+                self._cap_the_frame_rate_under_the_link(camera)
+            else:  # [DIAG-847]
+                _cam_log.info(
+                    f'[DIAG-847] cap skipped: '
+                    f'AcquisitionFrameRateEnable={self._safe_node(camera.GetNodeMap(), "AcquisitionFrameRateEnable")!r} '
+                    f'AcquisitionFrameRate={self._safe_node(camera.GetNodeMap(), "AcquisitionFrameRate")!r}'
+                )  # [DIAG-847]
             # The counts at the start, against the pre-stop line's, give how
             # long the camera ran before its next stop and what it delivered.
             try:
@@ -1820,6 +1829,7 @@ class PylonCamera(Camera):
 
         steps = [
             ('the Default user set', load_default_user_set),
+            ('[DIAG-847] the link limit', self._diag_847_link_limit),  # [DIAG-847]
             ('free-run acquisition', free_run),
             # Enable per-frame chunks for gain/exposure/identity/timestamp.
             # Must happen here -- ChunkModeActive is locked while grabbing
@@ -1861,6 +1871,19 @@ class PylonCamera(Camera):
                 self._write_reverse,
             )
             self.config_not_applied = not_applied + self._apply_config_steps(steps_after)
+
+    def _diag_847_link_limit(self) -> None:  # [DIAG-847]
+        """[DIAG-847] NOT FOR MERGE: the link limit current.json names, written after the user set, read back."""
+        from _lumascope.lib import diag_847  # [DIAG-847]
+
+        nm = self.active.GetNodeMap()  # [DIAG-847]
+        if diag_847.LINK_LIMIT_MB is not None:  # [DIAG-847]
+            self.set_device_link_throughput_limit('On', int(diag_847.LINK_LIMIT_MB * 1_000_000))
+        _cam_log.info(
+            f'[DIAG-847] link_limit_mb={diag_847.LINK_LIMIT_MB!r} in force: '
+            f'DeviceLinkThroughputLimitMode={self._safe_node(nm, "DeviceLinkThroughputLimitMode")!r} '
+            f'DeviceLinkThroughputLimit={self._safe_node(nm, "DeviceLinkThroughputLimit")!r}'
+        )  # [DIAG-847]
 
     def _stop_after_the_exposure(self) -> None:
         """Have every later stop finish the exposure in flight (``BslAcquisitionStopMode``).

@@ -133,6 +133,8 @@ INSTALLATION_ONLY: typing.Final[frozenset[str]] = frozenset(
         'memory_profile_enabled',
         'memory_profile_interval_s',
         'profiling',
+        'diag_847_frame_rate_cap',  # [DIAG-847]
+        'diag_847_link_limit_mb',  # [DIAG-847]
     }
 )
 
@@ -198,6 +200,7 @@ _NULLABLE_KINDS: typing.Final[dict[str, tuple[str, ...]]] = {
     'objective_confirmed': ('bool', 'string'),
     'profiling.metrics_interval_s': ('number',),
     'profile_trace_output_dir': ('string',),
+    'diag_847_link_limit_mb': ('number',),  # [DIAG-847]
 }
 
 VIDEO_MAX_FPS_LIMIT: typing.Final = 200

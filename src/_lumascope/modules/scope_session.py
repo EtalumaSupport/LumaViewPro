@@ -2100,6 +2100,14 @@ class ScopeSession:
         log_helpers.begin_bring_up()
         _apply_logging(settings)
         _apply_profile_trace(settings)
+        from _lumascope.lib import diag_847  # [DIAG-847]
+
+        diag_847.FRAME_RATE_CAP = settings['diag_847_frame_rate_cap']  # [DIAG-847]
+        diag_847.LINK_LIMIT_MB = settings['diag_847_link_limit_mb']  # [DIAG-847]
+        logger.info(
+            f'[DIAG-847] frame_rate_cap={diag_847.FRAME_RATE_CAP!r} '
+            f'link_limit_mb={diag_847.LINK_LIMIT_MB!r}'
+        )  # [DIAG-847]
         _apply_memory_profile(settings)
         _apply_handle_trace(settings)
         if warn_pre_release:
