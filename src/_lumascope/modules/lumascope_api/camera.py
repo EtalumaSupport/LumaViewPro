@@ -1603,9 +1603,10 @@ class CameraAPI:
 
         The driver's removal latch, set once by whatever saw the camera go
         (an SDK removal callback, a bus probe, the grab loop) and cleared
-        only by the driver's next connect. Narrower than ``Lumascope.camera_connected``, which also
-        reads False when a connection query merely failed. False when the
-        scope has no camera at all -- nothing was removed.
+        only by the driver's next connect. Narrower than
+        ``Lumascope.camera_connected``, which also reads False after the
+        scope's own disconnect. False when the scope has no camera at all --
+        nothing was removed.
 
         Returns:
             bool: True once the camera has been declared removed.

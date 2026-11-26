@@ -353,7 +353,9 @@ class RecordingFinished:
             ``end_reason``; None when the recording never got as far as
             recording.
         save_wait_s: Seconds saving ran on after the recording ended; None
-            when its backlog was discarded or it has no measured result.
+            when its backlog was discarded or it has no measured result. One
+            recording's, where a run's ``video_save_wait_s`` is how long its
+            end waited for all its video steps.
     """
 
     end_reason: RecordingEndReason | None

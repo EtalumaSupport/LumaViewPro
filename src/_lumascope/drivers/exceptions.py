@@ -130,7 +130,9 @@ class MotionNotCompletedError(Fault, HardwareError):
 
     An axis that did not home, arrive or settle in the time it is given, or
     a home that ended before its phases did. Whether a Stop ended it is the
-    API's stop generation to say, never this type.
+    API's stop generation to say, never this type. The driver's fault: the
+    API judges it at the move or the home, so a caller meets
+    ``MoveNotCompletedError``'s children or a home's fault, never this.
     """
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'motion_not_completed': None}
@@ -192,7 +194,8 @@ class CameraWriteFailedError(Fault, HardwareError):
     """The camera refused or did not take a write of one of its settings.
 
     The words carry the SDK's own text, for the log; the person reads its
-    type's sentence of what failed and what to do.
+    type's sentence of what failed and what to do. The camera API answers it
+    as ``CameraSettingRejected`` ``'camera_rejected'``, chained from this.
     """
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_write_failed': None}

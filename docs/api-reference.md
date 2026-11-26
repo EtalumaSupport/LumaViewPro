@@ -11782,7 +11782,7 @@ What a manual recording's operation answers once it is done.
 **Fields**
 
 - <a id="RecordingFinished.end_reason"></a>`end_reason`: `RecordingEndReason | None` -- Why frame selection ended, the manifest's `end_reason`; None when the recording never got as far as recording.
-- <a id="RecordingFinished.save_wait_s"></a>`save_wait_s`: `float | None` -- Seconds saving ran on after the recording ended; None when its backlog was discarded or it has no measured result.
+- <a id="RecordingFinished.save_wait_s"></a>`save_wait_s`: `float | None` -- Seconds saving ran on after the recording ended; None when its backlog was discarded or it has no measured result. One recording's, where a run's `video_save_wait_s` is how long its end waited for all its video steps.
 
 <a id="Remedy"></a>
 ## `lumascope.Remedy`
@@ -11914,7 +11914,7 @@ shape for every run kind.
 - <a id="RunOutcome.status"></a>`status`: `RunStatus` -- How the run ended.
 - <a id="RunOutcome.title"></a>`title`: `str` -- Short human sentence, suitable as a popup heading.
 - <a id="RunOutcome.unconnected_parts"></a>`unconnected_parts`: `tuple[Board, ...]` -- The boards found disconnected when the run ended `'camera_disconnected'` or `'hardware_disconnected'`, each by its `Board`; empty for every other reason.
-- <a id="RunOutcome.video_save_wait_s"></a>`video_save_wait_s`: `float | None` -- Seconds the run's end waited for its video steps to finish saving, when every step finished having written every frame it kept; None when nothing was waited for, or when a step did not finish, was discarded or lost a frame.
+- <a id="RunOutcome.video_save_wait_s"></a>`video_save_wait_s`: `float | None` -- Seconds the run's end waited for its video steps to finish saving, when every step finished having written every frame it kept; None when nothing was waited for, or when a step did not finish, was discarded or lost a frame. The run's wait, where a recording's `save_wait_s` is how long one saved on.
 
 <a id="RunProgress"></a>
 ## `lumascope.RunProgress`
@@ -13968,8 +13968,8 @@ replaces were, so a caller catching a bad argument keeps working.
   - `'fault_bound'` -- a simulated fault's count, fraction or time outside what it takes (`takes`, in words).
   - `'not_injectable_on_board'` -- a simulated fault the board that would present it cannot produce; `argument` names the `scope.simulation` member, `board` the board.
   - `'argument_not_on_board'` -- an argument of a simulated fault the board cannot take; `board` names the board, `takes` what it takes for that argument.
-  - `'slot_not_holding_objective'` -- a turret slot given for steps naming an objective the slot does not hold now (`offered`: the slots that hold it).
-  - `'objective_in_several_slots'` -- an objective to turn the turret to that two or more slots hold (`offered`: the slots), so no one slot is meant.
+  - `'slot_not_holding_objective'` -- a turret slot given for steps naming an objective the slot does not hold now (`offered`: the slots that hold it); a slot a step recorded and since reassigned is `ProtocolRunRefusedError` `'turret_slot_reassigned'`.
+  - `'objective_in_several_slots'` -- an objective to turn the turret to that two or more slots hold (`offered`: the slots), so no one slot is meant, answered by a turn by slot; a step that recorded no slot for such an objective is `ProtocolRunRefusedError` `'turret_slot_ambiguous'`.
   - `'turret_objectives_unassigned'` -- an objective to turn the turret to that no slot holds (`offered`: the objectives the slots hold, in slot order). The same fact a run is refused for (`ProtocolRunRefusedError`), and answered the same way: assign the objective to its slot and ask again. The scope's state, not the request, so REST answers it 409.
   - `'slot_required'` -- an objective confirmed on a turret scope with no slot named; the confirmation records the glass in a slot.
   - `'gain_range_inverted'` -- auto-gain settings whose `min_gain_db` is above their `max_gain_db`; `value` holds the two.
@@ -14033,7 +14033,9 @@ script, a plugin, a member calling another -- from the
 member's own annotation, so the body never meets a value of another
 type. A `TypeError`, as Python raises for a call it cannot take. The
 door judges the type only: a number's range and finiteness, a name's
-membership and a dictionary's contents stay their member's.
+membership and a dictionary's contents stay their member's. A REST
+request's arguments are read before this door, and one that does not
+fit is `ServerRefusedError` `'invalid_request'`.
 
 **Attributes**
 
@@ -14261,7 +14263,9 @@ The saved binning is one this camera does not offer; bring-up ran at the camera'
 
 The camera's binning is stored in the saved value's place: the binning
 is half of the frame's geometry, and the store holds the pair the
-camera delivered.
+camera delivered. One of four facts of a replaced saved value, each its
+own rule: `FrameRefittedNotice`, `CameraFeatureAbsentNotice` and
+`StoredSettingReplacedNotice` are the others.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -14442,7 +14446,9 @@ A camera feature saved on that this camera does not have; it is now saved off.
 
 A camera without high conversion gain or line-noise reduction is at its
 standard setting, which is known, so that setting is stored in the saved
-value's place, as a substituted binning is.
+value's place, as a substituted binning is. Not
+`BinningSubstitutedNotice`, `FrameRefittedNotice` or
+`StoredSettingReplacedNotice`, each a value replaced by its own rule.
 
 **Attributes**
 
@@ -14663,7 +14669,9 @@ longest exposure the camera may be using (the sensor's maximum while the
 exposure is unknown), and never less than 5 s. A pulled cable meets the same
 check first when its driver reports the removal later than that (the IDS
 SDK reports it seconds after the pull), so the words never say the camera
-is still connected.
+is still connected. This is the camera's state; a recording that meets
+it ends `RecordingStoppedError` `'camera_stalled'`, the recording's
+own end.
 
 **Attributes**
 
@@ -14751,7 +14759,8 @@ A fault; bases `Fault`, `HardwareError`.
 The camera refused or did not take a write of one of its settings.
 
 The words carry the SDK's own text, for the log; the person reads its
-type's sentence of what failed and what to do.
+type's sentence of what failed and what to do. The camera API answers it
+as `CameraSettingRejected` `'camera_rejected'`, chained from this.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -15156,6 +15165,9 @@ A fault; bases `Fault`, `RuntimeError`.
 
 A driver selected by name constructed, but its hardware is not live.
 
+Not `NoLiveDriverError`, which 'auto' raises when no driver it tried
+was live: here one driver was named, and it is not.
+
 | Reason | Cause | REST status |
 |---|---|---|
 | `driver_not_live` | -- | 500 |
@@ -15279,8 +15291,9 @@ A finished run's file writer stopped making progress on one of its files.
 
 Nobody is waiting on a run's files once it has ended, so the run engine
 reports the stall when it sees it, offering the recovery that answers it.
-The run refusal for the same stall makes the same offer: the sentences
-and the remedy below are the one wording of both.
+The run refusal for the same stall, `ProtocolRunRefusedError`
+`'files_writing_stalled'`, makes the same offer: the sentences and the
+remedy below are the one wording of both.
 
 **Attributes**
 
@@ -15412,7 +15425,9 @@ The saved frame is not one this scope delivers; bring-up ran the frame the API g
 That frame is the saved one floored to the camera's alignment, raised to
 its minimum and capped at the scope's maximum, as a binning change
 derives one. It is stored in the saved frame's place, as the
-substituted binning is, so the next bring-up has nothing to refit.
+substituted binning is, so the next bring-up has nothing to refit. Not
+`BinningSubstitutedNotice`, `CameraFeatureAbsentNotice` or
+`StoredSettingReplacedNotice`, each a value replaced by its own rule.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -15965,7 +15980,9 @@ A driven motion did not reach its end.
 
 An axis that did not home, arrive or settle in the time it is given, or
 a home that ended before its phases did. Whether a Stop ended it is the
-API's stop generation to say, never this type.
+API's stop generation to say, never this type. The driver's fault: the
+API judges it at the move or the home, so a caller meets
+`MoveNotCompletedError`'s children or a home's fault, never this.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -16044,6 +16061,9 @@ say that, so it raises instead of reporting a position nobody reached.
 the child raised says which, and its kind with it: `MoveFaultError`
 when the move failed, `MoveStoppedError` when a stop or a later
 command ended it.
+
+A board's own `MotionNotCompletedError` is a driver's fault: the API
+judges it at the move into one of these.
 
 Distinct from `AxisStateUnknownError`, which refuses a move before
 anything is driven and says to home the scope -- advice that is wrong
@@ -16124,7 +16144,9 @@ A fault; bases `Fault`, `RuntimeError`.
 'auto' found no live driver, and the kind has no null driver to hand back.
 
 The camera's kind has none: bring-up records the cause this carries, as
-a board's `DriverFallback` is recorded beside its null driver.
+a board's `DriverFallback` is recorded beside its null driver. Not
+`DriverNotLiveError`, a driver named and constructed whose hardware is
+not live.
 
 **Attributes**
 
@@ -16698,7 +16720,7 @@ prints it prints what the GUI shows.
 
 **Attributes**
 
-- `reason`: Machine-readable refusal code for callers that map refusals to responses (REST status codes, UI branches). `'already_running'` -- a run already holds the scope. `'exclusive_activity_running'` -- another exclusive activity, such as a diagnostic, a home or a run, holds the scope, and the work asked for is not made under it. `'recording_active'` -- a video recording is in progress, or a previous one is still finishing. `'files_writing'` -- the last run is still writing its files. `'files_writing_stalled'` -- the last run's file writer has stopped making progress, and has to be recovered before a new run starts. `'post_processing_running'` -- a build is on the post-processing lane, and a capture never overlaps one. `'autofocus_running'` -- an autofocus sweep from a run that has ended did not stop, and still occupies the autofocus thread. `'not_connected'` -- a part the work needs is not connected, and none reconnects during a session; the boards are `unconnected_parts`. `'camera_not_streaming'` -- the camera is connected and delivers no frames. `'camera_not_delivering'` -- the run has a video step and no Recording max FPS, and no delivered rate of the camera's was measured within the run start's wait, so the disk the step will write cannot be sized. `'frame_size_unknown'` -- the run saves images and the camera's frame size or depth is not known, so what it will write cannot be sized. `'disk_space_insufficient'` -- free space at the save location is below what starting needs: what the whole run will write, and never less than the floor every start shares, which the message states. `'capture_location_unusable'` -- the run's save location cannot hold the run folder, or its free space cannot be read. `'position_unknown'` -- an axis this scope has does not know its position, so the scope has to be homed first, before a run starts or a step is added or updated; the axes are `axes_without_position`. `'lid_open_before_motion'` -- the stage's lid is open, so the stage refuses to move. `'stage_unpowered_before_motion'` -- the stage has no power, so its interlock refuses to move it. `'no_acquiring_channel'` -- no channel, or not the step's, is set to acquire, so there is no step to make. `'channel_already_in_add'` -- another step added with this one already takes the channel, and steps added together are one composite with one image per channel. `'composite_two_transmitted_channels'` -- a composite run has more than one transmitted channel set to capture. `'composite_video_channel'` -- a composite run has a channel set to capture video; a composite merges still images. `'turret_slot_ambiguous'` -- a step recorded no turret slot, and its objective is assigned to two or more. `'turret_slot_reassigned'` -- the turret slot a step recorded now holds another objective. `'turret_objectives_unassigned'` -- the protocol uses an objective no turret slot is assigned. `'objective_not_mounted'` -- on a scope with no turret, the protocol names an objective other than the selected one. `'sequence_name_invalid'` -- the run's name is a path: it holds a separator or a drive, or is `..`. `'empty_protocol'` -- the protocol has no steps. `'validation_failed'` -- the protocol's steps fail the pre-run validation; the message names the errors. `'composite_needs_two_channels'` -- a composite run has fewer than two channels set to capture. `'tiling_unknown'` -- the tile grid asked for is not one this installation offers. `'tiling_scale_unknown'` -- the scope cannot report its pixel size, so a tile grid's spacing is unknown. `'zstack_not_configured'` -- a z-stack's range or step size is not greater than zero. `'already_tiled'` -- the protocol is tiled already, and a second grid cannot be laid over it. `'objective_not_in_catalog'` -- a step being tiled names an objective the scope's catalog does not hold, so its tile spacing is unknown. `'tiles_outside_travel'` -- tiles of the grid fall outside the stage's travel. `'zslices_outside_travel'` -- z-slices of the stack fall outside Z's travel. `'positions_outside_travel'` -- steps of the protocol, a step being added, or a scan's return position fall outside the stage's travel. `'camera_range_unread'` -- the camera's gain and exposure range could not be read after its last readout change, so no step's value can be held to it; it is read again at the next binning, frame size or pixel format change. `'positions_unreachable'` -- the work needs motion on an axis this scope has no motor for. `'step_position_missing'` -- steps have no position on an axis this scope moves, having been recorded on a scope without it. `'not_on_this_scope'` -- steps take a channel this scope does not have, as `HardwareCommandRefusedError` explains it (`missing`: the first such channel's part; the words name every one, and the steps). `'channel_unknown'` -- steps name a channel no release has, a typo or a hand edit. `'objectives_require_turret'` -- the protocol changes objective between steps, and this scope has no turret to change it. `'objective_not_given'` -- a protocol with a channel set to acquire was built from a configuration that names no objective. `'focus_not_given'` -- a channel has no saved focus, and the configuration names no current Z to image it at. `'overlap_out_of_range'` -- the tile overlap is outside 0 to 50 percent. `'values_out_of_range'` -- channel settings the protocol would store hold values no channel setting takes; the message names each.
+- `reason`: Machine-readable refusal code for callers that map refusals to responses (REST status codes, UI branches). `'already_running'` -- a run already holds the scope. `'exclusive_activity_running'` -- another exclusive activity, such as a diagnostic, a home or a run, holds the scope, and the work asked for is not made under it. `'recording_active'` -- a video recording is in progress, or a previous one is still finishing. A run's start names the run or recording on the scope by its own reason; the control take, a build and a hardware command name the same occupant `'exclusive_activity_running'` with `holder`. `'files_writing'` -- the last run is still writing its files. `'files_writing_stalled'` -- the last run's file writer has stopped making progress, and has to be recovered before a new run starts; `FileWriterStalledError` is the same stall told as a fault when it is seen. `'post_processing_running'` -- a build is on the post-processing lane, and a capture never overlaps one. `'autofocus_running'` -- an autofocus sweep from a run that has ended did not stop, and still occupies the autofocus thread. `'not_connected'` -- a part the work needs is not connected, and none reconnects during a session; the boards are `unconnected_parts`. `'camera_not_streaming'` -- the camera is connected and delivers no frames. `'camera_not_delivering'` -- the run has a video step and no Recording max FPS, and no delivered rate of the camera's was measured within the run start's wait, so the disk the step will write cannot be sized. `'frame_size_unknown'` -- the run saves images and the camera's frame size or depth is not known, so what it will write cannot be sized. `'disk_space_insufficient'` -- free space at the save location is below what starting needs: what the whole run will write, and never less than the floor every start shares, which the message states. `'capture_location_unusable'` -- the run's save location cannot hold the run folder, or its free space cannot be read. `'position_unknown'` -- an axis this scope has does not know its position, so the scope has to be homed first, before a run starts or a step is added or updated; the axes are `axes_without_position`. `'lid_open_before_motion'` -- the stage's lid is open, so the stage refuses to move. `'stage_unpowered_before_motion'` -- the stage has no power, so its interlock refuses to move it. `'no_acquiring_channel'` -- no channel, or not the step's, is set to acquire, so there is no step to make. `'channel_already_in_add'` -- another step added with this one already takes the channel, and steps added together are one composite with one image per channel. `'composite_two_transmitted_channels'` -- a composite run has more than one transmitted channel set to capture. `'composite_video_channel'` -- a composite run has a channel set to capture video; a composite merges still images. `'turret_slot_ambiguous'` -- a step recorded no turret slot, and its objective is assigned to two or more; answered by `point_steps_at_turret_slot`, where a turn to such an objective by name is `ArgumentRefusedError` `'objective_in_several_slots'`. `'turret_slot_reassigned'` -- the turret slot a step recorded now holds another objective, where a slot given now that does not hold it is `ArgumentRefusedError` `'slot_not_holding_objective'`. `'turret_objectives_unassigned'` -- the protocol uses an objective no turret slot is assigned. `'objective_not_mounted'` -- on a scope with no turret, the protocol names an objective other than the selected one. `'sequence_name_invalid'` -- the run's name is a path: it holds a separator or a drive, or is `..`. `'empty_protocol'` -- the protocol has no steps. `'validation_failed'` -- the protocol's steps fail the pre-run validation; the message names the errors. `'composite_needs_two_channels'` -- a composite run has fewer than two channels set to capture. `'tiling_unknown'` -- the tile grid asked for is not one this installation offers. `'tiling_scale_unknown'` -- the scope cannot report its pixel size, so a tile grid's spacing is unknown. `'zstack_not_configured'` -- a z-stack's range or step size is not greater than zero. `'already_tiled'` -- the protocol is tiled already, and a second grid cannot be laid over it. `'objective_not_in_catalog'` -- a step being tiled names an objective the scope's catalog does not hold, so its tile spacing is unknown. `'tiles_outside_travel'` -- tiles of the grid fall outside the stage's travel. `'zslices_outside_travel'` -- z-slices of the stack fall outside Z's travel. `'positions_outside_travel'` -- steps of the protocol, a step being added, or a scan's return position fall outside the stage's travel. `'camera_range_unread'` -- the camera's gain and exposure range could not be read after its last readout change, so no step's value can be held to it; it is read again at the next binning, frame size or pixel format change. `'positions_unreachable'` -- the work needs motion on an axis this scope has no motor for. `'step_position_missing'` -- steps have no position on an axis this scope moves, having been recorded on a scope without it. `'not_on_this_scope'` -- steps take a channel this scope does not have, as `HardwareCommandRefusedError` explains it (`missing`: the first such channel's part; the words name every one, and the steps). `'channel_unknown'` -- steps name a channel no release has, a typo or a hand edit. `'objectives_require_turret'` -- the protocol changes objective between steps, and this scope has no turret to change it. `'objective_not_given'` -- a protocol with a channel set to acquire was built from a configuration that names no objective. `'focus_not_given'` -- a channel has no saved focus, and the configuration names no current Z to image it at. `'overlap_out_of_range'` -- the tile overlap is outside 0 to 50 percent. `'values_out_of_range'` -- channel settings the protocol would store hold values no channel setting takes; the message names each.
 - `title`: The heading shown above the sentence, the reason's.
 - `message`: The sentence; the same text as the exception's message.
 - `remedy`: The action that answers this refusal, or None. A stalled file writer has one (recover it); a writer still making progress does not, since its files will land.
@@ -16982,7 +17004,7 @@ disk.
 
 **Attributes**
 
-- `reason`: `'camera_disconnected'` -- the camera is no longer active. `'camera_stalled'` -- the camera stopped delivering frames for longer than the recording's exposure allows. `'disk_space_critical'`, as `RunFailedError` explains it: a recording stops as a run ends. `'write_failed'`, as `RunFailedError` explains it: two frames in a row could not be saved, and the words say why in the system's.
+- `reason`: `'camera_disconnected'` -- the camera is no longer active. `'camera_stalled'` -- the camera stopped delivering frames for longer than the recording's exposure allows; the camera's own state is `CameraStreamStalledError`. `'disk_space_critical'`, as `RunFailedError` explains it: a recording stops as a run ends. `'write_failed'`, as `RunFailedError` explains it: two frames in a row could not be saved, and the words say why in the system's.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -17199,7 +17221,7 @@ silently incomplete. Nothing is built.
 
 **Attributes**
 
-- `reason`: `'write_batch_timeout'` -- the run's writes did not finish within the build's bound. `'write_batch_abandoned'` -- some of the run's writes never ran: the file writer was recovered, or the app shut down, while they were outstanding. `'write_batch_not_taken'` -- some of the run's images never reached the file writer: it was stuck, or had stopped taking work, when they were handed over. `'write_batch_save_failed'` -- saving some of the run's images failed on disk. `'write_batch_disk_full'` -- some of the run's images were refused because the save drive was nearly full. `'write_batch_video_unfinished'` -- a video step's file did not finish. `RunImagesNotSavedError` carries all but the first as the same facts.
+- `reason`: `'write_batch_timeout'` -- the run's writes did not finish within the build's bound. `'write_batch_abandoned'` -- some of the run's writes never ran: the file writer was recovered, or the app shut down, while they were outstanding. `'write_batch_not_taken'` -- some of the run's images never reached the file writer: it was stuck, or had stopped taking work, when they were handed over; the write declined for those two causes is `RunWriteRefusedError` `'writes_abandoned'` and `'writer_shut_down'`. `'write_batch_save_failed'` -- saving some of the run's images failed on disk. `'write_batch_disk_full'` -- some of the run's images were refused because the save drive was nearly full. `'write_batch_video_unfinished'` -- a video step's file did not finish. `RunImagesNotSavedError` carries all but the first as the same facts.
 - `unfinished_video`: For `'write_batch_video_unfinished'`, the first video that did not finish and why, as (the video, the cause), which the words state.
 
 | Reason | Cause | REST status |
@@ -17295,7 +17317,7 @@ write into a live run is taken, so its cause is the state.
 
 **Attributes**
 
-- `reason`: `'run_writes_ended'` -- the run's cleanup closed its writes. `'writes_abandoned'` -- a writer recovery or a shutdown abandoned the run's remaining writes. `'writer_shut_down'` -- the file lane itself no longer takes work.
+- `reason`: `'run_writes_ended'` -- the run's cleanup closed its writes. `'writes_abandoned'` -- a writer recovery or a shutdown abandoned the run's remaining writes. `'writer_shut_down'` -- the file lane itself no longer takes work. A build waiting on the run's files meets the same two causes as `RunFilesNotWrittenError` `'write_batch_abandoned'` and `'write_batch_not_taken'`: there the files are missing, here a write is declined.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -17382,7 +17404,7 @@ read from this record.
 
 **Attributes**
 
-- `reason`: The machine-readable code. `'not_found'` -- the route, the handle or the job asked for is not there. `'invalid_request'` -- the request's arguments do not fit its member. `'method_not_allowed'` -- the route does not answer the method it was asked with. `'unsupported_media_type'` -- the request's body is not JSON. `'body_too_large'` -- the request's body is larger than its route takes; nothing past the ceiling was held, and nothing ran. `'body_too_slow'` -- the request's body did not arrive within its deadline; nothing ran, and the connection is closed. `'handle_shared'` -- the handle asked to be forgotten is one every client shares, and it is kept. `'overloaded'` -- the server holds as many handles, jobs or uploads as it keeps; asking again later may succeed. `'session_closing'` -- the session is closing, and the server first: it finishes what is under way, answers nothing new, and exits; `SessionClosingError` is the same fact at the session. `'no_frame_yet'` -- the live view has no frame to show, because the camera sent none in time; asking again later may succeed. `'not_cancelable'` -- the job is a call held as a job when it outlived its wait, and holds no operation to stop. `'idempotency_key_reused'` -- the `Idempotency-Key` was sent before with a different request; a key is sent again only to retry the same request. `'client_not_allowed'` -- the scope serves only the clients its `rest_api.allowed_clients` names, and the request came from another address. `'wrong_host'` -- the request's `Host` names another server than the address and port it serves on. `'foreign_origin'` -- a page from another site sent the request.
+- `reason`: The machine-readable code. `'not_found'` -- the route, the handle or the job asked for is not there. `'invalid_request'` -- the request's arguments do not fit its member, judged by the request reader before the member's own door, which refuses a Python caller's argument of another type `ArgumentTypeRefusedError` `'wrong_argument_type'`. `'method_not_allowed'` -- the route does not answer the method it was asked with. `'unsupported_media_type'` -- the request's body is not JSON. `'body_too_large'` -- the request's body is larger than its route takes; nothing past the ceiling was held, and nothing ran. `'body_too_slow'` -- the request's body did not arrive within its deadline; nothing ran, and the connection is closed. `'handle_shared'` -- the handle asked to be forgotten is one every client shares, and it is kept. `'overloaded'` -- the server holds as many handles, jobs or uploads as it keeps; asking again later may succeed. `'session_closing'` -- the session is closing, and the server first: it finishes what is under way, answers nothing new, and exits; `SessionClosingError` is the same fact at the session. `'no_frame_yet'` -- the live view has no frame to show, because the camera sent none in time; asking again later may succeed. `'not_cancelable'` -- the job is a call held as a job when it outlived its wait, and holds no operation to stop. `'idempotency_key_reused'` -- the `Idempotency-Key` was sent before with a different request; a key is sent again only to retry the same request. `'client_not_allowed'` -- the scope serves only the clients its `rest_api.allowed_clients` names, and the request came from another address. `'wrong_host'` -- the request's `Host` names another server than the address and port it serves on. `'foreign_origin'` -- a page from another site sent the request.
 - `title`: The heading, the reason's.
 
 **Fields**
@@ -17634,7 +17656,10 @@ Saved settings no write could store, replaced by the shipped values at load.
 One notice names every value one load replaced: the notification center
 shows one notice of a kind at a time, so a notice per value showed the
 first and hid the rest. Each value is replaced for its key alone, in the
-settings the app runs on and so in the file at its next save.
+settings the app runs on and so in the file at its next save. A value
+no write could store, where `BinningSubstitutedNotice`,
+`FrameRefittedNotice` and `CameraFeatureAbsentNotice` are a stored
+value this camera cannot run, each by its own rule.
 
 **Attributes**
 

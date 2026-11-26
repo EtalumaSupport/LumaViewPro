@@ -683,7 +683,9 @@ class BinningSubstitutedNotice(Notice, Exception):  # noqa: N818 -- a notice, no
 
     The camera's binning is stored in the saved value's place: the binning
     is half of the frame's geometry, and the store holds the pair the
-    camera delivered.
+    camera delivered. One of four facts of a replaced saved value, each its
+    own rule: ``FrameRefittedNotice``, ``CameraFeatureAbsentNotice`` and
+    ``StoredSettingReplacedNotice`` are the others.
     """
 
     title = 'Saved binning not supported'
@@ -724,7 +726,9 @@ class FrameRefittedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an 
     That frame is the saved one floored to the camera's alignment, raised to
     its minimum and capped at the scope's maximum, as a binning change
     derives one. It is stored in the saved frame's place, as the
-    substituted binning is, so the next bring-up has nothing to refit.
+    substituted binning is, so the next bring-up has nothing to refit. Not
+    ``BinningSubstitutedNotice``, ``CameraFeatureAbsentNotice`` or
+    ``StoredSettingReplacedNotice``, each a value replaced by its own rule.
     """
 
     title = 'Saved frame refitted'
@@ -743,7 +747,9 @@ class CameraFeatureAbsentNotice(Notice, Exception):  # noqa: N818 -- a notice, n
 
     A camera without high conversion gain or line-noise reduction is at its
     standard setting, which is known, so that setting is stored in the saved
-    value's place, as a substituted binning is.
+    value's place, as a substituted binning is. Not
+    ``BinningSubstitutedNotice``, ``FrameRefittedNotice`` or
+    ``StoredSettingReplacedNotice``, each a value replaced by its own rule.
 
     Attributes:
         feature: The feature, in words (``'high conversion gain'``).
@@ -823,7 +829,10 @@ class StoredSettingReplacedNotice(Notice, Exception):  # noqa: N818 -- a notice,
     One notice names every value one load replaced: the notification center
     shows one notice of a kind at a time, so a notice per value showed the
     first and hid the rest. Each value is replaced for its key alone, in the
-    settings the app runs on and so in the file at its next save.
+    settings the app runs on and so in the file at its next save. A value
+    no write could store, where ``BinningSubstitutedNotice``,
+    ``FrameRefittedNotice`` and ``CameraFeatureAbsentNotice`` are a stored
+    value this camera cannot run, each by its own rule.
 
     Attributes:
         replacements: ``(path, saved, used)`` for each replaced setting: its
@@ -1576,7 +1585,9 @@ class ServerRefusedError(Refusal, Exception):
         reason: The machine-readable code. ``'not_found'`` -- the route, the
             handle or the job asked for is not there.
             ``'invalid_request'`` -- the request's arguments do not fit its
-            member. ``'method_not_allowed'`` -- the route does not answer the
+            member, judged by the request reader before the member's own
+            door, which refuses a Python caller's argument of another type
+            ``ArgumentTypeRefusedError`` ``'wrong_argument_type'``. ``'method_not_allowed'`` -- the route does not answer the
             method it was asked with. ``'unsupported_media_type'`` -- the
             request's body is not JSON. ``'body_too_large'`` -- the
             request's body is larger than its route takes; nothing past the
@@ -2363,11 +2374,15 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             such as a diagnostic, a home or a run, holds the scope, and the
             work asked for is not made under it.
             ``'recording_active'`` -- a video recording is in progress, or
-            a previous one is still finishing.
+            a previous one is still finishing. A run's start names the run
+            or recording on the scope by its own reason; the control take, a
+            build and a hardware command name the same occupant
+            ``'exclusive_activity_running'`` with ``holder``.
             ``'files_writing'`` -- the last run is still writing its files.
             ``'files_writing_stalled'`` -- the last run's file writer has
             stopped making progress, and has to be recovered before a new
-            run starts. ``'post_processing_running'`` -- a build is on the
+            run starts; ``FileWriterStalledError`` is the same stall told
+            as a fault when it is seen. ``'post_processing_running'`` -- a build is on the
             post-processing lane, and a capture never overlaps one.
             ``'autofocus_running'`` -- an autofocus sweep from a run that
             has ended did not stop, and still occupies the autofocus
@@ -2404,9 +2419,14 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             ``'composite_video_channel'`` -- a composite run has a channel
             set to capture video; a composite merges still images.
             ``'turret_slot_ambiguous'`` -- a step recorded no turret slot,
-            and its objective is assigned to two or more.
+            and its objective is assigned to two or more; answered by
+            ``point_steps_at_turret_slot``, where a turn to such an
+            objective by name is ``ArgumentRefusedError``
+            ``'objective_in_several_slots'``.
             ``'turret_slot_reassigned'`` -- the turret slot a step recorded
-            now holds another objective.
+            now holds another objective, where a slot given now that does
+            not hold it is ``ArgumentRefusedError``
+            ``'slot_not_holding_objective'``.
             ``'turret_objectives_unassigned'`` -- the protocol
             uses an objective no turret slot is assigned.
             ``'objective_not_mounted'`` -- on a scope with no turret, the
@@ -3464,7 +3484,9 @@ class RunFilesNotWrittenError(Fault, CaptureError):
             the app shut down, while they were outstanding.
             ``'write_batch_not_taken'`` -- some of the run's images never
             reached the file writer: it was stuck, or had stopped taking
-            work, when they were handed over. ``'write_batch_save_failed'``
+            work, when they were handed over; the write declined for those
+            two causes is ``RunWriteRefusedError`` ``'writes_abandoned'`` and
+            ``'writer_shut_down'``. ``'write_batch_save_failed'``
             -- saving some of the run's images failed on disk.
             ``'write_batch_disk_full'`` -- some of the run's images were
             refused because the save drive was nearly full.
@@ -3810,7 +3832,8 @@ class RecordingStoppedError(Fault, CaptureError):
     Attributes:
         reason: ``'camera_disconnected'`` -- the camera is no longer active.
             ``'camera_stalled'`` -- the camera stopped delivering frames for
-            longer than the recording's exposure allows.
+            longer than the recording's exposure allows; the camera's own
+            state is ``CameraStreamStalledError``.
             ``'disk_space_critical'``, as ``RunFailedError`` explains it: a
             recording stops as a run ends.
             ``'write_failed'``, as ``RunFailedError`` explains it: two frames
@@ -4014,7 +4037,10 @@ class RunWriteRefusedError(Refusal, CaptureError):
             writes. ``'writes_abandoned'`` -- a writer recovery or a
             shutdown abandoned the run's remaining writes.
             ``'writer_shut_down'`` -- the file lane itself no longer takes
-            work.
+            work. A build waiting on the run's files meets the same two
+            causes as ``RunFilesNotWrittenError`` ``'write_batch_abandoned'``
+            and ``'write_batch_not_taken'``: there the files are missing,
+            here a write is declined.
     """
 
     title = 'Not Saved'
@@ -4070,7 +4096,9 @@ class CameraStreamStalledError(Fault, CaptureError):
     exposure is unknown), and never less than 5 s. A pulled cable meets the same
     check first when its driver reports the removal later than that (the IDS
     SDK reports it seconds after the pull), so the words never say the camera
-    is still connected.
+    is still connected. This is the camera's state; a recording that meets
+    it ends ``RecordingStoppedError`` ``'camera_stalled'``, the recording's
+    own end.
 
     Attributes:
         seconds: How long no new frame had arrived when the stall was seen.
@@ -4093,8 +4121,9 @@ class FileWriterStalledError(Fault, CaptureError):
 
     Nobody is waiting on a run's files once it has ended, so the run engine
     reports the stall when it sees it, offering the recovery that answers it.
-    The run refusal for the same stall makes the same offer: the sentences
-    and the remedy below are the one wording of both.
+    The run refusal for the same stall, ``ProtocolRunRefusedError``
+    ``'files_writing_stalled'``, makes the same offer: the sentences and the
+    remedy below are the one wording of both.
 
     Attributes:
         remedy: Recovering the file writer, which gives up on the unsaved images.
@@ -4941,10 +4970,14 @@ class ArgumentRefusedError(Refusal, ValueError):
               ``takes`` what it takes for that argument.
             - ``'slot_not_holding_objective'`` -- a turret slot given for
               steps naming an objective the slot does not hold now
-              (``offered``: the slots that hold it).
+              (``offered``: the slots that hold it); a slot a step recorded
+              and since reassigned is ``ProtocolRunRefusedError``
+              ``'turret_slot_reassigned'``.
             - ``'objective_in_several_slots'`` -- an objective to turn
               the turret to that two or more slots hold (``offered``: the
-              slots), so no one slot is meant.
+              slots), so no one slot is meant, answered by a turn by slot; a
+              step that recorded no slot for such an objective is
+              ``ProtocolRunRefusedError`` ``'turret_slot_ambiguous'``.
             - ``'turret_objectives_unassigned'`` -- an objective to turn
               the turret to that no slot holds (``offered``: the objectives
               the slots hold, in slot order). The same fact a run is
@@ -5191,7 +5224,9 @@ class ArgumentTypeRefusedError(Refusal, TypeError):
     member's own annotation, so the body never meets a value of another
     type. A ``TypeError``, as Python raises for a call it cannot take. The
     door judges the type only: a number's range and finiteness, a name's
-    membership and a dictionary's contents stay their member's.
+    membership and a dictionary's contents stay their member's. A REST
+    request's arguments are read before this door, and one that does not
+    fit is ``ServerRefusedError`` ``'invalid_request'``.
 
     Attributes:
         reason: ``'wrong_argument_type'``.
@@ -5469,6 +5504,9 @@ class MoveNotCompletedError(_Umbrella, Exception):
     the child raised says which, and its kind with it: ``MoveFaultError``
     when the move failed, ``MoveStoppedError`` when a stop or a later
     command ended it.
+
+    A board's own ``MotionNotCompletedError`` is a driver's fault: the API
+    judges it at the move into one of these.
 
     Distinct from ``AxisStateUnknownError``, which refuses a move before
     anything is driven and says to home the scope -- advice that is wrong
