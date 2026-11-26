@@ -308,8 +308,7 @@ class RuntimeState:
         """The objective in the light path and the frame's extent on the sample, each its value or why it is unknown.
 
         The read for a display: it answers an unknown as the refusal that
-        says why, where ``ScopeSession.objective_id`` and the reads of the
-        frame's scale refuse. Both fields come from one reading of the
+        says why. Both fields come from one reading of the
         objective. No serial I/O: the turret slot and the camera's binning
         and frame are the ones last reported.
 
@@ -483,9 +482,7 @@ class RuntimeState:
         for a display, such as the plate position under a cursor: an
         unknown is answered as the refusal that says why, never raised.
         Judged on X and Y alone; Z's position does not move the point.
-        It answers mid-move, where the frame is that instant; where the
-        stage is held, in X, Y and Z, refused while an axis moves (what a
-        bookmark or a step records), is ``ScopeSession.plate_position``.
+        It answers mid-move, where the frame is that instant.
 
         Args:
             x_fraction: How far across the frame's width, from 0 to 1.
@@ -560,8 +557,7 @@ class RuntimeState:
     def stage_offset(self) -> coord_transformations.StageOffset:
         """The stage offset for coordinate transformations, from the settings.
 
-        The stored setting ``stage_offset`` (``ScopeSession.setting``
-        answers it as ``{'x': x_um, 'y': y_um}``), as a ``StageOffset``.
+        The stored setting ``stage_offset``, as a ``StageOffset``.
 
         Returns:
             Where the plate is mounted on the stage, in um.

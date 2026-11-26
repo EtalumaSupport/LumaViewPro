@@ -72,11 +72,7 @@ logger = logging.getLogger('LVP.drivers.registry')
 
 
 class DriverNotLiveError(Fault, RuntimeError):
-    """A driver selected by name constructed, but its hardware is not live.
-
-    Not ``NoLiveDriverError``, which 'auto' raises when no driver it tried
-    was live: here one driver was named, and it is not.
-    """
+    """A driver selected by name constructed, but its hardware is not live."""
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'driver_not_live': None}
     title = 'Hardware Not Live'
@@ -90,9 +86,7 @@ class NoLiveDriverError(Fault, RuntimeError):
     """'auto' found no live driver, and the kind has no null driver to hand back.
 
     The camera's kind has none: bring-up records the cause this carries, as
-    a board's ``DriverFallback`` is recorded beside its null driver. Not
-    ``DriverNotLiveError``, a driver named and constructed whose hardware is
-    not live.
+    a board's ``DriverFallback`` is recorded beside its null driver.
 
     Attributes:
         fallback: The cause, the drivers tried, and the drivers declined.

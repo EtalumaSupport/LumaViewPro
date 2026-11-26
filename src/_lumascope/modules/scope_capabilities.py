@@ -227,9 +227,7 @@ class CameraLimits:
 
     ``set_frame_size`` holds a frame side outside them to them before it
     reaches the camera, and tells it. A limit the camera does not declare
-    is None, and that end is not held. The exposure and gain ranges are
-    not here: they move with the camera's readout, so the camera API holds
-    and re-reads them (``scope.camera.setting_limits``).
+    is None, and that end is not held.
 
     Attributes:
         frame_min: The smallest frame the camera delivers: its profile's

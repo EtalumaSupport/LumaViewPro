@@ -300,9 +300,7 @@ class MotorBoardInfo:
     answer, or a reply that could not be read.
 
     Attributes:
-        model: The scope model the board reports (``'LS850T'``), the board's
-            own report and not ``channel_identity.model``, which falls back to
-            the operator's selection.
+        model: The scope model the board itself reports (``'LS850T'``).
         serial_number: The board's serial number.
         firmware_version: The parsed version, or ``ORIGINAL_FIRMWARE``
             (``'original'``) for a board that answered INFO with no version

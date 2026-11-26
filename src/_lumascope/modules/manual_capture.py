@@ -184,9 +184,7 @@ class ManualCaptureController:
         """Capture one still and save it; returns at once.
 
         The still is named for the shown channel and taken with its stored
-        settings held, refused while another LED is lit; a frame taken with
-        the camera as it is set, saved or not, is ``ScopeSession.capture_still``
-        with no channel.
+        settings held, refused while another LED is lit.
 
         Args:
             bullseye: Also save a copy with the bullseye color map.

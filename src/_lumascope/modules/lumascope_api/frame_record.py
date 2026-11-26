@@ -51,9 +51,8 @@ class ClockMapping:
         host_ns: The scope's steady clock (``ScopeSession.host_steady_ns``) at the
             middle of the bracket.
         camera_ticks: The camera's clock the latch latched.
-        tick_hz: Ticks per second of the camera's clock, the same read of
-            ``ScopeCapabilities.camera_timestamp_tick_hz`` a frame's record
-            carries as ``FrameRecord.camera_timestamp_tick_hz``.
+        tick_hz: Ticks per second of the camera's clock, read from
+            ``ScopeCapabilities.camera_timestamp_tick_hz``.
         uncertainty_ns: Half the bracket.
         wall_ns: The host's wall clock (``time.time_ns()``) at ``host_ns``.
     """
@@ -233,8 +232,7 @@ class FrameRecord:
         camera_timestamp_ticks: The camera's own clock for the frame
             (for a summed capture, the first frame's).
         camera_timestamp_tick_hz: Ticks per second of that clock
-            (``ScopeCapabilities.camera_timestamp_tick_hz``, the rate a
-            ``ClockMapping`` holds as ``tick_hz``).
+            (``ScopeCapabilities.camera_timestamp_tick_hz``).
         frame_id: The camera's frame counter for the frame.
         binning_size: Binning the frame was delivered at.
         camera_model: The camera that took it.

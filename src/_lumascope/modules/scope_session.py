@@ -439,8 +439,8 @@ class ControlsLock:
         run_named: What holds the run surface -- a run, a diagnostic, a
             home, or a finished run's files still writing -- as a sentence
             a person reads; None while nothing does. A display that pauses
-            for that work reads this, not ``run_lockout``, so it keeps
-            showing the scope under an idle control session.
+            for that work reads this, so it keeps showing the scope under
+            an idle control session.
         control_named: The control session held, as a sentence a person
             reads; None while none is. It holds the run surface too, the
             holder's own run included.
@@ -3214,8 +3214,7 @@ class ScopeSession:
                 ``apply``) the camera holds no channel's settings, and none are
                 written: the raw values stand, and the record's
                 ``held_channel`` is None. None (the default) captures with the
-                camera as set. A saved still named for the shown channel is
-                ``start_save_still``'s.
+                camera as set.
             force_to_8bit: Convert the image to 8 bits; False keeps the
                 camera's depth (``CapturedStill.significant_bits``).
             accept_dark: Skip the dark-frame judgment: a frame with
@@ -4913,8 +4912,7 @@ class ScopeSession:
         write; a copy, so changing it changes no setting (``update_settings``
         and the Session's members do). The value is the stored one, in the
         store's own shape: ``setting('stage_offset')`` is ``{'x': x_um, 'y': y_um}``
-        in um, which ``runtime_state.stage_offset`` hands a coordinate
-        caller as a ``StageOffset``.
+        in um.
 
         A setting a member changes is read there, so it has one read:
         ``setting('binning')`` is refused for
@@ -7072,9 +7070,7 @@ class ScopeSession:
     def plate_position(self) -> PlateLocation:
         """The stage's position in plate coordinates, on the session's labware.
 
-        Where the stage is held, what a bookmark or a step records; where a
-        point of the frame is this instant, mid-move too, is
-        ``runtime_state.frame_point_plate``.
+        Where the stage is held: what a bookmark or a step records.
 
         Returns:
             Where the scope is on the plate: X and Y in mm, Z in um.

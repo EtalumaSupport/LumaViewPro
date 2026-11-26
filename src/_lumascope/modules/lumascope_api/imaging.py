@@ -2916,9 +2916,8 @@ class ImagingAPI:
         """Register a per-frame listener fired on every successful grab.
 
         The in-process listener underneath the recordings and the
-        live-processing registry. A live_processing plugin registers through
-        ``LiveProcessingRegistry.register`` (``ctx.plugins.live_processing``),
-        which keeps its health record; a listener added here has none.
+        live-processing registry; a listener added here keeps no health
+        record.
         The supplied handler is wrapped in a budget enforcer
         (``HANDLER_BUDGET_MS`` per call; ``HANDLER_DROP_K`` consecutive
         over-budget or raising invocations remove it, reported once as a

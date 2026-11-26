@@ -585,8 +585,7 @@ class RunOutcome:
         video_save_wait_s: Seconds the run's end waited for its video steps
             to finish saving, when every step finished having written every
             frame it kept; None when nothing was waited for, or when a step
-            did not finish, was discarded or lost a frame. The run's wait,
-            where a recording's ``save_wait_s`` is how long one saved on.
+            did not finish, was discarded or lost a frame.
     """
 
     status: RunStatus
