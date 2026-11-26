@@ -516,7 +516,7 @@ class ManualRecordingController:
             # objective would carry no scale while the scope went on with one
             # the person had not confirmed.
             claimed['objective'], _ = scope.runtime_state.resolve_current_objective()
-            claimed['plate'] = (
+            claimed['labware'] = (
                 scope.runtime_state.get_labware() if recording_format.writes_frames else None
             )
             claimed['to_plate'] = (
@@ -624,7 +624,7 @@ class ManualRecordingController:
                 capture_depth=capture_config.capture_depth,
                 camera=claimed['camera'],
                 objective_id=claimed['objective'],
-                labware=claimed['plate'],
+                labware=claimed['labware'],
                 to_plate=claimed['to_plate'],
             )
             if recording_format.writes_frames:
