@@ -2957,7 +2957,6 @@ class SequencedCaptureRunner:
             finally:
                 outcome.resolve(
                     token,
-                    merged=artifact_path is not None,
                     artifact_path=artifact_path,
                     merge_reason=merge_reason,
                     merge_failure=merge_failure,

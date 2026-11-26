@@ -299,7 +299,7 @@ def test_the_composite_the_button_started_is_shown_once_merged(homed, gui_ctx):
     run.add_done_callback(lambda _run: after.set())
     assert after.wait(_END_WAIT_S), "the run's done callbacks never ran"
 
-    assert outcome.merged, outcome.merge_reason
+    assert outcome.artifact_path is not None, outcome.merge_reason
     merged, _bits, _white = image_utils.load_pixels(
         outcome.artifact_path, collapse_legacy_false_color=False
     )

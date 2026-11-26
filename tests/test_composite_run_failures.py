@@ -142,7 +142,7 @@ class TestAChannelThatCapturesNothing:
             settled = outcome.result(timeout=120)
 
             assert settled is not None, 'the run never settled its outcome'
-            assert not settled.merged, (
+            assert settled.artifact_path is None, (
                 f'a run that captured one of two channels reported a merge: {settled}'
             )
             assert settled.artifact_path is None, (
@@ -240,7 +240,7 @@ class TestAChannelThatCapturesNothing:
             )
             settled = outcome.result(timeout=120)
 
-            assert settled is not None and not settled.merged, settled
+            assert settled is not None and settled.artifact_path is None, settled
             assert settled.artifact_path is None, settled
             assert (settled.merge_reason, settled.merge_failure) == (
                 'merge_error',
@@ -278,7 +278,7 @@ class TestTheThreeStrikeFatalAbort:
 
             assert settled is not None, 'the aborted run never settled its outcome'
             assert outcome.files.result(timeout=120) is not None, 'the run never finished its files'
-            assert not settled.merged, f'an aborted run reported a merge: {settled}'
+            assert settled.artifact_path is None, f'an aborted run reported a merge: {settled}'
             # The two vocabularies, separated. status says the RUN failed;
             # reason says what killed it. Before they shared one field the
             # best a caller could read was the word 'failed', which is also

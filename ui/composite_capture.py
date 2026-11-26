@@ -165,7 +165,7 @@ def show_merged_composite(run: 'Operation[RunOutcome]') -> None:
     populated plane.
     """
     outcome = run.result()
-    if not outcome.merged:
+    if outcome.artifact_path is None:
         return
     image, significant_bits, _white = image_utils.load_pixels(
         outcome.artifact_path, collapse_legacy_false_color=False

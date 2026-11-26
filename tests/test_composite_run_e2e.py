@@ -212,7 +212,7 @@ class TestCompositeRunEndToEnd:
         )
         outcome = runner._executor._last_run().operation
         settled = outcome.result(timeout=0)
-        assert settled is not None and settled.merged, (
+        assert settled is not None and settled.artifact_path is not None, (
             f'the merge outcome was not resolved-merged at return: {settled}'
         )
 
@@ -320,7 +320,7 @@ class TestStartComposite:
         assert heard == [settled], (
             'wait() returned before run_ended, or it was not the settled outcome'
         )
-        assert settled.merged and settled.artifact_path, settled
+        assert settled.artifact_path is not None, settled
 
     def test_each_run_gets_the_outcome_it_started(self, composite_session):
         # The outcome used to be read back off the executor after start
@@ -336,9 +336,9 @@ class TestStartComposite:
         second_settled = second.result(timeout=120)
 
         assert first is not second, "the second run reused the first run's outcome object"
-        assert first_settled.merged and second_settled.merged, (
-            f'both merges must succeed: {first_settled}, {second_settled}'
-        )
+        assert (
+            first_settled.artifact_path is not None and second_settled.artifact_path is not None
+        ), f'both merges must succeed: {first_settled}, {second_settled}'
         assert first_settled.artifact_path != second_settled.artifact_path
 
 

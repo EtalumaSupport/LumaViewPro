@@ -56,7 +56,7 @@ _ARTIFACT = '/runs/1/Composite/A1_Composite_1.tiff'
 
 
 def _record_merge(outcome, token, path=_ARTIFACT):
-    return outcome.resolve(token, merged=True, artifact_path=pathlib.Path(path), merge_reason=None)
+    return outcome.resolve(token, artifact_path=pathlib.Path(path), merge_reason=None)
 
 
 class TestArming:
@@ -120,7 +120,7 @@ class TestCleanupResolver:
         assert outcome.state == RESOLVED
         settled = outcome.wait(timeout_s=0.1)
         assert (settled.status, settled.reason) == ('aborted', 'stopped')
-        assert settled.merged is False and settled.artifact_path is None
+        assert settled.artifact_path is None
 
     def test_a_run_with_no_merge_carries_no_merge_reason(self):
         # A scan has no merge to fail, so there is nothing for the merge
@@ -156,7 +156,7 @@ class TestCleanupResolver:
         assert outcome.state == ARMED
 
         assert _record_merge(outcome, token) is True
-        assert outcome.wait(timeout_s=0.1).merged is True
+        assert outcome.wait(timeout_s=0.1).artifact_path is not None
 
     def test_the_second_cleanup_pass_cannot_touch_a_resolved_outcome(self):
         outcome = PendingRunOutcome()
@@ -173,7 +173,7 @@ class TestMergeThreadResolver:
         token = outcome.arm(_COMPLETED)
         assert _record_merge(outcome, token, '/runs/1/c.tiff') is True
         settled = outcome.wait(timeout_s=0.1)
-        assert settled.merged is True
+        assert settled.artifact_path is not None
         assert settled.artifact_path == pathlib.Path('/runs/1/c.tiff')
 
     def test_the_token_holder_can_record_a_typed_failure(self):
@@ -181,7 +181,6 @@ class TestMergeThreadResolver:
         token = outcome.arm(_COMPLETED)
         outcome.resolve(
             token,
-            merged=False,
             artifact_path=None,
             merge_reason=MergeReason.MERGE_ERROR,
             merge_failure='write_batch_timeout',
@@ -200,9 +199,7 @@ class TestMergeThreadResolver:
         # step went wrong, which is the collapse this shape exists to stop.
         outcome = PendingRunOutcome()
         token = outcome.arm(_COMPLETED)
-        outcome.resolve(
-            token, merged=False, artifact_path=None, merge_reason=MergeReason.MERGE_ERROR
-        )
+        outcome.resolve(token, artifact_path=None, merge_reason=MergeReason.MERGE_ERROR)
         settled = outcome.wait(timeout_s=0.1)
         assert (settled.status, settled.reason) == ('completed', 'completed'), (
             f'a failed merge rewrote the run as {settled.status!r}/{settled.reason!r}'
@@ -296,8 +293,8 @@ _RECORDED_FACTS = (
     ),
 )
 
-# The outcome's fields that are not a recorded fact: the ending's, the
-# merge's, and the saved flag derived from the autofocus path.
+# The outcome's fields that are not a recorded fact: the ending's and the
+# merge's.
 _NOT_RECORDED = {
     'status',
     'reason',
@@ -305,11 +302,9 @@ _NOT_RECORDED = {
     'message',
     'unconnected_parts',
     'axes_without_position',
-    'merged',
     'artifact_path',
     'merge_reason',
     'merge_failure',
-    'af_data_saved',
 }
 
 
@@ -372,7 +367,7 @@ class TestWaiting:
 
         assert never.wait(timeout_s=0.05) is None
         settled = reported.wait(timeout_s=0.05)
-        assert settled is not None and settled.merged is False
+        assert settled is not None and settled.artifact_path is None
         assert settled.reason == 'stopped'
 
     def test_a_waiter_wakes_when_the_merge_lands(self):

@@ -455,7 +455,7 @@ class TestEverySettlePathCarriesWhetherTheFocusWasWritten:
         pending = PendingRunOutcome()
         pending.record_focus_written(True)
         token = pending.arm(self._ending())
-        assert pending.resolve(token, merged=False, artifact_path=None, merge_reason=None) is True
+        assert pending.resolve(token, artifact_path=None, merge_reason=None) is True
         assert pending.wait(timeout_s=1.0).focus_written is True
 
     def test_a_run_that_records_nothing_reports_none(self):

@@ -115,7 +115,9 @@ class TestAModeTurnedOnAfterTheSessionIsBuiltIsTheRuns:
                 parent_dir=str(tmp_path),
             )
             settled = outcome.result(timeout=120)
-            assert settled is not None and settled.merged, 'the run never settled'
+            assert settled is not None and settled.artifact_path is not None, (
+                'the run never settled'
+            )
             token = _turret_token(session)
 
         for name in _saved_frames(tmp_path):

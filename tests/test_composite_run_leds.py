@@ -225,7 +225,9 @@ class TestAbortMidComposite:
         # resolved at all, leaves an L2 caller waiting on the bound.
         settled = aborted_composite['settled']
         assert settled is not None, 'the aborted run never settled its merge outcome'
-        assert not settled.merged, f'an aborted run reported a merged artifact: {settled}'
+        assert settled.artifact_path is None, (
+            f'an aborted run reported a merged artifact: {settled}'
+        )
         assert settled.artifact_path is None, f'an aborted run named an artifact: {settled}'
         # status is the KIND of ending, reason is what caused it. A user
         # Stop is 'aborted'/'stopped'; sharing one field meant the best a

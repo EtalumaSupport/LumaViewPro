@@ -11206,7 +11206,7 @@ channel that captured nothing leaves no composite, the run's status
 
 **Returns**
 
-The run's RunOutcome: `merged` True, `artifact_path` the merged composite, `status` 'completed' or 'incomplete', and `captures` what each channel produced.
+The run's RunOutcome: `artifact_path` the merged composite, `status` 'completed' or 'incomplete', and `captures` what each channel produced.
 
 **Raises**
 
@@ -11420,7 +11420,7 @@ runs, which it must do anyway for the measurements to be comparable.
 **Args**
 
 - `channel`: Which channel to focus on ('BF', 'Ex488', ...).
-- `save_characterization_data`: Whether to write the per-position focus scores this sweep measured. Off by default: a caller that does not ask for data gets no folder. When on, the run's outcome reports whether the file was written and names it (af_data_saved / af_data_path), which is the only way a headless caller can tell a delivered file from a requested one.
+- `save_characterization_data`: Whether to write the per-position focus scores this sweep measured. Off by default: a caller that does not ask for data gets no folder. When on, the run's outcome names the file once it was written (af_data_path), which is the only way a headless caller can tell a delivered file from a requested one.
 - `sequence_name`: The name of the protocol file the run saves in its folder ('.tsv' added): a name, not a path.
 - `parent_dir`: Where characterization data goes. Defaults to 'Autofocus Characterization' under the live folder, where LumaViewPro's window puts it too. Unused when no data is saved: that run writes nowhere, so where it would have written cannot refuse it.
 - `events`: The run's event handlers (`RunEvents`); None for none.
@@ -11870,31 +11870,29 @@ How a run ended, and what its merge produced.
 The first four fields say how the run ended, as whatever ended it
 recorded (`status`, `reason`, `title`, `message`), with the boards a
 disconnect lost (`unconnected_parts`) and the axes a lost position
-left unplaced (`axes_without_position`); the next four describe
+left unplaced (`axes_without_position`); the next three describe
 the merge, the next two the autofocus characterization data, then
 what the run captured, which steps putting the scope back after it
 did not finish, whether a scan's focus was written into the caller's
 protocol, which steps' autofocus did not focus, and last how long the
 run's end waited for its videos to save. A
-non-composite run carries merged=False and no merge_reason under
+non-composite run carries no artifact_path and no merge_reason under
 whatever status it ended in, and a run that saved
-no autofocus data carries af_data_saved=False, so a caller reads one
+no autofocus data carries no af_data_path, so a caller reads one
 shape for every run kind.
 
 **Fields**
 
-- <a id="RunOutcome.af_data_path"></a>`af_data_path`: `pathlib.Path | None` -- The characterization file that was written; None whenever af_data_saved is False. Never the folder: that is allocated before the sweep runs and exists even when nothing was written, which is the answer a caller must not be given.
-- <a id="RunOutcome.af_data_saved"></a>`af_data_saved`: `bool` -- True only when autofocus characterization data was WRITTEN. False covers every run that asked for none, and every run that asked and got none -- a sweep that collected nothing, or one whose queued save an abort discarded.
+- <a id="RunOutcome.af_data_path"></a>`af_data_path`: `pathlib.Path | None` -- The autofocus characterization file, set only when its data was WRITTEN. None covers every run that asked for none, and every run that asked and got none -- a sweep that collected nothing, or one whose queued save an abort discarded. Never the folder: that is allocated before the sweep runs and exists even when nothing was written, which is the answer a caller must not be given.
 - <a id="RunOutcome.af_focus_z_um"></a>`af_focus_z_um`: `float | None` -- The Z a standalone autofocus run chose as focus, where it left the stage; None when it chose none (a degenerate curve, an abort, an error), in which case the stage is back where the run found it. A standalone autofocus run that chose none ends 'failed' ('autofocus_failed', or 'autofocus_not_started' when its first window reached past Z's travel), unless its restore lost Z ('position_lost'); a Stop is a stop. Set only by a standalone autofocus run: a run that autofocuses at several steps has no one focus to report, and reads None.
-- <a id="RunOutcome.artifact_path"></a>`artifact_path`: `pathlib.Path | None` -- Where it landed; None whenever merged is False.
+- <a id="RunOutcome.artifact_path"></a>`artifact_path`: `pathlib.Path | None` -- The file the merge produced, where it landed; None when it produced none, and on every run that has no merge.
 - <a id="RunOutcome.axes_without_position"></a>`axes_without_position`: `dict[Axis, AxisState]` -- The axes found without a position when the run ended `'position_lost'`, each mapped to its `AxisState`; empty for every other reason.
 - <a id="RunOutcome.captures"></a>`captures`: `CaptureTally | None` -- What the run captured of what it was asked for. None only for a run settled before its cleanup counted -- a run torn down by a shutdown before it ended.
 - <a id="RunOutcome.cleanup_failures"></a>`cleanup_failures`: `tuple[str, ...] | None` -- The steps putting the scope back after the run that did not finish ('Restore LED states', 'Return to position', ...); empty when every one did, so the LEDs, camera settings and stage are as the run found them. None only for a run settled before its cleanup ran. A host's own display work at the run's end is its `run_ended` handler's, never a step here.
 - <a id="RunOutcome.focus_failures"></a>`focus_failures`: `tuple[FocusFailure, ...]` -- Each step whose autofocus did not focus (no usable focus score, a window past Z's travel, a sweep that raised), once however many scans it did not focus in, in the order of the scan it first did not, then of the step: a capture protocol captured it at its fallback focus, an autofocus scan left its focus as it was. A scan run again that focuses the step clears that scan's failure. Empty when every autofocus focused, and for a run with none.
 - <a id="RunOutcome.focus_written"></a>`focus_written`: `bool | None` -- Whether the focus the run found was saved where it was asked to save it: an autofocus scan's into the protocol the caller named, a standalone autofocus's as the focus of the channel it focused. None for a run asked to save no focus, which includes a standalone autofocus lent a diagnostic's claim. False when it was asked and saved none, and the protocol or the channel's focus is unchanged: the scan focused no step, or the protocol's steps changed during it (reported once, as 'Focus Not Saved'); the standalone autofocus chose no Z, or its save was refused (reported once, as the refusal).
 - <a id="RunOutcome.merge_failure"></a>`merge_failure`: `str | None` -- The reason of the outcome the merge failed with (`'write_batch_timeout'`, ...), its own class's word, for `MERGE_ERROR` when it had one; None otherwise.
-- <a id="RunOutcome.merge_reason"></a>`merge_reason`: `MergeReason | None` -- Why the MERGE produced no file. None on success and on every run that has no merge, so a caller can branch on merged and still log one field.
-- <a id="RunOutcome.merged"></a>`merged`: `bool` -- True only when an artifact was produced.
+- <a id="RunOutcome.merge_reason"></a>`merge_reason`: `MergeReason | None` -- Why the MERGE produced no file. None on success and on every run that has no merge, so a caller can branch on artifact_path and still log one field.
 - <a id="RunOutcome.message"></a>`message`: `str` -- The sentence a user reads.
 - <a id="RunOutcome.reason"></a>`reason`: `RunEndReason` -- Why the RUN ended.
 - <a id="RunOutcome.status"></a>`status`: `RunStatus` -- How the run ended.

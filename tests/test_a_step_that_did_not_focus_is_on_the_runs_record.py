@@ -169,9 +169,7 @@ def test_every_settle_path_carries_the_focus_failures():
     for settle in (
         lambda pending: pending.resolve_if_pending(ending),
         lambda pending: pending.force_resolve('cleanup_error', fallback=ending),
-        lambda pending: pending.resolve(
-            pending.arm(ending), merged=False, artifact_path=None, merge_reason=None
-        ),
+        lambda pending: pending.resolve(pending.arm(ending), artifact_path=None, merge_reason=None),
     ):
         pending = PendingRunOutcome()
         pending.record_focus_failures(failures)

@@ -149,7 +149,7 @@ class TestARivalRunRefusesTheComposite:
         )
 
         settled = outcome.result(timeout=120)
-        assert settled is not None and settled.merged, (
+        assert settled is not None and settled.artifact_path is not None, (
             f'the refused second click cost the first run its merge: {settled}'
         )
         assert pathlib.Path(settled.artifact_path).exists()

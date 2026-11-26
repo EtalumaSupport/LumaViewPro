@@ -109,7 +109,6 @@ class TestCompositeOutcomeIsObservable:
         self,
         ending,
         *,
-        merged=False,
         artifact_path=None,
         merge_reason=None,
         merge_failure=None,
@@ -121,7 +120,6 @@ class TestCompositeOutcomeIsObservable:
             token = settled.arm(ending)
             settled.resolve(
                 token,
-                merged=merged,
                 artifact_path=artifact_path,
                 merge_reason=merge_reason,
                 merge_failure=merge_failure,
@@ -136,7 +134,7 @@ class TestCompositeOutcomeIsObservable:
 
     def test_run_composite_returns_the_merged_artifact_path(self):
         runner = self._runner_whose_run(
-            self._COMPLETED, merged=True, artifact_path=pathlib.Path('/runs/1/A1_Composite_1.tiff')
+            self._COMPLETED, artifact_path=pathlib.Path('/runs/1/A1_Composite_1.tiff')
         )
 
         assert runner.run_composite().artifact_path == pathlib.Path(

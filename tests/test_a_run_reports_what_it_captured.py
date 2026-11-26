@@ -237,7 +237,7 @@ class TestACompositeMissingAChannel:
                     session.scope._camera_driver, get_composite_channels(settings), {_FAILING}
                 ),
             ).result(timeout=WAIT_S)
-        assert not outcome.merged and outcome.artifact_path is None, outcome
+        assert outcome.artifact_path is None, outcome
         assert outcome.status == 'incomplete', outcome
         assert len(outcome.captures.failed) == 1, outcome.captures
         assert _FAILING in outcome.captures.failed[0].step_name, outcome.captures

@@ -481,7 +481,6 @@ class CaptureTally:
 
 @api_fields(
     'af_data_path',
-    'af_data_saved',
     'af_focus_z_um',
     'artifact_path',
     'axes_without_position',
@@ -491,7 +490,6 @@ class CaptureTally:
     'focus_written',
     'merge_failure',
     'merge_reason',
-    'merged',
     'message',
     'reason',
     'status',
@@ -506,15 +504,15 @@ class RunOutcome:
     The first four fields say how the run ended, as whatever ended it
     recorded (``status``, ``reason``, ``title``, ``message``), with the boards a
     disconnect lost (``unconnected_parts``) and the axes a lost position
-    left unplaced (``axes_without_position``); the next four describe
+    left unplaced (``axes_without_position``); the next three describe
     the merge, the next two the autofocus characterization data, then
     what the run captured, which steps putting the scope back after it
     did not finish, whether a scan's focus was written into the caller's
     protocol, which steps' autofocus did not focus, and last how long the
     run's end waited for its videos to save. A
-    non-composite run carries merged=False and no merge_reason under
+    non-composite run carries no artifact_path and no merge_reason under
     whatever status it ended in, and a run that saved
-    no autofocus data carries af_data_saved=False, so a caller reads one
+    no autofocus data carries no af_data_path, so a caller reads one
     shape for every run kind.
 
     Attributes:
@@ -528,20 +526,19 @@ class RunOutcome:
         axes_without_position: The axes found without a position when the
             run ended ``'position_lost'``, each mapped to its ``AxisState``;
             empty for every other reason.
-        merged: True only when an artifact was produced.
-        artifact_path: Where it landed; None whenever merged is False.
+        artifact_path: The file the merge produced, where it landed; None
+            when it produced none, and on every run that has no merge.
         merge_reason: Why the MERGE produced no file. None on success and
             on every run that has no merge, so a caller can branch on
-            merged and still log one field.
+            artifact_path and still log one field.
         merge_failure: The reason of the outcome the merge failed with
             (``'write_batch_timeout'``, ...), its own class's word, for
             ``MERGE_ERROR`` when it had one; None otherwise.
-        af_data_saved: True only when autofocus characterization data
-            was WRITTEN. False covers every run that asked for none, and
-            every run that asked and got none -- a sweep that collected
-            nothing, or one whose queued save an abort discarded.
-        af_data_path: The characterization file that was written; None
-            whenever af_data_saved is False. Never the folder: that is
+        af_data_path: The autofocus characterization file, set only when
+            its data was WRITTEN. None covers every run that asked for none,
+            and every run that asked and got none -- a sweep that collected
+            nothing, or one whose queued save an abort discarded. Never the
+            folder: that is
             allocated before the sweep runs and exists even when nothing
             was written, which is the answer a caller must not be given.
         af_focus_z_um: The Z a standalone autofocus run chose as focus,
@@ -594,11 +591,9 @@ class RunOutcome:
     message: str
     unconnected_parts: tuple[Board, ...]
     axes_without_position: dict[Axis, AxisState]
-    merged: bool
     artifact_path: pathlib.Path | None
     merge_reason: MergeReason | None
     merge_failure: str | None
-    af_data_saved: bool
     af_data_path: pathlib.Path | None
     af_focus_z_um: float | None
     captures: CaptureTally | None
@@ -747,9 +742,7 @@ class PendingRunOutcome:
         with self._lock:
             if self._state != PENDING:
                 return False
-            outcome, told = self._settle(
-                ending, merged=False, artifact_path=None, merge_reason=merge_reason
-            )
+            outcome, told = self._settle(ending, artifact_path=None, merge_reason=merge_reason)
         for tell in told:
             tell(outcome)
         return True
@@ -773,9 +766,7 @@ class PendingRunOutcome:
             if self._state == RESOLVED:
                 return False
             ending = self._ending if self._ending is not None else fallback
-            outcome, told = self._settle(
-                ending, merged=False, artifact_path=None, merge_reason=merge_reason
-            )
+            outcome, told = self._settle(ending, artifact_path=None, merge_reason=merge_reason)
         for tell in told:
             tell(outcome)
         return True
@@ -784,7 +775,6 @@ class PendingRunOutcome:
         self,
         token: str,
         *,
-        merged: bool,
         artifact_path: pathlib.Path | None,
         merge_reason: MergeReason | None,
         merge_failure: str | None = None,
@@ -803,7 +793,6 @@ class PendingRunOutcome:
             assert self._ending is not None, 'ARMED without the ending arm() stores'
             outcome, told = self._settle(
                 self._ending,
-                merged=merged,
                 artifact_path=artifact_path,
                 merge_reason=merge_reason,
                 merge_failure=merge_failure,
@@ -816,7 +805,6 @@ class PendingRunOutcome:
         self,
         ending: RunEnding,
         *,
-        merged: bool,
         artifact_path: pathlib.Path | None,
         merge_reason: MergeReason | None,
         merge_failure: str | None = None,
@@ -831,11 +819,7 @@ class PendingRunOutcome:
 
         The run's status and reason are copied from the ending, never
         restated at a settle site, so the word a caller reads is always the
-        one the thing that ended the run recorded. The autofocus saved flag
-        is derived from the path: "data was saved" and "here is the file"
-        are one fact, and an outcome given both could carry saved=True with
-        nowhere to look -- the shape a remote caller cannot tell from a real
-        delivery.
+        one the thing that ended the run recorded.
 
         Composed before the state is marked: a raise while composing leaves
         the outcome unsettled, where ``force_resolve`` can still settle it
@@ -848,11 +832,9 @@ class PendingRunOutcome:
             message=ending.message,
             unconnected_parts=ending.unconnected_parts,
             axes_without_position=ending.axes_without_position,
-            merged=merged,
             artifact_path=artifact_path,
             merge_reason=merge_reason,
             merge_failure=merge_failure,
-            af_data_saved=self._af_data_path is not None,
             af_data_path=self._af_data_path,
             af_focus_z_um=self._af_focus_z_um,
             captures=self._captures,
@@ -887,7 +869,7 @@ class PendingRunOutcome:
         """Block until the outcome settles; None when the bound expires.
 
         None means the run never reported -- distinct from a resolved
-        outcome carrying merged=False, which is a run that DID report
+        outcome carrying no artifact_path, which is a run that DID report
         that no artifact was produced. timeout_s=None blocks until the
         run settles, the wait a caller with nothing else to do makes.
         """

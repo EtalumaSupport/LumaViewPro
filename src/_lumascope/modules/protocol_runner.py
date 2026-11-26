@@ -282,10 +282,9 @@ class ProtocolRunner:
             save_characterization_data: Whether to write the per-position
                 focus scores this sweep measured. Off by default: a caller
                 that does not ask for data gets no folder. When on, the
-                run's outcome reports whether the file was written and
-                names it (af_data_saved / af_data_path), which is the only
-                way a headless caller can tell a delivered file from a
-                requested one.
+                run's outcome names the file once it was written
+                (af_data_path), which is the only way a headless caller
+                can tell a delivered file from a requested one.
             sequence_name: The name of the protocol file the run saves in
                 its folder ('.tsv' added): a name, not a path.
             parent_dir: Where characterization data goes. Defaults to
@@ -881,9 +880,9 @@ class ProtocolRunner:
                 waits for them to end.
 
         Returns:
-            The run's RunOutcome: ``merged`` True, ``artifact_path`` the
-            merged composite, ``status`` 'completed' or 'incomplete', and
-            ``captures`` what each channel produced.
+            The run's RunOutcome: ``artifact_path`` the merged composite,
+            ``status`` 'completed' or 'incomplete', and ``captures`` what
+            each channel produced.
 
         Raises:
             ProtocolRunRefusedError: Fewer than two channels are set to
@@ -920,7 +919,7 @@ class ProtocolRunner:
             ),
             timeout_s,
         )
-        if not settled.merged:
+        if settled.artifact_path is None:
             # A run that did not complete names its own ending; a completed
             # run with no artifact names what the merge did, and what it
             # failed with beside it. The run's ending is another

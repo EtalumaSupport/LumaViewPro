@@ -235,7 +235,11 @@ def main():
             check(
                 'A: the composite run completed', outcome_a.status == 'completed', outcome_a.status
             )
-            check('A: the composite merged', outcome_a.merged, outcome_a.merge_reason)
+            check(
+                'A: the composite merged',
+                outcome_a.artifact_path is not None,
+                outcome_a.merge_reason,
+            )
         outcome_b, _, end_b, record_b = _finish(pending_b, start_b, live / 'B')
         _report_run('B', outcome_b, start_b, end_b, record_b)
         figure('B.refused_for_post_processing', refused.count('post_processing_running'))
