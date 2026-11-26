@@ -71,7 +71,7 @@ def test_a_basler_on_a_usb3_port_at_high_speed_is_named_with_both_speeds():
 
     assert (basler.vendor, basler.vendor_id, basler.product_id) == ('Basler', '2676', 'BA02')
     assert (basler.speed_mbps, basler.port_best_mbps) == (480.0, 5000.0)
-    assert basler.binding.service == 'BaslerUsb' and basler.binding.started
+    assert basler.driver.service == 'BaslerUsb' and basler.driver.started
     assert '480 Mb/s on a port of 5000 Mb/s' in basler.describe()
 
 
@@ -106,7 +106,7 @@ def test_every_census_vendor_and_every_present_device_with_a_problem_code_is_lis
     ]
     assert census[0].speed_mbps == 5000.0
     unidentified = census[1]
-    assert unidentified.vendor is None and unidentified.binding.problem_code == 43
+    assert unidentified.vendor is None and unidentified.driver.problem_code == 43
     assert 'not a census vendor 0000:0002' in unidentified.describe()
     past = census[2]
     assert not past.present and past.speed_mbps is None
@@ -130,7 +130,7 @@ def test_a_driver_property_of_an_unread_type_leaves_the_device_listed_without_it
 
     (basler,) = census_from([odd], set(), _hub({odd.instance_id: None}))
 
-    assert basler.binding is None
+    assert basler.driver is None
     assert basler.unreadable[0] == 'service (type 0x19)'
     assert 'could not be read: service (type 0x19)' in basler.unreadable[1]
 
@@ -180,7 +180,7 @@ def test_off_windows_each_census_vendors_device_the_library_sees_is_listed(monke
     assert census.source.startswith('libusb ') and census.unreadable is None
     (seen,) = census.devices
     assert (seen.vendor, seen.location, seen.speed_mbps) == ('Basler', 'bus 2 port 1.3', 480.0)
-    assert seen.binding is None and seen.port_best_mbps is None
+    assert seen.driver is None and seen.port_best_mbps is None
 
 
 def test_off_windows_a_library_that_cannot_list_the_bus_gives_a_census_saying_so(monkeypatch):

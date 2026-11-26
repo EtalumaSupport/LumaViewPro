@@ -84,6 +84,58 @@ _PROBE_DURATION_S = (0, 3_600)
 
 
 @api_fields(
+    'service',
+    'provider',
+    'inf',
+    'version',
+    'date',
+    'problem_code',
+    'problem_status',
+    'parent',
+    'interface_guids',
+    'ours',
+    'unreadable',
+)
+@dataclass(frozen=True)
+class UsbBoundDriver:
+    """The driver Windows has bound to a USB device, and whether it started it.
+
+    Attributes:
+        service: The bound driver's service (``WinUSB``, ``libusbK``,
+            ``libusb0``); None when no driver is bound, and the package
+            fields with it.
+        provider: The bound package's provider.
+        inf: The bound package's published INF (``oem12.inf``).
+        version: The bound package's version.
+        date: The bound package's date.
+        problem_code: Device Manager's problem code; None or 0 for none.
+            A driver bound with a problem code was not started by Windows
+            (31: its driver could not be loaded).
+        problem_status: The Windows status behind the problem code, its
+            32 bits unsigned; None or 0 for none.
+        parent: The instance ID of the hub the device is on; None when
+            Windows names none.
+        interface_guids: The device interface GUIDs the bound package
+            registered for the device; None when no package registered any.
+        ours: Whether the bound package is LumaViewPro's.
+        unreadable: Each property Windows gave in a type LumaViewPro does
+            not read, with that type; empty when every one was read.
+    """
+
+    service: str | None
+    provider: str | None
+    inf: str | None
+    version: str | None
+    date: str | None
+    problem_code: int | None
+    problem_status: int | None
+    parent: str | None
+    interface_guids: tuple[str, ...] | None
+    ours: bool
+    unreadable: tuple[str, ...]
+
+
+@api_fields(
     'instance_id',
     'present',
     'service',
@@ -100,7 +152,7 @@ _PROBE_DURATION_S = (0, 3_600)
     'unreadable',
 )
 @dataclass(frozen=True)
-class UsbDeviceBinding:
+class UsbDeviceBinding(UsbBoundDriver):
     """One device of a USB identity and the driver Windows has bound to it.
 
     Attributes:
@@ -108,43 +160,13 @@ class UsbDeviceBinding:
             the device's serial or port.
         present: False for a device seen before on another port or at
             another time, which keeps its binding until it is matched afresh.
-        service: The bound driver's service (``WinUSB``, ``libusbK``,
-            ``libusb0``); None when no driver is bound, and the package
-            fields with it.
-        provider: The bound package's provider.
-        inf: The bound package's published INF (``oem12.inf``).
-        version: The bound package's version.
-        date: The bound package's date.
-        problem_code: Device Manager's problem code; None or 0 for none.
-            A driver bound with a problem code was not started by Windows
-            (31: its driver could not be loaded).
-        problem_status: The Windows status behind the problem code, its
-            32 bits unsigned; None or 0 for none.
         location: The port and hub Windows names (``Port_#0002.Hub_#0001``);
             None when it names none.
-        parent: The instance ID of the hub the device is on; None when
-            Windows names none.
-        interface_guids: The device interface GUIDs the bound package
-            registered for the device; None when no package registered any.
-        ours: Whether the bound package is LumaViewPro's.
-        unreadable: Each property Windows gave in a type LumaViewPro does
-            not read, with that type; empty when every one was read.
     """
 
     instance_id: str
     present: bool
-    service: str | None
-    provider: str | None
-    inf: str | None
-    version: str | None
-    date: str | None
-    problem_code: int | None
-    problem_status: int | None
     location: str | None
-    parent: str | None
-    interface_guids: tuple[str, ...] | None
-    ours: bool
-    unreadable: tuple[str, ...]
 
 
 @api_fields('hardware_id', 'name', 'usable', 'devices')
@@ -177,7 +199,7 @@ class UsbIdentityBindings:
     'instance_id',
     'location',
     'present',
-    'binding',
+    'driver',
     'speed_mbps',
     'port_best_mbps',
     'unreadable',
@@ -197,7 +219,7 @@ class UsbCensusDevice:
         location: Where it is: Windows' port and hub, or the USB library's
             bus and port path; None when neither is given.
         present: False for a device Windows saw before and does not see now.
-        binding: The driver Windows bound to it, whose package, and whether
+        driver: The driver Windows bound to it, whose package, and whether
             Windows started it; None off Windows, or when a property it is
             decided by could not be read (named in ``unreadable``).
         speed_mbps: The speed it negotiated, in Mb/s; None when not read.
@@ -212,7 +234,7 @@ class UsbCensusDevice:
     instance_id: str | None
     location: str | None
     present: bool
-    binding: UsbDeviceBinding | None
+    driver: UsbBoundDriver | None
     speed_mbps: float | None
     port_best_mbps: float | None
     unreadable: tuple[str, ...]
@@ -682,12 +704,12 @@ class DiagnosticsAPI:
                     **{
                         field.name: getattr(device, field.name)
                         for field in dataclasses.fields(device)
-                        if field.name != 'binding'
+                        if field.name != 'driver'
                     },
-                    binding=(
+                    driver=(
                         None
-                        if device.binding is None
-                        else UsbDeviceBinding(**dataclasses.asdict(device.binding))
+                        if device.driver is None
+                        else UsbBoundDriver(**dataclasses.asdict(device.driver))
                     ),
                 )
                 for device in census.devices

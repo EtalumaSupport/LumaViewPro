@@ -179,6 +179,7 @@ NaN stays a NaN, and a key keeps its type.
 - [`TurretStatus`](#TurretStatus)
 - [`UiDispatcher`](#UiDispatcher)
 - [`UnfitArgument`](#UnfitArgument)
+- [`UsbBoundDriver`](#UsbBoundDriver)
 - [`UsbBusCensus`](#UsbBusCensus)
 - [`UsbCensusDevice`](#UsbCensusDevice)
 - [`UsbDeviceBinding`](#UsbDeviceBinding)
@@ -12664,6 +12665,28 @@ One argument of a request that does not fit its member, as the request reader fo
 - <a id="UnfitArgument.msg"></a>`msg`: `str` -- Why it does not fit, in the reader's words.
 - <a id="UnfitArgument.type"></a>`type`: `str` -- The reader's code for why.
 
+<a id="UsbBoundDriver"></a>
+## `lumascope.UsbBoundDriver`
+
+A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+Held in: [`UsbCensusDevice.driver`](#UsbCensusDevice.driver).
+
+The driver Windows has bound to a USB device, and whether it started it.
+
+**Fields**
+
+- <a id="UsbBoundDriver.date"></a>`date`: `str | None` -- The bound package's date.
+- <a id="UsbBoundDriver.inf"></a>`inf`: `str | None` -- The bound package's published INF (`oem12.inf`).
+- <a id="UsbBoundDriver.interface_guids"></a>`interface_guids`: `tuple[str, ...] | None` -- The device interface GUIDs the bound package registered for the device; None when no package registered any.
+- <a id="UsbBoundDriver.ours"></a>`ours`: `bool` -- Whether the bound package is LumaViewPro's.
+- <a id="UsbBoundDriver.parent"></a>`parent`: `str | None` -- The instance ID of the hub the device is on; None when Windows names none.
+- <a id="UsbBoundDriver.problem_code"></a>`problem_code`: `int | None` -- Device Manager's problem code; None or 0 for none. A driver bound with a problem code was not started by Windows (31: its driver could not be loaded).
+- <a id="UsbBoundDriver.problem_status"></a>`problem_status`: `int | None` -- The Windows status behind the problem code, its 32 bits unsigned; None or 0 for none.
+- <a id="UsbBoundDriver.provider"></a>`provider`: `str | None` -- The bound package's provider.
+- <a id="UsbBoundDriver.service"></a>`service`: `str | None` -- The bound driver's service (`WinUSB`, `libusbK`, `libusb0`); None when no driver is bound, and the package fields with it.
+- <a id="UsbBoundDriver.unreadable"></a>`unreadable`: `tuple[str, ...]` -- Each property Windows gave in a type LumaViewPro does not read, with that type; empty when every one was read.
+- <a id="UsbBoundDriver.version"></a>`version`: `str | None` -- The bound package's version.
+
 <a id="UsbBusCensus"></a>
 ## `lumascope.UsbBusCensus`
 
@@ -12688,7 +12711,7 @@ One device on the USB bus, each layer the host could read.
 
 **Fields**
 
-- <a id="UsbCensusDevice.binding"></a>`binding`: `UsbDeviceBinding | None` -- The driver Windows bound to it, whose package, and whether Windows started it; None off Windows, or when a property it is decided by could not be read (named in `unreadable`).
+- <a id="UsbCensusDevice.driver"></a>`driver`: `UsbBoundDriver | None` -- The driver Windows bound to it, whose package, and whether Windows started it; None off Windows, or when a property it is decided by could not be read (named in `unreadable`).
 - <a id="UsbCensusDevice.instance_id"></a>`instance_id`: `str | None` -- Windows' instance ID; None off Windows.
 - <a id="UsbCensusDevice.location"></a>`location`: `str | None` -- Where it is: Windows' port and hub, or the USB library's bus and port path; None when neither is given.
 - <a id="UsbCensusDevice.port_best_mbps"></a>`port_best_mbps`: `float | None` -- The fastest speed its port supports, in Mb/s; None when not read, as off Windows.
@@ -12703,7 +12726,7 @@ One device on the USB bus, each layer the host could read.
 ## `lumascope.UsbDeviceBinding`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Held in: [`UsbCensusDevice.binding`](#UsbCensusDevice.binding), [`UsbIdentityBindings.devices`](#UsbIdentityBindings.devices).
+Held in: [`UsbIdentityBindings.devices`](#UsbIdentityBindings.devices).
 
 One device of a USB identity and the driver Windows has bound to it.
 

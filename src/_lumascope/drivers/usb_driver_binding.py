@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import ClassVar
 
 from _lumascope.drivers.exceptions import CameraUsbDriverUnusableError, CameraUsbLookupFailedError
@@ -102,27 +102,22 @@ PROBLEM_CODES = {
 
 
 @dataclass(frozen=True)
-class DeviceBinding:
-    """One device of a USB identity and the driver Windows has bound to it.
+class BoundDriver:
+    """The driver Windows has bound to a device, and whether it started it.
 
     ``service`` is the bound driver's service (``WinUSB``, ``libusbK``,
     ``libusb0``), None when no driver is bound; the package fields are None
-    with it. ``present`` is False for a device seen before on another port or
-    at another time, which keeps its binding until it is matched afresh.
-    ``ours`` is whether the bound package is LumaViewPro's, as the store
-    names it (``StorePackage.ours``). ``problem_code`` is Device Manager's
-    problem code, None or 0 for none; ``problem_status`` the Windows status
-    behind it. ``location`` is the port and hub Windows names
-    (``Port_#0002.Hub_#0001``), ``parent`` the instance ID of the hub it is
-    on, and ``interface_guids`` the device interface GUIDs its bound
-    package registered for it (a wrong one fails the bind with code 31);
-    each None when Windows has none. ``unreadable`` names each property
-    Windows gave in a type this does not read, with that type: a fact for
-    the log only, so the device is still read.
+    with it. ``ours`` is whether the bound package is LumaViewPro's, as the
+    store names it (``StorePackage.ours``). ``problem_code`` is Device
+    Manager's problem code, None or 0 for none; ``problem_status`` the
+    Windows status behind it. ``parent`` is the instance ID of the hub the
+    device is on, and ``interface_guids`` the device interface GUIDs its
+    bound package registered for it (a wrong one fails the bind with code
+    31); each None when Windows has none. ``unreadable`` names each
+    property Windows gave in a type this does not read, with that type: a
+    fact for the log only, so the device is still read.
     """
 
-    instance_id: str
-    present: bool
     service: str | None
     provider: str | None
     inf: str | None
@@ -130,7 +125,6 @@ class DeviceBinding:
     date: str | None
     problem_code: int | None
     problem_status: int | None
-    location: str | None
     parent: str | None
     interface_guids: tuple[str, ...] | None
     ours: bool
@@ -159,8 +153,9 @@ class DeviceBinding:
         why = meaning.rstrip('.') if meaning else f'problem code {self.problem_code}'
         return f"on LumaViewPro's driver, which Windows did not start ({why})"
 
-    def describe(self) -> str:
-        where = 'present' if self.present else 'not present'
+    def describe_at(self, instance_id: str, present: bool, location: str | None) -> str:
+        """One line for the log: the device, as its identity is given, and this driver."""
+        where = 'present' if present else 'not present'
         if self.service is None:
             driver = 'no driver'
         else:
@@ -176,15 +171,41 @@ class DeviceBinding:
             problem = f', problem code {self.problem_code}' + (f' ({meaning})' if meaning else '')
         if self.problem_status:
             problem += f', problem status {self.problem_status:#010x}'
-        if self.location is not None:
-            problem += f', at {self.location}'
+        if location is not None:
+            problem += f', at {location}'
         if self.parent is not None:
             problem += f' on {self.parent}'
         if self.interface_guids is not None:
             problem += f', interface GUIDs {" ".join(self.interface_guids) or "none"}'
         if self.unreadable:
             problem += f', unreadable: {"; ".join(self.unreadable)}'
-        return f'{self.instance_id} ({where}): {driver}{problem}'
+        return f'{instance_id} ({where}): {driver}{problem}'
+
+
+@dataclass(frozen=True)
+class DeviceBinding(BoundDriver):
+    """One device of a USB identity and the driver Windows has bound to it.
+
+    The driver's fields are ``BoundDriver``'s. ``present`` is False for a
+    device seen before on another port or at another time, which keeps its
+    binding until it is matched afresh. ``location`` is the port and hub
+    Windows names (``Port_#0002.Hub_#0001``); None when Windows has none.
+    """
+
+    instance_id: str
+    present: bool
+    location: str | None
+
+    @property
+    def driver(self) -> BoundDriver:
+        """The driver alone, without the device's identity."""
+        return BoundDriver(
+            **{field.name: getattr(self, field.name) for field in fields(BoundDriver)}
+        )
+
+    def describe(self) -> str:
+        """One line for the log: the device and its driver."""
+        return self.describe_at(self.instance_id, self.present, self.location)
 
 
 @dataclass(frozen=True)

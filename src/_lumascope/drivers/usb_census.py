@@ -33,7 +33,7 @@ from _lumascope.drivers.usb_driver_binding import (
     CENSUS_VENDORS,
     FX2_BOOTLOADER,
     FX2_FIRMWARE,
-    DeviceBinding,
+    BoundDriver,
     DeviceProperties,
     binding_from,
 )
@@ -104,7 +104,7 @@ class CensusDevice:
         location: Where it is: Windows' port and hub, or the library's bus
             and port path; None when neither is given.
         present: False for a device Windows saw before and does not see now.
-        binding: The driver Windows bound to it and whether Windows started
+        driver: The driver Windows bound to it and whether Windows started
             it; None off Windows, or when Windows gave a property the
             binding is decided by in a type this does not read (named in
             ``unreadable``).
@@ -120,7 +120,7 @@ class CensusDevice:
     instance_id: str | None
     location: str | None
     present: bool
-    binding: DeviceBinding | None
+    driver: BoundDriver | None
     speed_mbps: float | None
     port_best_mbps: float | None
     unreadable: tuple[str, ...]
@@ -129,8 +129,8 @@ class CensusDevice:
         """One line for the log: who it is, where, its driver, its speed."""
         ids = f'{self.vendor_id or "----"}:{self.product_id or "----"}'
         who = f'{self.vendor or "not a census vendor"} {ids}'
-        if self.binding is not None:
-            what = self.binding.describe()
+        if self.driver is not None:
+            what = self.driver.describe_at(self.instance_id, self.present, self.location)
         else:
             where = f' at {self.location}' if self.location else ''
             state = 'present' if self.present else 'not present'
@@ -201,9 +201,9 @@ def census_from(
         # leaves them to the device's record, with why it was refused.
         unreadable = []
         try:
-            binding = binding_from(device, ours)
+            driver = binding_from(device, ours).driver
         except CameraUsbLookupFailedError as e:
-            binding = None
+            driver = None
             unreadable.extend(f'{name} ({why})' for name, why in device.unreadable.items())
             unreadable.append(f'driver ({e})')
         port = None
@@ -220,7 +220,7 @@ def census_from(
                 instance_id=device.instance_id,
                 location=device.values.get('location'),
                 present=present,
-                binding=binding,
+                driver=driver,
                 speed_mbps=port.speed_mbps if port else None,
                 port_best_mbps=port.port_best_mbps if port else None,
                 unreadable=tuple(unreadable),

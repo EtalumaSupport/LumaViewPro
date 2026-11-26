@@ -1770,7 +1770,7 @@ def _census_device(device: Any) -> CensusDevice:
         instance_id=None,
         location=location,
         present=True,
-        binding=None,
+        driver=None,
         speed_mbps=_LIBUSB_SPEED_MBPS.get(fields['speed']),
         port_best_mbps=None,
         unreadable=tuple(unreadable),

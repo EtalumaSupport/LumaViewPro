@@ -44,6 +44,7 @@ from _lumascope.drivers import motorconfig
 from _lumascope.drivers.exceptions import CameraUsbLookupFailedError, HardwareError
 from _lumascope.drivers.usb_census import CensusDevice, read_device_list
 from _lumascope.drivers.usb_driver_binding import (
+    BoundDriver,
     DeviceBinding,
     setupapi_log_excerpt,
     signing_facts,
@@ -656,12 +657,10 @@ def _read_local_machine_value(path: str, name: str) -> object:
 def _census_line(device) -> str:
     """A published census device in the census's own words, as bring-up logs it."""
     fields = {
-        f.name: getattr(device, f.name) for f in dataclasses.fields(device) if f.name != 'binding'
+        f.name: getattr(device, f.name) for f in dataclasses.fields(device) if f.name != 'driver'
     }
-    binding = (
-        None if device.binding is None else DeviceBinding(**dataclasses.asdict(device.binding))
-    )
-    return CensusDevice(**fields, binding=binding).describe()
+    driver = None if device.driver is None else BoundDriver(**dataclasses.asdict(device.driver))
+    return CensusDevice(**fields, driver=driver).describe()
 
 
 def _collect_usb_devices():

@@ -24,7 +24,7 @@ from _lumascope.drivers.usb_driver_binding import (
     CENSUS_VENDORS,
     FX2_BOOTLOADER,
     FX2_FIRMWARE,
-    DeviceBinding,
+    BoundDriver,
 )
 
 # The IDs each EL-0940 board's driver finds it by (``ledboard.py``,
@@ -78,7 +78,7 @@ class SimulatedUsbBus:
                             instance_id=binding.instance_id,
                             location=binding.location,
                             present=binding.present,
-                            binding=binding,
+                            driver=binding.driver,
                             speed_mbps=_FX2_SPEED_MBPS,
                             port_best_mbps=None,
                             unreadable=(),
@@ -86,12 +86,9 @@ class SimulatedUsbBus:
                     )
         boards = [_LED_BOARD] * self._led_board + [_MOTOR_BOARD] * self._motor_board
         for port, ids in enumerate(boards, start=len(devices) + 1):
-            devices.append(_device(ids, port, binding=None))
+            devices.append(_device(ids, port, driver=None))
         for port in range(len(devices) + 1, len(devices) + 1 + self._unidentified_devices):
-            instance_id = _instance_id(_UNIDENTIFIED, port)
-            failed = DeviceBinding(
-                instance_id=instance_id,
-                present=True,
+            failed = BoundDriver(
                 service=None,
                 provider=None,
                 inf=None,
@@ -99,13 +96,12 @@ class SimulatedUsbBus:
                 date=None,
                 problem_code=_DESCRIPTOR_FAILED,
                 problem_status=None,
-                location=_location(port),
                 parent=_ROOT_HUB,
                 interface_guids=None,
                 ours=False,
                 unreadable=(),
             )
-            devices.append(_device(_UNIDENTIFIED, port, binding=failed))
+            devices.append(_device(_UNIDENTIFIED, port, driver=failed))
         return UsbCensus(source='the simulated bus', devices=tuple(devices), unreadable=None)
 
 
@@ -120,7 +116,7 @@ def _instance_id(ids: tuple[str, str], port: int) -> str:
     return f'USB\\VID_{ids[0]}&PID_{ids[1]}\\SIMULATED&{port}'
 
 
-def _device(ids: tuple[str, str], port: int, *, binding: DeviceBinding | None) -> CensusDevice:
+def _device(ids: tuple[str, str], port: int, *, driver: BoundDriver | None) -> CensusDevice:
     return CensusDevice(
         vendor_id=ids[0],
         product_id=ids[1],
@@ -128,7 +124,7 @@ def _device(ids: tuple[str, str], port: int, *, binding: DeviceBinding | None) -
         instance_id=_instance_id(ids, port),
         location=_location(port),
         present=True,
-        binding=binding,
+        driver=driver,
         speed_mbps=None,
         port_best_mbps=None,
         unreadable=(),

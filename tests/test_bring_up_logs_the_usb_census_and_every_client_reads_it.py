@@ -46,7 +46,7 @@ def test_bring_up_logs_a_classic_on_our_driver_windows_did_not_start(caplog):
     assert census_lines[0] == '[USB census] 1 device(s), read through the simulated bus'
     assert 'Cypress (the Lumascope Classic) 04B4:8613' in census_lines[1]
     assert 'problem code 31' in census_lines[1]
-    assert classic.binding.problem_code == 31 and classic.binding.ours
+    assert classic.driver.problem_code == 31 and classic.driver.ours
 
 
 def test_an_el_0940_scopes_census_names_its_boards_and_an_unidentified_device():
@@ -62,7 +62,7 @@ def test_an_el_0940_scopes_census_names_its_boards_and_an_unidentified_device():
         ('2E8A', '0005'),
         ('0000', '0002'),
     ]
-    assert census.devices[2].binding.problem_code == 43
+    assert census.devices[2].driver.problem_code == 43
 
 
 def test_a_bus_that_cannot_be_read_is_logged_as_that_and_the_scope_comes_up(monkeypatch, caplog):
