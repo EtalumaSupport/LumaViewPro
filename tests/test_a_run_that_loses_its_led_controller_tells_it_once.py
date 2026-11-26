@@ -47,7 +47,7 @@ def test_an_fx2_pulled_mid_run_is_told_by_the_abort_and_the_cleanup(tmp_path, ce
         shown = [(n.title, n.severity) for n in centre_posts if n.shown]
         assert outcome == ('failed', 'hardware_disconnected')
         assert shown == [
-            ('Protocol Aborted', Severity.CRITICAL),
+            ('Protocol Failed', Severity.CRITICAL),
             ('Protocol cleanup issues', Severity.ERROR),
         ]
     finally:

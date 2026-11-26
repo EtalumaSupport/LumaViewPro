@@ -18,7 +18,7 @@ After this fix:
 - ``scan_loop`` no longer catches exceptions; they propagate to
   ``_run_loop_inner``'s outer except.
 - The outer except classifies via ``scope.unconnected_parts``:
-    * disconnected -> fatal, fire "Protocol Aborted" + cleanup + break
+    * disconnected -> fatal, fire "Protocol Failed" + cleanup + break
     * connected   -> transient, log warning only, do not increment
       ``_scan_count``, do not break; outer loop's next iteration
       waits the protocol period and retries the same scan number.

@@ -145,11 +145,11 @@ class RunEndReason(enum.StrEnum):
     CAMERA_LANE_STALLED = 'camera_lane_stalled', 'Camera Busy', EndingKind.FAILURE
     CAMERA_READ_FAILED = 'camera_read_failed', CameraReadFailedError.title, EndingKind.FAILURE
     RUN_LOOP_CRASHED = 'run_loop_crashed', 'Protocol Crashed', EndingKind.FAILURE
-    HARDWARE_DISCONNECTED = 'hardware_disconnected', 'Protocol Aborted', EndingKind.FAILURE
+    HARDWARE_DISCONNECTED = 'hardware_disconnected', 'Protocol Failed', EndingKind.FAILURE
     CAMERA_DISCONNECTED = 'camera_disconnected', 'Camera Disconnected', EndingKind.FAILURE
-    CONSECUTIVE_SCAN_FAILURES = 'consecutive_scan_failures', 'Protocol Aborted', EndingKind.FAILURE
-    INTERLOCK = 'interlock', 'Protocol Aborted -- Stage Interlock', EndingKind.FAILURE
-    POSITION_LOST = 'position_lost', 'Protocol Aborted -- Position Lost', EndingKind.FAILURE
+    CONSECUTIVE_SCAN_FAILURES = 'consecutive_scan_failures', 'Protocol Failed', EndingKind.FAILURE
+    INTERLOCK = 'interlock', 'Protocol Failed -- Stage Interlock', EndingKind.FAILURE
+    POSITION_LOST = 'position_lost', 'Protocol Failed -- Position Lost', EndingKind.FAILURE
     DISK_SPACE_CRITICAL = 'disk_space_critical', 'Disk Space Critical', EndingKind.FAILURE
     WRITE_FAILED = 'write_failed', 'Recording Stopped', EndingKind.FAILURE
     FILE_WRITER_STALLED = 'file_writer_stalled', 'File Writer Stalled', EndingKind.FAILURE
