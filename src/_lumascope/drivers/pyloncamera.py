@@ -1215,6 +1215,7 @@ class PylonCamera(Camera):
     def connect(self) -> bool:
         """Try to connect to the first available basler camera"""
         self._reset_at_this_connect = False
+        self._clock_before_reset: int | CameraReadFailedError | None = None
         try:
             # Enumerate ALL Basler devices visible to pylon BEFORE
             # CreateFirstDevice() so the "no device available" failure
@@ -1270,15 +1271,18 @@ class PylonCamera(Camera):
                 camera.Open()
                 fault = CameraSetupFailedError
                 step = 'its reset'
-                # Active for the reset's one write alone: nothing is registered
-                # on it, and it is never active again once destroyed.
+                # Active for the clock's read and the reset's one write alone:
+                # nothing is registered on it, and it is never active again
+                # once destroyed.
                 self.active = camera
+                before_reset = self._read_clock_before_reset()
                 if not self.write_node('DeviceReset', self.RUN, if_present=True):
                     camera.Close()
                 else:
                     self.active = None
                     camera.DestroyDevice()
                     self._reset_at_this_connect = True
+                    self._clock_before_reset = before_reset
                     reset_at = time.monotonic()
                     fault = CameraUsbNotFoundError
                     step = 'its return after its reset'
@@ -1547,6 +1551,27 @@ class PylonCamera(Camera):
     def resets_at_connect(self) -> bool:
         """Whether this connect reset the camera (``_resets_at_connect``, with ``DeviceReset``)."""
         return self._reset_at_this_connect
+
+    @property
+    def clock_ticks_before_reset(self) -> int | CameraReadFailedError | None:
+        """The clock read before this connect's reset (``Camera.clock_ticks_before_reset``)."""
+        return self._clock_before_reset
+
+    def _read_clock_before_reset(self) -> int | CameraReadFailedError | None:
+        """The clock's ticks just before the reset, the read's failure, or None (no latch).
+
+        The reset restarts the clock, so this is the one moment the time the
+        camera had been running can be read. A failure is kept for bring-up to
+        report, never raised here: the reset is what clears a stalling camera,
+        and a failed uptime read must not stop it.
+        """
+        try:
+            if not self.supports_clock_latch():
+                return None
+            self.latch_clock()
+            return self.latched_clock_ticks()
+        except CameraReadFailedError as fault:
+            return fault
 
     def _resets_at_connect(self, device_info) -> bool:
         """Whether ``connect`` resets this camera before configuring it.

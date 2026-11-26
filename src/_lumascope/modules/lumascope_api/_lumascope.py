@@ -1598,14 +1598,34 @@ class Lumascope:
 
         For whoever reads the log of a camera fault that survives a
         reconnect, which only a power cycle or a reset clears: the uptime
-        says whether the camera had one, except on a Basler USB camera,
-        where it counts from LumaViewPro's own reset at connect. Bring-up is
-        where a failed read's flight stops, as for its camera writes: the
-        latch is the one every
-        capture's clock mapping takes, so a camera that fails it here is
-        reported once and bring-up goes on. The read's body runs here and
-        now, as every bring-up write's does, not on the camera lane.
+        says whether the camera had one. A camera LumaViewPro reset at
+        connect (every Basler USB camera) restarted its clock there, so its
+        uptime is the clock its driver read before the reset
+        (``clock_ticks_before_reset``), told with the reset; never turned
+        into seconds without the camera's tick rate. Bring-up is where a
+        failed read's flight stops, as for its camera writes: the latch is
+        the one every capture's clock mapping takes, so a camera that fails
+        it, before its reset or here, is reported once and bring-up goes on.
+        The read's body runs here and now, as every bring-up write's does,
+        not on the camera lane.
         """
+        before_reset = self._camera_driver.clock_ticks_before_reset
+        if isinstance(before_reset, CameraReadFailedError):
+            notifications.report_outcome(before_reset, solicited=False, category='Camera')
+            return
+        if before_reset is not None:
+            tick_hz = self.capabilities.camera_timestamp_tick_hz
+            if tick_hz is None:
+                logger.info(
+                    f'[SCOPE API ] camera uptime at connect: read as {before_reset} ticks, '
+                    'then reset by LumaViewPro; its tick rate is unknown, so not in seconds'
+                )
+                return
+            logger.info(
+                f'[SCOPE API ] camera uptime at connect: {before_reset / tick_hz:.1f} s '
+                '(since its last power-up or reset), then reset by LumaViewPro'
+            )
+            return
         try:
             uptime_s = self.diagnostics._read_camera_uptime_impl()
         except CameraReadFailedError as fault:

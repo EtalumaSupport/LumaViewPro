@@ -1197,6 +1197,17 @@ class Camera(ABC):
         """Whether this camera was reset when it connected, so restarting LumaViewPro resets it again."""
         return False
 
+    @property
+    def clock_ticks_before_reset(self) -> int | CameraReadFailedError | None:
+        """The camera's clock read just before its reset at this connect, or that read's failure.
+
+        A reset restarts the camera's clock, so the time the camera had been
+        running when LumaViewPro connected is read before it, in the camera's
+        ticks. Kept only when the reset ran; None for a camera not reset at
+        connect, or one with no clock latch. Reading it changes nothing.
+        """
+        return None
+
     def _record_stop(self, elapsed_s: float) -> None:
         """Count a stop that returned after ``elapsed_s`` seconds toward ``longest_stop_s``."""
         with self._state_lock:
