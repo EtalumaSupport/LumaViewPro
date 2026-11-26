@@ -285,7 +285,7 @@ class TestTheRunnerRecordsTheStop:
         assert (ending.status, ending.reason, ending.message) == (
             'aborted',
             'stopped',
-            'Stopped by code in this process.',
+            'The run was stopped by code in this process.',
         )
 
     def test_a_stop_the_gui_makes_says_the_gui_stopped_it(self):
@@ -296,7 +296,7 @@ class TestTheRunnerRecordsTheStop:
         with calling(Caller.GUI):
             scr.SequencedCaptureRunner._stop_run(stub, stub._run_handle)
 
-        assert stub._ending.get().message == 'Stopped by LumaViewPro.'
+        assert stub._ending.get().message == 'The run was stopped by LumaViewPro.'
 
     def test_a_stop_with_nothing_to_stop_records_nothing(self):
         """A Stop that finds its run already ended ended no run, so it must

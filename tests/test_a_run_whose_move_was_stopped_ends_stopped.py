@@ -242,7 +242,7 @@ def test_a_stop_that_cuts_the_autofocus_final_move_ends_the_run_and_is_told_once
 ):
     """The sweep's last move, to the focus it found, is cut by a press whose
     tell found no run. The run ends ``stage_stopped`` and tells it once, as
-    the run's ending, not also as the sweep's "Move Stopped". Before: the run
+    the run's ending, not also as the sweep's stopped move. Before: the run
     ended ``completed`` with Z a few microns off the focus it reported."""
     session = focusing_session
     motion = session.scope.motion
@@ -281,4 +281,4 @@ def test_a_stop_that_cuts_the_autofocus_final_move_ends_the_run_and_is_told_once
 
     assert len(targets) == sweep_length
     assert (outcome.status, outcome.reason) == ('aborted', 'stage_stopped')
-    assert [n.title for n in centre_posts if n.shown] == ['Protocol Stopped']
+    assert [(n.reason, n.title) for n in centre_posts if n.shown] == [('stage_stopped', 'Stopped')]

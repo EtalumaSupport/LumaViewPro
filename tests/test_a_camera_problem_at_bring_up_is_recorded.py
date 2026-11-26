@@ -296,7 +296,7 @@ def test_a_camera_not_on_the_bus_is_recorded_not_detected_and_told_once(microsco
         assert not session.scope.camera_connected
         told = [n for n in heard if n.category == 'Camera' and n.severity.level >= logging.WARNING]
         assert [(n.title, n.message) for n in told] == [
-            ('Camera not detected', 'Camera not found. Check USB cable and power.')
+            ('Not Found on USB', 'Camera not found. Check USB cable and power.')
         ]
         with pytest.raises(HardwareCommandRefusedError) as refused:
             session.scope.camera.read_gain_db()
@@ -315,7 +315,7 @@ def test_a_camera_not_on_the_bus_is_recorded_not_detected_and_told_once(microsco
         (
             'LS720',
             True,
-            [('Camera', 'Camera not detected'), ('Illumination', 'LED Controller Unavailable')],
+            [('Camera', 'Not Found on USB'), ('Illumination', 'Not Found on USB')],
         ),
     ],
     ids=['manual', 'motorized'],

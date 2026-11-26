@@ -68,7 +68,7 @@ def test_a_build_asked_while_the_scope_is_held_is_refused_for_its_state(session,
     assert refused.value.reason == 'exclusive_activity_running'
     assert refused.value.cause is RefusalCause.STATE
     assert refused.value.holder is Holder.DIAGNOSTIC
-    assert refused.value.title == 'Another Activity Running'
+    assert refused.value.title == 'Microscope Busy'
     assert 'diagnostic' in str(refused.value).lower()
 
 

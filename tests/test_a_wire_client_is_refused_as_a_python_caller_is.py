@@ -192,7 +192,7 @@ def test_a_move_another_request_stopped_answers_409_as_a_notice(client, session)
         409,
         'notice',
         'stopped',
-        'Move Stopped',
+        'Stopped',
     )
     assert (
         error['detail'] == 'The X move did not complete: the motors were stopped before it arrived.'

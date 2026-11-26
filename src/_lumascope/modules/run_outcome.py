@@ -134,8 +134,8 @@ class RunEndReason(enum.StrEnum):
         return member
 
     COMPLETED = 'completed', 'Protocol Complete', EndingKind.COMPLETION
-    STOPPED = 'stopped', 'Protocol Stopped', EndingKind.STOP
-    STAGE_STOPPED = 'stage_stopped', 'Protocol Stopped', EndingKind.STOP
+    STOPPED = 'stopped', 'Stopped', EndingKind.STOP
+    STAGE_STOPPED = 'stage_stopped', 'Stopped', EndingKind.STOP
     SHUTDOWN = 'shutdown', 'Protocol Stopped', EndingKind.STOP
     CAPTURES_FAILED = 'captures_failed', 'Run Incomplete', EndingKind.FAILURE
     START_FAILED = 'start_failed', 'Run failed to start', EndingKind.FAILURE

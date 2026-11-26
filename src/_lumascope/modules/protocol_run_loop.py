@@ -51,7 +51,7 @@ MAX_CONSECUTIVE_SCAN_FAILURES = 3
 # either having run every scan or having been told to stop, and both exits
 # report through the same record.
 RUN_COMPLETED = RunEnding(RunStatus.COMPLETED, 'completed', 'The run finished normally.')
-RUN_STOPPED = RunEnding(RunStatus.ABORTED, 'stopped', 'Stopped')
+RUN_STOPPED = RunEnding(RunStatus.ABORTED, 'stopped', 'The run was stopped.')
 
 
 class ProtocolRunLoop:

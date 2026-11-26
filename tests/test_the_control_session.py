@@ -687,7 +687,7 @@ def test_taking_back_control_stops_the_clients_run_and_the_session_is_cleared_at
 
     outcome = run.result(timeout=COMPLETION_TIMEOUT)
     assert (outcome.status, outcome.reason) == ('aborted', 'stopped')
-    assert outcome.message == 'Stopped by LumaViewPro.'
+    assert outcome.message == 'The run was stopped by LumaViewPro.'
 
 
 def test_taking_back_an_ended_session_leaves_the_operators_run_begun_since(run_session, tmp_path):

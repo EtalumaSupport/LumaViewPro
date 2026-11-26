@@ -3,7 +3,7 @@
 
 A camera driver's ``connect`` returns False only when no camera of its kind
 is reachable, so the registry tries the next driver and, with none, the
-bring-up says "Camera not detected". A camera that is found and cannot be
+bring-up says the camera was not found on USB. A camera that is found and cannot be
 opened raises ``CameraUsbOpenFailedError``, and one that opened and whose
 set-up failed raises ``CameraSetupFailedError``; the registry outranks either
 over every "not found", and the bring-up tells the first as a camera that

@@ -31,7 +31,9 @@ _NOT_DETECTED = DriverFallback('not_detected', ('MotorBoard',))
     ('others', 'report'),
     [
         pytest.param(
-            {}, (OutcomeKind.FAULT, MotorBoardUnavailableError.title), id='only-the-motor'
+            {},
+            (OutcomeKind.FAULT, MotorBoardUnavailableError.titles['not_detected']),
+            id='only-the-motor',
         ),
         pytest.param(
             {

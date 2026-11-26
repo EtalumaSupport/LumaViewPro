@@ -162,7 +162,7 @@ class TestEachPartNamesItsCause:
             assert motor.missing
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
             assert [(n.title, n.reason, n.category) for n in faults] == [
-                (MotorBoardUnavailableError.title, 'port_in_use', 'Motion')
+                (MotorBoardUnavailableError.titles['port_in_use'], 'port_in_use', 'Motion')
             ]
             assert 'Close other programs holding the port' in faults[0].message
             assert faults[0].shown
@@ -198,7 +198,7 @@ class TestEachPartNamesItsCause:
                 finally:
                     s.shutdown()
                     s.scope.disconnect()
-                if told != [(notice.title, cause, str(notice(cause)))]:
+                if told != [(notice.titles[cause], cause, str(notice(cause)))]:
                     offenders.append((part, cause, told))
         assert offenders == []
 
@@ -214,8 +214,8 @@ class TestEachPartNamesItsCause:
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
             assert sorted((n.title, n.category) for n in faults) == sorted(
                 [
-                    (LedBoardUnavailableError.title, 'Illumination'),
-                    (MotorBoardUnavailableError.title, 'Motion'),
+                    (LedBoardUnavailableError.titles['port_in_use'], 'Illumination'),
+                    (MotorBoardUnavailableError.titles['port_in_use'], 'Motion'),
                 ]
             )
         finally:
@@ -262,7 +262,7 @@ class TestEachPartNamesItsCause:
             assert led in s.bring_up_record.missing
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
             assert [(n.title, n.reason) for n in faults] == [
-                (LedBoardUnavailableError.title, 'port_in_use')
+                (LedBoardUnavailableError.titles['port_in_use'], 'port_in_use')
             ]
         finally:
             s.shutdown()
@@ -282,7 +282,7 @@ class TestEachPartNamesItsCause:
             assert (led.up, led.cause) == (False, 'not_responding')
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
             assert [(n.title, n.reason) for n in faults] == [
-                (LedBoardUnavailableError.title, 'not_responding')
+                (LedBoardUnavailableError.titles['not_responding'], 'not_responding')
             ]
             assert 'Power-cycle' in faults[0].message
         finally:
@@ -304,7 +304,7 @@ class TestEachPartNamesItsCause:
             assert 'PermissionError' in camera.detail
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
             assert [(n.title, n.reason, n.category) for n in faults] == [
-                ('Camera port in use', 'port_in_use', 'Camera')
+                ('Port In Use', 'port_in_use', 'Camera')
             ]
         finally:
             s.shutdown()

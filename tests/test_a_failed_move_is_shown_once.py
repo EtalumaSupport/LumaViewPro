@@ -105,7 +105,7 @@ def test_a_driver_failure_is_one_popup_chained_to_the_drivers_error(
     assert raised.reason == 'driver_failed'
     assert raised.__cause__ is cause
     assert [(n.severity, n.title) for n in _shown(centre_posts)] == [
-        (Severity.ERROR, 'Move Did Not Complete')
+        (Severity.ERROR, 'Motor Command Failed')
     ]
     assert motion.get_axis_state('Z') == AxisState.UNKNOWN
 

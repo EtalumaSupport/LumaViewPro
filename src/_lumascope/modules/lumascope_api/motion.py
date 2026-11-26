@@ -1278,9 +1278,9 @@ class MotionAPI:
                 home established.
         """
         # Asked before the driver: without it, a home with no controller
-        # dispatches into the driver and fails there, and the person sees
-        # a "Homing Failed" that implies a homing-mechanics problem
-        # instead of the cable.
+        # dispatches into the driver and fails there, and the person reads
+        # a failed home that implies a homing-mechanics problem instead of
+        # the cable.
         self.refuse_absent('home')
         present_axes = self._scope.capabilities.axes
         _api_log.info('home START')

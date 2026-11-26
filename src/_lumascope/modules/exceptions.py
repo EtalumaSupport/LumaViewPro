@@ -190,7 +190,6 @@ class LiveFolderPathRefusedError(Refusal, ValueError):
         name: The name or path that was given.
     """
 
-    title = 'Path Not Available'
     # A missing live folder is an unplugged drive, which comes back; a path
     # that is missing or of the wrong kind is answered again unchanged, so a
     # polling client must not wait on it. A file already there is answered
@@ -204,6 +203,10 @@ class LiveFolderPathRefusedError(Refusal, ValueError):
         'not_a_folder': RefusalCause.REQUEST,
         'wrong_extension': RefusalCause.REQUEST,
         'file_exists': RefusalCause.REQUEST,
+    }
+    titles: ClassVar[dict[str, str]] = {
+        **dict.fromkeys(causes, 'Path Not Available'),
+        'capture_location_unusable': 'Save Location Unusable',
     }
 
     def __init__(self, reason: str, name: str, message: str):
@@ -1308,39 +1311,39 @@ class CameraNotAvailableError(Fault, BringUpError):
 
     _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
         'port_in_use': (
-            'Camera port in use',
+            'Port In Use',
             'Camera port is in use by another program. Close the other program and restart LVP.',
         ),
         'not_detected': (
-            'Camera not detected',
+            'Not Found on USB',
             'Camera not found. Check USB cable and power.',
         ),
         'camera_driver_unavailable': (
-            'Camera not detected',
+            'Not Found on USB',
             'Camera not found, and the Lumascope Classic driver did not load. {detail} '
             'If this is not a Lumascope Classic, check USB cable and power.',
         ),
         'camera_firmware_missing': (
-            'Camera firmware missing',
+            CameraFirmwareMissingError.title,
             "The camera's firmware file is missing from this installation. Reinstall LumaViewPro.",
         ),
         'camera_driver_unusable': (
-            'Camera driver not usable',
+            'Camera Driver Not Usable',
             '{detail}.',
         ),
         'camera_not_initialized': (
-            'Camera not opened',
+            'Camera Not Opened',
             'The camera was found but could not be opened. Close any other program using '
             'it, then restart LumaViewPro; if it happens again, unplug the camera and plug '
             'it back in.',
         ),
         'camera_setup_failed': (
-            'Camera not set up',
+            CameraSetupFailedError.title,
             'The camera was found and opened, but setting it up failed. Restart '
             'LumaViewPro, and send a support report if it happens again.',
         ),
         'camera_bring_up_failed': (
-            'Camera not brought up',
+            'Camera Not Brought Up',
             f'The camera was not brought up. {INTERNAL_FAULT_SENTENCE} '
             'Restart LumaViewPro to try again.',
         ),
@@ -1701,8 +1704,6 @@ class LedBoardUnavailableError(Fault, BringUpError):
             on this installation.
     """
 
-    title = f'{Board.LED.label} Unavailable'
-
     _ADVICE: ClassVar[dict[str, str]] = {
         'not_detected': (
             'The LED control board was not found on USB, so illumination is not '
@@ -1736,6 +1737,14 @@ class LedBoardUnavailableError(Fault, BringUpError):
         ),
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_ADVICE)
+    titles: ClassVar[dict[str, str]] = {
+        'not_detected': CameraNotAvailableError.titles['not_detected'],
+        'port_in_use': CameraNotAvailableError.titles['port_in_use'],
+        'not_responding': 'Not Responding',
+        'connect_failed': 'Connection Failed',
+        'no_driver': 'Driver Not Installed',
+        'led_driver_unavailable': CameraNotAvailableError.titles['camera_driver_unavailable'],
+    }
     same_fact_as = (CameraNotAvailableError,)
 
     def __init__(self, reason: str, *, declined_words: str | None = None):
@@ -1758,8 +1767,6 @@ class MotorBoardUnavailableError(Fault, BringUpError):
             ``DriverFallback.cause`` names, as ``LedBoardUnavailableError``
             explains them.
     """
-
-    title = f'{Board.MOTOR.label} Unavailable'
 
     _ADVICE: ClassVar[dict[str, str]] = {
         'not_detected': (
@@ -1785,6 +1792,9 @@ class MotorBoardUnavailableError(Fault, BringUpError):
         ),
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_ADVICE)
+    titles: ClassVar[dict[str, str]] = {
+        reason: LedBoardUnavailableError.titles[reason] for reason in _ADVICE
+    }
     # The registry's five causes are one fact for every board; the LED board's
     # notice carries all five, beside its own driver-unavailable cause.
     same_fact_as = (LedBoardUnavailableError,)
@@ -2062,7 +2072,6 @@ class SettingRefusedError(Refusal, ConfigError):
     path: str
     member: str | None
     limits: tuple[float, float] | None
-    title = 'Setting Not Changed'
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
         (
             'out_of_range',
@@ -2078,6 +2087,15 @@ class SettingRefusedError(Refusal, ConfigError):
         ),
         RefusalCause.REQUEST,
     )
+    titles: ClassVar[dict[str, str]] = {
+        **dict.fromkeys(causes, 'Setting Not Changed'),
+        'out_of_range': 'Value Out of Range',
+        'not_a_number': 'Not a Number',
+        'wrong_kind': 'Wrong Kind of Value',
+        'not_offered': 'Not One of the Values Offered',
+        'not_a_setting': 'Not a Setting',
+        'has_member': 'Setting Has Its Own Member',
+    }
 
     def __init__(
         self,
@@ -2336,7 +2354,7 @@ class RunWaitExpiredError(ProtocolError, Quiet, TimeoutError):
         operation: The run's ``Operation``, still running when this was raised.
     """
 
-    title = 'Run Still Going'
+    title = 'Still Going'
     causes: ClassVar[dict[str, RefusalCause | None]] = {'still_running': RefusalCause.STATE}
 
     def __init__(self, member: str, timeout_s: float, operation):
@@ -2562,19 +2580,19 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
     # step was not saved, whether it was being added or updated.
     titles: ClassVar[dict[str, str]] = {
         'already_running': 'Already Running',
-        'exclusive_activity_running': 'Another Activity Running',
+        'exclusive_activity_running': 'Microscope Busy',
         'recording_active': 'Recording Active',
         'files_writing': 'Files Still Writing',
         'files_writing_stalled': ENDING_TITLES['file_writer_stalled'],
         'post_processing_running': POST_PROCESSING_RUNNING_TITLE,
         'autofocus_running': 'Autofocus Running',
-        'not_connected': 'Hardware Disconnected',
+        'not_connected': 'Not Connected',
         'camera_not_streaming': CAMERA_NOT_STREAMING_TITLE,
         'camera_not_delivering': 'Camera Not Delivering Frames',
         'position_unknown': 'Scope Not Homed',
         'lid_open_before_motion': INTERLOCK_TITLES['lid_open'],
         'stage_unpowered_before_motion': INTERLOCK_TITLES['stage_unpowered'],
-        'capture_location_unusable': 'Save Location Unusable',
+        'capture_location_unusable': LiveFolderPathRefusedError.titles['capture_location_unusable'],
         'frame_size_unknown': 'Frame Size Not Known',
         'disk_space_insufficient': 'Not Enough Disk Space',
         'no_acquiring_channel': 'No Channel Set to Acquire',
@@ -2601,7 +2619,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'positions_unreachable': 'Position Not Reachable',
         'step_position_missing': 'Step Has No Position',
         'not_on_this_scope': 'Not on This Microscope',
-        'channel_unknown': 'Channel Not Known',
+        'channel_unknown': 'Not a Channel',
         'objectives_require_turret': 'One Objective At A Time',
         'objective_not_given': 'No Objective Given',
         'focus_not_given': 'No Focus Given',
@@ -2754,8 +2772,8 @@ class RecordingRefusedError(Refusal, CaptureError):
         'recording_active': ProtocolRunRefusedError.titles['recording_active'],
         'exclusive_activity_running': ProtocolRunRefusedError.titles['exclusive_activity_running'],
         'post_processing_running': POST_PROCESSING_RUNNING_TITLE,
-        'capture_location_unusable': 'Cannot Save Recording',
-        'names_exhausted': 'Cannot Save Recording',
+        'capture_location_unusable': ProtocolRunRefusedError.titles['capture_location_unusable'],
+        'names_exhausted': 'No File Name Free',
         'disk_space_insufficient': ProtocolRunRefusedError.titles['disk_space_insufficient'],
         'falsifying_change_in_flight': 'Microscope Changing',
         'other_led_lit': 'Another Light Is On',
@@ -3013,7 +3031,10 @@ class PostProcessingRefusedError(Refusal, CaptureError):
             ProtocolRunRefusedError.titles['exclusive_activity_running'],
             '',
         ),
+        'files_writing': (ProtocolRunRefusedError.titles['files_writing'], ''),
         'files_writing_stalled': (ProtocolRunRefusedError.titles['files_writing_stalled'], ''),
+        'unreadable': (InputFramesUnusableError.titles['unreadable'], ''),
+        'names_exhausted': (RecordingRefusedError.titles['names_exhausted'], ''),
         'disk_space_insufficient': (ProtocolRunRefusedError.titles['disk_space_insufficient'], ''),
         'capture_location_unusable': (
             ProtocolRunRefusedError.titles['capture_location_unusable'],
@@ -3484,7 +3505,7 @@ class RunFilesNotWrittenError(Fault, CaptureError):
             which the words state.
     """
 
-    title = 'Run Images Not Written'
+    title = 'Run Images Not Saved'
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
         (
             'write_batch_timeout',
@@ -3556,7 +3577,7 @@ class RunImagesNotSavedError(Fault, CaptureError):
         written: Images that landed.
     """
 
-    title = 'Run Images Not Saved'
+    title = RunFilesNotWrittenError.title
     _WORDS: ClassVar[dict[str, str]] = {
         'write_batch_abandoned': 'the file writer was recovered or the app shut down',
         'write_batch_not_taken': 'the file writer was stuck',
@@ -4434,10 +4455,10 @@ class HardwareCommandRefusedError(Refusal, Exception):
         'activity_ended': 'Microscope Busy',
         'not_the_activity': 'Microscope Busy',
         'capture_in_flight': 'Microscope Busy',
-        'exclusive_activity_running': 'Microscope Busy',
+        'exclusive_activity_running': ProtocolRunRefusedError.titles['exclusive_activity_running'],
         'home_in_flight': 'Microscope Busy',
         'home_not_stoppable': 'Microscope Busy',
-        'not_connected': 'Not Connected',
+        'not_connected': ProtocolRunRefusedError.titles['not_connected'],
         'scope_disconnected': 'Not Connected',
         'camera_not_streaming': CAMERA_NOT_STREAMING_TITLE,
         'monitor_ended': 'Motion Monitor Stopped',
@@ -4772,7 +4793,7 @@ class ControlSessionRefusedError(Refusal, Exception):
 
     titles: ClassVar[dict[str, str]] = {
         'control_session_held': UNDER_CONTROL_TITLE,
-        'exclusive_activity_running': 'Microscope Busy',
+        'exclusive_activity_running': ProtocolRunRefusedError.titles['exclusive_activity_running'],
         'write_in_flight': 'Microscope Busy',
         'files_writing': ProtocolRunRefusedError.titles['files_writing'],
         'files_writing_stalled': ProtocolRunRefusedError.titles['files_writing_stalled'],
@@ -4984,11 +5005,11 @@ class ArgumentRefusedError(Refusal, ValueError):
     member: str | None
     _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
         'not_offered': (
-            'Not One of the Values Offered',
+            SettingRefusedError.titles['not_offered'],
             '{argument} must be one of {offered}; {value!r} is not one.',
         ),
         'not_a_number': (
-            'Not a Number',
+            SettingRefusedError.titles['not_a_number'],
             '{argument} must be a finite number; {value!r} is not one.',
         ),
         'plate_frame_axis': (
@@ -5000,11 +5021,11 @@ class ArgumentRefusedError(Refusal, ValueError):
             '{plate} has no well {value!r}.',
         ),
         'out_of_range': (
-            'Value Out of Range',
+            SettingRefusedError.titles['out_of_range'],
             '{argument} must be {takes}; {value!r} is outside it.',
         ),
         'channel_unknown': (
-            'Not a Channel',
+            ProtocolRunRefusedError.titles['channel_unknown'],
             '{argument} must be one of {offered}; {value!r} is not one.',
         ),
         'no_channel_selected': (
@@ -5020,7 +5041,7 @@ class ArgumentRefusedError(Refusal, ValueError):
             '{argument} is required and was not given.',
         ),
         'wrong_kind': (
-            'Wrong Kind of Value',
+            SettingRefusedError.titles['wrong_kind'],
             '{argument} must be {takes}; {value!r} is not.',
         ),
         'protocol_source_ambiguous': (
@@ -5033,11 +5054,11 @@ class ArgumentRefusedError(Refusal, ValueError):
             '{value!r} is not.',
         ),
         'not_a_setting': (
-            'Not a Setting',
+            SettingRefusedError.titles['not_a_setting'],
             '{argument} names no setting; {value!r} is not a dotted path to one.',
         ),
         'has_member': (
-            'Setting Has Its Own Read',
+            SettingRefusedError.titles['has_member'],
             "{value!r} is read by {member}, the setting's own read; {argument} reads a "
             'setting that has none.',
         ),
@@ -5536,7 +5557,7 @@ class MoveFaultError(Fault, MoveNotCompletedError):
     }
 
     titles: ClassVar[dict[str, str]] = {
-        'driver_failed': 'Move Did Not Complete',
+        'driver_failed': 'Motor Command Failed',
         'faulted': 'Move Did Not Complete',
         'stalled': 'Motor Axis Stalled',
         'monitor_ended_mid_move': 'Motion Monitor Stopped',
@@ -5578,7 +5599,7 @@ class MoveStoppedError(Notice, MoveNotCompletedError):
         'superseded': 'another command on the {axis} axis was given before it arrived.',
     }
     titles: ClassVar[dict[str, str]] = {
-        'stopped': 'Move Stopped',
+        'stopped': ENDING_TITLES['stopped'],
         STOPPED_MID_MOVE['lid_open']: INTERLOCK_TITLES['lid_open'],
         'superseded': 'Move Stopped',
     }
@@ -5621,12 +5642,17 @@ class HoldEndedError(Notice, Exception):
             move reached it.
     """
 
-    title = 'Hold Ended'
     _SENTENCES: ClassVar[dict[str, str]] = {
         'stopped': 'the motors were stopped first.',
         'superseded': 'another target on the {axis} axis ended the held move.',
         'homed': 'the {axis} axis was homed.',
         'released': 'the hold was cleared.',
+    }
+    titles: ClassVar[dict[str, str]] = {
+        'stopped': MoveStoppedError.titles['stopped'],
+        'superseded': MoveStoppedError.titles['superseded'],
+        'homed': 'Hold Ended',
+        'released': 'Hold Ended',
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_SENTENCES, RefusalCause.STATE)
     same_fact_as = (MoveStoppedError,)
@@ -5844,10 +5870,13 @@ class HomingFaultError(Fault, HomingFailedError):
     """
 
     words_for_person = True
-    title = 'Homing Failed'
-    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
-        ('driver_failed', 'board_lost', 'position_unread_after_move', 'lid_open')
-    )
+    titles: ClassVar[dict[str, str]] = {
+        'driver_failed': MoveFaultError.titles['driver_failed'],
+        'board_lost': MoveFaultError.titles['board_lost'],
+        'position_unread_after_move': MoveFaultError.titles['position_unread_after_move'],
+        'lid_open': INTERLOCK_TITLES['lid_open'],
+    }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles)
     same_fact_as = (MotionInterlockError, MoveFaultError)
 
     def _sentence(self, subject: str) -> str:
@@ -5880,7 +5909,7 @@ class HomingStoppedError(Notice, HomingFailedError):
             Stop ended before it was driven.
     """
 
-    title = 'Homing Stopped'
+    title = ENDING_TITLES['stopped']
     causes: ClassVar[dict[str, RefusalCause | None]] = {'stopped': RefusalCause.STATE}
     same_fact_as = (MoveStoppedError,)
 
@@ -6257,7 +6286,7 @@ class OperationWaitExpiredError(Quiet, TimeoutError):
         timeout_s: The wait that ran out, in seconds.
     """
 
-    title = 'Still Going'
+    title = RunWaitExpiredError.title
     causes: ClassVar[dict[str, RefusalCause | None]] = {'still_running': RefusalCause.STATE}
     same_fact_as = (RunWaitExpiredError,)
 

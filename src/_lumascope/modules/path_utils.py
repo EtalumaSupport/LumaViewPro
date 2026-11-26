@@ -44,10 +44,13 @@ class CaptureLocationError(Refusal, Exception):
             are taken.
     """
 
-    title = ProtocolRunRefusedError.titles['capture_location_unusable']
     causes: ClassVar[dict[str, RefusalCause | None]] = {
         'capture_location_unusable': RefusalCause.STATE,
         'names_exhausted': RefusalCause.STATE,
+    }
+    titles: ClassVar[dict[str, str]] = {
+        'capture_location_unusable': ProtocolRunRefusedError.titles['capture_location_unusable'],
+        'names_exhausted': RecordingRefusedError.titles['names_exhausted'],
     }
     same_fact_as = (
         LiveFolderPathRefusedError,

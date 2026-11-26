@@ -4,7 +4,7 @@
 A GUI Home press, a script, bring-up and REST all get the same thing. No
 motor controller is a refusal ("Not Connected"): nothing was driven. A
 driver that raises and a home whose position could not be read are one
-fault, ``HomingFaultError`` ("Homing Failed"), naming the axes left
+fault, ``HomingFaultError``, naming the axes left
 without a position and chained from the driver's
 exception where there is one. The home itself shows nothing: whoever waits
 on it reports it, once.

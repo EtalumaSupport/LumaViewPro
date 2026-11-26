@@ -48,7 +48,7 @@ def _steps(*xs):
 
 
 def _told_stopped(centre_posts):
-    return [n for n in centre_posts if n.shown and n.title == 'Protocol Stopped']
+    return [n for n in centre_posts if n.shown and (n.category, n.title) == ('Protocol', 'Stopped')]
 
 
 def test_stop_pressed_mid_move_ends_the_run_and_tells_it_once(session, tmp_path, centre_posts):

@@ -71,7 +71,7 @@ def test_a_stop_before_the_driver_homes_ends_the_home_with_nothing_moved(homed, 
     with pytest.raises(HomingStoppedError) as ended:
         homed.motion.home(axis)
 
-    assert (ended.value.reason, ended.value.title) == ('stopped', 'Homing Stopped')
+    assert (ended.value.reason, ended.value.title) == ('stopped', 'Stopped')
     assert outcome_of(ended.value).kind == OutcomeKind.NOTICE
     assert ended.value.axes == ()
     assert 'before it began' in str(ended.value)
@@ -121,7 +121,7 @@ def test_a_stop_while_the_board_homes_ends_it_only_where_the_board_can_take_one(
         home.stop()
         with pytest.raises(HomingStoppedError) as ended:
             home.result(60)
-        assert (ended.value.reason, ended.value.title) == ('stopped', 'Homing Stopped')
+        assert (ended.value.reason, ended.value.title) == ('stopped', 'Stopped')
         assert outcome_of(ended.value).kind == OutcomeKind.NOTICE
         assert ended.value.axes
     else:

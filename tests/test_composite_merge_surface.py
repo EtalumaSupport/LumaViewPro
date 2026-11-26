@@ -236,4 +236,4 @@ class TestAFailedMergeTellsTheUserOnce:
         assert excinfo.value.reason == 'merge_error'
         assert excinfo.value.merge_failure == 'write_batch_timeout'
         told = [(n.title, n.severity) for n in seen if n.severity.level >= Severity.NOTICE.level]
-        assert told == [('Run Images Not Written', Severity.ERROR)], told
+        assert told == [('Run Images Not Saved', Severity.ERROR)], told

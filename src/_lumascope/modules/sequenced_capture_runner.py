@@ -927,7 +927,10 @@ class SequencedCaptureRunner:
             # run's own teardown halting its stage, which a press relays
             # back here -- changes nothing and names no stopper.
             if self._ending.set_if_unset(
-                ending or RunEnding(RunStatus.ABORTED, 'stopped', f'Stopped by {stopper.words}.')
+                ending
+                or RunEnding(
+                    RunStatus.ABORTED, 'stopped', f'The run was stopped by {stopper.words}.'
+                )
             ):
                 logger.info(
                     f'[{self.LOGGER_NAME}] {the_run_named(self._run_identity)} '

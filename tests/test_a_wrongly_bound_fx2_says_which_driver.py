@@ -90,7 +90,7 @@ def test_bring_up_names_the_driver_not_an_absent_camera(monkeypatch):
     cause = _camera_failure_cause(caught.value, False)
     notice = CameraNotAvailableError(cause, detail=caught.value.refused_words)
     assert cause == 'camera_driver_unusable'
-    assert notice.title == 'Camera driver not usable'
+    assert notice.title == 'Camera Driver Not Usable'
     said = str(notice)
     assert 'Windows has the Lumascope Classic (Bootloader) on' in said, said
     assert "not LumaViewPro's" in said and 'install LumaViewPro with its installer' in said, said

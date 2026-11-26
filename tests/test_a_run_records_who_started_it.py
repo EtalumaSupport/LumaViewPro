@@ -98,7 +98,7 @@ class TestAStopSaysWhoStoppedTheRun:
         outcome = run.result(timeout=COMPLETION_TIMEOUT)
 
         assert (outcome.status, outcome.reason) == ('aborted', 'stopped')
-        assert outcome.message == 'Stopped by LumaViewPro.'
+        assert outcome.message == 'The run was stopped by LumaViewPro.'
 
 
 class TestTheRefusalCarriesItOnTheWire:

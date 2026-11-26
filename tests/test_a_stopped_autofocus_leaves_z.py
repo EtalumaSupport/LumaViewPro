@@ -128,7 +128,7 @@ def test_the_runs_own_halt_of_a_sweep_move_is_not_a_stop_of_the_sweep(
     assert moved_on.is_set(), "the sweep ended on its run's own halt"
     assert (outcome.status, outcome.reason) == ('failed', 'camera_failure')
     assert ('move_z', 5000.0) in z_asked[held_at:], f'Z asked {z_asked}'
-    assert 'Move Stopped' not in [n.title for n in centre_posts if n.shown]
+    assert 'stopped' not in [n.reason for n in centre_posts if n.shown]
 
 
 def test_a_sweep_move_asked_after_a_stop_press_drives_nothing(session, monkeypatch):

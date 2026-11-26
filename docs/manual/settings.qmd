@@ -4,7 +4,7 @@ This chapter describes each setting in [Microscope Settings]{.guilabel} and
 [Advanced Settings]{.guilabel}. Settings that need particular hardware say
 so. Settings are saved and restored at the next start, except where noted.
 
-If you type a value outside a setting's range, a "Setting Not Changed"
+If you type a value outside a setting's range, a "Value Out of Range"
 message gives the allowed range, and the setting keeps its previous value.
 A value past what the Lumascope's hardware can do, such as a frame larger
 than the camera allows or an LED current above the board's maximum, is set

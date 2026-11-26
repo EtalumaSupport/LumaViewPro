@@ -6,7 +6,7 @@ last ten seconds, on the premise that the post repeats something the person
 was just told. What a run tells once (``report_outcome``'s ``once_per_run``)
 breaks the premise: a second same-titled one is another run's, and the window
 hid it as a repeat. Seen on the bench: a scan stopped, then an autofocus run
-stopped 8 s later, and the second "Protocol Stopped" was logged ``not shown
+stopped 8 s later, and the second run's stop was logged ``not shown
 to the user (suppressed: dedup)``; seen in a sim walk: the second of two short
 Hyperstack runs said nothing of its hyperstacks.
 
@@ -96,7 +96,7 @@ def test_a_scan_stopped_then_an_autofocus_stopped_both_say_so(session, tmp_path,
     focused = autofocus.result(timeout=COMPLETION_TIMEOUT)
 
     assert (scan.reason, focused.reason) == ('stage_stopped', 'stage_stopped')
-    assert len(_shown(centre_posts, title='Protocol Stopped')) == 2
+    assert len(_shown(centre_posts, title='Stopped', reason='stage_stopped')) == 2
 
 
 def test_two_runs_short_of_captures_both_say_so(tmp_path, centre_posts):

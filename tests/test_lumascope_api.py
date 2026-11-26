@@ -198,7 +198,7 @@ class TestLumascopeHome:
     def test_home_real_failure_DOES_raise(self):
         """Negative test: a driver home that raises is a REAL failure (no
         response, hardware error, partial home aborted by Z/T error). The
-        API must raise the Homing Failed fault."""
+        API must raise the homing fault."""
         scope = build_scope(simulate=True)
         bind_settings_like_a_session(scope)
 
@@ -210,7 +210,7 @@ class TestLumascopeHome:
         with pytest.raises(HomingFaultError) as failed:
             scope.motion.home()
 
-        assert failed.value.title == 'Homing Failed'
+        assert failed.value.title == 'Motor Command Failed'
         for ax in scope.capabilities.axes:
             assert scope.motion.get_axis_state(ax) == AxisState.UNKNOWN, (
                 f'{ax} must be UNKNOWN after real homing failure'
