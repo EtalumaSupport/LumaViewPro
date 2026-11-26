@@ -577,3 +577,49 @@ def test_a_session_member_named_as_a_server_route_fails_the_build(session, monke
         build_app(session)
     assert refused.value.reason == 'route_shadowed'
     assert "['app_version']" in str(refused.value)
+
+
+def _z_saved_then_moved_away(session) -> float:
+    """Z at a height a go-to move returns to, then moved off it; the height."""
+    motion = session.scope.motion
+    limits = motion.axis_limits('Z')
+    saved = limits.min_um + (limits.max_um - limits.min_um) / 3
+    motion.start_move_z(saved).result()
+    session.save_bookmark(['Z'])
+    session.save_focus('BF')
+    motion.start_move_z(saved + (limits.max_um - limits.min_um) / 3).result()
+    return motion.get_current_position('Z')
+
+
+def _ended(client, answer) -> dict:
+    """The job a started move answers, read once it has ended."""
+    assert answer.status_code == 202, answer.text
+    job = client.get(answer.headers['Location'], headers={'Prefer': 'wait=10'})
+    assert job.status_code == 200, job.text
+    return job.json()
+
+
+def test_a_wire_client_moves_to_the_bookmark_as_the_buttons_do(client, session):
+    """``start_go_to_bookmark`` is a route: the move the go-to-bookmark buttons
+    make, composed by the API, so a client is handed the axis split and its
+    one stop rather than composing them."""
+    away = _z_saved_then_moved_away(session)
+    bookmark = session.bookmark.z_um
+
+    ended = _ended(client, client.post('/api/v1/start_go_to_bookmark', json={'axes': ['Z']}))
+
+    assert ended['status'] == 'completed', ended
+    assert session.scope.motion.get_current_position('Z') == pytest.approx(bookmark)
+    assert bookmark != pytest.approx(away)
+
+
+def test_a_wire_client_moves_to_a_channels_focus_as_the_button_does(client, session):
+    """``start_go_to_channel_focus`` is a route: Z to the channel's saved focus."""
+    away = _z_saved_then_moved_away(session)
+    focus = session.channel_settings('BF').focus_z_um
+
+    ended = _ended(client, client.post('/api/v1/start_go_to_channel_focus', json={'channel': 'BF'}))
+
+    assert ended['status'] == 'completed', ended
+    assert session.scope.motion.get_current_position('Z') == pytest.approx(focus)
+    assert focus != pytest.approx(away)

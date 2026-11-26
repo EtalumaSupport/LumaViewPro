@@ -3670,6 +3670,7 @@ class ScopeSession:
             stored = self._settings['bookmark']
             return PlateLocation(x_mm=stored['x'], y_mm=stored['y'], z_um=stored['z'])
 
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
     def start_go_to_bookmark(self, axes: 'Iterable[StageAxis]') -> 'Operation[None]':
         """Start ``axes`` moving to the bookmark, as the go-to-bookmark buttons do; return the started moves.
 
@@ -3758,6 +3759,7 @@ class ScopeSession:
         refuse_waiting_on_ui_thread('go_to_bookmark')
         self.start_go_to_bookmark(axes).result()
 
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
     def start_go_to_channel_focus(self, channel: str) -> 'Operation[None]':
         """Start Z moving to ``channel``'s saved focus, as the Go To Focus button does; return the started move.
 

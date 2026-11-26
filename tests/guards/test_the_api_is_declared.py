@@ -1118,6 +1118,7 @@ OPEN_STRINGS: dict[str, str] = {
     'ScopeSession.set_protocol_labware return': _LABWARE,
     'ScopeSession.set_protocol_labware parameter labware_id': _LABWARE,
     'ScopeSession.show_channel parameter channel': _CHANNEL,
+    'ScopeSession.start_go_to_channel_focus parameter channel': _CHANNEL,
     'ScopeSession.start_select_objective parameter objective_id': _OBJECTIVE,
     'ScopeSession.take_control return': _CONTROL,
     'ScopeSession.take_control parameter name': _CONTROL,

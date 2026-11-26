@@ -3524,6 +3524,87 @@ returns an operation already done.
 
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `home_in_flight`, `exclusive_activity_running`
 
+<a id="ScopeSession.start_go_to_bookmark"></a>
+### `ScopeSession.start_go_to_bookmark`
+
+```python
+def start_go_to_bookmark(self, axes: Iterable[StageAxis]) -> Operation[None]
+```
+
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
+Route: `POST /api/v1/start_go_to_bookmark`.
+
+Start `axes` moving to the bookmark, as the go-to-bookmark buttons do; return the started moves.
+
+Reads `bookmark` for the axes given, as `save_bookmark` wrote
+them: X and Y in mm on the selected plate (`start_move_to_plate`,
+the axes given on one lane task), Z in um (`start_move_z`).
+
+**Args**
+
+- `axes`: The axes moved, each `'X'`, `'Y'` or `'Z'`; an axis not named is left where it is.
+
+**Returns**
+
+One `Operation` for the moves started, done once every one is.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'not_offered'`, a name in `axes` that is not X, Y or Z. Nothing was driven.
+- `HardwareCommandRefusedError`: `'not_connected'`, `'axis_absent'`, `'lid_open_before_motion'` or `'monitor_ended'`, as `MotionAPI.start_move_to_plate`. Nothing was driven.
+- `PositionOutOfRangeError`: The bookmark is outside what this stage can reach. Any move already started is stopped.
+- `AxisStateUnknownError`: An axis given does not know its position. Any move already started is stopped.
+- `MoveFaultError`: `'driver_failed'`, the board did not take a command; `'board_lost'`, the board is no longer connected. Any move already started is stopped first, by one STOP that withholds no move asked before it, and waited on until it settles.
+- `MotorStopFailedError`: a move already started could not be stopped: the board did not take the STOP, or the move did not settle after it.
+
+**Refusals by REST status**
+
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
+
+<a id="ScopeSession.start_go_to_channel_focus"></a>
+### `ScopeSession.start_go_to_channel_focus`
+
+```python
+def start_go_to_channel_focus(self, channel: str) -> Operation[None]
+```
+
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
+Route: `POST /api/v1/start_go_to_channel_focus`.
+
+Start Z moving to `channel`'s saved focus, as the Go To Focus button does; return the started move.
+
+Reads the focus `channel_settings` answers as `focus_z_um` and
+moves Z there (`MotionAPI.start_move_z`). A channel whose focus
+was never saved has no height to go to: a step built for it takes
+the current Z instead.
+
+**Args**
+
+- `channel`: The channel whose focus Z moves to.
+
+**Returns**
+
+The started move, as `MotionAPI.start_move_z` returns it.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel. Nothing was driven.
+- `FocusNotSavedError`: `'focus_not_saved'`, no focus was ever saved for `channel`. Nothing was driven.
+- `HardwareCommandRefusedError`: `'not_connected'`, `'axis_absent'`, `'position_unread'` or `'monitor_ended'`, as `MotionAPI.start_move_z`. Nothing was driven.
+- `PositionOutOfRangeError`: The focus is outside Z's travel. Nothing was driven.
+- `AxisStateUnknownError`: Z does not know its position. Nothing was driven.
+- `MoveFaultError`: `'driver_failed'`, the board did not take the command; `'board_lost'`, the board is no longer connected.
+
+**Refusals by REST status**
+
+- 409: [`FocusNotSavedError`](#FocusNotSavedError): `focus_not_saved`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
+
 <a id="ScopeSession.status"></a>
 ### `ScopeSession.status`
 
@@ -10442,7 +10523,7 @@ of assuming silently, and a host renders it however it likes. The answer goes ba
 <a id="Operation"></a>
 ## `lumascope.Operation`
 
-Returned by: [`ManualCaptureController.start_save_still`](#ManualCaptureController.start_save_still), [`ManualRecordingController.start`](#ManualRecordingController.start), [`MotionAPI.start_center_on`](#MotionAPI.start_center_on), [`MotionAPI.start_home`](#MotionAPI.start_home), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well), [`MotionAPI.start_move_turret`](#MotionAPI.start_move_turret), [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy), [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by), [`MotionAPI.start_move_z`](#MotionAPI.start_move_z), [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by), [`PostProcessingAPI.start_build`](#PostProcessingAPI.start_build), [`PostProcessingAPI.start_count_cells`](#PostProcessingAPI.start_count_cells), [`PostProcessingAPI.start_enhance`](#PostProcessingAPI.start_enhance), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run), [`ScopeSession.start_application_session`](#ScopeSession.start_application_session), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step), [`ScopeSession.start_make_logs_zip`](#ScopeSession.start_make_logs_zip), [`ScopeSession.start_make_support_report`](#ScopeSession.start_make_support_report), [`ScopeSession.start_select_objective`](#ScopeSession.start_select_objective), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).  
+Returned by: [`ManualCaptureController.start_save_still`](#ManualCaptureController.start_save_still), [`ManualRecordingController.start`](#ManualRecordingController.start), [`MotionAPI.start_center_on`](#MotionAPI.start_center_on), [`MotionAPI.start_home`](#MotionAPI.start_home), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well), [`MotionAPI.start_move_turret`](#MotionAPI.start_move_turret), [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy), [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by), [`MotionAPI.start_move_z`](#MotionAPI.start_move_z), [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by), [`PostProcessingAPI.start_build`](#PostProcessingAPI.start_build), [`PostProcessingAPI.start_count_cells`](#PostProcessingAPI.start_count_cells), [`PostProcessingAPI.start_enhance`](#PostProcessingAPI.start_enhance), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run), [`ScopeSession.start_application_session`](#ScopeSession.start_application_session), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark), [`ScopeSession.start_go_to_channel_focus`](#ScopeSession.start_go_to_channel_focus), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step), [`ScopeSession.start_make_logs_zip`](#ScopeSession.start_make_logs_zip), [`ScopeSession.start_make_support_report`](#ScopeSession.start_make_support_report), [`ScopeSession.start_select_objective`](#ScopeSession.start_select_objective), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).  
 Taken by: [`ScopeSession.held_by_other`](#ScopeSession.held_by_other).
 
 One operation in flight: its outcome, its done-callbacks, its stop and its progress.
@@ -13731,7 +13812,7 @@ The slide a simulated scope is brought up with.
 
 Returned by: [`MotionAPI.axis_positions`](#MotionAPI.axis_positions), [`MotionAPI.positions_to_keep`](#MotionAPI.positions_to_keep), [`MotionAPI.target_positions`](#MotionAPI.target_positions).  
 Held in: [`MissingPart.axis`](#MissingPart.axis), [`PositionChanged.axis`](#PositionChanged.axis), [`Status.axes`](#Status.axes).  
-Taken by: [`MotionAPI.add_position_listener`](#MotionAPI.add_position_listener), [`MotionAPI.jog_step_um`](#MotionAPI.jog_step_um), [`MotionAPI.positions_to_keep`](#MotionAPI.positions_to_keep), [`MotionAPI.remove_position_listener`](#MotionAPI.remove_position_listener), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`ScopeSession.save_bookmark`](#ScopeSession.save_bookmark).
+Taken by: [`MotionAPI.add_position_listener`](#MotionAPI.add_position_listener), [`MotionAPI.jog_step_um`](#MotionAPI.jog_step_um), [`MotionAPI.positions_to_keep`](#MotionAPI.positions_to_keep), [`MotionAPI.remove_position_listener`](#MotionAPI.remove_position_listener), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`ScopeSession.save_bookmark`](#ScopeSession.save_bookmark), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark).
 
 A stage axis, X, Y or Z: an axis with a position in um.
 
@@ -17978,6 +18059,8 @@ reading the run's outcome reads what the person was shown.
 | `GET` | `/api/v1/setting` | [`ScopeSession.setting`](#ScopeSession.setting) |
 | `POST` | `/api/v1/show_channel` | [`ScopeSession.show_channel`](#ScopeSession.show_channel) |
 | `GET` | `/api/v1/shown_channel` | [`ScopeSession.shown_channel`](#ScopeSession.shown_channel) |
+| `POST` | `/api/v1/start_go_to_bookmark` | [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark) |
+| `POST` | `/api/v1/start_go_to_channel_focus` | [`ScopeSession.start_go_to_channel_focus`](#ScopeSession.start_go_to_channel_focus) |
 | `POST` | `/api/v1/start_go_to_step` | [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step) |
 | `POST` | `/api/v1/start_make_logs_zip` | [`ScopeSession.start_make_logs_zip`](#ScopeSession.start_make_logs_zip) |
 | `POST` | `/api/v1/start_make_support_report` | [`ScopeSession.start_make_support_report`](#ScopeSession.start_make_support_report) |
