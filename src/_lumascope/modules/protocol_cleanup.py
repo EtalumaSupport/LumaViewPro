@@ -23,12 +23,13 @@ from _lumascope.modules.exceptions import (
     FramesLostIn,
     MoveFaultError,
     MoveStoppedError,
+    RecordingDetailsNotSavedError,
     RecordingSavedLateNotice,
     RunCleanupFailedError,
     SlowFileWritesNotice,
     VideoFramesDroppedError,
 )
-from _lumascope.modules.video_recording import RECORDING_SAVE_WAIT_NOTICE_S, FrameLosses
+from _lumascope.modules.video_recording import RECORDING_SAVE_WAIT_NOTICE_S
 from _lumascope.modules.lumascope_api.illumination import (
     LedEndPolicy,
     LedReading,
@@ -38,6 +39,7 @@ from _lumascope.modules.lumascope_api.illumination import (
 )
 from _lumascope.modules.operation import settling
 from _lumascope.modules.protocol_image_writer import SLOW_WRITE_BLOCKED_WARN_S, WRITE_STALL_FATAL_S
+from _lumascope.modules.protocol_recording import VideoStepEnd
 from _lumascope.modules.protocol_state_machine import ProtocolState
 from _lumascope.modules.run_events import RunEvents, deliver
 from _lumascope.modules.run_outcome import STOP_REASONS, FilesOutcome, RunEnding, RunStatus
@@ -166,10 +168,10 @@ def run_cleanup(
     video_save_wait_s: float | None,
     # How the run saved its videos, for the words of the wait.
     recording_format: RecordingFormat,
-    # The frames the run's finished video steps lost, together
-    # (ProtocolImageWriter.video_losses): told once here, since each step's
-    # own report goes to the log.
-    video_losses: FrameLosses,
+    # What the run's video steps left its end to tell, together
+    # (ProtocolImageWriter.videos_end): their lost frames and lost details
+    # files, each told once here, since each step's own report goes to the log.
+    videos_end: VideoStepEnd,
 ) -> bool:
     """Core cleanup logic -- restores state, ends executors.
 
@@ -426,9 +428,11 @@ def run_cleanup(
             SlowFileWritesNotice(), solicited=False, category='Protocol', once_per_run=True
         )
 
-    # The frames the run's video steps lost, told once at the run's end,
-    # attended or not: a person who left the run reads it when they come
-    # back, and a run of many steps is not a popup a step.
+    # The frames the run's video steps lost, and the details files they
+    # could not write, each told once at the run's end, attended or not: a
+    # person who left the run reads it when they come back, and a run of
+    # many steps is not a popup a step.
+    video_losses = videos_end.frame_losses
     if video_losses:
         from _lumascope.modules.notification_center import notifications
 
@@ -444,6 +448,17 @@ def run_cleanup(
             solicited=False,
             category='Protocol',
             once_per_run=True,
+        )
+    if videos_end.details_not_saved:
+        from _lumascope.modules.notification_center import notifications
+
+        first_failure = videos_end.details_not_saved[0][1]
+        unsaved = RecordingDetailsNotSavedError(
+            first_failure, in_run=[name for name, _failure in videos_end.details_not_saved]
+        )
+        unsaved.__cause__ = first_failure
+        notifications.report_outcome(
+            unsaved, solicited=False, category='Protocol', once_per_run=True
         )
 
     # Saving that ran on long after the run's recordings ended, told once at

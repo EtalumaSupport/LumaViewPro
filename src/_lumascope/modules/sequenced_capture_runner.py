@@ -23,7 +23,7 @@ from _lumascope.modules.protocol_image_writer import (
     WRITE_STALL_FATAL_S,
 )
 from _lumascope.modules.protocol_cleanup import run_cleanup, send_files_written, send_run_ended
-from _lumascope.modules.protocol_recording import ProtocolVideoStep
+from _lumascope.modules.protocol_recording import ProtocolVideoStep, VideoStepEnd
 from _lumascope.modules.protocol_step_runner import ProtocolStepRunner
 from _lumascope.modules.protocol_run_loop import ProtocolRunLoop
 
@@ -102,7 +102,6 @@ from _lumascope.modules.run_outcome import (
 from _lumascope.modules.scheduler import Scheduler
 from _lumascope.modules.sequential_io_executor import SequentialIOExecutor, ask_now, asked_at
 from _lumascope.modules.video_cadence import video_sizing_fps
-from _lumascope.modules.video_recording import FrameLosses
 from _lumascope.lvp_logger import logger
 from _lumascope.lib import log_helpers
 import threading
@@ -3081,8 +3080,10 @@ class SequencedCaptureRunner:
             except RecordIncompleteError as short:
                 # The record rows missing after lost images are the same
                 # cause: logged only, when the person was told of the images.
+                # A row the record lost, its own write failing, is another
+                # fault, told whatever else the run lost.
                 told_of_images = already_told or (
-                    write_batch.not_written and not merge_reports_files
+                    not short.lost and write_batch.not_written and not merge_reports_files
                 )
                 notifications.report_outcome(
                     short,
@@ -3229,7 +3230,7 @@ class SequencedCaptureRunner:
                 logger.info('[Protocol] Waiting for video write drain before run cleanup')
                 video_save_wait_s = writer.wait_for_video_drains()
             run._pending.record_video_save_wait(video_save_wait_s)
-            video_losses = writer.video_losses() if writer is not None else FrameLosses()
+            videos_end = writer.videos_end() if writer is not None else VideoStepEnd()
 
             # One read, here, after the last lane cleanup waits on has
             # drained -- so a fault that lands during that drain is still
@@ -3269,7 +3270,7 @@ class SequencedCaptureRunner:
                 failed_before=halt_failed,
                 video_save_wait_s=video_save_wait_s,
                 recording_format=self._recording_format,
-                video_losses=video_losses,
+                videos_end=videos_end,
             )
             build = self._start_hyperstack_build(on_end=run._files_event_done)
             build_settled = True

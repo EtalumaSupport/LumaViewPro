@@ -1101,7 +1101,7 @@ class ManualRecordingController:
                         died, solicited=False, category='Recording', once_per_run=True
                     )
                 if result.manifest_failure is not None:
-                    unsaved = RecordingDetailsNotSavedError(result.manifest_failure)
+                    unsaved = RecordingDetailsNotSavedError(result.manifest_failure, in_run=None)
                     unsaved.__cause__ = result.manifest_failure
                     notifications.report_outcome(
                         unsaved, solicited=False, category='Video Recording', once_per_run=True

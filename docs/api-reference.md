@@ -16916,6 +16916,7 @@ with no row is skipped by stitching and video builds.
 
 - `missing`: Captures with no row.
 - `attempted`: Captures the run attempted.
+- `lost`: Each row the record knows it lost, as (step name, why): a row whose own write failed. A shortfall with none lost is the captures that never reached a row, such as images not written.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -16932,6 +16933,10 @@ Raised from the write's error, which its words state. The details file
 is the only record of the recording's channel color and measured rate,
 so a video built from these frames later falls back to grayscale and a
 default rate.
+
+One recording's (a manual recording, a protocol video step) says so of
+itself; a protocol run's end says it once for every video step that lost
+its file, naming the first.
 
 | Reason | Cause | REST status |
 |---|---|---|

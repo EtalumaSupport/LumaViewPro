@@ -143,7 +143,9 @@ def test_the_writers_death_says_the_run_stopped_only_on_a_run():
 
 
 def test_the_lost_details_file_says_why():
-    fault = RecordingDetailsNotSavedError(PermissionError(errno.EACCES, os.strerror(errno.EACCES)))
+    fault = RecordingDetailsNotSavedError(
+        PermissionError(errno.EACCES, os.strerror(errno.EACCES)), in_run=None
+    )
 
     assert fault.title == 'Recording details not saved'
     assert str(fault) == (
@@ -298,7 +300,11 @@ def test_a_video_steps_writers_death_ends_the_run_in_the_faults_words(
     )
 
 
-def test_a_video_steps_lost_details_file_is_reported_once_chained(sim_scope, tmp_path, monkeypatch):
+def test_a_video_steps_lost_details_file_is_logged_and_left_to_the_runs_end(
+    sim_scope, tmp_path, monkeypatch
+):
+    # The step's own report is the log's: the run's end tells every step's
+    # lost details file in one report, attended or not.
     reported = _record_reports(monkeypatch, protocol_recording)
     refused = _fail_manifest_writes(monkeypatch)
 
@@ -307,5 +313,27 @@ def test_a_video_steps_lost_details_file_is_reported_once_chained(sim_scope, tmp
     ((fault, kw),) = reported
     assert isinstance(fault, RecordingDetailsNotSavedError)
     assert fault.__cause__ is refused
-    assert kw == {'solicited': False, 'category': 'Video Recording'}
+    assert kw == {'solicited': False, 'category': 'Protocol', 'log_only': True}
+    ((name, failure),) = step.end.details_not_saved
+    assert failure is refused
+    assert name == step._video_name()
     step._abort_run_fatal.assert_not_called()
+
+
+def test_an_unfinished_video_is_not_told_its_frames_are_safe(sim_scope, tmp_path, monkeypatch):
+    # The unfinished file's own report is the whole answer: beside it, "the
+    # video frames are safe on disk" would be false.
+    from _lumascope.modules.exceptions import VideoNotFinishedError
+    from tests.video_close_faults import fail_the_close
+    from tests.video_step_drives import record_first_mp4_frame
+
+    reported = _record_reports(monkeypatch, protocol_recording)
+    refused = _fail_manifest_writes(monkeypatch)
+    fail_the_close(monkeypatch)
+
+    step = record_first_mp4_frame(sim_scope, tmp_path, monkeypatch)
+
+    # Both failed: the details file, and the video's close.
+    assert step._engine.result().manifest_failure is refused
+    assert [type(fault) for fault, _kw in reported] == [VideoNotFinishedError]
+    assert step.end.details_not_saved == ()

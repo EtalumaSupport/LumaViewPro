@@ -3386,18 +3386,34 @@ class RecordingDetailsNotSavedError(Fault, CaptureError):
     is the only record of the recording's channel color and measured rate,
     so a video built from these frames later falls back to grayscale and a
     default rate.
+
+    One recording's (a manual recording, a protocol video step) says so of
+    itself; a protocol run's end says it once for every video step that lost
+    its file, naming the first.
     """
 
     title = 'Recording details not saved'
     causes: ClassVar[dict[str, RefusalCause | None]] = {'recording_details_not_saved': None}
 
-    def __init__(self, failed: OSError):
-        super().__init__(
-            'The video frames are safe on disk, but the recording details file '
-            f'could not be written ({system_words(failed)}). Videos built from this '
-            'recording may be grayscale and use a default frame rate.',
-            'recording_details_not_saved',
-        )
+    def __init__(self, failed: OSError, *, in_run: 'Sequence[str] | None'):
+        """*in_run* is None for one recording; for a protocol run's end, each
+        recording that lost its details file, *failed* being the first's error."""
+        if in_run is None:
+            message = (
+                'The video frames are safe on disk, but the recording details file '
+                f'could not be written ({system_words(failed)}). Videos built from this '
+                'recording may be grayscale and use a default frame rate.'
+            )
+        else:
+            count = len(in_run)
+            more = f', and {count - 1} more' if count > 1 else ''
+            message = (
+                f"{count} of the run's video recordings "
+                f'{"has" if count == 1 else "have"} no details file: {in_run[0]} '
+                f'({system_words(failed)}){more}. Their frames are safe on disk; videos '
+                'built from them may be grayscale and use a default frame rate.'
+            )
+        super().__init__(message, 'recording_details_not_saved')
 
 
 class VideoNotFinishedError(Fault, CaptureError):
@@ -3605,6 +3621,9 @@ class RecordIncompleteError(Fault, CaptureError):
     Attributes:
         missing: Captures with no row.
         attempted: Captures the run attempted.
+        lost: Each row the record knows it lost, as (step name, why): a
+            row whose own write failed. A shortfall with none lost is the
+            captures that never reached a row, such as images not written.
     """
 
     title = 'Protocol Record Incomplete'
@@ -3630,6 +3649,7 @@ class RecordIncompleteError(Fault, CaptureError):
         )
         self.missing = missing
         self.attempted = attempted
+        self.lost = tuple(lost)
 
 
 class RunEndedByStopNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error

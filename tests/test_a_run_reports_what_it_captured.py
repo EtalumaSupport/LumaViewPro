@@ -478,6 +478,122 @@ class TestAVideoStepIsOneCapture:
         assert len(lost) == 1, lost
 
 
+def _shown(posts, start, title):
+    """The words of every post titled *title* shown to the person since *start*."""
+    return [n.message for n in posts[start:] if n.shown and n.title == title]
+
+
+DETAILS_NOT_SAVED = 'Recording details not saved'
+
+
+class TestALostDetailsFileIsToldAtTheRunsEnd:
+    """A video step's details file not written is told once, at the run's end.
+
+    These runs are unattended (no autofocus), so a report a step makes while
+    the run is live is muted; the run's end is the one place the person hears
+    of it.
+    """
+
+    def test_an_unattended_run_tells_a_lost_details_file_at_its_end(
+        self, tmp_path, monkeypatch, centre_posts
+    ):
+        from tests.test_the_recording_engine_leaves_its_faults_to_its_caller import (
+            _fail_manifest_writes,
+        )
+
+        _fail_manifest_writes(monkeypatch)
+        with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
+            start = len(centre_posts)
+            # A still after the video, so the step's own report is made while
+            # the run is live, not after its end has lifted the mute.
+            outcome = _run(
+                runner, tmp_path / 'runs', [_video('V1', 0), _step('C1', 1, x=30.0, gain=1.0)]
+            )
+        assert outcome.status == 'completed', outcome
+        told = _shown(centre_posts, start, DETAILS_NOT_SAVED)
+        assert len(told) == 1, told
+        assert 'disk said no to the details file' in told[0], told
+        assert 'V1' in told[0], told
+
+    def test_two_lost_details_files_are_one_report(self, tmp_path, monkeypatch, centre_posts):
+        from tests.test_the_recording_engine_leaves_its_faults_to_its_caller import (
+            _fail_manifest_writes,
+        )
+
+        _fail_manifest_writes(monkeypatch)
+        with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
+            start = len(centre_posts)
+            outcome = _run(runner, tmp_path / 'runs', [_video('V1', 0), _video('V2', 1)])
+        assert outcome.status == 'completed', outcome
+        told = _shown(centre_posts, start, DETAILS_NOT_SAVED)
+        assert len(told) == 1, told
+        assert told[0].startswith('2 '), told
+
+
+def _fail_the_record_row_of(monkeypatch, step_name):
+    """Make *step_name*'s record row write raise, as a full or lost disk does."""
+    # a stand-in by design: the simulator has no disk fault for one file's
+    # append; the real record catches it and keeps the row as lost.
+    from _lumascope.modules import protocol_execution_record
+    from _lumascope.modules.protocol_execution_record import ProtocolExecutionRecord
+
+    real_add_step = ProtocolExecutionRecord.add_step
+
+    def _refused_open(*args, **kwargs):
+        raise OSError('scripted: the record could not be appended')
+
+    def add_step(self, *args, **kwargs):
+        if kwargs.get('step_name') != step_name:
+            return real_add_step(self, *args, **kwargs)
+        monkeypatch.setattr(protocol_execution_record, 'open', _refused_open, raising=False)
+        try:
+            return real_add_step(self, *args, **kwargs)
+        finally:
+            monkeypatch.delattr(protocol_execution_record, 'open')
+
+    monkeypatch.setattr(ProtocolExecutionRecord, 'add_step', add_step)
+
+
+RECORD_INCOMPLETE = 'Protocol Record Incomplete'
+
+
+class TestALostRecordRowIsTold:
+    """A row the run's record lost is told, unless the loss was already told."""
+
+    def test_a_lost_record_row_is_told_beside_a_video_that_saved_nothing(
+        self, tmp_path, monkeypatch, centre_posts
+    ):
+        from _lumascope.modules.video_recording import VideoRecordingEngine
+
+        def _unfinished(engine):
+            raise OSError('the container could not be finalized')
+
+        monkeypatch.setattr(VideoRecordingEngine, 'result', _unfinished)
+        _fail_the_record_row_of(monkeypatch, 'C1')
+        with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
+            start = len(centre_posts)
+            _run(runner, tmp_path / 'runs', [_video('V1', 0), _step('C1', 1, x=30.0, gain=1.0)])
+        told = _shown(centre_posts, start, RECORD_INCOMPLETE)
+        assert len(told) == 1, told
+        assert told[0].startswith('1 of 2 captures'), told
+        assert 'the record could not be appended' in told[0], told
+
+    def test_a_lost_record_row_is_told_beside_a_still_that_failed_to_save(
+        self, tmp_path, monkeypatch, centre_posts
+    ):
+        from tests.test_a_failed_save_is_counted_not_written import _fail_saves
+
+        _fail_saves(monkeypatch, failing=lambda kwargs: 'C1' in str(kwargs.get('append')))
+        _fail_the_record_row_of(monkeypatch, 'C2')
+        with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
+            start = len(centre_posts)
+            _run(runner, tmp_path / 'runs', _two_steps())
+        assert _shown(centre_posts, start, RunImagesNotSavedError.title), 'the lost image is told'
+        told = _shown(centre_posts, start, RECORD_INCOMPLETE)
+        assert len(told) == 1, told
+        assert told[0].startswith('1 of 2 captures'), told
+
+
 class TestTheFilesLineAndItsReport:
     def test_files_not_all_written_are_logged_as_a_warning(self, tmp_path, monkeypatch, caplog):
         files = []

@@ -44,8 +44,7 @@ from _lumascope.modules.scope_parts import Board
 from _lumascope.modules.notification_center import notifications
 from _lumascope.modules.protocol import Protocol
 from _lumascope.modules.protocol_execution_record import ProtocolExecutionRecord
-from _lumascope.modules.protocol_recording import ProtocolVideoStep
-from _lumascope.modules.video_recording import FrameLosses
+from _lumascope.modules.protocol_recording import ProtocolVideoStep, VideoStepEnd
 from _lumascope.modules.recording_frames import FrameFact, frame_fact
 from _lumascope.modules.run_events import RunEvents, deliver_here
 from _lumascope.modules.run_outcome import (
@@ -830,13 +829,12 @@ class ProtocolImageWriter:
         self._labware = labware
         self._to_plate = to_plate
         # The video steps still recording or finishing: one is dropped when
-        # the next is added, once it has finished, and whether it kept every
-        # frame and what it lost are folded into the two below first. Written
-        # by the protocol thread alone, as a new list, so a reader on another
+        # the next is added, once it has finished, and what it left the run's
+        # end to tell is folded into the one below first. Written by the
+        # protocol thread alone, as a new list, so a reader on another
         # thread walks a list no one changes.
         self._video_steps: list[ProtocolVideoStep] = []
-        self._dropped_videos_kept_every_frame = True
-        self._dropped_videos_losses = FrameLosses()
+        self._dropped_videos_end = VideoStepEnd()
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
         self._captures_asked = captures_asked
@@ -931,32 +929,28 @@ class ProtocolImageWriter:
         Only here, on the protocol thread, when every earlier step has
         returned from ``run_blocking``, so a step not busy now has finished
         (``is_busy`` holds from before its finish thread starts), and its
-        ``kept_every_frame`` is final. Never from a reader: a step about to
-        record is not yet busy.
+        ``end`` is final. Never from a reader: a step about to record is not
+        yet busy.
         """
         unfinished = []
         for step in self._video_steps:
             if step.is_busy:
                 unfinished.append(step)
                 continue
-            if not step.kept_every_frame:
-                self._dropped_videos_kept_every_frame = False
-            if step.frame_losses is not None:
-                self._dropped_videos_losses += step.frame_losses
+            self._dropped_videos_end += step.end
         self._video_steps = [*unfinished, recorder]
 
-    def video_losses(self) -> FrameLosses:
-        """The frames every finished video step of the run lost, by cause, together.
+    def videos_end(self) -> VideoStepEnd:
+        """What every video step of the run left its end to tell, together.
 
-        Read by the run's end, after its wait for the steps' saving, for the
-        one report of the run's losses; a step still unfinished then has no
-        losses known and adds none.
+        Read by the run's end, after its wait for the steps' saving, for its
+        one report of each loss; a step still unfinished then has nothing
+        known, so adds no loss and not every frame kept.
         """
-        losses = self._dropped_videos_losses
+        end = self._dropped_videos_end
         for step in self._video_steps:
-            if step.frame_losses is not None:
-                losses += step.frame_losses
-        return losses
+            end += step.end
+        return end
 
     @property
     def video_busy(self) -> bool:
@@ -1008,11 +1002,7 @@ class ProtocolImageWriter:
                 )
                 finished = False
         waited_s = time.monotonic() - started
-        if (
-            not finished
-            or not self._dropped_videos_kept_every_frame
-            or not all(step.kept_every_frame for step in steps)
-        ):
+        if not finished or not self.videos_end().kept_every_frame:
             return None
         return waited_s
 
@@ -1061,9 +1051,14 @@ class ProtocolImageWriter:
 
         The step's file is written on its own lane, outside the run's batch,
         so the batch is told here; otherwise a run whose video never
-        finished would report its files written.
+        finished would report its files written. The attempt is counted
+        with its row, as ``_record_video_step_row`` counts it: a row with no
+        attempt would cancel a row the record lost, and its shortfall would
+        read none.
         """
         self._write_batch.count_off_lane(f'The video {name}', unfinished=cause)
+        if self._execution_record is not None:
+            self._execution_record.note_capture_attempt()
         self._record_dropped_capture(reason=reason, **row)
 
     def _record_dropped_capture(
@@ -1931,16 +1926,13 @@ class ProtocolImageWriter:
                 logger.warning(
                     f'[PROTOCOL] _write_capture: captured_image is None for step {step_index + 1} ({step.get("Name", "?") if step is not None else "?"}), scan {scan_count + 1}, recording as capture_failed'
                 )
-                if self._execution_record is not None:
-                    self._execution_record.add_step(
-                        capture_result_file_name='capture_failed',
-                        step_name=_recorded_step_name(step),
-                        step_index=step_index,
-                        scan_count=scan_count,
-                        timestamp=capture_time,
-                        frame_count=0,
-                        duration_sec=0.0,
-                    )
+                self._record_dropped_capture(
+                    step=step,
+                    step_index=step_index,
+                    scan_count=scan_count,
+                    capture_time=capture_time,
+                    reason='capture_failed',
+                )
                 return
 
             # The frame arrives coupled with the payload depth it was

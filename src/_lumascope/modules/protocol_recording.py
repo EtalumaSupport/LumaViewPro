@@ -29,6 +29,7 @@ import datetime
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -106,6 +107,41 @@ ABORTED = 'aborted'  # the step's save location ended the run; no strike, no row
 # recording's own end wakes the wait at once.
 _WAIT_TICK_S = 0.1
 _PROGRESS_INTERVAL_S = 1.0
+
+
+@dataclass(frozen=True)
+class VideoStepEnd:
+    """What a finished video step, or a run's video steps together, leave the run's end to tell.
+
+    One value per step, added together for the run, so each fact the run's
+    end reads from its video steps is folded in one place.
+
+    Attributes:
+        kept_every_frame: Whether every step wrote every frame it kept, its
+            backlog saved, not discarded (``RecordingResult.kept_every_frame``);
+            False for a step not yet finished, whose writer died, or whose
+            file did not finish.
+        frame_losses: The frames lost, by cause; none for a step whose writer
+            died or whose file did not finish, which tell their own loss.
+        details_not_saved: Each recording whose details file could not be
+            written, as (its name, the write's error), in step order.
+    """
+
+    kept_every_frame: bool = True
+    frame_losses: FrameLosses = field(default_factory=FrameLosses)
+    details_not_saved: tuple[tuple[str, OSError], ...] = ()
+
+    def __add__(self, other: 'VideoStepEnd') -> 'VideoStepEnd':
+        """Both together: every frame kept only when both kept every frame."""
+        return VideoStepEnd(
+            kept_every_frame=self.kept_every_frame and other.kept_every_frame,
+            frame_losses=self.frame_losses + other.frame_losses,
+            details_not_saved=self.details_not_saved + other.details_not_saved,
+        )
+
+
+# A step not yet finished: nothing known of it, so not every frame kept.
+_UNFINISHED = VideoStepEnd(kept_every_frame=False)
 
 
 class ProtocolVideoStep:
@@ -205,15 +241,10 @@ class ProtocolVideoStep:
         self._global_max_fps = global_max_fps
         self._video_sizing_fps = video_sizing_fps
         self._frame_sizing = frame_sizing
-        # Whether the finished step kept and wrote every frame it selected,
-        # with its backlog saved, not discarded: what the run's end needs to
-        # say "every frame was kept" when it waited for the step's saving.
-        self._kept_every_frame = False
-        # The frames the finished step lost, by cause: what the run's end
-        # adds into the one report of the run's losses. None until it has
-        # finished; nothing for a step whose writer died, which ends the run
-        # in its own words.
-        self._frame_losses: FrameLosses | None = None
+        # What the finished step leaves the run's end to tell: whether it
+        # kept every frame, what frames it lost, its lost details file.
+        # Written once by the finish thread, read after it has finished.
+        self._end = _UNFINISHED
         self._channel_colors = channel_colors
         self._autogain_settings = autogain_settings
         self._events = events
@@ -303,23 +334,14 @@ class ProtocolVideoStep:
         return self._duration_s
 
     @property
-    def kept_every_frame(self) -> bool:
-        """True once the step has finished having written every frame it kept.
+    def end(self) -> VideoStepEnd:
+        """What the finished step leaves the run's end to tell.
 
-        False while it is unfinished, and for a step whose backlog was
-        discarded, whose writer died, or that lost a frame
-        (``RecordingResult.kept_every_frame``).
+        Until it has finished, nothing is known: not every frame kept, no
+        losses. Read by the run's end, which tells every step's losses in
+        one report each: each step's own report goes to the log.
         """
-        return self._kept_every_frame
-
-    @property
-    def frame_losses(self) -> FrameLosses | None:
-        """The frames the finished step lost, by cause; None until it has finished.
-
-        Read by the run's end, which tells every step's losses in one
-        report: each step's own report goes to the log.
-        """
-        return self._frame_losses
+        return self._end
 
     def wait_until_finished(self, timeout: float | None = None) -> bool:
         """Block until the drain and finish complete; True when finished."""
@@ -932,12 +954,18 @@ class ProtocolVideoStep:
                         duration_sec=result.measured_duration_s,
                         timestamp=self._start_dt,
                     )
-                if result.manifest_failure is not None:
-                    unsaved = RecordingDetailsNotSavedError(result.manifest_failure)
+                # Logged: the run's end tells every step's lost details file
+                # in one report, attended or not. An unfinished video's own
+                # report is the whole answer: "the frames are safe" would be
+                # false beside it.
+                details_not_saved = ()
+                if result.manifest_failure is not None and unfinished is None:
+                    unsaved = RecordingDetailsNotSavedError(result.manifest_failure, in_run=None)
                     unsaved.__cause__ = result.manifest_failure
                     notifications.report_outcome(
-                        unsaved, solicited=False, category='Video Recording'
+                        unsaved, solicited=False, category='Protocol', log_only=True
                     )
+                    details_not_saved = ((self._video_name(), result.manifest_failure),)
                 if (
                     result.lost_frames()
                     and not result.aborted
@@ -966,9 +994,15 @@ class ProtocolVideoStep:
                 # A file lost, to the writer's death or to an unfinished
                 # close, tells its own loss: its frame counts are not told
                 # beside it, nor is every frame said to be kept.
-                if not result.aborted and not refused and unfinished is None:
-                    self._frame_losses = result.losses(of=self._video_name())
-                self._kept_every_frame = result.kept_every_frame() and unfinished is None
+                self._end = VideoStepEnd(
+                    kept_every_frame=result.kept_every_frame() and unfinished is None,
+                    frame_losses=(
+                        result.losses(of=self._video_name())
+                        if not result.aborted and not refused and unfinished is None
+                        else FrameLosses()
+                    ),
+                    details_not_saved=details_not_saved,
+                )
                 logger.info(f'[PROTOCOL-VIDEO] Finished: {result.summary()}')
 
     def _video_name(self) -> str:

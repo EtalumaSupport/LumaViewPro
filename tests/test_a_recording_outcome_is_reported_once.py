@@ -645,7 +645,7 @@ def test_a_video_steps_dropped_frames_are_reported_under_protocol(sim_scope, tmp
     assert 'Not written: disk said no (frame 0).' in str(fault)
     # The run's losses name each frame with its video, so a run of several
     # videos names each lost frame once.
-    lost = step.frame_losses.failed_writes
+    lost = step.end.frame_losses.failed_writes
     assert len(lost) == 1
     assert all(
         re.fullmatch(r'frame \d+ of \S+', frame) and cause == 'disk said no'
@@ -681,7 +681,7 @@ def test_a_video_step_whose_save_location_refuses_two_frames_in_a_row_stops_the_
         'A frame of the video step could not be saved (disk said no), so the run was stopped.'
     )
     assert reported == []
-    assert step.frame_losses is None
+    assert not step.end.frame_losses
 
 
 def test_a_video_steps_failed_finish_is_chained_under_protocol(sim_scope, tmp_path, monkeypatch):
@@ -771,8 +771,8 @@ def test_a_video_step_that_cannot_be_finished_is_one_file_not_written(
     step._record_step_row.assert_not_called()
     # Its loss is the file: the run's end neither counts its frames nor
     # says every frame was kept.
-    assert step.frame_losses is None
-    assert step.kept_every_frame is False
+    assert not step.end.frame_losses
+    assert step.end.kept_every_frame is False
 
 
 def test_a_video_steps_writer_death_still_ends_the_run_when_its_close_fails(

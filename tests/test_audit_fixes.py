@@ -47,7 +47,7 @@ from _lumascope.modules.exceptions import (
 from _lumascope.modules.notification_center import Severity
 from _lumascope.modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
 from _lumascope.modules.sequenced_capture_runner import EngineRun
-from _lumascope.modules.video_recording import FrameLosses
+from _lumascope.modules.protocol_recording import VideoStepEnd
 from tests.protocol_drives import run_identity
 
 
@@ -976,7 +976,7 @@ def _run_cleanup_kwargs(**overrides):
         'failed_before': (),
         'video_save_wait_s': None,
         'recording_format': RecordingFormat.MP4,
-        'video_losses': FrameLosses(),
+        'videos_end': VideoStepEnd(),
     }
     kwargs.update(overrides)
     return kwargs
