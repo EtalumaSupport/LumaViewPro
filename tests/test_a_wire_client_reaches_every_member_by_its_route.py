@@ -324,7 +324,7 @@ def _black_level_waiting(session, count: int) -> None:
     """A black-level change from now on waits ``count`` frames, and one is made."""
     frame_validity = session.scope.imaging._frame_validity
     rules = dict(frame_validity.rules())
-    rules['black_level'] = FrameRule(count=count, provenance=None)
+    rules['black_level'] = FrameRule(skip=count, provenance=None)
     frame_validity.use_rules(rules)
     session.scope.camera.set_black_level(4.0)
 

@@ -226,7 +226,7 @@ def test_a_classic_waits_the_counts_its_camera_was_measured_to_need():
         scope.disconnect()
 
     measured = {
-        source: (rule.count, rule.provenance['microscope'], rule.provenance['run_id'])
+        source: (rule.skip, rule.provenance['microscope'], rule.provenance['run_id'])
         for source, rule in published.items()
         if rule.provenance is not None
     }
@@ -239,7 +239,7 @@ def test_a_classic_waits_the_counts_its_camera_was_measured_to_need():
         'z_move': (1, 'LS720', run),
         'turret': (1, 'LS720', run),
     }
-    assert published['frame_size'].count == FrameValidity.SKIP_FRAMES['frame_size']
+    assert published['frame_size'].skip == FrameValidity.SKIP_FRAMES['frame_size']
 
 
 def test_a_source_its_record_measured_no_count_for_keeps_its_shipped_count():
@@ -252,7 +252,7 @@ def test_a_source_its_record_measured_no_count_for_keeps_its_shipped_count():
     finally:
         scope.disconnect()
 
-    assert {source: rule.count for source, rule in published.items()} == FrameValidity.SKIP_FRAMES
+    assert {source: rule.skip for source, rule in published.items()} == FrameValidity.SKIP_FRAMES
     assert [source for source, rule in published.items() if rule.provenance is not None] == []
 
 
@@ -271,7 +271,7 @@ def test_the_largest_count_over_the_microscopes_is_taken_with_its_microscope():
 
     gain = FrameValidity.rules_from_record(record)['gain']
 
-    assert (gain.count, gain.provenance['microscope']) == (4, 'LS720')
+    assert (gain.skip, gain.provenance['microscope']) == (4, 'LS720')
 
 
 def test_a_measured_move_count_is_z_and_the_turrets_and_xy_keeps_its_shipped_count():
@@ -281,7 +281,7 @@ def test_a_measured_move_count_is_z_and_the_turrets_and_xy_keeps_its_shipped_cou
     2026-11-05). A Z of 1 is below XY's 2, so a shared count would lower it."""
     rules = FrameValidity.rules_from_record(_record({'z_move': {'down': [_measured(1)]}}))
 
-    assert (rules['z_move'].count, rules['turret'].count, rules['xy_move'].count) == (1, 1, 2)
+    assert (rules['z_move'].skip, rules['turret'].skip, rules['xy_move'].skip) == (1, 1, 2)
 
 
 def test_a_callers_change_takes_the_leds_rule_shipped_or_measured():
@@ -291,7 +291,7 @@ def test_a_callers_change_takes_the_leds_rule_shipped_or_measured():
     shipped = FrameValidity.credit_rules()
 
     assert measured['caller'] == measured['led']
-    assert measured['caller'].count == 5
+    assert measured['caller'].skip == 5
     assert shipped['caller'] == shipped['led']
 
 
@@ -306,7 +306,7 @@ def test_bring_up_publishes_each_sources_rule_and_a_change_is_judged_by_it(tmp_p
     finally:
         scope.disconnect()
 
-    assert published['exposure'].count == 4
+    assert published['exposure'].skip == 4
     assert published['gain'] == FrameValidity.credit_rules()['gain']
     assert changes['exposure'].rule == published['exposure']
 
@@ -328,5 +328,5 @@ def test_a_measured_count_makes_a_capture_wait_for_the_frame_after_it(tmp_path, 
         scope.disconnect()
 
     gain = next(j for j in record.judgments if j.change.source == 'gain')
-    assert (gain.change.skip, gain.counts) == (4, True)
+    assert (gain.change.rule.skip, gain.counts) == (4, True)
     assert gain.frames_after >= 5

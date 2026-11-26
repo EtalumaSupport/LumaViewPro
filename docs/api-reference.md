@@ -9365,12 +9365,11 @@ long after the change its frame came.
 **Fields**
 
 - <a id="Change.at_seq"></a>`at_seq`: `int` -- The last frame the camera's driver had been handed when the change was recorded, a frame still in a host queue included; for a move, once in force, when its stop was stamped. A frame already in the camera's pipeline when the register was written cannot show the new state, so crediting it would retire the skip count against frames that predate the change -- and the capture then returns a frame from before the write. An ordinal rather than a clock reading, because the comparison has to survive the clock moving: wall time runs backwards across a DST fall-back, an NTP correction or a host resume, and a settle count measured against a timestamp that jumped forward never completes. Frame numbers only go up.
-- <a id="Change.credits"></a>`credits`: `tuple[Credit, ...]` -- The frames counted toward it, in the order counted, until `skip` was met.
+- <a id="Change.credits"></a>`credits`: `tuple[Credit, ...]` -- The frames counted toward it, in the order counted, until its rule's `skip` was met.
 - <a id="Change.earliest_ns"></a>`earliest_ns`: `int` -- The scope's steady clock (`ScopeSession.host_steady_ns`) of the earliest moment the change could have reached the hardware: a write's start, as its writer stamped it, since the register may change anywhere inside the write; for a move, once in force, the start of the last read that saw its axis still moving, else `written_ns`. A lag measured from here is never short.
 - <a id="Change.in_force_ns"></a>`in_force_ns`: `int | None` -- The scope's steady clock (`ScopeSession.host_steady_ns`) when the axis state the settle check reads became settled, stamped by the motion API; None until then, and for a change that does not wait on an axis.
 - <a id="Change.needs_in_force"></a>`needs_in_force`: `bool` -- A motion source the axis must also settle for: the frame count alone does not end its wait.
 - <a id="Change.rule"></a>`rule`: `FrameRule` -- Its source's count and where it came from, as they stood when the change was recorded.
-- <a id="Change.skip"></a>`skip`: `int` -- The frames the change needed, its rule's count when it was recorded.
 - <a id="Change.source"></a>`source`: `FrameValiditySource` -- What changed.
 - <a id="Change.written_ns"></a>`written_ns`: `int` -- The scope's steady clock (`ScopeSession.host_steady_ns`) when the change was recorded. Every recorder calls `invalidate` after a camera register or LED write returns, and before a move starts.
 
@@ -9879,8 +9878,8 @@ The frames a source's changes wait, and where the count came from.
 
 **Fields**
 
-- <a id="FrameRule.count"></a>`count`: `int` -- The frames a change of the source needs counted after it, before the first that counts: the largest `delivered_frames.max` the camera's timing record holds for the source, over its directions and the microscopes it was measured on, a move taking the largest over every move; else the shipped count (`SKIP_FRAMES`).
 - <a id="FrameRule.provenance"></a>`provenance`: `Mapping[str, str] | None` -- The run that measured the count, naming the microscope it was measured on (`TIMING_MICROSCOPE`); None for a shipped count.
+- <a id="FrameRule.skip"></a>`skip`: `int` -- The frames a change of the source needs counted after it, before the first that counts: the largest `delivered_frames.max` the camera's timing record holds for the source, over its directions and the microscopes it was measured on, a move taking the largest over every move; else the shipped count (`SKIP_FRAMES`).
 
 <a id="FrameSize"></a>
 ## `lumascope.FrameSize`

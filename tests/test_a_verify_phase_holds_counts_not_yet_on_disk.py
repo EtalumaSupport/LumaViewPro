@@ -41,14 +41,14 @@ def test_a_change_inside_the_block_waits_the_held_count_and_one_after_it_the_ins
     sim_scope,
 ):
     installation = sim_scope.capabilities.frame_rules['gain']
-    assert installation.count != 6, 'precondition: the held count differs from the installation'
+    assert installation.skip != 6, 'precondition: the held count differs from the installation'
 
     with sim_scope.imaging.held_frame_rules(_record({'gain': {'up': [_MEASURED]}})):
         inside = _gain_change(sim_scope)
     after = _gain_change(sim_scope)
 
-    assert (inside.skip, inside.rule.provenance['run_id']) == (6, 'run-verify')
-    assert (after.skip, after.rule) == (installation.count, installation)
+    assert (inside.rule.skip, inside.rule.provenance['run_id']) == (6, 'run-verify')
+    assert (after.rule.skip, after.rule) == (installation.skip, installation)
 
 
 def test_the_installations_counts_are_back_after_a_block_that_raised(sim_scope):

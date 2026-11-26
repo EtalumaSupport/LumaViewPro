@@ -123,13 +123,13 @@ class Credit:
     by: Counter
 
 
-@api_fields('count', 'provenance')
+@api_fields('skip', 'provenance')
 @dataclasses.dataclass(frozen=True)
 class FrameRule:
     """The frames a source's changes wait, and where the count came from.
 
     Attributes:
-        count: The frames a change of the source needs counted after it,
+        skip: The frames a change of the source needs counted after it,
             before the first that counts: the largest
             ``delivered_frames.max`` the camera's timing record holds for
             the source, over its directions and the microscopes it was
@@ -143,12 +143,12 @@ class FrameRule:
         ValueError: a count that is not a whole number, 0 or more.
     """
 
-    count: int
+    skip: int
     provenance: Mapping[str, str] | None
 
     def __post_init__(self):
-        if not (is_integer_number(self.count) and self.count >= 0):
-            raise ValueError(f'a frame count of {self.count!r}, not a whole number 0 or more')
+        if not (is_integer_number(self.skip) and self.skip >= 0):
+            raise ValueError(f'a frame count of {self.skip!r}, not a whole number 0 or more')
 
 
 @api_fields(
@@ -156,7 +156,6 @@ class FrameRule:
     'at_seq',
     'written_ns',
     'earliest_ns',
-    'skip',
     'rule',
     'credits',
     'needs_in_force',
@@ -193,12 +192,10 @@ class Change:
             change anywhere inside the write; for a move, once in force, the
             start of the last read that saw its axis still moving, else
             ``written_ns``. A lag measured from here is never short.
-        skip: The frames the change needed, its rule's count when it was
-            recorded.
         rule: Its source's count and where it came from, as they stood when
             the change was recorded.
         credits: The frames counted toward it, in the order counted, until
-            ``skip`` was met.
+            its rule's ``skip`` was met.
         needs_in_force: A motion source the axis must also settle for: the
             frame count alone does not end its wait.
         in_force_ns: The scope's steady clock (``ScopeSession.host_steady_ns``) when
@@ -211,7 +208,6 @@ class Change:
     at_seq: int
     written_ns: int
     earliest_ns: int
-    skip: int
     rule: FrameRule
     credits: tuple[Credit, ...]
     needs_in_force: bool
@@ -220,7 +216,7 @@ class Change:
     @property
     def remaining(self) -> int:
         """Frames the change still needs counted; 0 once the count is met."""
-        return max(0, self.skip - len(self.credits))
+        return max(0, self.rule.skip - len(self.credits))
 
 
 @api_fields(
@@ -267,7 +263,7 @@ class Judgment:
             'counts': self.counts,
             'frames_after': self.frames_after,
             'after_write_ms': round(self.after_write_ms, 3),
-            'skip': self.change.skip,
+            'skip': self.change.rule.skip,
             'counted_by': [f'{credit.seq}:{credit.by.value}' for credit in self.change.credits],
         }
         if self.after_in_force_ms is not None:
@@ -459,7 +455,7 @@ class FrameValidity:
         """Every source at its shipped count: the rules of a camera with no record."""
         return types.MappingProxyType(
             {
-                source: FrameRule(count=count, provenance=None)
+                source: FrameRule(skip=count, provenance=None)
                 for source, count in cls.SKIP_FRAMES.items()
             }
         )
@@ -505,7 +501,7 @@ class FrameValidity:
             if measured:
                 largest = max(measured, key=lambda e: e['delivered_frames']['max'])
                 rules[source] = FrameRule(
-                    count=int(largest['delivered_frames']['max']),
+                    skip=int(largest['delivered_frames']['max']),
                     provenance=types.MappingProxyType(dict(largest['provenance'])),
                 )
         return types.MappingProxyType(rules)
@@ -556,7 +552,6 @@ class FrameValidity:
             rule = self._rules.get(source)
             if rule is None:
                 raise ValueError(f'frame validity has no rule for source {source!r}')
-            skip = rule.count
             # Read INSIDE the lock: two threads invalidating the same source
             # can otherwise store the earlier ordinal for the later write,
             # which is this whole class of bug reintroduced by a race.
@@ -566,7 +561,6 @@ class FrameValidity:
                 at_seq=self._frames_delivered(),
                 written_ns=written_ns,
                 earliest_ns=written_ns if began_ns is None else began_ns,
-                skip=skip,
                 rule=rule,
                 credits=(),
                 needs_in_force=source in self.MOTION_SOURCES and self._settle_check_fn is not None,
@@ -581,7 +575,7 @@ class FrameValidity:
             at_seq = entry.at_seq
             pending_count = len(self._pending)
         if profile_trace.ENABLE_PROFILE_TRACE:
-            self._trace_rows([('invalidate', source, '', at_seq, skip, pending_count)])
+            self._trace_rows([('invalidate', source, '', at_seq, rule.skip, pending_count)])
         return entry
 
     def count_frame(self, frame_seq: int, *, by: Counter) -> None:
@@ -832,7 +826,7 @@ class FrameValidity:
         counted_before = sum(1 for credit in change.credits if credit.seq < frame.seq)
         counts = (
             frame.seq > change.at_seq
-            and counted_before >= change.skip
+            and counted_before >= change.rule.skip
             and (
                 not change.needs_in_force or (in_force is not None and in_force <= frame.arrived_ns)
             )
@@ -914,7 +908,7 @@ class FrameValidity:
             at_seq = change.at_seq
             pending_count = len(self._pending)
         if profile_trace.ENABLE_PROFILE_TRACE:
-            self._trace_rows([('in_force', source, '', at_seq, change.skip, pending_count)])
+            self._trace_rows([('in_force', source, '', at_seq, change.rule.skip, pending_count)])
 
     @classmethod
     def check_timing_record(cls, record: dict) -> None:

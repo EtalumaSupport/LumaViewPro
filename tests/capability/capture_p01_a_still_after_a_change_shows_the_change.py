@@ -151,7 +151,7 @@ def main():
             FrameValiditySource.FRAME_SIZE,
         ):
             rule = rules[source]
-            figure(f'rule.{source.value}', {'count': rule.count, 'provenance': rule.provenance})
+            figure(f'rule.{source.value}', {'skip': rule.skip, 'provenance': rule.provenance})
         # The simulator's default camera has no timing record, so its counts
         # are the shipped ones; a scope's camera is the one this asks about.
         for source in (FrameValiditySource.LED, FrameValiditySource.Z_MOVE) if HARDWARE else ():

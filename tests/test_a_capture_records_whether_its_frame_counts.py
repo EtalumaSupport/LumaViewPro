@@ -84,13 +84,13 @@ def test_a_rule_states_a_whole_count():
     accepted = []
     for name, count in wrong.items():
         try:
-            FrameRule(count=count, provenance=None)
+            FrameRule(skip=count, provenance=None)
             accepted.append(name)
         except ValueError:
             pass
 
     assert accepted == []
-    assert FrameRule(count=4, provenance=_PROVENANCE).provenance == _PROVENANCE
+    assert FrameRule(skip=4, provenance=_PROVENANCE).provenance == _PROVENANCE
 
 
 def test_a_move_counts_the_third_frame_to_arrive_after_its_stop():
@@ -167,9 +167,9 @@ def test_frames_the_captures_drain_counted_name_the_drain(sim_scope, caplog):
 
     gain = _judgment(record, 'gain')
     assert gain.counts
-    assert [credit.by for credit in gain.change.credits] == [Counter.DRAIN] * gain.change.skip
+    assert [credit.by for credit in gain.change.credits] == [Counter.DRAIN] * gain.change.rule.skip
     line = next(r.getMessage() for r in caplog.records if 'capture_still: frame' in r.message)
-    assert _segment(line, 'gain').endswith(f' by=drain x{gain.change.skip}')
+    assert _segment(line, 'gain').endswith(f' by=drain x{gain.change.rule.skip}')
 
 
 def test_frames_a_grab_counted_name_the_grab(sim_scope, caplog):
@@ -181,7 +181,7 @@ def test_frames_a_grab_counted_name_the_grab(sim_scope, caplog):
     # A frame already on its way when the gain was written can be the one a
     # grab takes, and it does not count, so the grabs go on until the count
     # is met; a few spare grabs end the loop if grabs stop counting.
-    for _ in range(imaging._frame_validity.changes()['gain'].skip + 3):
+    for _ in range(imaging._frame_validity.changes()['gain'].rule.skip + 3):
         if imaging._frame_validity.changes()['gain'].remaining == 0:
             break
         imaging.capture_image()
@@ -191,9 +191,9 @@ def test_frames_a_grab_counted_name_the_grab(sim_scope, caplog):
 
     gain = _judgment(record, 'gain')
     assert gain.counts
-    assert [credit.by for credit in gain.change.credits] == [Counter.GRAB] * gain.change.skip
+    assert [credit.by for credit in gain.change.credits] == [Counter.GRAB] * gain.change.rule.skip
     line = next(r.getMessage() for r in caplog.records if 'capture_still: frame' in r.message)
-    assert _segment(line, 'gain').endswith(f' by=grab x{gain.change.skip}')
+    assert _segment(line, 'gain').endswith(f' by=grab x{gain.change.rule.skip}')
 
 
 def test_a_change_is_stated_on_the_first_capture_line_after_it(sim_scope, caplog):
@@ -219,7 +219,7 @@ def test_a_judgment_that_does_not_count_is_stated_on_every_line(sim_scope, caplo
     imaging = sim_scope.imaging
     imaging.capture_still(accept_dark=True)
     fv = imaging._frame_validity
-    fv.use_rules({**fv.rules(), 'gain': FrameRule(count=10_000, provenance=None)})
+    fv.use_rules({**fv.rules(), 'gain': FrameRule(skip=10_000, provenance=None)})
     sim_scope.camera.set_gain_db(sim_scope.camera.read_gain_db() + 1.0)
     caplog.clear()
 

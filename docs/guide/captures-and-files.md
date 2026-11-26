@@ -202,8 +202,8 @@ is the motor board's, as the board reports it. A few values name a type of the r
 when the currents were read. Each `judgments.<n>` (the Plane's `FrameValidity`) is a
 [`Judgment`](../api-reference.md#Judgment) of the frame against one change:
 `counts`, `frames_after`, `after_write_ms`, `after_in_force_ms`. It comes with
-its [`Change`](../api-reference.md#Change)'s `source` and `skip`, the frames it
-needed, and `counted_by`, each counted frame's number and the
+its [`Change`](../api-reference.md#Change)'s `source`, its rule's `skip`, the
+frames it needed, and `counted_by`, each counted frame's number and the
 [`Counter`](../api-reference.md#Counter) that counted it (`287:drain`).
 
 The API has no reader of a saved file's record: read it with any TIFF reader,

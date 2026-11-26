@@ -1613,7 +1613,7 @@ class ImagingAPI:
         )
         _, settle_s = self._settle_budget(exclude_sources, frame_cost_s)
         if exposed_after_call:
-            caller = self._frame_validity.rules()[FrameValiditySource.CALLER].count
+            caller = self._frame_validity.rules()[FrameValiditySource.CALLER].skip
             settle_s += caller * frame_cost_s * self._CAPTURE_DEADLINE_MARGIN
         wait_s = (
             self._CAPTURE_WAIT_TIMEOUT_S
@@ -1830,7 +1830,7 @@ class ImagingAPI:
                             f'[SCOPE API ] capture_image: no frame counted for the {source} '
                             f'change within the grab bound (last frame seq={frame.seq}, '
                             f'{unmet.frames_after} frames after it, its count '
-                            f'{unmet.change.skip}) -- capture rejected. '
+                            f'{unmet.change.rule.skip}) -- capture rejected. '
                             f'{mark.account(self._driver)}'
                         )
                         return _NoFrame('no_fresh_frame', leg, source=source)
@@ -2847,7 +2847,7 @@ class ImagingAPI:
             # from its end hold the longer bound over a stall that begins
             # after the old frames have all come.
             change = self._frame_validity.changes().get(FrameValiditySource.EXPOSURE)
-            if change is not None and driver.frames_delivered - change.at_seq < change.skip:
+            if change is not None and driver.frames_delivered - change.at_seq < change.rule.skip:
                 bound_s = held_s
         watch = self._stream_watch
         if watch is None or self._stream_watch_bound_s != bound_s:
