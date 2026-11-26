@@ -403,6 +403,9 @@ from _lumascope.modules.plugins import (
     UIMountPoint,
     UIRegistry,
 )
+from _lumascope.modules.post_processing import (
+    CellCountImage,
+)
 from _lumascope.modules.post_processing_api import (
     BuildResult,
     BuildStep,
@@ -601,6 +604,7 @@ __all__ = [
     'CapturedStill',
     'CatalogNameRefusedError',
     'CellCountFilters',
+    'CellCountImage',
     'CellCountMethod',
     'CellCountPreview',
     'CellCountResult',

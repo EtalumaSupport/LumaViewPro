@@ -18,8 +18,9 @@ import numpy as np
 import pytest
 
 from _lumascope.modules.cell_count_method import CellCountFilters, CellCountMethod, FilterBounds
+from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.exceptions import PostProcessingRefusedError
-from _lumascope.modules.post_processing import PostProcessing
+from _lumascope.modules.post_processing import CellCountImage, PostProcessing
 
 
 def _blobs() -> np.ndarray:
@@ -32,7 +33,10 @@ def _blobs() -> np.ndarray:
 def test_the_default_method_counts_both_blobs():
     # The default's size filters are open, so every blob is kept.
     _, stats = PostProcessing().preview_cell_count(
-        image=_blobs(), method=CellCountMethod(), significant_bits=8, pixels_per_um=None
+        image=CellCountImage(_blobs(), 8, None),
+        method=CellCountMethod(),
+        pixels_per_um=None,
+        channel_colors=release_colors(),
     )
     assert stats['summary']['num_regions'] == 2
 

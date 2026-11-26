@@ -204,7 +204,7 @@ def _panel(method: CellCountMethod | None = None) -> SimpleNamespace:
             'slider_cell_count_perimeter_id': SimpleNamespace(max=100),
         },
         _method=method or CellCountMethod(),
-        _preview_source_image=None,
+        _preview_source=None,
         _preview_pixel_size_um=None,
         _size_scale=None,
         _set_ui_to_method=shown.append,

@@ -8,6 +8,7 @@ import numpy as np
 import skimage
 
 import _lumascope.modules.image_utils as image_utils
+from _lumascope.modules.channel_record import GRAY, Color
 from _lumascope.modules.settings_transformer import SettingsTransformer
 
 
@@ -156,7 +157,22 @@ class CellCount:
         significant_bits: int,
         pixels_per_um: float | None,
         include_images: list[str] | str | None = None,
+        *,
+        baked: bool,
+        color: Color | None,
     ) -> tuple[dict, dict]:
+        """Count the objects in *image* and answer the images asked for.
+
+        Args:
+            baked: The image is one channel's, so a color image's planes are
+                that channel's mono times its color and it is read by its
+                brightest plane; else as ``rgb_image_to_gray`` reads any
+                color image, by its one populated plane or its luminance.
+            color: The color of the channel the image was taken in, which a
+                mono image is shown in, or None when it states none (shown
+                gray). The outlines are drawn in the color that stands out
+                against the image's (``_outline_color``).
+        """
         if include_images is None:
             include_images = ['filtered_contours']
 
@@ -181,7 +197,7 @@ class CellCount:
             settings=settings, pixels_per_um=pixels_per_um
         )
 
-        gray_image = image_utils.rgb_image_to_gray(image=image)
+        gray_image = image_utils.rgb_image_to_gray(image=image, baked=baked)
 
         if digital_settings['context']['fluorescent_mode'] is False:
             # Invert the image
@@ -212,14 +228,11 @@ class CellCount:
             threshold_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
 
-        contours_img = gray_image.copy()
-        cv2.drawContours(contours_img, contours, -1, (255, 100, 0), 3)
-
         if 'unfiltered_contours' in include_images:
-            return_images['unfiltered_contours'] = contours_img
+            return_images['unfiltered_contours'] = _outlined(image, contours, color)
 
         # Labeling
-        label_map = np.zeros_like(contours_img, dtype='uint16')
+        label_map = np.zeros_like(gray_image, dtype='uint16')
         for i, contour in enumerate(contours):
             label_map = cv2.drawContours(label_map, [contour], -1, i + 1, -1)
 
@@ -239,10 +252,49 @@ class CellCount:
             else round(summary['total_object_area_px2'] / (pixels_per_um**2), 2)
         )
 
-        filtered_contours_img_for_display = image.copy()
-        cv2.drawContours(filtered_contours_img_for_display, filtered_contours, -1, (255, 100, 0), 3)
-
         if 'filtered_contours' in include_images:
-            return_images['filtered_contours'] = filtered_contours_img_for_display
+            return_images['filtered_contours'] = _outlined(image, filtered_contours, color)
 
         return return_images, filtered_region_info
+
+
+# The outline on an image with no color of its own (gray), and on an image
+# whose color's complement is nothing (white).
+_ORANGE = (255, 100, 0)
+
+
+def _outline_color(color: Color) -> tuple[int, int, int]:
+    """The color outlines stand out in against an image of *color*: its
+    complement, brightened so its brightest component is full, so a pale
+    color's outline is no darker than a pure one's; orange against white."""
+    complement = [1.0 - weight for weight in color]
+    brightest = max(complement)
+    if brightest == 0:
+        return _ORANGE
+    return tuple(round(255 * weight / brightest) for weight in complement)
+
+
+def _outlined(image: np.ndarray, contours, color: Color | None) -> np.ndarray:
+    """*image* with *contours* drawn on it, in red-green-blue.
+
+    A mono image is shown in *color*, gray when None; a color image in its
+    own colors, its outline set against *color*, else against its mean
+    color.
+    """
+    if image.ndim == 2:
+        shown = image_utils.mono_to_rgb_falsecolor(image, GRAY if color is None else color)
+        against = GRAY if color is None else color
+    else:
+        shown = np.ascontiguousarray(image[..., :3])
+        against = color if color is not None else _mean_color(shown)
+    cv2.drawContours(shown, contours, -1, _outline_color(against), 3)
+    return shown
+
+
+def _mean_color(image: np.ndarray) -> Color:
+    """A color image's mean color at full brightness; gray for a black one."""
+    means = image.reshape(-1, 3).mean(axis=0)
+    brightest = float(means.max())
+    if brightest == 0:
+        return GRAY
+    return tuple(float(mean) / brightest for mean in means)

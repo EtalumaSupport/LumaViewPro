@@ -19,7 +19,7 @@ import pytest
 
 from _lumascope.modules import image_save, image_utils
 from _lumascope.modules.cell_count import CellCount
-from _lumascope.modules.post_processing import PostProcessing
+from _lumascope.modules.post_processing import CellCountImage
 
 
 def _significant_bits_param(func):
@@ -28,7 +28,7 @@ def _significant_bits_param(func):
 
 SEAM_FUNCS = [
     image_utils._compute_scale_bar_overlay,
-    PostProcessing.preview_cell_count,
+    CellCountImage,
     CellCount.process_image,
     image_save.prepare_image_for_saving,
     image_save.save_image,

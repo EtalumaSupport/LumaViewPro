@@ -516,8 +516,8 @@ class CellCountControls(BoxLayout):
     def __init__(self, method: CellCountMethod, size_scale: CellCountSizeScale, **kwargs):
         super().__init__(**kwargs)
         logger.info('LVP Main: CellCountControls.__init__()')
-        self._preview_source_image = None
-        self._preview_source_significant_bits = 16
+        # The image to preview, with its depth and channel, or None.
+        self._preview_source = None
         # The scale the preview file states (um per pixel), or None.
         self._preview_pixel_size_um = None
         self._preview_image = None
@@ -558,7 +558,7 @@ class CellCountControls(BoxLayout):
 
     def _take_size_scale(self) -> None:
         """Ask what the size sliders stand for at the preview image and the method, and size them."""
-        shape = None if self._preview_source_image is None else self._preview_source_image.shape
+        shape = None if self._preview_source is None else self._preview_source.pixels.shape
         self._size_scale = _app_ctx.ctx.session.post_processing.cell_count_size_scale(
             self._method, shape=shape, pixel_size_um=self._preview_pixel_size_um
         )
@@ -623,25 +623,25 @@ class CellCountControls(BoxLayout):
             self.ids[label_id].text = _range_text(bounds.min, bounds.max, unit)
 
     def set_preview_source_file(self, file) -> None:
-        # One read returns pixels AND their payload depth, so the preview always
-        # scales by the source's true depth and cannot read the two out of sync.
+        # One read returns pixels, their payload depth and channel, so the
+        # preview always scales by the source's true depth and shows its
+        # channel's color, and cannot read them out of sync.
         def _load():
-            image, significant_bits = post_processing.read_cell_count_image(file)
-            self._preview_source_significant_bits = significant_bits
+            image = post_processing.read_cell_count_image(file)
             self._preview_pixel_size_um = image_utils.read_pixel_size_um(file)
-            self.set_preview_source(image=image)
+            self.set_preview_source(image)
 
         run_reported(_load, None, 'LOAD_CELL_COUNT_INPUT_IMAGE')
 
-    def set_preview_source(self, image) -> None:
-        self._preview_source_image = image
-        self._preview_image = image
+    def set_preview_source(self, image: post_processing.CellCountImage) -> None:
+        self._preview_source = image
+        self._preview_image = image.pixels
         img_widget = self.ids['cell_count_image_id']
         # The stored source stays full-depth for the cell-count math; the display
         # blit gets an 8-bit copy scaled by the source's payload depth, so a
         # right-aligned 12-bit frame renders correctly instead of being blitted
         # as raw 16-bit bytes.
-        display_image = image_utils.convert_to_8bit(image, self._preview_source_significant_bits)
+        display_image = image_utils.convert_to_8bit(image.pixels, image.significant_bits)
         img_widget.texture = image_utils_kivy.image_to_texture(
             image=display_image, existing=img_widget.texture
         )
@@ -672,13 +672,12 @@ class CellCountControls(BoxLayout):
         run_reported(_load, _show, 'LOAD_CELL_COUNT_METHOD')
 
     def _regenerate_image_preview(self):
-        if self._preview_source_image is None:
+        if self._preview_source is None:
             return
 
         image = _app_ctx.ctx.session.post_processing.preview_cell_count(
-            self._preview_source_image,
+            self._preview_source,
             self._method,
-            significant_bits=self._preview_source_significant_bits,
             pixel_size_um=self._preview_pixel_size_um,
         ).image
 

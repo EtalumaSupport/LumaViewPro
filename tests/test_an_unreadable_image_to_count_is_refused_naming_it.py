@@ -54,9 +54,10 @@ def test_a_file_that_is_not_an_image_is_refused_naming_it(tmp_path):
 def test_an_image_reads_with_its_depth(tmp_path):
     path = tmp_path / 'cells.tif'
     tifffile.imwrite(path, np.full((8, 8), 200, np.uint8))
-    image, bits = read_cell_count_image(path)
-    assert image.shape == (8, 8)
-    assert bits == 8
+    image = read_cell_count_image(path)
+    assert image.pixels.shape == (8, 8)
+    assert image.significant_bits == 8
+    assert image.channel is None, 'a file that states no channel answers none'
 
 
 def test_the_folder_count_names_an_unreadable_image_in_the_same_words(tmp_path):
@@ -125,7 +126,7 @@ def test_the_panel_reports_an_unreadable_preview_and_keeps_its_image(tmp_path, m
 
     monkeypatch.setattr(panel_module, 'run_reported', reported)
     shown = []
-    panel = SimpleNamespace(_preview_source_significant_bits=16, set_preview_source=shown.append)
+    panel = SimpleNamespace(_preview_source=None, set_preview_source=shown.append)
     broken = tmp_path / 'broken.tif'
     broken.write_bytes(b'not a tiff')
     panel_module.CellCountControls.set_preview_source_file(panel, str(broken))
@@ -133,4 +134,4 @@ def test_the_panel_reports_an_unreadable_preview_and_keeps_its_image(tmp_path, m
     assert label == 'LOAD_CELL_COUNT_INPUT_IMAGE'
     assert isinstance(refused, PostProcessingRefusedError)
     assert shown == []
-    assert panel._preview_source_significant_bits == 16
+    assert panel._preview_source is None

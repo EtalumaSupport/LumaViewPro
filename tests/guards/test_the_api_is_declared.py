@@ -1023,6 +1023,7 @@ OPEN_STRINGS: dict[str, str] = {
     'ProcessorResult.message field': _PROSE,
     'PostProcessingAPI.count_cells parameter channel': _CHANNEL,
     'PostProcessingAPI.start_count_cells parameter channel': _CHANNEL,
+    'CellCountImage.channel field': _CHANNEL,
     'PostProcessingAPI.graph parameter x': _COLUMN,
     'PostProcessingAPI.graph parameter y': _COLUMN,
     'PostProcessingAPI.graph parameter x_label': _PROSE,

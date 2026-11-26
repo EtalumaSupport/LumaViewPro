@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 import _lumascope.modules.channel_record as channel_record
+from _lumascope.modules.channel_record import ChannelColors, Color
 import _lumascope.modules.image_utils as image_utils
 import _lumascope.modules.path_utils as path_utils
 import _lumascope.modules.quick_enhance as quick_enhance
@@ -40,7 +41,7 @@ from _lumascope.modules.exceptions import (
     system_words,
 )
 from _lumascope.modules.notification_center import cause_in_words, notifications
-from _lumascope.modules.api_surface import ProgressCallback
+from _lumascope.modules.api_surface import ProgressCallback, api_fields
 
 # The operation's name as a person reads it, in its refusals and failures.
 CELL_COUNT_OPERATION = PostProcessingOperation.CELL_COUNT
@@ -158,8 +159,28 @@ def _refuse_size_filters_without_a_scale(method: CellCountMethod, name: str) -> 
             )
 
 
-def read_cell_count_image(path: str | os.PathLike) -> tuple[np.ndarray, int]:
-    """Read an image to count: its pixels and their payload depth.
+@api_fields('pixels', 'significant_bits', 'channel')
+@dataclasses.dataclass(frozen=True)
+class CellCountImage:
+    """An image to count, with what its pixels mean: one value, so the depth
+    and the channel cannot be dropped from the pixels or mismatched with them.
+
+    Attributes:
+        pixels: The stored pixels, values verbatim (right-aligned, dtype kept).
+        significant_bits: Their payload depth, by which a 16-bit image is
+            scaled to the 8 bits the count reads.
+        channel: The channel the image was taken in, by this release's key,
+            or None when it states none. An image of a channel is shown in its
+            color and counted as its mono.
+    """
+
+    pixels: np.ndarray
+    significant_bits: int
+    channel: str | None
+
+
+def read_cell_count_image(path: str | os.PathLike) -> CellCountImage:
+    """Read an image to count: its pixels, their payload depth and its channel.
 
     One read returns pixels AND their payload depth together, so a
     right-aligned 12-bit TIFF scales to 8-bit by its true depth and the two
@@ -169,6 +190,10 @@ def read_cell_count_image(path: str | os.PathLike) -> tuple[np.ndarray, int]:
     so a summed file is counted on the scale its values reach, not clipped
     at one frame's white.
 
+    The channel is the one the file states, as this release's key (an old
+    name read as the channel it names today), or None when it states none
+    or a name this release does not know, which no color can be given for.
+
     Raises:
         LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at ``path``;
             ``'not_a_file'``, a folder is.
@@ -177,8 +202,10 @@ def read_cell_count_image(path: str | os.PathLike) -> tuple[np.ndarray, int]:
     """
     path = path_utils.existing_file(path)
     try:
-        image, significant_bits, _ = image_utils.load_pixels(path)
-        return image, significant_bits
+        pixels, significant_bits, _ = image_utils.load_pixels(path)
+        channel = _counted_as(image_utils.read_file_record(path), None)
+        known = channel in channel_record.release_catalog()
+        return CellCountImage(pixels, significant_bits, channel if known else None)
     except ValueError as e:
         raise PostProcessingRefusedError(
             operation=CELL_COUNT_OPERATION,
@@ -410,32 +437,63 @@ class PostProcessing:
 
     def preview_cell_count(
         self,
-        image: np.ndarray,
+        image: CellCountImage,
         method: CellCountMethod,
-        significant_bits: int,
         *,
         pixels_per_um: float | None,
+        channel_colors: ChannelColors,
         name: str = 'The image',
     ) -> tuple[np.ndarray, dict]:
-        """Count the cells in one image by *method*.
+        """Count the cells in one image by *method*, and answer it outlined.
 
         *pixels_per_um* is the scale to measure at (``cell_count_scale``);
-        None counts in pixels. *name* is what a refusal calls the image.
+        None counts in pixels. A mono image of a channel is shown in its
+        color in *channel_colors* (``image_color``). *name* is what a
+        refusal calls the image.
 
         Raises:
             PostProcessingRefusedError: reason ``no_scale``, with no scale
                 the method bounds an area or a perimeter.
         """
-        if pixels_per_um is None:
-            _refuse_size_filters_without_a_scale(method, name)
-        preview_images, cell_stats = self._cell_count.process_image(
-            image=image,
-            settings=saved_form(method),
-            significant_bits=significant_bits,
+        channel = image.channel
+        preview_images, cell_stats = self._count(
+            image,
+            method,
             pixels_per_um=pixels_per_um,
+            name=name,
+            # No channel, no color: a color image is then outlined against
+            # its own.
+            color=None if channel is None else channel_record.image_color(channel, channel_colors),
+            include_images=['filtered_contours'],
         )
 
         return preview_images['filtered_contours'], cell_stats
+
+    def _count(
+        self,
+        image: CellCountImage,
+        method: CellCountMethod,
+        *,
+        pixels_per_um: float | None,
+        name: str,
+        color: Color | None,
+        include_images: list[str],
+    ) -> tuple[dict, dict]:
+        """Count the cells in one image, answering the images asked for.
+
+        An image of a release channel is read as baked in its color.
+        """
+        if pixels_per_um is None:
+            _refuse_size_filters_without_a_scale(method, name)
+        return self._cell_count.process_image(
+            image=image.pixels,
+            settings=saved_form(method),
+            significant_bits=image.significant_bits,
+            pixels_per_um=pixels_per_um,
+            include_images=include_images,
+            baked=image.channel in channel_record.release_catalog(),
+            color=color,
+        )
 
     def apply_cell_count_to_folder(
         self,
@@ -536,20 +594,24 @@ class PostProcessing:
         for done, filename in enumerate(filenames, start=1):
             file_path = os.path.join(path, filename)
             try:
-                image, significant_bits = read_cell_count_image(file_path)
+                image = read_cell_count_image(file_path)
                 row = recorded[filename]
                 facts = image_utils.read_file_record(file_path)
-                if channel is not None and _counted_as(facts, row) != channel:
+                counted_as = _counted_as(facts, row)
+                if channel is not None and counted_as != channel:
                     left_out.append((filename, LeftOutReason.OTHER_CHANNEL))
                     continue
-                _, region_info = self.preview_cell_count(
-                    image=image,
-                    method=method,
-                    significant_bits=significant_bits,
+                # The count's numbers only: no image is drawn. The channel is
+                # the file's, else its record row's.
+                _, region_info = self._count(
+                    dataclasses.replace(image, channel=counted_as),
+                    method,
                     pixels_per_um=cell_count_scale(
                         method, image_utils.read_pixel_size_um(file_path)
                     ),
                     name=filename,
+                    color=None,
+                    include_images=[],
                 )
                 # The time the image states it was taken, else its record
                 # row's, never the file system's: a copied folder's files

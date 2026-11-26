@@ -19,6 +19,7 @@ from harness import headless_session, probe_dir
 from runfolder import run_protocol_folder
 
 from _lumascope.modules.cell_count_method import CellCountMethod
+from _lumascope.modules.post_processing import CellCountImage
 from tests.stock_channels import LED0
 
 # The panel's default method (6c). Its area and perimeter filters are open, so
@@ -69,9 +70,8 @@ def main() -> int:
 
         # 6a -- one image, through the session's member
         preview = post.preview_cell_count(
-            image,
+            CellCountImage(image, bits, None),
             METHOD,
-            significant_bits=bits,
             pixel_size_um=image_utils.read_pixel_size_um(source),
         )
         print('6a preview shape:', preview.image.shape)
@@ -83,7 +83,7 @@ def main() -> int:
         for cy, cx in ((50, 50), (50, 150), (150, 50), (150, 150)):
             blobs[cy - 8 : cy + 8, cx - 8 : cx + 8] = 60000
         blob_counts = post.preview_cell_count(
-            blobs, METHOD, significant_bits=16, pixel_size_um=None
+            CellCountImage(blobs, 16, None), METHOD, pixel_size_um=None
         ).counts
         print("6a' synthetic-blob counts:", blob_counts)
 

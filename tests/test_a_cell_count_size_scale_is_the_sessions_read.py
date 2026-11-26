@@ -16,6 +16,7 @@ import pytest
 
 from _lumascope.modules.cell_count_method import CellCountMethod
 from _lumascope.modules.exceptions import ArgumentRefusedError, PostProcessingRefusedError
+from _lumascope.modules.post_processing import CellCountImage
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -89,7 +90,9 @@ def test_a_shape_or_scale_no_image_has_is_refused_not_answered(post_processing):
         refused.append(raised.value.reason)
     with pytest.raises(PostProcessingRefusedError) as preview:
         post_processing.preview_cell_count(
-            np.zeros((8, 8), dtype=np.uint8), CellCountMethod(), significant_bits=8, pixel_size_um=0
+            CellCountImage(np.zeros((8, 8), dtype=np.uint8), 8, None),
+            CellCountMethod(),
+            pixel_size_um=0,
         )
 
     assert refused == ['invalid_setting'] * 6

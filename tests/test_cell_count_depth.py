@@ -55,7 +55,14 @@ def _capture_depth(post):
     captured = {}
 
     def fake_process_image(
-        image, settings, significant_bits=16, pixels_per_um=None, include_images=None
+        image,
+        settings,
+        significant_bits=16,
+        pixels_per_um=None,
+        include_images=None,
+        *,
+        baked,
+        color,
     ):
         captured['significant_bits'] = significant_bits
         return (

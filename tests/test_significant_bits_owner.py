@@ -586,7 +586,9 @@ class TestCellCountConverterRouting:
             ) as canonical,
             pytest.raises(_StopError),
         ):
-            cc.process_image(img, settings={}, significant_bits=16, pixels_per_um=None)
+            cc.process_image(
+                img, settings={}, significant_bits=16, pixels_per_um=None, baked=False, color=None
+            )
 
         canonical.assert_called_once()
         args, kwargs = canonical.call_args

@@ -72,6 +72,7 @@ NaN stays a NaN, and a key keeps its type.
 - [`CaptureTally`](#CaptureTally)
 - [`CapturedStill`](#CapturedStill)
 - [`CellCountFilters`](#CellCountFilters)
+- [`CellCountImage`](#CellCountImage)
 - [`CellCountMethod`](#CellCountMethod)
 - [`CellCountPreview`](#CellCountPreview)
 - [`CellCountResult`](#CellCountResult)
@@ -4595,10 +4596,9 @@ once.
 ```python
 def preview_cell_count(
     self,
-    image: np.ndarray,
+    image: CellCountImage,
     method: CellCountMethod,
     *,
-    significant_bits: int,
     pixel_size_um: float | None,
 ) -> CellCountPreview
 ```
@@ -4612,24 +4612,29 @@ Counted on the caller's thread, not the post-processing lane, so a
 form previewing a method while a build or a run goes on is not held
 behind it. The image is measured at the scale `count_cells` would
 measure its file at: the method's *pixels_per_um*, else
-*pixel_size_um*, else in pixels.
+*pixel_size_um*, else in pixels. An image of a channel is counted as
+that channel's mono, as `count_cells` counts its file.
+
+The outlined image is red-green-blue: a mono image in its channel's
+color (`ScopeSession.channel_colors`), gray with no channel, and a
+color image in its own colors; the outlines are in the complement of
+the image's color, brightened to full, and orange on gray.
 
 **Args**
 
-- `image`: The pixels the caller holds, so a form that adjusts the method reads no file.
+- `image`: The pixels the caller holds, with their depth and channel (`read_cell_count_image` reads all three from a file), so a form that adjusts the method reads no file.
 - `method`: The cell-count method to count by.
-- `significant_bits`: The image's payload depth, by which a 16-bit image is scaled to the 8 bits the count reads.
 - `pixel_size_um`: The scale the image states, in microns per pixel, or None when it states none.
 
 **Raises**
 
 - `PostProcessingRefusedError`: `'no_scale'`, the image is counted in pixels and *method* bounds an area or a perimeter, which are in microns; `'invalid_setting'`, *pixel_size_um* is not a positive number of microns.
-- `ArgumentRefusedError`: `'out_of_range'`, *significant_bits* is outside 1 to 16, the depths a frame's 16-bit container holds.
+- `ArgumentRefusedError`: `'out_of_range'`, the image's *significant_bits* is outside 1 to 16, the depths a frame's 16-bit container holds; `'channel_unknown'`, its *channel* is not one of this release's channels.
 
 **Refusals**
 
 - [`PostProcessingRefusedError`](#PostProcessingRefusedError): `no_scale`, `invalid_setting`
-- [`ArgumentRefusedError`](#ArgumentRefusedError): `out_of_range`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `out_of_range`, `channel_unknown`
 
 <a id="PostProcessingAPI.save_cell_count_method"></a>
 ### `PostProcessingAPI.save_cell_count_method`
@@ -9348,6 +9353,21 @@ Which regions a count keeps, each bound checked as the filters are built.
 - <a id="CellCountFilters.intensity_min_pct"></a>`intensity_min_pct`: `FilterBounds` -- A region's darkest pixel, in percent of full scale.
 - <a id="CellCountFilters.perimeter_um"></a>`perimeter_um`: `FilterBounds` -- A region's perimeter, in microns.
 - <a id="CellCountFilters.sphericity"></a>`sphericity`: `FilterBounds` -- From 0 to 1.
+
+<a id="CellCountImage"></a>
+## `lumascope.CellCountImage`
+
+A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+Taken by: [`PostProcessingAPI.preview_cell_count`](#PostProcessingAPI.preview_cell_count).
+
+An image to count, with what its pixels mean: one value, so the depth
+and the channel cannot be dropped from the pixels or mismatched with them.
+
+**Fields**
+
+- <a id="CellCountImage.channel"></a>`channel`: `str | None` -- The channel the image was taken in, by this release's key, or None when it states none. An image of a channel is shown in its color and counted as its mono.
+- <a id="CellCountImage.pixels"></a>`pixels`: `ndarray` -- The stored pixels, values verbatim (right-aligned, dtype kept).
+- <a id="CellCountImage.significant_bits"></a>`significant_bits`: `int` -- Their payload depth, by which a 16-bit image is scaled to the 8 bits the count reads.
 
 <a id="CellCountMethod"></a>
 ## `lumascope.CellCountMethod`

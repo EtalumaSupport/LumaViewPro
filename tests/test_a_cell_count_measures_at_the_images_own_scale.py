@@ -27,8 +27,12 @@ from _lumascope.modules.cell_count_method import (
     FilterBounds,
     saved_form,
 )
-from _lumascope.modules.post_processing import PostProcessing, load_cell_count_method
-from _lumascope.modules.channel_record import release_color
+from _lumascope.modules.post_processing import (
+    CellCountImage,
+    PostProcessing,
+    load_cell_count_method,
+)
+from _lumascope.modules.channel_record import release_color, release_colors
 from tests.stock_channels import LED1
 from tests.installation_fixtures import shipped_grids
 
@@ -156,7 +160,10 @@ def test_a_preview_of_an_image_with_no_scale_refuses_a_size_filter():
 
     with pytest.raises(PostProcessingRefusedError) as refused:
         PostProcessing().preview_cell_count(
-            image=_BLOB, method=method, significant_bits=8, pixels_per_um=None
+            image=CellCountImage(_BLOB, 8, None),
+            method=method,
+            pixels_per_um=None,
+            channel_colors=release_colors(),
         )
 
     assert refused.value.reason == 'no_scale'
@@ -164,7 +171,10 @@ def test_a_preview_of_an_image_with_no_scale_refuses_a_size_filter():
 
 def test_a_preview_without_a_scale_measures_in_pixels():
     _, stats = PostProcessing().preview_cell_count(
-        image=_BLOB, method=CellCountMethod(), significant_bits=8, pixels_per_um=None
+        image=CellCountImage(_BLOB, 8, None),
+        method=CellCountMethod(),
+        pixels_per_um=None,
+        channel_colors=release_colors(),
     )
 
     (region,) = stats['regions'].values()

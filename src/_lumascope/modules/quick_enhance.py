@@ -19,7 +19,7 @@ import numpy as np
 from _lumascope.lib.real_numbers import is_integer_number
 from _lumascope.lvp_logger import logger
 from _lumascope.modules import image_mode, image_utils, path_utils, wall_time
-from _lumascope.modules.channel_record import GRAY, ChannelColors, Color, stored_key
+from _lumascope.modules.channel_record import GRAY, ChannelColors, image_color
 from _lumascope.modules.common_utils import causes_in_words, room_to_write
 from _lumascope.modules.notification_center import cause_in_words
 from _lumascope.modules.exceptions import (
@@ -187,14 +187,6 @@ class QuickEnhancer:
         return None
 
     @staticmethod
-    def _channel_color(channel: str | None, channel_colors: ChannelColors) -> Color:
-        """The color a derived image of ``channel`` is shown in: a channel's
-        color in ``channel_colors`` (a stored old name's is its stock key's),
-        and gray for a source that names none (a foreign file, a composite,
-        an unrecognized token)."""
-        return channel_colors.get(stored_key(channel), GRAY)
-
-    @staticmethod
     def colorize_mono_for_visual_output(
         image: np.ndarray, channel: str | None, channel_colors: ChannelColors
     ) -> np.ndarray:
@@ -205,7 +197,7 @@ class QuickEnhancer:
         a colored channel receives its display color only in the derived
         output.
         """
-        color = QuickEnhancer._channel_color(channel, channel_colors)
+        color = image_color(channel, channel_colors)
         if image.ndim == 2 and color != GRAY:
             return image_utils.mono_to_rgb_falsecolor(image, color)
         return image
@@ -502,7 +494,7 @@ class QuickEnhancer:
 
         # The recipe takes its name first, inside the image's block.
         with path_utils.written_whole(output_path) as temp_output:
-            render_color = self._channel_color(channel, channel_colors)
+            render_color = image_color(channel, channel_colors)
             image_utils.write_tiff(
                 data=output_for_write,
                 file_loc=temp_output,

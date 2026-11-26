@@ -53,6 +53,10 @@ ALLOWLISTED_SINKS = frozenset(
         # and the depth of the pixels it was handed arrive together to describe
         # one derived file, and both are already required arguments.
         ('src/_lumascope/modules/image_utils.py', 'build_postproc_output_metadata'),
+        # Terminal renderer of a cell count's outlined images: it scales the
+        # pixels by their depth and draws them in the channel's color; its one
+        # caller unpacks both from one CellCountImage.
+        ('src/_lumascope/modules/cell_count.py', 'process_image'),
     }
 )
 

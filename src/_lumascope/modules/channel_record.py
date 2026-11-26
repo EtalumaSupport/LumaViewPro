@@ -626,6 +626,17 @@ def output_color(name: object, colors: ChannelColors) -> Color:
     return colors[key]
 
 
+def image_color(name: object, colors: ChannelColors) -> Color:
+    """The color an image of channel ``name`` is shown in, as a file states
+    the name: the channel's ``output_color``, and ``GRAY`` for an image that
+    states no channel (None) or a name this release does not know (a foreign
+    file, a newer release's channel), which no color can be given for.
+    """
+    if name is None or stored_key(name) not in release_catalog():
+        return GRAY
+    return output_color(name, colors)
+
+
 def shown_color(name: object, false_color_on: bool, colors: ChannelColors) -> Color:
     """The color an image named for ``name`` is shown in: its
     ``output_color`` with false color on, ``GRAY`` with it off.

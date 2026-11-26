@@ -67,6 +67,7 @@ if TYPE_CHECKING:
 
     from _lumascope.modules.api_surface import ProgressCallback
     from _lumascope.modules.channel_record import ChannelColors
+    from _lumascope.modules.post_processing import CellCountImage
     from _lumascope.modules.quick_enhance import QuickEnhanceSettings
     from _lumascope.modules.sequenced_capture_runner import FilesStillWriting
     from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
@@ -1509,10 +1510,9 @@ class PostProcessingAPI:
     @api(in_process=True)
     def preview_cell_count(
         self,
-        image: np.ndarray,
+        image: CellCountImage,
         method: CellCountMethod,
         *,
-        significant_bits: int,
         pixel_size_um: float | None,
     ) -> CellCountPreview:
         """Count the cells in *image* by *method*, as ``count_cells`` counts
@@ -1522,14 +1522,19 @@ class PostProcessingAPI:
         form previewing a method while a build or a run goes on is not held
         behind it. The image is measured at the scale ``count_cells`` would
         measure its file at: the method's *pixels_per_um*, else
-        *pixel_size_um*, else in pixels.
+        *pixel_size_um*, else in pixels. An image of a channel is counted as
+        that channel's mono, as ``count_cells`` counts its file.
+
+        The outlined image is red-green-blue: a mono image in its channel's
+        color (``ScopeSession.channel_colors``), gray with no channel, and a
+        color image in its own colors; the outlines are in the complement of
+        the image's color, brightened to full, and orange on gray.
 
         Args:
-            image: The pixels the caller holds, so a form that adjusts the
-                method reads no file.
+            image: The pixels the caller holds, with their depth and channel
+                (``read_cell_count_image`` reads all three from a file), so a
+                form that adjusts the method reads no file.
             method: The cell-count method to count by.
-            significant_bits: The image's payload depth, by which a 16-bit
-                image is scaled to the 8 bits the count reads.
             pixel_size_um: The scale the image states, in microns per pixel,
                 or None when it states none.
 
@@ -1538,19 +1543,23 @@ class PostProcessingAPI:
                 counted in pixels and *method* bounds an area or a
                 perimeter, which are in microns; ``'invalid_setting'``,
                 *pixel_size_um* is not a positive number of microns.
-            ArgumentRefusedError: ``'out_of_range'``, *significant_bits* is
-                outside 1 to 16, the depths a frame's 16-bit container holds.
+            ArgumentRefusedError: ``'out_of_range'``, the image's
+                *significant_bits* is outside 1 to 16, the depths a frame's
+                16-bit container holds; ``'channel_unknown'``, its *channel*
+                is not one of this release's channels.
         """
         from _lumascope.modules import image_utils
         from _lumascope.modules.post_processing import PostProcessing, cell_count_scale
 
-        image_utils.refuse_unusable_depth(significant_bits)
+        image_utils.refuse_unusable_depth(image.significant_bits)
         _refuse_unusable_image_scale(pixel_size_um)
+        if image.channel is not None:
+            channel_record.refuse_unknown_channel(image.channel)
         outlined, stats = PostProcessing().preview_cell_count(
             image,
             method,
-            significant_bits,
             pixels_per_um=cell_count_scale(method, pixel_size_um),
+            channel_colors=self._channel_colors(),
         )
         summary = stats['summary']
         return CellCountPreview(

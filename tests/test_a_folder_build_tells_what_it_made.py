@@ -65,8 +65,8 @@ def _write_tiff(path):
 def counter(monkeypatch):
     post = PostProcessing()
 
-    def counted(image, method, significant_bits, *, pixels_per_um, name):
-        return None, {
+    def counted(image, method, *, pixels_per_um, name, color, include_images):
+        return {}, {
             'summary': {
                 'num_regions': 3,
                 'total_object_area_px2': 1.0,
@@ -75,7 +75,9 @@ def counter(monkeypatch):
             }
         }
 
-    monkeypatch.setattr(post, 'preview_cell_count', counted)
+    # a stand-in by design: the subject is what the folder count writes and
+    # answers, not the count of one image.
+    monkeypatch.setattr(post, '_count', counted)
     return post
 
 
