@@ -37,8 +37,8 @@ Usage::
 
 Note: Some old firmware builds (pre-2023) can enter raw REPL but
 cannot access the filesystem due to SPI bus contention after
-interrupting main.py. ``list_files`` returns an empty list in
-that case.
+interrupting main.py. ``list_files`` raises in that case, never
+answering an empty list, which is a board with no files.
 """
 
 import base64
@@ -47,6 +47,12 @@ import logging
 import time
 
 import serial
+
+from _lumascope.drivers.exceptions import (
+    BoardNoReplyError,
+    BoardReplyUnreadableError,
+    BoardReportedError,
+)
 
 # Parent under the LVP tree so raw-REPL flash / bootloader / config-backup
 # I/O reaches the log handlers. Bare __name__ ('_lumascope.drivers.raw_repl') has no
@@ -321,25 +327,47 @@ def exit_raw_repl(serial_port):
         logger.warning(f'Error exiting raw REPL: {e}')
 
 
-def list_files(serial_port):
+def _stdout_of(serial_port: serial.Serial, code: str, what: str, timeout: float) -> bytes:
+    """What *code* printed on the board, or the reason it printed nothing usable.
+
+    The board answers code that raised with empty stdout and the traceback
+    on stderr; read as stdout alone, that is an empty answer.
+
+    Raises:
+        BoardNoReplyError: the raw REPL gave no answer it could read.
+        BoardReportedError: the code raised on the board; its traceback is
+            in the message.
+    """
+    result = raw_exec(serial_port, code, timeout=timeout)
+    if result is None:
+        raise BoardNoReplyError(f"{what}: no answer from the board's raw REPL")
+    stdout, stderr = result
+    if stderr.strip():
+        raise BoardReportedError(
+            f'{what}: the board raised: {stderr.decode("utf-8", "ignore").strip()}'
+        )
+    return stdout
+
+
+def list_files(serial_port: serial.Serial) -> list[str]:
     """List all files on the board's filesystem via raw REPL.
 
     Some old firmware builds can enter raw REPL but hang on filesystem
     imports (flash SPI contention after interrupt). Uses a short timeout
     to detect this quickly.
 
-    Returns list of filenames, or empty list on failure.
+    Returns the file names; [] is a board with no files.
+
+    Raises:
+        BoardNoReplyError, BoardReportedError: the listing failed
+            (``_stdout_of``), never answered as a board with no files.
     """
     code = "import os\nfor f in os.listdir('/'):\n print(f)"
-    result = raw_exec(serial_port, code, timeout=5)
-    if result is None:
-        logger.info('os.listdir failed -- filesystem may be unavailable on this board')
-        return []
-    stdout, _stderr = result
+    stdout = _stdout_of(serial_port, code, 'os.listdir', timeout=5)
     return [line.strip() for line in stdout.decode('utf-8', 'ignore').split('\n') if line.strip()]
 
 
-def read_file(serial_port, filename, verify=True):
+def read_file(serial_port: serial.Serial, filename: str, verify: bool = True) -> bytes:
     """Read a single file from the board via raw REPL.
 
     Uses base64 encoding for safe binary transfer.
@@ -347,9 +375,16 @@ def read_file(serial_port, filename, verify=True):
 
     If verify=True (default), reads the file twice and compares to
     detect serial corruption. This doubles the transfer time but
-    catches single-bit errors that base64 alone cannot detect.
+    catches single-bit errors that base64 alone cannot detect. Reads that
+    differ get a third, and the contents are what two of them agree on.
 
-    Returns file contents as bytes, or None on failure.
+    Returns the file's contents.
+
+    Raises:
+        BoardNoReplyError, BoardReportedError: a read failed, the file
+            absent or unreadable among them (``_stdout_of``).
+        BoardReplyUnreadableError: a read's answer was not base64, or no
+            two of three reads agreed.
     """
     code = (
         'try:\n import binascii\nexcept:\n import ubinascii as binascii\n'
@@ -358,53 +393,36 @@ def read_file(serial_port, filename, verify=True):
         "print(binascii.b2a_base64(d).decode(), end='')"
     )
 
-    def _do_read():
-        result = raw_exec(serial_port, code, timeout=10)
-        if result is None:
-            return None
-        stdout, _stderr = result
+    def _do_read() -> bytes:
+        stdout = _stdout_of(serial_port, code, f'read {filename}', timeout=10)
         try:
             return base64.b64decode(stdout.strip())
-        except Exception as e:
-            logger.warning(f'Failed to decode {filename}: {e}')
-            return None
+        except ValueError as e:
+            raise BoardReplyUnreadableError(f'read {filename}: not base64 ({e})') from e
 
     data = _do_read()
-    if data is None:
-        return None
-
-    if verify:
-        time.sleep(0.2)  # Brief pause between reads
-        data2 = _do_read()
-        if data2 is None:
-            logger.warning(
-                f'Verification read of {filename} failed -- using first read ({len(data)} bytes)'
-            )
-            # Still return first read -- better than nothing for diagnostics
-        elif data != data2:
-            logger.error(
-                f'VERIFICATION FAILED for {filename}: '
-                f'read 1 = {len(data)} bytes, read 2 = {len(data2)} bytes. '
-                f'Possible serial corruption. Retrying...'
-            )
-            # Third attempt as tiebreaker
-            time.sleep(0.5)
-            data3 = _do_read()
-            if data3 == data:
-                logger.info('Third read matches first -- using first read')
-            elif data3 == data2:
-                logger.info('Third read matches second -- using second read')
-                data = data2
-            else:
-                logger.error(
-                    f'All three reads differ for {filename}! '
-                    f'Serial link may be unreliable. Using largest read.'
-                )
-                data = max(data, data2, data3, key=len)
-        else:
-            logger.debug(f'Verified {filename}: {len(data)} bytes, both reads match')
-
-    return data
+    if not verify:
+        return data
+    time.sleep(0.2)  # Brief pause between reads
+    data2 = _do_read()
+    if data == data2:
+        logger.debug(f'Verified {filename}: {len(data)} bytes, both reads match')
+        return data
+    logger.error(
+        f'VERIFICATION FAILED for {filename}: '
+        f'read 1 = {len(data)} bytes, read 2 = {len(data2)} bytes. '
+        f'Possible serial corruption. Retrying...'
+    )
+    # Third attempt as tiebreaker
+    time.sleep(0.5)
+    data3 = _do_read()
+    if data3 in (data, data2):
+        logger.info(f'Third read of {filename} matches an earlier one -- using it')
+        return data3
+    raise BoardReplyUnreadableError(
+        f'read {filename}: three reads differ ({len(data)}, {len(data2)} and '
+        f'{len(data3)} bytes); the serial link may be unreliable'
+    )
 
 
 def write_file(serial_port: serial.Serial, filename: str, data: bytes) -> bool:

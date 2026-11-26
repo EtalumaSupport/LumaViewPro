@@ -571,7 +571,8 @@ def _backup_configs(board, board_config, backup_dir, callback=None):
     which _make_backup_dir has made.
 
     Returns dict of {filename: bytes_content}.
-    Raises UpdateError if a file exists on board but cannot be read.
+    Raises UpdateError if the board's files cannot be listed, or a file
+    exists on board but cannot be read (the board's HardwareError, chained).
     """
     configs = {}
 
@@ -603,16 +604,15 @@ def _backup_configs(board, board_config, backup_dir, callback=None):
             )
 
             data = board.repl_read_file(filename, verify=True)
-            if data is None:
-                raise UpdateError(
-                    f'Failed to read config file: {filename}. '
-                    f'Update aborted -- config backup must succeed before flashing.',
-                    stage=UpdateStage.BACKING_UP_CONFIG,
-                )
-
             configs[filename] = data
             logger.info(f'Backed up {filename}: {len(data)} bytes')
 
+    except HardwareError as failed:
+        raise UpdateError(
+            f"The {board_config.label} board's configuration could not be backed up "
+            f'({failed}). Update aborted -- config backup must succeed before flashing.',
+            stage=UpdateStage.BACKING_UP_CONFIG,
+        ) from failed
     finally:
         board.exit_raw_repl()
 
@@ -651,7 +651,9 @@ def _restore_configs(board, board_config, config_data, backup_dir, callback=None
     """Restore config files to board via raw REPL; backup_dir is the folder
     _backup_configs wrote them to, named when a restore fails.
 
-    Only restores files that are missing or differ from the backup.
+    Only restores files that are missing or differ from the backup, each
+    judged by reading it back, never by the board's listing: a flashed
+    board that cannot list its files still gets every backup it lacks.
     Returns True if all files restored successfully.
     Raises UpdateError on failure.
     """
@@ -673,20 +675,20 @@ def _restore_configs(board, board_config, config_data, backup_dir, callback=None
         )
 
     try:
-        # Check which files need restoring
-        board_files = board.repl_list_files()
-
         for filename, data in config_data.items():
-            if filename in board_files:
-                # File exists -- check if it matches backup
+            try:
                 existing = board.repl_read_file(filename, verify=True)
+            except HardwareError as unread:
+                # The board is flashed: a file it cannot give back, absent or
+                # unreadable, is written from the backup rather than left out.
+                logger.info(f'{filename} not read back ({unread}) -- restoring from backup')
+            else:
                 if existing == data:
                     logger.info(f'{filename} survived update -- skipping restore')
                     continue
-                else:
-                    logger.warning(
-                        f'{filename} exists but differs from backup -- restoring from backup'
-                    )
+                logger.warning(
+                    f'{filename} exists but differs from backup -- restoring from backup'
+                )
 
             _report_progress(
                 callback, UpdateStage.RESTORING_CONFIG, f'Restoring {filename}...', 0.85

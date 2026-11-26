@@ -32,6 +32,7 @@ from _lumascope.drivers.firmware_updater import (
     UpdateResult,
     UpdateStage,
 )
+from _lumascope.drivers.exceptions import BoardReportedError
 from _lumascope.drivers.serialboard import SerialBoard
 from _lumascope.drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
 
@@ -311,11 +312,11 @@ class TestBackupConfigs:
         board.repl_read_file.assert_called_once()
 
     def test_read_failure_raises(self, tmp_path):
-        """repl_read_file returning None raises UpdateError."""
+        """A config file the board lists and cannot read refuses the backup."""
         cfg = BOARD_CONFIGS[BoardType.LED]
         board = self._make_board(
             files_on_board=['cal.json'],
-            file_contents=[None],
+            file_contents=[BoardReportedError('read cal.json: the board raised: OSError')],
         )
 
         with pytest.raises(UpdateError) as exc_info:
@@ -348,7 +349,8 @@ class TestRestoreConfigs:
         if file_contents is not None:
             board.repl_read_file.side_effect = file_contents
         else:
-            board.repl_read_file.return_value = None
+            # A board answers a file it does not hold as a raise.
+            board.repl_read_file.side_effect = BoardReportedError('read: OSError: ENOENT')
         board.repl_write_file.return_value = write_ok
         return board
 
@@ -401,6 +403,20 @@ class TestRestoreConfigs:
             _restore_configs(board, cfg, {'cal.json': b'data'}, tmp_path)
         assert exc_info.value.stage == UpdateStage.RESTORING_CONFIG
         assert str(tmp_path / 'led') in str(exc_info.value)
+
+    def test_a_board_that_cannot_list_its_files_still_gets_every_backup(self, tmp_path):
+        """The restore reads each backed-up file to decide, never the listing:
+        a flashed board whose listing fails, and which cannot give a file
+        back, still gets that file from the backup, since refusing the
+        restore would leave it with no configuration at all."""
+        cfg = BOARD_CONFIGS[BoardType.MOTOR]
+        board = self._make_board()
+        board.repl_list_files.side_effect = BoardReportedError('os.listdir: OSError: EIO')
+
+        result = _restore_configs(board, cfg, {'motorconfig.json': b'{"motor": 1}'}, tmp_path)
+
+        assert result is True
+        board.repl_write_file.assert_called_once_with('motorconfig.json', b'{"motor": 1}')
 
 
 # ---------------------------------------------------------------------------
@@ -670,6 +686,40 @@ def _run_each_update(tmp_path, monkeypatch, board, backup_dir):
             skip_post_test=True,
         ),
     }
+
+
+def test_a_board_that_cannot_list_its_files_is_not_flashed(tmp_path, monkeypatch):
+    """A listing that failed is no backup: each update stops before anything
+    is written to the board, at the backup, saying the configuration could
+    not be backed up -- never read as a board with no files and flashed."""
+    board = _board_with_one_config(b'{"motor": 1}')
+    board.repl_list_files.side_effect = BoardReportedError('os.listdir: the board raised: EIO')
+
+    results = _run_each_update(tmp_path, monkeypatch, board, tmp_path / 'backups')
+
+    for name, result in results.items():
+        assert result.success is False, name
+        assert result.error_stage == UpdateStage.BACKING_UP_CONFIG, name
+        assert 'could not be backed up' in result.error_message, name
+        assert 'os.listdir' in result.error_message, name
+    board.repl_write_file.assert_not_called()
+    board.repl_read_file.assert_not_called()
+
+
+@pytest.mark.firmware_tier
+def test_a_board_out_of_raw_repl_refuses_to_list_or_read():
+    """Out of raw REPL nothing was listed or read, and each says so by
+    raising, never with an answer a caller could take for the board's."""
+    cfg = BOARD_CONFIGS[BoardType.MOTOR]
+    board = SerialBoard(vid=cfg.vid, pid=cfg.pid, label='[FW-Motor]', backend=_motor_bus())
+    board.connect()
+    try:
+        with pytest.raises(RuntimeError, match='repl_list_files: not in raw REPL'):
+            board.repl_list_files()
+        with pytest.raises(RuntimeError, match='repl_read_file: not in raw REPL'):
+            board.repl_read_file('motorconfig.json')
+    finally:
+        board.disconnect()
 
 
 class TestTheBackupFolderIsTheCallers:

@@ -20,7 +20,11 @@ from typing import ClassVar
 from _lumascope.lib.log_helpers import logger
 from _lumascope.lib.log_helpers import VERBOSE
 from _lumascope.drivers import host_clock
-from _lumascope.drivers.exceptions import BoardNoReplyError, BoardPortFailedError
+from _lumascope.drivers.exceptions import (
+    BoardNoReplyError,
+    BoardPortFailedError,
+    BoardReportedError,
+)
 from _lumascope.drivers.ledboard import FIRMWARE_LED_CH_MAX_MA, firmware_commanded_ma
 from _lumascope.drivers.registry import led_registry
 
@@ -478,17 +482,18 @@ class SimulatedLEDBoard:
         """
         return []
 
-    def repl_read_file(self, filename: str, verify: bool = True):
-        """Stub: simulator has no on-board filesystem.
+    def repl_read_file(self, filename: str, verify: bool = True) -> bytes:
+        """Stub: simulator has no on-board filesystem, so no file is there.
 
         Args:
-            filename: File name (accepted but unused).
+            filename: File name, named in the refusal.
             verify: SHA256 verify flag (accepted but unused).
 
-        Returns:
-            None: Always.
+        Raises:
+            BoardReportedError: always, as a board answers a file it does not
+                hold.
         """
-        return None
+        raise BoardReportedError(f'read {filename}: the simulated board holds no files')
 
     def repl_write_file(self, filename: str, data) -> bool:
         """Stub: simulator pretends every write succeeds.

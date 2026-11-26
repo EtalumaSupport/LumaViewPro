@@ -1195,27 +1195,38 @@ class SerialBoard:
             self._in_raw_repl = False
             logger.info(f'{self._label} Exited raw REPL, firmware rebooting')
 
-    def repl_list_files(self):
+    def repl_list_files(self) -> list[str]:
         """List files on board filesystem (must be in raw REPL).
 
-        Returns list of filenames, or empty list on failure.
+        Returns the file names; [] is a board with no files.
+
+        Raises:
+            RuntimeError: not in raw REPL, a caller's sequencing defect.
+            BoardNoReplyError, BoardReportedError: the listing failed
+                (``raw_repl.list_files``).
         """
         with self._lock:
-            if not self._in_raw_repl or self.driver is None:
-                logger.error(f'{self._label} repl_list_files: not in raw REPL')
-                return []
+            self._require_raw_repl('repl_list_files')
             return _list_files(self.driver)
 
-    def repl_read_file(self, filename, verify=True):
+    def repl_read_file(self, filename: str, verify: bool = True) -> bytes:
         """Read a file from the board (must be in raw REPL).
 
-        Returns file contents as bytes, or None on failure.
+        Returns the file's contents.
+
+        Raises:
+            RuntimeError: not in raw REPL, a caller's sequencing defect.
+            HardwareError: the read failed, the file absent or unreadable
+                among them (``raw_repl.read_file``).
         """
         with self._lock:
-            if not self._in_raw_repl or self.driver is None:
-                logger.error(f'{self._label} repl_read_file: not in raw REPL')
-                return None
+            self._require_raw_repl('repl_read_file')
             return _read_file(self.driver, filename, verify=verify)
+
+    def _require_raw_repl(self, what: str) -> None:
+        """Refuse a raw-REPL read made outside raw REPL: nothing was read."""
+        if not self._in_raw_repl or self.driver is None:
+            raise RuntimeError(f'{self._label} {what}: not in raw REPL')
 
     def repl_write_file(self, filename, data):
         """Write a file to the board with SHA256 verification (must be in raw REPL).
