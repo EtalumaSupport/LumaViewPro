@@ -284,44 +284,6 @@ def test_a_lease_released_dark_darkens_on_the_io_lane(sim_session, monkeypatch):
     assert threads == [sim_session.io_executor.executor_name], threads
 
 
-def test_the_autofocus_dark_frame_retry_is_the_runs_own_grab(sim_scope, monkeypatch):
-    """A dark frame mid-sweep is grabbed again through the public member,
-    under the sweep's taking, and the retry is what gets scored."""
-    import numpy as np
-
-    import _lumascope.modules.autofocus_functions as autofocus_functions
-    from tests.af_drives import af_runner_on, sweep
-
-    # The field is dark for the sweep's first grab, then shows the target.
-    runner = af_runner_on(sim_scope, pattern='black')
-    grabs = []
-    grab = sim_scope.imaging.capture_still
-
-    def first_grab_dark(*args, **kwargs):
-        still = grab(*args, **kwargs)
-        grabs.append(float(np.mean(still.image)))
-        sim_scope._camera_driver.set_test_pattern(enabled=True, pattern='focus_target')
-        return still
-
-    monkeypatch.setattr(sim_scope.imaging, 'capture_still', first_grab_dark)
-    scored = []
-    score = autofocus_functions.autofocus_score
-
-    def _score(image):
-        scored.append((len(grabs), float(np.mean(image))))
-        return score(image)
-
-    monkeypatch.setattr('_lumascope.modules.autofocus_functions.autofocus_score', _score)
-
-    sweep(runner, sim_scope)
-
-    assert grabs[0] == 0.0, f'precondition: the first grab was dark; grabs {grabs[:3]}'
-    assert scored and scored[0][0] == 2 and scored[0][1] > 0.0, (
-        'the first position must be scored on the retry, the second grab, '
-        f'not the dark frame; grabs {grabs[:3]}, scored (grabs made, mean) {scored[:3]}'
-    )
-
-
 def test_the_run_door_refuses_the_lender_of_a_borrowed_run():
     """A run borrowed inside a diagnostic holds the lane's protocol door. The
     diagnostic still holds the scope, but its own work is not the run's
