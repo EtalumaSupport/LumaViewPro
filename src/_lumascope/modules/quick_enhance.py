@@ -554,6 +554,9 @@ class QuickEnhancer:
     ) -> dict:
         """Enhance every supported image in *folder*, each to its own derived file.
 
+        An enhance's own copy, the image with its recipe beside it
+        (``recipe_of``), is not enhanced again.
+
         Returns only when every image was enhanced. An image that cannot be
         read, enhanced or written is skipped and the next is tried; the first
         the disk has no room for stops the folder there.
@@ -571,9 +574,7 @@ class QuickEnhancer:
         files = sorted(
             path
             for path in folder.iterdir()
-            if path.is_file()
-            and image_utils.is_image(path)
-            and '_enhanced' not in path.stem.lower()
+            if path.is_file() and image_utils.is_image(path) and not recipe_of(path).is_file()
         )
         if not files:
             raise PostProcessingRefusedError(

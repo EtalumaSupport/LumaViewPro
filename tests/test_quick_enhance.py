@@ -737,6 +737,26 @@ def test_folder_batch_skips_unreadable_file_and_continues(tmp_path):
     assert (tmp_path / 'valid_enhanced.tiff').exists()
 
 
+def test_a_folder_enhance_skips_only_an_enhance_copy_by_its_recipe_not_by_its_name(tmp_path):
+    """An enhance's copy is the image with its recipe beside it, the rule the
+    post-processing folder list reads (``recipe_of``). A researcher's own image
+    named ``*_enhanced*`` has no recipe, and is enhanced like any other."""
+    pixels = np.arange(64, dtype=np.uint16).reshape(8, 8)
+    _write_source(tmp_path / 'a.tif', pixels, significant_bits=12)
+    _write_source(tmp_path / 'cells_enhanced.tif', pixels, significant_bits=12)
+    copy = QuickEnhancer().export_file(
+        tmp_path / 'a.tif', quick_enhance_settings(), channel_colors=release_colors()
+    )
+
+    result = QuickEnhancer().export_folder(
+        tmp_path, quick_enhance_settings(), channel_colors=release_colors()
+    )
+
+    enhanced = sorted(pathlib.Path(item['source_path']).name for item in result['created'])
+    assert enhanced == ['a.tif', 'cells_enhanced.tif']
+    assert copy['output_path'].name not in enhanced
+
+
 def _three_sources(folder: pathlib.Path) -> None:
     for name in ('a', 'b', 'c'):
         _write_source(
@@ -827,8 +847,10 @@ def test_mixed_folder_exports_bf_composite_png_jpeg_and_skips_bad_or_derived_fil
     assert cv2.imwrite(str(jpeg), color)
     bad = tmp_path / 'bad.tif'
     bad.write_bytes(b'not an image')
+    # An earlier enhance's copy is the image with its recipe beside it.
     existing_derived = tmp_path / 'old_enhanced.tif'
     _write_source(existing_derived, np.ones((8, 8), dtype=np.uint16), 12, channel='BF')
+    (tmp_path / 'old_enhanced.recipe.json').write_text('{}')
     original_bytes = {
         path: path.read_bytes() for path in (bf, composite, png, jpeg, bad, existing_derived)
     }
