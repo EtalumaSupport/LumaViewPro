@@ -159,7 +159,7 @@ class TestTheAutoGainLimitsAreShown:
         session.add_outcome_listener(heard.append)
         camera = session.scope.camera
 
-        camera._notify_auto_gain_outcome(self._lock(AutoGainConvergence.MAXED))
+        camera._notify_auto_gain_outcome(self._lock(AutoGainConvergence.AT_MAXIMUM))
         camera._notify_auto_gain_outcome(self._lock(AutoGainConvergence.AT_MINIMUM))
         camera._notify_auto_gain_outcome(self._lock(AutoGainConvergence.FAILED))
 
@@ -177,7 +177,7 @@ class TestTheAutoGainLimitsAreShown:
         camera = session.scope.camera
 
         camera._notify_auto_gain_outcome(
-            self._lock(AutoGainConvergence.MAXED, resume_after_capture=False)
+            self._lock(AutoGainConvergence.AT_MAXIMUM, resume_after_capture=False)
         )
 
         assert heard == []

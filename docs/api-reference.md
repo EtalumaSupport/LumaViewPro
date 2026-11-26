@@ -12965,7 +12965,7 @@ Held in: [`AutoGainLock.state`](#AutoGainLock.state), [`FrameRecord.auto_gain`](
 Where a continuous auto-gain arm landed when the capture locked it.
 
 CONVERGED: exposure inside the channel class's usable range.
-MAXED: exposure pinned at the class ceiling -- the scene is too dark
+AT_MAXIMUM: exposure pinned at the class ceiling -- the scene is too dark
     for the range, so target brightness was not reached.
 AT_MINIMUM: exposure at or below the class usable floor -- the scene
     is too bright for the range.
@@ -12975,7 +12975,7 @@ The limit states are outcomes, not failures: the frame is saved with
 the achieved values and a run continues.
 
 - `CONVERGED` (`CONVERGED`)
-- `MAXED` (`MAXED`)
+- `AT_MAXIMUM` (`AT_MAXIMUM`)
 - `AT_MINIMUM` (`AT_MINIMUM`)
 - `FAILED` (`FAILED`)
 

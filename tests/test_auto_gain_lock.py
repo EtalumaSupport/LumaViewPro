@@ -195,16 +195,16 @@ def test_auto_gain_capture_locks_and_passes_the_gate():
 
 @pytest.mark.slow
 def test_auto_gain_capture_reports_maxed_and_saves(caplog):
-    """Auto-exposure pegged at the 200 ms class ceiling is MAXED: the frame
+    """Auto-exposure pegged at the 200 ms class ceiling is AT_MAXIMUM: the frame
     is still returned and the lock line is logged at INFO."""
     imaging, camera, _cam = _build(ae_lands_on_ms=500.0)
     caplog.clear()
     _arm(camera, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
     record = imaging._capture_still_impl(member='capture_still', timeout_s=1.0).record
-    assert record.auto_gain is AutoGainConvergence.MAXED
+    assert record.auto_gain is AutoGainConvergence.AT_MAXIMUM
     assert record.exposure_ms == 200.0
     lock_lines = [
-        m for m in _logged(caplog, logging.INFO) if '[AG CONVERGE] locked: state=MAXED' in m
+        m for m in _logged(caplog, logging.INFO) if '[AG CONVERGE] locked: state=AT_MAXIMUM' in m
     ]
     assert len(lock_lines) == 1
 
@@ -427,7 +427,7 @@ def test_arm_clamps_exposure_above_the_class_cap(caplog):
     grab_a_frame_made_after_now(cam)  # the lock reads the newest frame's chunks
     lock = camera._lock_auto_gain_impl()
     assert lock.exposure_ms == 50.0
-    assert lock.state.value == 'MAXED'
+    assert lock.state.value == 'AT_MAXIMUM'
 
     imaging, camera, cam = _build_inert()
     caplog.clear()

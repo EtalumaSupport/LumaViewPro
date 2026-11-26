@@ -15,10 +15,10 @@ from _lumascope.modules.wire_encoding import plain
 
 
 def test_a_lock_built_with_the_plain_word_holds_the_member_and_answers_the_word():
-    lock = AutoGainLock('MAXED', exposure_ms=50.0, gain_db=6.0)
+    lock = AutoGainLock('AT_MAXIMUM', exposure_ms=50.0, gain_db=6.0)
 
     assert type(lock.state) is AutoGainConvergence
-    assert plain(lock)['state'] == 'MAXED'
+    assert plain(lock)['state'] == 'AT_MAXIMUM'
 
 
 def test_a_lock_built_with_any_other_word_is_refused_naming_its_field():

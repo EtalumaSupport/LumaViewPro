@@ -153,7 +153,7 @@ def test_sweep_scans_at_the_locks_values():
 
     runner = _runner_with_step_targets(1.0, 2.0)
     runner._apply_sweep_camera_targets(
-        AutoGainLock(AutoGainConvergence.MAXED, exposure_ms=50.0, gain_db=6.72)
+        AutoGainLock(AutoGainConvergence.AT_MAXIMUM, exposure_ms=50.0, gain_db=6.72)
     )
     assert runner._scope.camera.writes == []
     assert (runner._camera_gain, runner._camera_exposure) == (6.72, 50.0)
@@ -181,7 +181,7 @@ def test_half_populated_lock_is_unconstructible():
 
 
 def test_a_lock_carries_values_exactly_when_its_state_reached_them():
-    """A lock that reached values (CONVERGED, MAXED, AT_MINIMUM) carries
+    """A lock that reached values (CONVERGED, AT_MAXIMUM, AT_MINIMUM) carries
     both; a FAILED lock, or one with no arm, carries neither. The session's
     store and the sweep each ask only whether the values are there, so a
     lock whose values disagree with its state cannot be built."""
@@ -191,6 +191,6 @@ def test_a_lock_carries_values_exactly_when_its_state_reached_them():
         AutoGainLock(AutoGainConvergence.FAILED, exposure_ms=5.0, gain_db=1.0)
     with pytest.raises(ValueError, match='exactly when it reached them'):
         AutoGainLock(None, exposure_ms=5.0, gain_db=1.0)
-    for state in ('CONVERGED', 'MAXED', 'AT_MINIMUM'):
+    for state in ('CONVERGED', 'AT_MAXIMUM', 'AT_MINIMUM'):
         with pytest.raises(ValueError, match='exactly when it reached them'):
             AutoGainLock(state)

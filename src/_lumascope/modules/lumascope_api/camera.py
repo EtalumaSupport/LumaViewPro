@@ -117,7 +117,7 @@ class AutoGainConvergence(enum.StrEnum):
     """Where a continuous auto-gain arm landed when the capture locked it.
 
     CONVERGED: exposure inside the channel class's usable range.
-    MAXED: exposure pinned at the class ceiling -- the scene is too dark
+    AT_MAXIMUM: exposure pinned at the class ceiling -- the scene is too dark
         for the range, so target brightness was not reached.
     AT_MINIMUM: exposure at or below the class usable floor -- the scene
         is too bright for the range.
@@ -128,7 +128,7 @@ class AutoGainConvergence(enum.StrEnum):
     """
 
     CONVERGED = 'CONVERGED'
-    MAXED = 'MAXED'
+    AT_MAXIMUM = 'AT_MAXIMUM'
     AT_MINIMUM = 'AT_MINIMUM'
     FAILED = 'FAILED'
 
@@ -327,7 +327,7 @@ class AutoGainLock:
         if reached != (self.exposure_ms is not None):
             raise ValueError(
                 f'AutoGainLock in state {self.state!r} carries the achieved values '
-                'exactly when it reached them (CONVERGED, MAXED, AT_MINIMUM); '
+                'exactly when it reached them (CONVERGED, AT_MAXIMUM, AT_MINIMUM); '
                 f'got exposure_ms={self.exposure_ms!r} gain_db={self.gain_db!r}'
             )
 
@@ -2410,7 +2410,7 @@ class CameraAPI:
             except CameraSettingRejected as rejected:
                 self._report_refused_write(rejected)
         if ceiling is not None and exp_ms >= ceiling * 0.99:
-            state = AutoGainConvergence.MAXED
+            state = AutoGainConvergence.AT_MAXIMUM
         elif floor is not None and exp_ms <= floor:
             state = AutoGainConvergence.AT_MINIMUM
         else:
@@ -2450,7 +2450,7 @@ class CameraAPI:
         """
         if not lock.resume_after_capture:
             return
-        if lock.state == AutoGainConvergence.MAXED:
+        if lock.state == AutoGainConvergence.AT_MAXIMUM:
             outcome = ExposureAtMaximumNotice(lock.ceiling_ms)
         elif lock.state == AutoGainConvergence.AT_MINIMUM:
             outcome = ExposureAtMinimumNotice(lock.exposure_ms, lock.floor_ms)
@@ -4249,7 +4249,7 @@ class CameraAPI:
 
         The one resolution of a stored ``max_exposure_ms`` for every reader:
         the arm's bound write, the exposure brought under it before the arm,
-        the lock's MAXED test, the frame-time bound and the one-shot. A
+        the lock's AT_MAXIMUM test, the frame-time bound and the one-shot. A
         ceiling outside the camera's range applies at the camera's limit and
         the stored one is kept, the rule a stored channel value follows
         (``applied_exposure_ms_for``), logged where it is resolved. None,

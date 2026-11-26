@@ -60,7 +60,7 @@ def _stored(session, layer):
     [
         (5.0, AutoGainConvergence.CONVERGED),
         (0.03, AutoGainConvergence.AT_MINIMUM),  # under the transmitted floor
-        (None, AutoGainConvergence.MAXED),  # at the transmitted ceiling
+        (None, AutoGainConvergence.AT_MAXIMUM),  # at the transmitted ceiling
     ],
 )
 def test_turning_off_stores_what_the_lock_reached(sim_session, exposure_ms, state):
@@ -288,7 +288,7 @@ def test_over_rest_the_lock_a_turning_off_took_is_its_own_read(client):
     lock = _lock_read(client, 'BF')
 
     assert put.json()['auto_gain'] is False
-    assert lock['state'] in {'CONVERGED', 'MAXED', 'AT_MINIMUM'}
+    assert lock['state'] in {'CONVERGED', 'AT_MAXIMUM', 'AT_MINIMUM'}
     assert round(lock['gain_db'], 1) == session.channel_settings('BF').gain_db != 1.0
     client.put('/api/v1/channel_settings', json={'channel': 'BF', 'auto_gain': True})
     assert _lock_read(client, 'BF') == lock
