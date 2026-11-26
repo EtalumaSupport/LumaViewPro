@@ -1254,7 +1254,7 @@ class ProtocolImageWriter:
                 f'[PROTOCOL] Capture failed for step {curr_step + 1} ({step.get("Name", "?")}), '
                 f'scan {scan_count + 1} -- the camera was removed'
             )
-            ending = disconnected_ending((Board.CAMERA,), RunStatus.FAILED)
+            ending = disconnected_ending((Board.CAMERA,), at_start=False)
             self._end_run_fatally(ending)
             return
         self._consecutive_capture_failures += 1

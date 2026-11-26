@@ -42,7 +42,6 @@ from _lumascope.modules.coord_transformations import AxisLimits, PlateLocation, 
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     CameraReadFailedError,
-    ConfigurationDefectError,
     MissingPart,
     PositionOutOfRangeError,
     ProtocolRunRefusedError,
@@ -1062,12 +1061,7 @@ class ProtocolsAPI:
         if absent.empty:
             return
         names = common_utils.first_few(list(absent['Name']), separator=', ')
-        if not identity.channels:
-            raise ConfigurationDefectError(
-                'channels_unresolved',
-                f"this scope's channels could not be resolved (model {identity.model}), "
-                f'so {len(absent)} step(s) cannot be run: {names}',
-            )
+        identity.refuse_unless_resolved(f'{len(absent)} step(s) cannot be run: {names}')
         missing = sorted(set(absent['channel']))
         channels = ', '.join(missing) + (' channels' if len(missing) > 1 else ' channel')
         self._refuse(

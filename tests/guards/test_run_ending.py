@@ -26,7 +26,6 @@ from _lumascope.modules.run_outcome import (
     EndingLatch,
     PendingRunOutcome,
     RunEnding,
-    RunStatus,
 )
 from tests.ast_seams import REPO_ROOT, tracked_files
 from tests.protocol_drives import run_identity
@@ -268,7 +267,7 @@ def _stop_stub(loop_ended=False):
     # The runner's own liveness answer, so the stub cannot disagree with it.
     stub._run_handle = scr.EngineRun(stub, stub._run_outcome, scr.RunWriteBatch(MagicMock()))
     stub._last_run = lambda: scr.SequencedCaptureRunner._last_run(stub)
-    stub._last_run_started_by = lambda: scr.SequencedCaptureRunner._last_run_started_by(stub)
+    stub.last_run_started_by = lambda: scr.SequencedCaptureRunner.last_run_started_by(stub)
     stub._is_live_run_locked = lambda run: scr.SequencedCaptureRunner._is_live_run_locked(stub, run)
     return scr, stub, cleaned
 
@@ -577,12 +576,12 @@ def test_only_a_disconnect_ending_names_boards():
     from _lumascope.modules.run_outcome import disconnected_ending
     from _lumascope.modules.scope_parts import Board
 
-    both = disconnected_ending((Board.LED, Board.CAMERA), RunStatus.FAILED)
+    both = disconnected_ending((Board.LED, Board.CAMERA), at_start=False)
     assert (both.reason, both.unconnected_parts) == (
         'hardware_disconnected',
         (Board.LED, Board.CAMERA),
     )
-    camera = disconnected_ending((Board.CAMERA,), RunStatus.FAILED_AT_START)
+    camera = disconnected_ending((Board.CAMERA,), at_start=True)
     assert (camera.status, camera.reason, camera.title) == (
         'failed_at_start',
         'camera_disconnected',

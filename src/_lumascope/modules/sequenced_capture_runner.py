@@ -79,11 +79,10 @@ from _lumascope.modules.exceptions import (
     _RunStartError,
     SingleScanNotice,
     ValueClampedNotice,
-    interlock_sentence,
     system_words,
     unknown_positions_sentence,
 )
-from _lumascope.lib.stage_interlock import INTERLOCK_TITLES, REFUSED_BEFORE_MOTION
+from _lumascope.lib.stage_interlock import INTERLOCK_WORDS, REFUSED_BEFORE_MOTION
 from _lumascope.modules.protocol import Protocol
 import _lumascope.modules.path_utils as path_utils
 from _lumascope.modules.protocol_execution_record import ProtocolExecutionRecord
@@ -1062,7 +1061,7 @@ class SequencedCaptureRunner:
         """The run a plan starts: who started it, and its kind in words."""
         return RunIdentity(started_by=plan.started_by, words=plan.run_mode.words)
 
-    def _last_run_started_by(self) -> Caller | None:
+    def last_run_started_by(self) -> Caller | None:
         """Who started the run this runner last started; None before any."""
         return self._run_identity.started_by if self._run_identity is not None else None
 
@@ -1603,12 +1602,11 @@ class SequencedCaptureRunner:
         # than queued behind a move or a home on the IO lane; the first open
         # one in the interlocks' list is the one told.
         open_interlocks = self._scope.motion.read_interlocks()
-        for interlock in INTERLOCK_TITLES:
+        for interlock, words in INTERLOCK_WORDS.items():
             if interlock in open_interlocks:
                 self._refuse(
                     reason=REFUSED_BEFORE_MOTION[interlock],
-                    message='Cannot start the run. '
-                    + interlock_sentence(REFUSED_BEFORE_MOTION[interlock]),
+                    message=f'Cannot start the run. {words}',
                 )
 
         # After the not-homed gate: an unhomed scope is told to home, not
@@ -1801,7 +1799,7 @@ class SequencedCaptureRunner:
         snapshot. A ``FAILED_AT_START`` ending when the run cannot begin:
         the lane's in-flight task is stuck past the threshold that already
         calls the file lane wedged, or the camera's snapshot cannot be read
-        (``camera_read_failed``, or ``hardware_disconnected`` for a camera
+        (``camera_read_failed``, or ``camera_disconnected`` for a camera
         gone from the bus or a scope disconnected under it), or is not
         answered within its bound (``camera_lane_stalled``).
         """
@@ -1821,7 +1819,7 @@ class SequencedCaptureRunner:
         except CameraReadFailedError as unread:
             logger.error(f'[{self.LOGGER_NAME} ] The camera snapshot could not be read: {unread}')
             if self._scope.camera.camera_removed:
-                return disconnected_ending((Board.CAMERA,), RunStatus.FAILED_AT_START)
+                return disconnected_ending((Board.CAMERA,), at_start=True)
             return RunEnding(
                 RunStatus.FAILED_AT_START,
                 'camera_read_failed',
@@ -1835,14 +1833,14 @@ class SequencedCaptureRunner:
             if unanswered.reason == 'call_overran':
                 return _CAMERA_LANE_STALLED
             # 'lane_closed': the scope disconnected while the snapshot was read.
-            return disconnected_ending((Board.CAMERA,), RunStatus.FAILED_AT_START)
+            return disconnected_ending((Board.CAMERA,), at_start=True)
         except HardwareCommandRefusedError as refused:
             # The camera left, or the scope disconnected, while the snapshot
             # waited on the lane.
             if refused.reason not in ('not_connected', 'scope_disconnected'):
                 raise
             logger.error(f'[{self.LOGGER_NAME} ] The camera snapshot was refused: {refused}')
-            return disconnected_ending((Board.CAMERA,), RunStatus.FAILED_AT_START)
+            return disconnected_ending((Board.CAMERA,), at_start=True)
         self._original_led_states = self._scope.illumination.led_states
         # No target brightness is written here: every step that arms
         # auto-gain, and every one-shot, hands the camera its target in the
@@ -2660,10 +2658,12 @@ class SequencedCaptureRunner:
         return self._write_batch
 
     def files_still_writing(self, before: str) -> FilesStillWriting | None:
-        """Whether a finished run's files are still being written, in the words of what waits on them.
+        """Whether a finished run's files are still being written, a stalled writer's remedy worded for what waits.
 
         The one judgment of the drain, for every start that waits on it: a
-        run, a build, a control take. Only *before* differs between them.
+        run, a build, a control take. Only *before* differs between them,
+        in a stalled writer's sentence; the drain's own is the same at every
+        door.
 
         Args:
             before: What waits, as its sentence ends: ``'starting a new
@@ -2691,13 +2691,13 @@ class SequencedCaptureRunner:
                     f'{FileWriterStalledError.cost_sentence(unsaved)}'
                 ),
                 remedy=FileWriterStalledError.recovery(unsaved),
-                holder_trigger=self._last_run_started_by(),
+                holder_trigger=self.last_run_started_by(),
             )
         return FilesStillWriting(
             reason='files_writing',
             message=f'{run} is still writing its files. Please wait.',
             remedy=None,
-            holder_trigger=self._last_run_started_by(),
+            holder_trigger=self.last_run_started_by(),
         )
 
     _FILE_WRITER_CHECK_INTERVAL_S = 1.0

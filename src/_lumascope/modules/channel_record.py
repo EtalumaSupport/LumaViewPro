@@ -352,14 +352,25 @@ class ChannelIdentity:
         refuse_unknown_channel(channel)
         if self.find(channel) is not None:
             return
-        if self.channels:
-            part = MissingPart(Part.CHANNEL, channel=channel)
-            raise HardwareCommandRefusedError(part.reason, member, missing=part)
-        raise ConfigurationDefectError(
-            'channels_unresolved',
-            f"this scope's channels could not be resolved (model {self.model}), "
-            f'so {channel} cannot {then}',
-        )
+        self.refuse_unless_resolved(f'{channel} cannot {then}')
+        part = MissingPart(Part.CHANNEL, channel=channel)
+        raise HardwareCommandRefusedError(part.reason, member, missing=part)
+
+    def refuse_unless_resolved(self, consequence: str) -> None:
+        """Refuse unless this unit's channels were resolved: no channel can be acted on.
+
+        Args:
+            consequence: What cannot happen, as words completing "so ...".
+
+        Raises:
+            ConfigurationDefectError: ``'channels_unresolved'``.
+        """
+        if not self.channels:
+            raise ConfigurationDefectError(
+                'channels_unresolved',
+                f"this scope's channels could not be resolved (model {self.model}), "
+                f'so {consequence}',
+            )
 
     def unit_key(self, name: str) -> str:
         """The key this unit holds a stored ``name``'s channel under.

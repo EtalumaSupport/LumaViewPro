@@ -23,7 +23,9 @@ from _lumascope.lib.lumascope_error import (
     _Umbrella,
 )
 from _lumascope.lib.stage_interlock import (
+    INTERLOCK_OF_REFUSAL,
     INTERLOCK_TITLES,
+    INTERLOCK_WORDS,
     REFUSED_BEFORE_MOTION,
     STOPPED_MID_MOVE,
 )
@@ -2728,8 +2730,8 @@ class RecordingRefusedError(Refusal, CaptureError):
     Raised when a recording cannot begin: a run or another recording
     already holds the scope, or the recorder is still draining the last
     one. The recording controllers raise it too for the refusals they
-    own: a previous recording still finishing, an inactive camera, an
-    unknown exposure, insufficient disk. Mirrors the
+    own: a previous recording still finishing, an inactive camera,
+    insufficient disk. Mirrors the
     ProtocolRunRefusedError shape so callers reconcile state the same way
     in both directions. Nothing reports it as it is raised: the caller that
     asked for the recording reports it where its flight ends.
@@ -4596,19 +4598,6 @@ def the_activity_named(kind: str | None) -> str:
     return _HOLDER_NOUNS.get(kind, 'Another activity')
 
 
-def interlock_sentence(reason: str) -> str:
-    """The person's words for a motion an open interlock refused, by its ``INTERLOCK_REASONS`` reason.
-
-    One sentence per interlock, read by a hardware command's refusal and a
-    run's start alike, so the person is told the same fact one way.
-    """
-    if reason == 'lid_open_before_motion':
-        return "The microscope's lid is open. Close it to move or home the stage."
-    if reason == 'stage_unpowered_before_motion':
-        return "The stage has no power. Check the stage's power supply, then home."
-    raise ValueError(f'{reason!r} is not an interlock refusal')
-
-
 def _command_refused_sentence(reason: str, holder: Holder | None) -> str:
     if reason == 'capture_in_flight':
         return 'A capture is still being saved. Try again in a moment.'
@@ -4633,7 +4622,7 @@ def _command_refused_sentence(reason: str, holder: Holder | None) -> str:
             'was not sent. Try again; if it repeats, check the USB cable.'
         )
     if reason in INTERLOCK_REASONS:
-        return interlock_sentence(reason)
+        return INTERLOCK_WORDS[INTERLOCK_OF_REFUSAL[reason]]
     if reason == 'other_led_lit':
         return (
             "An LED other than the shown channel's is lit, so nothing was captured. "
@@ -4850,8 +4839,9 @@ class ControlSessionRefusedError(Refusal, Exception):
         self.remedy = remedy
 
 
-# The control refusals worded by what judged the file drain
-# (``SequencedCaptureRunner.files_still_writing``), never here.
+# The control refusals worded by what judged the drain -- a run's images by
+# ``SequencedCaptureRunner.files_still_writing``, a run's video by the
+# session's finishing work -- never here.
 _CONTROL_REFUSED_IN_THE_DRAINS_WORDS = frozenset({'files_writing', 'files_writing_stalled'})
 
 
@@ -4885,7 +4875,7 @@ def under_control_sentence(holder_trigger: Caller | None, control_session: str |
 
 @api_fields('argument', 'board', 'limits', 'member', 'offered', 'plate', 'takes')
 class ArgumentRefusedError(Refusal, ValueError):
-    """An argument the scope cannot act on: it breaks a fixed rule, whatever the scope's state.
+    """An argument the scope cannot act on: it breaks a fixed rule, or names an objective no turret slot holds.
 
     Raised by the member that owns the rule, before anything is commanded
     or stored, so every caller -- REST, the SDK, the GUI, a run's own
@@ -6017,6 +6007,9 @@ class CameraSettingRejected(Fault, Exception):  # noqa: N818 -- named for the ev
     as ``HardwareCommandRefusedError('not_connected')``. Success is observed by receiving the
     applied/delivered value, failure by this raise, so a caller cannot
     record a rejected apply as applied by forgetting to check a return code.
+
+    A driver's ``CameraWriteFailedError`` reaches a caller as this,
+    ``'camera_rejected'``, chained from it.
 
     A fault, not a refusal: the camera did not take a value it should
     have, and the words say so. They are written for the person, so the

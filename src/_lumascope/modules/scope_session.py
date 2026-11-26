@@ -1211,7 +1211,9 @@ class ScopeSession:
         runner = self._sequenced_capture_runner
         if runner.run_live:
             return ControlSessionRefusedError(
-                'exclusive_activity_running', holder=WorkKind.PROTOCOL
+                'exclusive_activity_running',
+                holder=WorkKind.PROTOCOL,
+                holder_trigger=runner.last_run_started_by(),
             )
         for item in self._finishing_work():
             if item.kind == live_work.WorkKind.RECORDING_FINISH:
@@ -1222,14 +1224,14 @@ class ScopeSession:
                 return ControlSessionRefusedError(
                     'files_writing', message="A run's video is still being written. Please wait."
                 )
-            writing = runner.files_still_writing('taking control')
-            if writing is not None:
-                return ControlSessionRefusedError(
-                    writing.reason,
-                    message=writing.message,
-                    holder_trigger=writing.holder_trigger,
-                    remedy=writing.remedy,
-                )
+        writing = runner.files_still_writing('taking control')
+        if writing is not None:
+            return ControlSessionRefusedError(
+                writing.reason,
+                message=writing.message,
+                holder_trigger=writing.holder_trigger,
+                remedy=writing.remedy,
+            )
         if self.post_processing.has_work():
             return ControlSessionRefusedError('post_processing_running')
         return None

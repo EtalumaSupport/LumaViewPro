@@ -13934,7 +13934,7 @@ a `RuntimeError`, as it was documented.
 
 A refusal; bases `Refusal`, `ValueError`.
 
-An argument the scope cannot act on: it breaks a fixed rule, whatever the scope's state.
+An argument the scope cannot act on: it breaks a fixed rule, or names an objective no turret slot holds.
 
 Raised by the member that owns the rule, before anything is commanded
 or stored, so every caller -- REST, the SDK, the GUI, a run's own
@@ -14562,6 +14562,9 @@ camera that is not there, before or during the write, which is refused
 as `HardwareCommandRefusedError('not_connected')`. Success is observed by receiving the
 applied/delivered value, failure by this raise, so a caller cannot
 record a rejected apply as applied by forgetting to check a return code.
+
+A driver's `CameraWriteFailedError` reaches a caller as this,
+`'camera_rejected'`, chained from it.
 
 A fault, not a refusal: the camera did not take a value it should
 have, and the words say so. They are written for the person, so the
@@ -16942,8 +16945,8 @@ A video recording start was refused before any state was committed.
 Raised when a recording cannot begin: a run or another recording
 already holds the scope, or the recorder is still draining the last
 one. The recording controllers raise it too for the refusals they
-own: a previous recording still finishing, an inactive camera, an
-unknown exposure, insufficient disk. Mirrors the
+own: a previous recording still finishing, an inactive camera,
+insufficient disk. Mirrors the
 ProtocolRunRefusedError shape so callers reconcile state the same way
 in both directions. Nothing reports it as it is raised: the caller that
 asked for the recording reports it where its flight ends.

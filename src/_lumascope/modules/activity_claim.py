@@ -718,8 +718,8 @@ class ActivityClaim:
                 recording's file, a build -- or None. Asked under this
                 claim's lock, after the slot is read free: such work is
                 begun before its activity releases the slot, which takes
-                the same lock, so no release falls between the two reads. It must not take this claim's
-                lock.
+                the same lock, so no release falls between the two reads.
+                It must not take this claim's lock.
 
         Returns:
             The taking the holder's calls act under (``acting``).

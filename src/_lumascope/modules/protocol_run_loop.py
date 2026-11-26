@@ -209,7 +209,7 @@ class ProtocolRunLoop:
                         logger.error(
                             '[PROTOCOL] Hardware disconnected during run -- aborting protocol'
                         )
-                        ending = disconnected_ending(gone, RunStatus.FAILED)
+                        ending = disconnected_ending(gone, at_start=False)
                         p.end_run_fatally(ending)
                         return ending
 
@@ -376,7 +376,7 @@ class ProtocolRunLoop:
                         f'[Protocol] Hardware disconnect during scan: {ex}',
                         exc_info=True,
                     )
-                    ending = disconnected_ending(gone, RunStatus.FAILED)
+                    ending = disconnected_ending(gone, at_start=False)
                     p.end_run_fatally(ending)
                     return ending
 

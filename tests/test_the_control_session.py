@@ -867,13 +867,18 @@ class TestATakeWaitsForWhatIsStillFinishing:
         # A stand-in by design: a run's end is over before a take could be
         # asked between its claim's release and its return to IDLE, so the
         # runner is put in that window.
-        monkeypatch.setattr(sim_session._sequenced_capture_runner, '_state', ProtocolState.RUNNING)
+        from _lumascope.modules.caller import Caller
+        from tests.protocol_drives import run_identity
+
+        runner = sim_session._sequenced_capture_runner
+        monkeypatch.setattr(runner, '_state', ProtocolState.RUNNING)
+        monkeypatch.setattr(runner, '_run_identity', run_identity(started_by=Caller.API))
         assert sim_session._activity_claim.holder is None
 
         with pytest.raises(ControlSessionRefusedError) as refused:
             sim_session.take_control('plate reader')
         assert refused.value.reason == 'exclusive_activity_running'
-        assert refused.value.holder == 'protocol'
+        assert (refused.value.holder, refused.value.holder_trigger) == ('protocol', Caller.API)
 
 
 class TestTheRestDoor:

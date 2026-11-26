@@ -239,7 +239,7 @@ class RunEnding:
         return self.reason._heading
 
 
-def disconnected_ending(parts: tuple[Board, ...], status: RunStatus) -> RunEnding:
+def disconnected_ending(parts: tuple[Board, ...], *, at_start: bool) -> RunEnding:
     """The ending of a run whose hardware left it, in one set of words.
 
     Whichever site finds it -- the run loop's connection check, a step
@@ -249,11 +249,11 @@ def disconnected_ending(parts: tuple[Board, ...], status: RunStatus) -> RunEndin
 
     Args:
         parts: The boards found disconnected, at least one.
-        status: ``FAILED`` for a run that took steps, ``FAILED_AT_START``
-            for one that never did.
+        at_start: True for a run that never took a step, ended
+            ``FAILED_AT_START``; False for one that did, ended ``FAILED``.
     """
     gone = ' and '.join(part.noun for part in parts)
-    if status == RunStatus.FAILED_AT_START:
+    if at_start:
         message = (
             f'The {gone} disconnected, so the run did not start. Check the USB cable and '
             'power connections, then restart LumaViewPro and the protocol.'
@@ -263,6 +263,8 @@ def disconnected_ending(parts: tuple[Board, ...], status: RunStatus) -> RunEndin
             f'The {gone} disconnected during the run. Check the USB cable and power '
             'connections, save the protocol, then restart LumaViewPro and the protocol.'
         )
+    status = RunStatus.FAILED_AT_START if at_start else RunStatus.FAILED
+    # Each reason a literal at its site: the run-ending census reads them so.
     if parts == (Board.CAMERA,):
         return RunEnding(status, 'camera_disconnected', message, unconnected_parts=parts)
     return RunEnding(status, 'hardware_disconnected', message, unconnected_parts=parts)
