@@ -505,8 +505,8 @@ class RunOutcome:
     recorded (``status``, ``reason``, ``title``, ``message``), with the boards a
     disconnect lost (``unconnected_parts``) and the axes a lost position
     left unplaced (``axes_without_position``); the next three describe
-    the merge, the next two the autofocus characterization data, then
-    what the run captured, which steps putting the scope back after it
+    the merge, the next the autofocus characterization data, the next
+    the focus a standalone autofocus chose, then what the run captured, which steps putting the scope back after it
     did not finish, whether a scan's focus was written into the caller's
     protocol, which steps' autofocus did not focus, and last how long the
     run's end waited for its videos to save. A
@@ -538,9 +538,9 @@ class RunOutcome:
             its data was WRITTEN. None covers every run that asked for none,
             and every run that asked and got none -- a sweep that collected
             nothing, or one whose queued save an abort discarded. Never the
-            folder: that is
-            allocated before the sweep runs and exists even when nothing
-            was written, which is the answer a caller must not be given.
+            folder: that is allocated before the sweep runs and exists even
+            when nothing was written, which is the answer a caller must not
+            be given.
         af_focus_z_um: The Z a standalone autofocus run chose as focus,
             where it left the stage; None when it chose none (a degenerate
             curve, an abort, an error), in which case the stage is back

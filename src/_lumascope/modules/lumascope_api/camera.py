@@ -293,11 +293,11 @@ class AutoGainLock:
             re-arm it; None when no arm was recorded.
         stored_exposure_ms: The exposure a caller stores as the channel's
             manual setting after the lock: ``exposure_ms`` raised to the
-            arm's ``min_exposure_ms``. The loop can drive the camera below that floor on a
-            bright scene, and a setting stored that low makes near-black
-            captures of ordinary scenes, so the store keeps the floor while
-            ``exposure_ms`` keeps what the camera reached. None when
-            ``exposure_ms`` is.
+            arm's ``min_exposure_ms``. The loop can drive the camera below
+            that floor on a bright scene, and a setting stored that low makes
+            near-black captures of ordinary scenes, so the store keeps the
+            floor while ``exposure_ms`` keeps what the camera reached. None
+            when ``exposure_ms`` is.
     """
 
     state: AutoGainConvergence | None

@@ -11952,8 +11952,8 @@ The first four fields say how the run ended, as whatever ended it
 recorded (`status`, `reason`, `title`, `message`), with the boards a
 disconnect lost (`unconnected_parts`) and the axes a lost position
 left unplaced (`axes_without_position`); the next three describe
-the merge, the next two the autofocus characterization data, then
-what the run captured, which steps putting the scope back after it
+the merge, the next the autofocus characterization data, the next
+the focus a standalone autofocus chose, then what the run captured, which steps putting the scope back after it
 did not finish, whether a scan's focus was written into the caller's
 protocol, which steps' autofocus did not focus, and last how long the
 run's end waited for its videos to save. A
