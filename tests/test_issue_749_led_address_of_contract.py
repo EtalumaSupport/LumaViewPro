@@ -249,12 +249,11 @@ class TestDarkFloorKeysOnLedDrivability:
 
 
 class TestCaptureAbortWording:
-    """The consecutive-failure abort blames the actor the user can act on:
-    an un-drivable LED-classed colour names the colour and the remedy;
-    everything else (incl. a board-less run) keeps the camera wording."""
+    """The consecutive-failure abort names the camera: a channel this scope
+    cannot light is refused before a run starts, so three failed captures in
+    a row are the camera's."""
 
-    @staticmethod
-    def _run_abort(centre_posts, *, color, led_connected, led_address):
+    def test_the_abort_names_the_camera(self, centre_posts):
         from unittest.mock import MagicMock
 
         from _lumascope.modules.notification_center import Severity
@@ -265,8 +264,6 @@ class TestCaptureAbortWording:
         # The objective the frame is taken with, read at capture.
         scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
         scope.capabilities.has_turret = False
-        scope.led_connected = led_connected
-        scope.illumination.led_address_of.return_value = led_address
         scope.imaging.capture_still.side_effect = CaptureFailedError('no_frame')
         writer._consecutive_capture_failures = writer._MAX_CONSECUTIVE_CAPTURE_FAILURES - 1
         protocol = MagicMock()
@@ -275,24 +272,11 @@ class TestCaptureAbortWording:
             scan_count=0,
             curr_step=0,
             save_folder='/tmp',
-            step=_protocol_step(channel=color),
+            step=_protocol_step(channel='BF'),
             output_format='TIFF',
             protocol=protocol,
             enable_image_saving=True,
         )
         criticals = [n.message for n in centre_posts if n.severity == Severity.CRITICAL]
         assert len(criticals) == 1, criticals
-        return criticals[0]
-
-    def test_undrivable_colour_names_the_colour(self, centre_posts):
-        body = self._run_abort(centre_posts, color='PC', led_connected=True, led_address=None)
-        assert 'PC' in body
-        assert 'Camera' not in body
-
-    def test_no_led_board_keeps_camera_wording(self, centre_posts):
-        body = self._run_abort(centre_posts, color='BF', led_connected=False, led_address=None)
-        assert body.startswith('The camera failed 3 steps in a row; the last: '), body
-
-    def test_drivable_colour_keeps_camera_wording(self, centre_posts):
-        body = self._run_abort(centre_posts, color='BF', led_connected=True, led_address=3)
-        assert body.startswith('The camera failed 3 steps in a row; the last: '), body
+        assert criticals[0].startswith('The camera failed 3 steps in a row; the last: ')
