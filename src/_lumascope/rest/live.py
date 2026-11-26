@@ -68,7 +68,8 @@ class LiveView:
 
     def __init__(self, session: ScopeSession) -> None:
         self._imaging = session.scope.imaging
-        # Guards the newest frame and its ordinal, written on the camera's thread.
+        # Guards the newest frame and its ordinal, written on the camera's
+        # thread, and the loop its wake is handed to.
         self._lock = threading.Lock()
         self._newest: Frame | None = None
         self._ordinal = 0
@@ -78,9 +79,15 @@ class LiveView:
         self._unwatched = threading.Event()
         self._unwatched.set()
         self._finished = False
+        # The loop a frame's wake is handed to: set by the first watcher, under
+        # the lock, before the listener goes on; cleared by the last, after it
+        # comes off. Each runs on that loop, so no wake meets a closed loop.
         self._loop: asyncio.AbstractEventLoop | None = None
         self._wake: asyncio.Event | None = None
+        # Serialises attaching and removing the listener, for the loop it was
+        # made on: an asyncio lock serves only its own loop.
         self._attaching: asyncio.Lock | None = None
+        self._attaching_loop: asyncio.AbstractEventLoop | None = None
         # One encode per (frame, max_width), shared by every watcher asking for
         # it: the encodes of the frame named by ordinal, by width. On the loop.
         self._encoded_ordinal = 0
@@ -106,20 +113,26 @@ class LiveView:
         Raises what ``add_frame_listener`` raises -- a camera that is not
         connected is refused here, before anything is sent.
         """
-        if self._loop is None:
-            self._loop = asyncio.get_running_loop()
-            self._wake = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        if self._watchers == 0 and self._attaching_loop is not loop:
+            # The application served on another loop than the last watcher's.
             self._attaching = asyncio.Lock()
+            self._attaching_loop = loop
         async with self._attaching:
             if self._watchers == 0:
                 # Cleared before the listener goes on, so no waiter is told
                 # nobody watches while it is on; a refused add leaves it off.
                 self._unwatched.clear()
+                with self._lock:
+                    self._loop = loop
+                    self._wake = asyncio.Event()
                 try:
                     await asyncio.to_thread(
                         self._imaging.add_frame_listener, self._on_frame, 'REST live view'
                     )
                 except BaseException:
+                    with self._lock:
+                        self._loop = None
                     self._unwatched.set()
                     raise
             self._watchers += 1
@@ -133,6 +146,7 @@ class LiveView:
                 with self._lock:
                     # Not shown to the next watcher: the scope may have moved since.
                     self._newest = None
+                    self._loop = None
                 self._unwatched.set()
 
     def finish(self) -> None:
@@ -214,7 +228,8 @@ class LiveView:
                 frame.significant_bits,
                 wall_time.local_time(frame.wall_ns),
             )
-        self._loop.call_soon_threadsafe(self._woken)
+            if self._loop is not None:
+                self._loop.call_soon_threadsafe(self._woken)
 
     def _woken(self) -> None:
         wake, self._wake = self._wake, asyncio.Event()

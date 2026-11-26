@@ -17,6 +17,7 @@ import threading
 
 import pytest
 
+from _lumascope.modules import wall_time
 from _lumascope.modules.caller import Caller, calling, current_caller
 from _lumascope.modules.exceptions import ProtocolRunRefusedError
 from _lumascope.modules.protocol_runner import ProtocolRunner
@@ -118,8 +119,16 @@ class TestTheRefusalCarriesItOnTheWire:
 class TestEachHostStampsItsThreads:
     def test_a_rest_call_runs_as_a_rest_client(self):
         async def _call():
-            return await JobRegistry(ended=lambda _job: None).run(
-                current_caller, 'probe', 'request-1'
+            jobs = JobRegistry(ended=lambda _job: None)
+            return await jobs.answer(
+                jobs.run(
+                    current_caller,
+                    'probe',
+                    'request-1',
+                    member='probe',
+                    requested=wall_time.now(),
+                    progress=None,
+                )
             )
 
         assert asyncio.run(_call()) is Caller.REST

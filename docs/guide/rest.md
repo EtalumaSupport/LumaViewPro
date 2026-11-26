@@ -70,15 +70,18 @@ elif server.close_failed is not None:    # what the session's shutdown raised
 To mount the API in an ASGI application of your own, take it from
 `build_app(session)`. Its `allowed_clients` and its body deadline apply
 whoever serves it. The header deadline and the address check below are
-`build_server`'s, so your program sets its own server's.
+`build_server`'s, so your program sets its own server's. Mounted, its
+startup is not run for you: run it inside your own application's lifespan,
+`async with api.router.lifespan_context(api):` where `api` is what
+`build_app` returned, or it has no event stream.
 
 To test a client with no server, no port and no instance lock, send its
 requests through FastAPI's `TestClient`:
 `with fastapi.testclient.TestClient(build_app(session)) as client:`. The
-`with` runs the application's startup, which the event stream and every job
-need: a job started through a client outside it reads `running` forever,
-though its work ended. Make every
-client, a second one included, with its own `with`.
+`with` runs the application's startup, which the event stream needs. A job
+is read ended once its work ends, by any client of the application, inside a
+`with` or not. Make every client, a second one included, with its own
+`with`, each after the one before it has ended.
 `TestClient` needs the HTTP client package that `requirements-dev.txt` pins.
 
 **Addressed to it.** The server answers only a request addressed to its own

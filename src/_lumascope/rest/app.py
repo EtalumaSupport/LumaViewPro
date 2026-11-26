@@ -418,11 +418,16 @@ def _add_upload_route(
                 )
 
             async def put() -> fastapi.Response:
-                reply = await jobs.run(
-                    lambda: _answered(work, request_id),
-                    'put_live_folder_file',
-                    request_id,
-                    place=place,
+                reply = await jobs.answer(
+                    jobs.run(
+                        lambda: _answered(work, request_id),
+                        'put_live_folder_file',
+                        request_id,
+                        member=request.url.path.removeprefix(f'{PREFIX}/'),
+                        requested=request.state.requested,
+                        progress=None,
+                        place=place,
+                    )
                 )
                 if not reply.is_problem:
                     reply = dataclasses.replace(reply, status=201)
@@ -516,7 +521,16 @@ def _add_still_route(
                 job=_no_handle,
             )
 
-        reply = await jobs.run(lambda: _answered(work, request_id), 'capture_still', request_id)
+        reply = await jobs.answer(
+            jobs.run(
+                lambda: _answered(work, request_id),
+                'capture_still',
+                request_id,
+                member=request.url.path.removeprefix(f'{PREFIX}/'),
+                requested=request.state.requested,
+                progress=None,
+            )
+        )
         if reply.is_problem:
             return reply.response()
         image = taken[0].image
@@ -1202,7 +1216,6 @@ def _add(
         """
         request_id = request.state.request_id
         asked = request.url.path.removeprefix(f'{PREFIX}/')
-        loop = asyncio.get_running_loop()
         progress = Progress()
 
         def job_of(operation: Operation, member: str = asked, said: Progress | None = None) -> dict:
@@ -1218,7 +1231,6 @@ def _add(
                     if said is not None
                     else (lambda: encoded(operation.progress()))
                 ),
-                loop=loop,
                 files=None if files is None else lambda: job_of(files, f'{member}/files'),
             )
 
@@ -1253,29 +1265,25 @@ def _add(
         # Every header is read before the call starts, so nothing about one
         # can fail once the move or capture has begun.
         wait = Wait.of(request.headers.get('prefer'))
-        answered = jobs.run(lambda: _answered(work, request_id), name, request_id)
-        if member.returns_job:
-            await asyncio.wait({answered})
-            reply = answered.result()
-            if not handed:
-                return reply.response()
-            return JSONResponse(reply.body, status_code=202, headers=_job_headers(handed[0]))
-        await asyncio.wait(
-            {answered, closing.finished()},
-            timeout=wait.seconds,
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        if answered.done():
-            reply = answered.result()
-            return dataclasses.replace(
-                reply, headers={**reply.headers, **wait.headers()}
-            ).response()
-        job = jobs.adopt(
-            answered,
+        job = jobs.run(
+            lambda: _answered(work, request_id),
+            name,
+            request_id,
             member=asked,
             requested=request.state.requested,
             progress=progress if member.progress else None,
         )
+        if member.returns_job:
+            reply = await jobs.answer(job)
+            if not handed:
+                return reply.response()
+            return JSONResponse(reply.body, status_code=202, headers=_job_headers(handed[0]))
+        reply = await jobs.answer(job, wait.seconds, closing.finished())
+        if reply is not None:
+            return dataclasses.replace(
+                reply, headers={**reply.headers, **wait.headers()}
+            ).response()
+        jobs.adopt(job)
         return JSONResponse(
             job.view(),
             status_code=202,
@@ -1425,12 +1433,7 @@ def _add_job_routes(
         """
         job = jobs.get(job_id)
         wait = Wait.of(request.headers.get('prefer'))
-        if not job.finished:
-            await asyncio.wait(
-                {job.answered, closing.finished()},
-                timeout=wait.seconds,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
+        await jobs.answer(job, wait.seconds, closing.finished())
         return JSONResponse(await asyncio.to_thread(job.view), headers=wait.headers())
 
     app.add_api_route(

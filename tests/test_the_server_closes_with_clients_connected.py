@@ -178,18 +178,23 @@ def test_the_close_names_a_call_still_running_and_joins_it_once_it_ends(session,
     assert ended == []
 
 
+@pytest.mark.filterwarnings('error::pytest.PytestUnhandledThreadExceptionWarning')
 def test_a_client_waiting_on_a_job_is_answered_when_the_close_finishes(session, monkeypatch):
     """A long-poll open at the close is answered what its job is then; it does not hold the exit.
 
     The job is a call the session's close does not wait for, as a call hung
     in a driver would be: the close finishes the session's own work first,
-    and waits for the call's thread no longer than its bound.
+    and waits for the call's thread no longer than its bound. The call,
+    ending after the server's loop has closed, tells no one and ends its
+    thread without an exception.
     """
     monkeypatch.setattr(_lumascope.rest.server, 'JOIN_S', 0.1)
     release = threading.Event()
     real = session.scope.camera.read_gain_db
+    call_threads = []
 
     def hung():
+        call_threads.append(threading.current_thread())
         assert release.wait(30)
         return real()
 
@@ -227,6 +232,9 @@ def test_a_client_waiting_on_a_job_is_answered_when_the_close_finishes(session, 
             assert not polling.is_alive()
     finally:
         release.set()
+    (call_thread,) = call_threads
+    call_thread.join(10)
+    assert not call_thread.is_alive()
 
     (answered,) = answers
     assert (answered.status_code, answered.json()['status']) == (200, 'running')

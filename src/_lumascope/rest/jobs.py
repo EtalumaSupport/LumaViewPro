@@ -20,6 +20,12 @@ files' job once its images are on disk. ``DELETE`` on a running job is its
 operation's stop, which only asks; a call adopted as a job holds no
 operation and cannot be stopped there. A finished job is kept until a
 client forgets it, or until a new job finds it past the count or age bound.
+
+A job's end is the registry's record, set by the thread that ends the job;
+an event loop is handed only the wake of a client waiting on it, which
+waits only while its loop runs. A job that ends after every loop it was
+read on has closed tells no one, and is read ended by the next client of
+the same application.
 """
 
 from __future__ import annotations
@@ -113,7 +119,7 @@ class Progress:
 
 
 class Job:
-    """A call a client was told is still running, and the answer it ends in.
+    """A call running on a thread of its own, and the answer it ends in; listed, with an id, once a client is told it is still running.
 
     Attributes:
         operation: The running call a member handed back, whose stop a
@@ -123,18 +129,22 @@ class Job:
 
     def __init__(
         self,
-        job_id: str,
         member: str,
         requested: datetime.datetime,
-        answered: asyncio.Future[Answer],
         progress: Callable[[], object],
         operation: Operation | None,
         files: Callable[[], object] | None = None,
     ) -> None:
-        self.id = job_id
+        # Given when the registry lists the job; a call answered inside its
+        # client's wait is never listed.
+        self.id: str | None = None
         self.member = member
         self.requested = requested
-        self.answered = answered
+        # The registry's record of the job's end and of who waits for it,
+        # each written under the registry's lock.
+        self._answer: Answer | None = None
+        self._waiters: set[tuple[asyncio.AbstractEventLoop, asyncio.Future[None]]] = set()
+        self._listed = False
         self._progress = progress
         self.operation = operation
         # Names the job of the operation's files, for an operation that has them.
@@ -143,12 +153,13 @@ class Job:
     @property
     def finished(self) -> bool:
         """Whether the call has ended."""
-        return self.answered.done()
+        return self._answer is not None
 
     @property
     def ended(self) -> datetime.datetime | None:
         """When the call ended, as its answer says; None while it runs."""
-        return self.answered.result().ended if self.finished else None
+        answer = self._answer
+        return None if answer is None else answer.ended
 
     def view(self) -> dict[str, object]:
         """The job as a client reads it, its progress read now.
@@ -157,25 +168,31 @@ class Job:
         the run's), so a caller on the event loop reads a job that holds
         one through a thread.
         """
-        if not self.finished:
+        # Read once: the job may end while its view is built.
+        answer = self._answer
+        if answer is None:
             status = 'running'
         else:
-            answer = self.answered.result()
             status = 'failed' if answer.is_problem else 'completed'
         view = {
             'id': self.id,
             'member': self.member,
             'status': status,
             'requested': self.requested.isoformat(),
-            'ended': self.ended.isoformat() if self.ended else None,
+            'ended': None if answer is None else answer.ended.isoformat(),
             'progress': self._progress(),
         }
         if self._files is not None:
             view['files'] = self._files()
-        if self.finished:
-            answer = self.answered.result()
+        if answer is not None:
             view['error' if answer.is_problem else 'result'] = answer.body
         return view
+
+
+def _woken(woken: asyncio.Future[None]) -> None:
+    # On the waiter's loop: its wait may have ended on its own meanwhile.
+    if not woken.done():
+        woken.set_result(None)
 
 
 class UploadPlace:
@@ -211,7 +228,9 @@ class JobRegistry:
         """Make a registry that holds no job yet.
 
         Args:
-            ended: Told each job once it has ended, on the server's loop.
+            ended: Told each listed job once it has ended, on the thread
+                that ended it (or on ``adopt``'s, for a job that ended
+                before it was listed), with the registry's lock let go.
         """
         self._ended = ended
         self._lock = threading.Lock()
@@ -275,27 +294,27 @@ class JobRegistry:
         name: str,
         request_id: str,
         *,
+        member: str,
+        requested: datetime.datetime,
+        progress: Progress | None,
         place: UploadPlace | None = None,
-    ) -> asyncio.Future[Answer]:
-        """Start *work* on a thread of its own; the future it settles holds its answer.
+    ) -> Job:
+        """Start *work* on a thread of its own; the job it ends, not yet listed.
 
         *work* answers rather than raises, so whoever reads its answer --
-        the route, or a job read later -- reads the same one. A call is
-        counted live until its thread ends; an upload's *place*, taken
-        before its read, is that count, and ``run`` owns it from here.
+        the route through ``answer``, or a job read later -- reads the same
+        one. *member*, *requested* and *progress* are what the job says once
+        ``adopt`` lists it. A call is counted live until its thread ends; an
+        upload's *place*, taken before its read, is that count, and ``run``
+        owns it from here.
         """
-        loop = asyncio.get_running_loop()
-        answered: asyncio.Future[Answer] = loop.create_future()
+        job = Job(member, requested, lambda: progress.last if progress else None, None)
         if place is None:
             with self._lock:
                 self._live_calls += 1
             end = self._end_call
         else:
             end = place._taken_by_run()
-
-        def settle(answer: Answer) -> None:
-            if not answered.cancelled():
-                answered.set_result(answer)
 
         def run() -> None:
             try:
@@ -313,7 +332,7 @@ class JobRegistry:
                 end()
                 with self._lock:
                     self._threads.discard(threading.current_thread())
-            loop.call_soon_threadsafe(settle, answer)
+            self._end(job, answer)
 
         thread = threading.Thread(target=run, name=f'rest {name}')
         with self._lock:
@@ -325,7 +344,56 @@ class JobRegistry:
             with self._lock:
                 self._threads.discard(thread)
             raise
-        return answered
+        return job
+
+    def _end(self, job: Job, answer: Answer) -> None:
+        """Record *job*'s end, on the thread that ended it; wake who waits, and tell who is told.
+
+        A waiter is registered only while its loop runs (``answer``), so its
+        wake never meets a closed loop. ``ended`` is told after the lock is
+        let go: it reads the job's view, and a run's view names its files'
+        job through ``of_future``, which takes the lock.
+        """
+        with self._lock:
+            if job._answer is not None:
+                return
+            job._answer = answer
+            for loop, woken in job._waiters:
+                loop.call_soon_threadsafe(_woken, woken)
+            listed = job._listed
+        if listed:
+            self._ended(job)
+
+    async def answer(
+        self,
+        job: Job,
+        timeout_s: float | None = None,
+        also: asyncio.Future[None] | None = None,
+    ) -> Answer | None:
+        """*job*'s answer once it has ended, waiting up to *timeout_s* (None: until it ends) or until *also* settles; None if it has not.
+
+        On the server's loop. The waiter is registered on the job while it
+        waits and removed, on this loop, however the wait ends -- a loop's
+        owner cancels its tasks before it closes it -- so whoever ends the
+        job hands only to a loop that runs.
+        """
+        loop = asyncio.get_running_loop()
+        woken: asyncio.Future[None] = loop.create_future()
+        waiter = (loop, woken)
+        with self._lock:
+            if job._answer is not None:
+                return job._answer
+            job._waiters.add(waiter)
+        try:
+            await asyncio.wait(
+                {woken} if also is None else {woken, also},
+                timeout=timeout_s,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            with self._lock:
+                job._waiters.discard(waiter)
+        return job._answer
 
     def join(self, timeout_s: float) -> list[str]:
         """Wait up to *timeout_s* for every call's thread to end; the names of those still running."""
@@ -336,22 +404,18 @@ class JobRegistry:
             thread.join(max(0.0, deadline - time.monotonic()))
         return [t.name for t in threads if t.is_alive()]
 
-    def adopt(
-        self,
-        answered: asyncio.Future[Answer],
-        *,
-        member: str,
-        requested: datetime.datetime,
-        progress: Progress | None,
-    ) -> Job:
-        """Hold a call that outlived the client's wait as a job."""
-        return self._add(
-            member,
-            requested,
-            answered,
-            lambda: progress.last if progress else None,
-            operation=None,
-        )
+    def adopt(self, job: Job) -> Job:
+        """List a call ``run`` started that outlived the client's wait, as a job.
+
+        A call that ended meanwhile is told ended here, since its end found
+        it unlisted.
+        """
+        with self._lock:
+            self._list_locked(job)
+            ended = job._answer is not None
+        if ended:
+            self._ended(job)
+        return job
 
     def of_future(
         self,
@@ -360,7 +424,6 @@ class JobRegistry:
         member: str,
         answer: Callable[[Operation], Answer],
         progress: Callable[[], object],
-        loop: asyncio.AbstractEventLoop,
         files: Callable[[], object] | None = None,
     ) -> dict[str, object]:
         """The job a running call a member handed back is, in its wire form.
@@ -375,62 +438,24 @@ class JobRegistry:
         with self._lock:
             known = self._of_future.get(future)
             if known is None:
-                answered: asyncio.Future[Answer] = loop.create_future()
-                job = self._add_locked(
-                    member, wall_time.now(), answered, progress, operation=future, files=files
-                )
+                job = Job(member, wall_time.now(), progress, future, files)
+                self._list_locked(job)
                 self._of_future[future] = job
         if known is not None:
             return known.view()
 
         def finished(done: Operation) -> None:
-            reply = answer(done)
-            loop.call_soon_threadsafe(
-                lambda: None if answered.done() else answered.set_result(reply)
-            )
+            self._end(job, answer(done))
 
-        self._tell_when_ended(job)
         future.add_done_callback(finished)
         return job.view()
 
-    def _add(
-        self,
-        member: str,
-        requested: datetime.datetime,
-        answered: asyncio.Future[Answer],
-        progress: Callable[[], object],
-        *,
-        operation: Operation | None,
-    ) -> Job:
-        with self._lock:
-            job = self._add_locked(member, requested, answered, progress, operation=operation)
-        self._tell_when_ended(job)
-        return job
-
-    def _add_locked(
-        self,
-        member: str,
-        requested: datetime.datetime,
-        answered: asyncio.Future[Answer],
-        progress: Callable[[], object],
-        *,
-        operation: Operation | None,
-        files: Callable[[], object] | None = None,
-    ) -> Job:
-        job_id = str(self._next)
+    def _list_locked(self, job: Job) -> None:
+        job.id = str(self._next)
         self._next += 1
-        job = Job(job_id, member, requested, answered, progress, operation, files)
-        self._jobs[job_id] = job
+        job._listed = True
+        self._jobs[job.id] = job
         self._prune()
-        return job
-
-    def _tell_when_ended(self, job: Job) -> None:
-        answered = job.answered
-        # A job is made on the loop or on its call's thread, and a future
-        # takes its callbacks only on its loop.
-        answered.get_loop().call_soon_threadsafe(
-            answered.add_done_callback, lambda _answered: self._ended(job)
-        )
 
     def _prune(self) -> None:
         finished = sorted(

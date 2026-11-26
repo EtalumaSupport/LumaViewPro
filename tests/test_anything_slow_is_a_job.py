@@ -106,20 +106,24 @@ def test_a_call_past_the_clients_wait_is_a_job_that_ends_in_its_answer(client, h
 
 
 def test_a_job_read_as_finished_has_its_end_time_however_soon_it_is_read():
-    # Read in the same loop pass its answer settles, before the loop runs
-    # anything else: a reader on the loop can be scheduled there.
-    async def read_as_it_settles():
+    # Read as soon as its end is recorded: the status and the end time are
+    # one record, so no read sees the one without the other.
+    async def read_as_it_ends():
         jobs = _lumascope.rest.jobs.JobRegistry(ended=lambda job: None)
-        answered = asyncio.get_running_loop().create_future()
-        job = jobs.adopt(
-            answered, member='scope/illumination/leds_off', requested=wall_time.now(), progress=None
-        )
-        await asyncio.sleep(0)
         answer = problems.result(None)
-        answered.set_result(answer)
+        job = jobs.run(
+            lambda: answer,
+            'scope/illumination/leds_off',
+            'request-1',
+            member='scope/illumination/leds_off',
+            requested=wall_time.now(),
+            progress=None,
+        )
+        jobs.adopt(job)
+        await jobs.answer(job)
         return jobs.get(job.id).view(), answer
 
-    view, answer = asyncio.run(read_as_it_settles())
+    view, answer = asyncio.run(read_as_it_ends())
 
     assert view['status'] == 'completed'
     assert view['ended'] == answer.ended.isoformat()
@@ -256,6 +260,43 @@ def test_a_running_call_a_member_hands_back_is_a_job(client):
     # Only a run's operation has files of its own to name.
     assert 'files' not in ended
     assert client.get('/api/v1/jobs').json()[0]['id'] == job['id']
+
+
+def test_a_start_that_ends_after_its_client_has_closed_is_its_own_end_and_no_fault(session, caplog):
+    """A move still running when the client's ``with`` ends ends as the move does, and tells no one.
+
+    The guide's way to test a client: the job's loop closes with the
+    ``with``, and the move is stopped by the session's shutdown after it.
+    """
+    home_sim_scope(session.scope)
+    top = session.scope.motion.axis_limits('Z').max_um
+    with TestClient(build_app(session)) as client:
+        started = client.post(
+            '/api/v1/scope/motion/start_move_z',
+            json={'z_um': top},
+            headers={'Prefer': 'respond-async'},
+        )
+        assert (started.status_code, started.json()['status']) == (202, 'running')
+    with caplog.at_level('INFO', logger='LVP.outcomes'):
+        session.shutdown()
+
+    outcomes = [r.getMessage() for r in caplog.records if r.name == 'LVP.outcomes']
+    assert any('MoveStoppedError' in line for line in outcomes), outcomes
+    assert not [line for line in outcomes if '[Operation] raised' in line], outcomes
+
+
+def test_a_job_that_ends_after_its_client_has_gone_is_read_ended_by_the_next(session, held):
+    """One application is one registry: a call that outlived its client's
+    ``with`` and ended after it is read ended through the next ``with``."""
+    app = build_app(session)
+    with TestClient(app) as first:
+        accepted = first.post('/api/v1/scope/illumination/leds_off', headers={'Prefer': 'wait=0'})
+        assert (accepted.status_code, accepted.json()['status']) == (202, 'running')
+    held.set()
+    with TestClient(app) as second:
+        ended = second.get(accepted.headers['Location'], headers={'Prefer': 'wait=10'})
+
+    assert (ended.status_code, ended.json()['status']) == (200, 'completed')
 
 
 def _posted(client, path, **kwargs):

@@ -146,11 +146,19 @@ class EventStream:
         self._closing_seq = self._seq
 
     def job_ended(self, job: Job) -> None:
-        """Send ``job_ended`` with *job* as it ended. Called on the server's loop.
+        """Send ``job_ended`` with *job* as it ended. Called on any thread: the one that ended it.
 
-        The job is read on a thread: a run's job reads the run's progress
-        under the run's own lock.
+        Handed to the loop as ``send`` hands an event, and to no one once
+        the stream has closed.
         """
+        with self._lock:
+            if self._loop is None:
+                return
+            self._loop.call_soon_threadsafe(self._send_job_ended, job)
+
+    def _send_job_ended(self, job: Job) -> None:
+        # On the loop. The job is read on a thread: a run's job reads the
+        # run's progress under the run's own lock.
 
         async def send() -> None:
             view = await asyncio.to_thread(job.view)

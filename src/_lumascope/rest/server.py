@@ -14,7 +14,8 @@ session's order instead, on SIGINT or SIGTERM or its host's ``close()``:
    carries the run's end and the outcomes the close reports;
 3. when it returns, ``closing`` goes to every stream and each one ends,
    the live views end, and every client still waiting is answered;
-4. the calls' threads are joined, for up to ``JOIN_S``;
+4. the calls' threads are joined, for up to ``JOIN_S``; a call still
+   running then ends when it ends, and tells no one;
 5. uvicorn stops, finding no long-lived connection.
 
 The close runs once. A later signal while it runs is logged with what it
@@ -46,7 +47,8 @@ from _lumascope.rest.served import Reach, judged
 _log = logging.getLogger('LVP.rest')
 
 # Seconds the close waits for the calls' threads once the session has shut
-# down; a call still running then is logged by name and the server stops.
+# down; a call still running then is logged by name and the server stops,
+# and the call, when it ends, tells no one.
 JOIN_S = 10.0
 
 # Seconds a connection has for a request's headers: from its opening, and

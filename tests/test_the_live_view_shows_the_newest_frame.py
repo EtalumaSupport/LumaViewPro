@@ -27,6 +27,7 @@ import httpx
 import numpy as np
 import pytest
 import uvicorn
+from fastapi.testclient import TestClient
 from starlette.requests import ClientDisconnect
 
 from _lumascope.modules.scope_session import ScopeSession
@@ -150,6 +151,61 @@ def test_a_snapshot_with_no_frame_is_refused_until_one_comes(session):
     assert shot.status_code == 200
     _decoded(shot.content)
     assert watchers == 0
+
+
+def test_a_second_client_on_one_application_gets_frames_as_the_first_did(session):
+    """Each ``with TestClient(app)`` serves the application on a loop of its
+    own, as the guide's way to test a client does; a snapshot is one
+    response, so no socket is needed to stop reading it."""
+    app = build_app(session)
+    shots = []
+    for _client in range(2):
+        with TestClient(app) as client:
+            shots.append(client.get('/api/v1/live.jpg'))
+
+    assert [(s.status_code, s.headers['content-type']) for s in shots] == [
+        (200, 'image/jpeg'),
+        (200, 'image/jpeg'),
+    ], [s.text[:200] for s in shots]
+    _decoded(shots[1].content)
+
+
+def test_a_watcher_joining_while_the_last_one_leaves_gets_frames(session, monkeypatch):
+    """A stream joining on the same loop while the last snapshot's leave
+    removes the listener waits for that leave, then attaches it again."""
+    removing, removed = threading.Event(), threading.Event()
+    real_remove = session.scope.imaging.remove_frame_listener
+
+    def held_remove(listener):
+        removing.set()
+        assert removed.wait(10)
+        return real_remove(listener)
+
+    # a stand-in by design: holds the listener's removal open so a watcher
+    # can join during it; the simulator's removal returns at once.
+    monkeypatch.setattr(session.scope.imaging, 'remove_frame_listener', held_remove)
+    view = LiveView(session)
+
+    async def join_during_the_leave() -> list[bytes]:
+        snapshot = asyncio.ensure_future(view.snapshot(None))
+        assert await asyncio.to_thread(removing.wait, 10)
+        joining = asyncio.ensure_future(view.watch())
+        await asyncio.sleep(0)  # the joiner reaches the attach lock the leave holds
+        removed.set()
+        await snapshot
+        await joining
+        # Two parts: a frame already held is sent at once, and only the
+        # second needs the listener's wake.
+        stream = view.parts(None)
+        try:
+            return [await asyncio.wait_for(anext(stream), 5) for _part in range(2)]
+        finally:
+            await stream.aclose()
+            await view.leave()
+
+    parts = asyncio.run(join_during_the_leave())
+
+    assert [part[: len(b'--frame')] for part in parts] == [b'--frame'] * 2
 
 
 @pytest.mark.parametrize(
