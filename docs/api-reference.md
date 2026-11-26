@@ -16882,8 +16882,9 @@ A fault; bases `Fault`, `CaptureError`.
 A recording finished but its output could not be fully assembled.
 
 Raised around what failed in the finish of a manual recording or of a
-protocol video step, and chained from it. The frames already written
-are on disk.
+protocol video step, and chained from it. Its words say what was saved
+is kept only for a recording saved as frames, each a finished file; an
+MP4 is finished at its close alone.
 
 **Attributes**
 
@@ -17002,8 +17003,10 @@ A manual recording was stopped before anyone asked it to stop.
 Built by the recording's own watch when the camera stops delivering
 frames, the free disk falls below what it needs or the save location
 refuses its frames, and reported where it is detected: no caller is
-waiting on a recording that is running. The frames written so far are on
-disk.
+waiting on a recording that is running. Its words say what was saved is
+kept only for a recording saved as frames, each a finished file; an
+MP4's close is still to run, and tells itself if it fails
+(`VideoNotFinishedError`).
 
 **Attributes**
 
@@ -17793,10 +17796,11 @@ A fault; bases `Fault`, `CaptureError`.
 
 The recording's video writer stopped working, so the recording ended.
 
-Chained from what escaped the writer. The frames already written are on
-disk. On a protocol video step the run is stopped too, and the run's
-ending carries these same words, so a caller reading the run's outcome
-reads what the person was shown.
+Chained from what escaped the writer. Its words say what was saved is
+kept only for a recording saved as frames, each a finished file; an MP4
+is finished at its close alone. On a protocol video step the run is
+stopped too, and the run's ending carries these same words, so a caller
+reading the run's outcome reads what the person was shown.
 
 **Attributes**
 

@@ -50,6 +50,7 @@ if TYPE_CHECKING:
 
     from _lumascope.modules.frame_validity import FrameValiditySource
     from _lumascope.modules.host_resources import GpuAdapter, HostReading, ProgramCpu
+    from _lumascope.modules.image_mode import RecordingFormat
     from _lumascope.modules.lumascope_api.imaging import SlowCameraStop
     from _lumascope.modules.plugins import PluginNotLoaded
     from _lumascope.modules.tech_support_report import SupportReportKind
@@ -95,6 +96,17 @@ def system_words(error: 'OSError | FFmpegError') -> str:
     is its words.
     """
     return error.strerror or str(error)
+
+
+def kept_clause(recording_format: 'RecordingFormat') -> str:
+    """What a recording that ended early can say was kept, by what its format writes.
+
+    A frames recording's every written frame is a finished file, so what was
+    saved is kept the moment the recording stops. An MP4 is one file whose
+    index is written at its close alone, so its stop can claim nothing about
+    it: a close that fails tells itself (``VideoNotFinishedError``).
+    """
+    return ' What was saved before it is kept.' if recording_format.writes_frames else ''
 
 
 class RemedyName(StrEnum):
@@ -3185,8 +3197,9 @@ class RecordingFinalizeError(Fault, CaptureError):
     """A recording finished but its output could not be fully assembled.
 
     Raised around what failed in the finish of a manual recording or of a
-    protocol video step, and chained from it. The frames already written
-    are on disk.
+    protocol video step, and chained from it. Its words say what was saved
+    is kept only for a recording saved as frames, each a finished file; an
+    MP4 is finished at its close alone.
 
     Attributes:
         reason: ``'video_step_finalize_failed'`` -- a protocol video step's
@@ -3203,17 +3216,18 @@ class RecordingFinalizeError(Fault, CaptureError):
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles)
 
-    def __init__(self, *, protocol_step: bool):
+    def __init__(self, *, protocol_step: bool, recording_format: 'RecordingFormat'):
+        kept = kept_clause(recording_format)
         if protocol_step:
             message = (
-                'A video step finished but its output could not be fully assembled. '
-                f'Frames already written are on disk. {INTERNAL_FAULT_SENTENCE}'
+                'A video step finished but its output could not be fully assembled.'
+                f'{kept} {INTERNAL_FAULT_SENTENCE}'
             )
             reason = 'video_step_finalize_failed'
         else:
             message = (
-                'The recording finished but its output could not be fully assembled. '
-                f'Frames already written are on disk. {INTERNAL_FAULT_SENTENCE}'
+                'The recording finished but its output could not be fully assembled.'
+                f'{kept} {INTERNAL_FAULT_SENTENCE}'
             )
             reason = 'recording_finalize_failed'
         super().__init__(message, reason)
@@ -3373,10 +3387,11 @@ class RecordingFramesUnstampedError(Fault, CaptureError):
 class VideoWriterFailedError(Fault, CaptureError):
     """The recording's video writer stopped working, so the recording ended.
 
-    Chained from what escaped the writer. The frames already written are on
-    disk. On a protocol video step the run is stopped too, and the run's
-    ending carries these same words, so a caller reading the run's outcome
-    reads what the person was shown.
+    Chained from what escaped the writer. Its words say what was saved is
+    kept only for a recording saved as frames, each a finished file; an MP4
+    is finished at its close alone. On a protocol video step the run is
+    stopped too, and the run's ending carries these same words, so a caller
+    reading the run's outcome reads what the person was shown.
 
     Attributes:
         protocol_step: True for a protocol video step, False for a manual
@@ -3387,15 +3402,15 @@ class VideoWriterFailedError(Fault, CaptureError):
     causes: ClassVar[dict[str, RefusalCause | None]] = {'video_writer_died': None}
     same_fact_as = (_RunStartError,)
 
-    def __init__(self, *, protocol_step: bool):
+    def __init__(self, *, protocol_step: bool, recording_format: 'RecordingFormat'):
         stopped = (
             ', so the recording and the run were stopped'
             if protocol_step
             else ' and the recording was aborted'
         )
         super().__init__(
-            f'The video writer stopped working{stopped}. Frames already written '
-            f'are on disk. {INTERNAL_FAULT_SENTENCE}',
+            f'The video writer stopped working{stopped}.{kept_clause(recording_format)} '
+            f'{INTERNAL_FAULT_SENTENCE}',
             'video_writer_died',
         )
         self.protocol_step = protocol_step
@@ -3828,8 +3843,10 @@ class RecordingStoppedError(Fault, CaptureError):
     Built by the recording's own watch when the camera stops delivering
     frames, the free disk falls below what it needs or the save location
     refuses its frames, and reported where it is detected: no caller is
-    waiting on a recording that is running. The frames written so far are on
-    disk.
+    waiting on a recording that is running. Its words say what was saved is
+    kept only for a recording saved as frames, each a finished file; an
+    MP4's close is still to run, and tells itself if it fails
+    (``VideoNotFinishedError``).
 
     Attributes:
         reason: ``'camera_disconnected'`` -- the camera is no longer active.
@@ -3851,26 +3868,30 @@ class RecordingStoppedError(Fault, CaptureError):
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles)
     same_fact_as = (RunFailedError,)
+    # Each filled with the format's kept clause, and write_failed with the
+    # refusal's own words, in the system's.
     _WORDS: ClassVar[dict[str, str]] = {
         'camera_disconnected': (
-            'The camera stopped delivering frames, so the recording was stopped. '
-            'Frames captured so far are saved; check the camera connection before '
-            'recording again.'
+            'The camera stopped delivering frames, so the recording was stopped.{kept} '
+            'Check the camera connection before recording again.'
         ),
         'disk_space_critical': (
             'Free disk space fell below the safety floor, so the recording was '
-            'stopped early. Frames captured so far are saved; free up space before '
-            'recording again.'
+            'stopped early.{kept} Free up space before recording again.'
         ),
-        # Filled with the refusal's own words, in the system's.
         'write_failed': (
-            'A frame could not be saved ({cause}), so the recording was stopped. '
-            'What was saved before it is kept.'
+            'A frame could not be saved ({cause}), so the recording was stopped.{kept}'
         ),
     }
     _WORDS['camera_stalled'] = _WORDS['camera_disconnected']
 
-    def __init__(self, reason: str, *, refusal: 'OSError | FFmpegError | None' = None):
+    def __init__(
+        self,
+        reason: str,
+        *,
+        recording_format: 'RecordingFormat',
+        refusal: 'OSError | FFmpegError | None' = None,
+    ):
         """Build the stop for *reason*; *refusal* is the write's, for ``'write_failed'`` alone.
 
         Raises:
@@ -3879,9 +3900,8 @@ class RecordingStoppedError(Fault, CaptureError):
         """
         if (reason == 'write_failed') != (refusal is not None):
             raise TypeError(f'a refusal is the cause of write_failed alone, not of {reason!r}')
-        words = self._WORDS[reason]
-        if refusal is not None:
-            words = words.format(cause=system_words(refusal))
+        cause = system_words(refusal) if refusal is not None else None
+        words = self._WORDS[reason].format(kept=kept_clause(recording_format), cause=cause)
         super().__init__(words, reason)
 
 

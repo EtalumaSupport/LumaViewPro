@@ -64,25 +64,25 @@ def _record_reports(monkeypatch, module):
     ('fault', 'title', 'words'),
     [
         (
-            RecordingStoppedError('camera_stalled'),
+            RecordingStoppedError('camera_stalled', recording_format=RecordingFormat.FRAMES),
             'Recording Stopped',
             'The camera stopped delivering frames, so the recording was stopped. '
-            'Frames captured so far are saved; check the camera connection before '
+            'What was saved before it is kept. Check the camera connection before '
             'recording again.',
         ),
         (
             # Headed as a run that lost its camera is.
-            RecordingStoppedError('camera_disconnected'),
+            RecordingStoppedError('camera_disconnected', recording_format=RecordingFormat.FRAMES),
             'Camera Disconnected',
             'The camera stopped delivering frames, so the recording was stopped. '
-            'Frames captured so far are saved; check the camera connection before '
+            'What was saved before it is kept. Check the camera connection before '
             'recording again.',
         ),
         (
-            RecordingStoppedError('disk_space_critical'),
+            RecordingStoppedError('disk_space_critical', recording_format=RecordingFormat.FRAMES),
             'Disk Space Critical',
             'Free disk space fell below the safety floor, so the recording was '
-            'stopped early. Frames captured so far are saved; free up space before '
+            'stopped early. What was saved before it is kept. Free up space before '
             'recording again.',
         ),
         (
@@ -94,16 +94,16 @@ def _record_reports(monkeypatch, module):
             'and may not open.',
         ),
         (
-            RecordingFinalizeError(protocol_step=False),
+            RecordingFinalizeError(protocol_step=False, recording_format=RecordingFormat.FRAMES),
             'Recording Finalize Failed',
             'The recording finished but its output could not be fully assembled. '
-            f'Frames already written are on disk. {INTERNAL_FAULT_SENTENCE}',
+            f'What was saved before it is kept. {INTERNAL_FAULT_SENTENCE}',
         ),
         (
-            RecordingFinalizeError(protocol_step=True),
+            RecordingFinalizeError(protocol_step=True, recording_format=RecordingFormat.FRAMES),
             'Video Finalize Failed',
             'A video step finished but its output could not be fully assembled. '
-            f'Frames already written are on disk. {INTERNAL_FAULT_SENTENCE}',
+            f'What was saved before it is kept. {INTERNAL_FAULT_SENTENCE}',
         ),
         (
             VideoFramesDroppedError(
@@ -248,7 +248,10 @@ def test_a_lost_camera_is_reported_once_unsolicited(tmp_path, monkeypatch, post_
     controller, _scope, _clock = make_controller(tmp_path, post_processing=post_processing)
     reported = _record_reports(monkeypatch, manual_recording_module)
 
+    # The camera's watch runs only while a recording does.
+    controller.start()
     controller._stop_for_camera_loss('camera_disconnected')
+    finish(controller)
 
     ((fault, kw),) = reported
     assert isinstance(fault, RecordingStoppedError) and fault.reason == 'camera_disconnected'
@@ -397,6 +400,40 @@ def test_frames_not_one_size_are_a_hyperstack_not_built_for_that_reason(
     assert fault.__cause__ is unusable
 
 
+def test_a_recording_fault_claims_what_was_kept_only_for_a_format_that_writes_frames():
+    # An MP4 is one file whose index is written at its close, so no fault
+    # raised before that close may say what was saved is kept.
+    refusal = OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+    faults = {
+        **{
+            f'stopped {reason}': lambda fmt, reason=reason: RecordingStoppedError(
+                reason, recording_format=fmt
+            )
+            for reason in ('camera_disconnected', 'camera_stalled', 'disk_space_critical')
+        },
+        'stopped write_failed': lambda fmt: RecordingStoppedError(
+            'write_failed', recording_format=fmt, refusal=refusal
+        ),
+        **{
+            f'{cls.__name__} step={step}': lambda fmt, cls=cls, step=step: cls(
+                protocol_step=step, recording_format=fmt
+            )
+            for cls in (RecordingFinalizeError, VideoWriterFailedError)
+            for step in (False, True)
+        },
+    }
+    told = {
+        (name, fmt): str(build(fmt)) for name, build in faults.items() for fmt in RecordingFormat
+    }
+    wrong = [
+        (name, fmt.value, words)
+        for (name, fmt), words in told.items()
+        if ('What was saved before it is kept.' in words, 'kept' in words)
+        != (fmt.writes_frames, fmt.writes_frames)
+    ]
+    assert wrong == []
+
+
 def test_dropped_frames_are_reported_once_unsolicited(tmp_path, monkeypatch, post_processing):
     controller, scope, clock = make_controller(tmp_path, post_processing=post_processing)
     reported = _record_reports(monkeypatch, manual_recording_module)
@@ -461,7 +498,9 @@ def test_a_second_frame_in_a_row_its_save_location_refuses_stops_the_recording_t
 ):
     # A drive that went away refuses every frame after it: the second in a
     # row stops the recording, told once in the system's words, and the
-    # details file is not written where the frames were just refused.
+    # details file is not written where the frames were just refused. An
+    # MP4's file is finished only at its close, so the stop claims nothing
+    # kept.
     controller, scope, clock = make_controller(
         tmp_path, recording_format=RecordingFormat.MP4, post_processing=post_processing
     )
@@ -476,13 +515,49 @@ def test_a_second_frame_in_a_row_its_save_location_refuses_stops_the_recording_t
     assert isinstance(fault, RecordingStoppedError)
     assert fault.reason == 'write_failed'
     assert str(fault) == (
-        'A frame could not be saved (No space left on device), so the recording was '
-        'stopped. What was saved before it is kept.'
+        'A frame could not be saved (No space left on device), so the recording was stopped.'
     )
     assert kw == {'solicited': False, 'category': 'Recording', 'once_per_run': True}
     assert controller.end_reason == 'write_failed'
     assert not list(tmp_path.rglob('*_manifest.json'))
     assert not [r for r in caplog.records if r.levelname == 'ERROR']
+
+
+def test_a_frames_recording_whose_save_location_refuses_two_frames_in_a_row_says_what_was_kept(
+    tmp_path, monkeypatch, post_processing
+):
+    # Each written frame is a finished file, so the stop says what was saved
+    # is kept, and it is the one report: there is no close to fail.
+    controller, scope, clock = make_controller(
+        tmp_path, recording_format=RecordingFormat.FRAMES, post_processing=post_processing
+    )
+    reported = _record_reports(monkeypatch, manual_recording_module)
+    real_write = manual_recording_module.write_frame
+    calls = {'n': 0}
+    counting = threading.Lock()
+
+    def _drive_gone_after_two(*args, **kwargs):
+        # The frames' writers run on several lanes at once.
+        with counting:
+            calls['n'] += 1
+            gone = calls['n'] > 2
+        if gone:
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+        return real_write(*args, **kwargs)
+
+    monkeypatch.setattr(manual_recording_module, 'write_frame', _drive_gone_after_two)
+    controller.start()
+    feed_frames(scope, clock, 40, fps=10.0)
+    finish(controller)
+
+    ((fault, kw),) = reported
+    assert (type(fault), fault.reason) == (RecordingStoppedError, 'write_failed')
+    assert str(fault) == (
+        'A frame could not be saved (No space left on device), so the recording was '
+        'stopped. What was saved before it is kept.'
+    )
+    assert kw == {'solicited': False, 'category': 'Recording', 'once_per_run': True}
+    assert len(list(tmp_path.rglob('*.tif*'))) == 2
 
 
 def test_frames_skipped_for_memory_are_reported_once_in_their_own_words(
@@ -600,9 +675,10 @@ def test_a_video_step_whose_save_location_refuses_two_frames_in_a_row_stops_the_
     assert answered == [protocol_recording.ABORTED]
     ((ending, category),) = [c.args for c in step._abort_run_fatal.call_args_list]
     assert (ending.status, ending.reason, category) == (RunStatus.FAILED, 'write_failed', 'FileIO')
+    # The run's record cannot list the frames the refusal cut short, so the
+    # words claim nothing about what was kept, whatever the step's format.
     assert ending.message == (
-        'A frame of the video step could not be saved (disk said no), so the run was '
-        'stopped. What was saved before it is kept.'
+        'A frame of the video step could not be saved (disk said no), so the run was stopped.'
     )
     assert reported == []
     assert step.frame_losses is None
@@ -629,9 +705,9 @@ def test_a_manual_video_that_cannot_be_finished_is_reported_as_itself(
     tmp_path, monkeypatch, post_processing
 ):
     # The disk fills mid-stream: frames fail to encode, which stops the
-    # recording, then the close fails. Both are the one full disk, so the
-    # person is shown the stop, the close's failure is logged, and the file
-    # is kept.
+    # recording, then the close fails. The stop claims nothing about the
+    # MP4, whose file is finished only at its close, so the close's failure
+    # is shown after it, and the file is left where it is.
     controller, scope, clock = make_controller(
         tmp_path, recording_format=RecordingFormat.MP4, post_processing=post_processing
     )
@@ -644,11 +720,12 @@ def test_a_manual_video_that_cannot_be_finished_is_reported_as_itself(
 
     ((stopped, stopped_kw), (unfinished, unfinished_kw)) = reported
     assert (type(stopped), stopped.reason) == (RecordingStoppedError, 'write_failed')
+    assert 'kept' not in str(stopped)
     # Told once per recording, so the repeat window does not hold it back.
     assert stopped_kw == {'solicited': False, 'category': 'Recording', 'once_per_run': True}
     assert isinstance(unfinished, VideoNotFinishedError)
     assert str(unfinished.output_path) == failing[0]
-    assert unfinished_kw['log_only'] is True
+    assert unfinished_kw == {'solicited': False, 'category': 'Recording', 'once_per_run': True}
     assert failing.packets_refused, 'no frame failed to encode; the case is not mid-stream'
     assert pathlib.Path(failing[0]).exists(), 'the only copy of the recording was removed'
 

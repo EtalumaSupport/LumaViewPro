@@ -32,6 +32,7 @@ from _lumascope.modules.exceptions import (
     RecordingDetailsNotSavedError,
     VideoWriterFailedError,
 )
+from _lumascope.modules.image_mode import RecordingFormat
 from _lumascope.modules.notification_center import outcome_of
 from _lumascope.modules.run_outcome import RunEnding, RunStatus
 from _lumascope.modules.video_recording import VideoRecordingEngine
@@ -125,17 +126,17 @@ class _LaneKiller(BaseException):
 
 
 def test_the_writers_death_says_the_run_stopped_only_on_a_run():
-    manual = VideoWriterFailedError(protocol_step=False)
-    step = VideoWriterFailedError(protocol_step=True)
+    manual = VideoWriterFailedError(protocol_step=False, recording_format=RecordingFormat.FRAMES)
+    step = VideoWriterFailedError(protocol_step=True, recording_format=RecordingFormat.FRAMES)
 
     assert manual.title == step.title == 'Recording Failed'
     assert str(manual) == (
         'The video writer stopped working and the recording was aborted. '
-        f'Frames already written are on disk. {INTERNAL_FAULT_SENTENCE}'
+        f'What was saved before it is kept. {INTERNAL_FAULT_SENTENCE}'
     )
     assert str(step) == (
         'The video writer stopped working, so the recording and the run were stopped. '
-        f'Frames already written are on disk. {INTERNAL_FAULT_SENTENCE}'
+        f'What was saved before it is kept. {INTERNAL_FAULT_SENTENCE}'
     )
     assert manual.reason == step.reason == 'video_writer_died'
     assert outcome_of(manual).for_person

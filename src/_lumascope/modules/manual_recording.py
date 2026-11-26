@@ -849,8 +849,11 @@ class ManualRecordingController:
         # The person reads one sentence for both reasons; the log keeps which.
         logger.info(f'[ManualRecord] Camera feed lost mid-recording ({reason})')
         self._end(reason)
+        stopped = RecordingStoppedError(
+            reason, recording_format=self._recording.plan.recording_format
+        )
         notifications.report_outcome(
-            RecordingStoppedError(reason), solicited=False, category='Recording', once_per_run=True
+            stopped, solicited=False, category='Recording', once_per_run=True
         )
 
     @_guarded_write
@@ -990,7 +993,10 @@ class ManualRecordingController:
         no_room = recording.disk_check.room_to_write(config.output_dir, 'the recording')
         if no_room is not None and recording.engine.is_recording:
             self._stop_unasked(
-                RecordingStoppedError('disk_space_critical'), RecordingEndReason.DISK_SPACE_CRITICAL
+                RecordingStoppedError(
+                    'disk_space_critical', recording_format=recording.plan.recording_format
+                ),
+                RecordingEndReason.DISK_SPACE_CRITICAL,
             )
 
     def _stop_for_refused_write(self, refusal) -> None:
@@ -999,7 +1005,11 @@ class ManualRecordingController:
         Told here, on the lane, and the recording ended, as the disk floor's
         stop is; the engine then drops what is queued behind it.
         """
-        stopped = RecordingStoppedError('write_failed', refusal=refusal)
+        stopped = RecordingStoppedError(
+            'write_failed',
+            recording_format=self._recording.plan.recording_format,
+            refusal=refusal,
+        )
         stopped.__cause__ = refusal
         self._stop_unasked(stopped, RecordingEndReason.WRITE_FAILED)
 
@@ -1061,7 +1071,9 @@ class ManualRecordingController:
                 not_built, solicited=False, category='Recording', once_per_run=True
             )
         except Exception as failed:
-            fault = RecordingFinalizeError(protocol_step=False)
+            fault = RecordingFinalizeError(
+                protocol_step=False, recording_format=recording.plan.recording_format
+            )
             fault.__cause__ = failed
             notifications.report_outcome(
                 fault, solicited=False, category='Recording', once_per_run=True
@@ -1072,21 +1084,18 @@ class ManualRecordingController:
             # and the UI leave its recording state -- after a failed finish.
             # Every report here is the recording's one answer, told once
             # per recording, so the repeat window does not hold it back.
-            # A save location that refused the frames is why the close
-            # failed too: the stop the lane told is the person's one answer,
-            # and the close's failure is logged beside it.
+            # A close that failed is told even beside a stop the lane told:
+            # that stop claimed nothing about an MP4, whose file this is.
             refused = result is not None and result.write_refused is not None
             if unfinished is not None:
                 notifications.report_outcome(
-                    unfinished,
-                    solicited=False,
-                    category='Recording',
-                    log_only=refused,
-                    once_per_run=True,
+                    unfinished, solicited=False, category='Recording', once_per_run=True
                 )
             if result is not None:
                 if result.writer_failure is not None:
-                    died = VideoWriterFailedError(protocol_step=False)
+                    died = VideoWriterFailedError(
+                        protocol_step=False, recording_format=recording.plan.recording_format
+                    )
                     died.__cause__ = result.writer_failure
                     notifications.report_outcome(
                         died, solicited=False, category='Recording', once_per_run=True

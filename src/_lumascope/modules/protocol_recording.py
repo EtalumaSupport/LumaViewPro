@@ -756,7 +756,7 @@ class ProtocolVideoStep:
                 RunStatus.FAILED,
                 'write_failed',
                 f'A frame of the video step could not be saved ({system_words(refusal)}), '
-                'so the run was stopped. What was saved before it is kept.',
+                'so the run was stopped.',
             ),
             'FileIO',
         )
@@ -836,7 +836,9 @@ class ProtocolVideoStep:
                     unfinished = not_finished
             result = engine.result()
         except Exception as failed:
-            fault = RecordingFinalizeError(protocol_step=True)
+            fault = RecordingFinalizeError(
+                protocol_step=True, recording_format=self._recording_format
+            )
             fault.__cause__ = failed
             notifications.report_outcome(fault, solicited=False, category='Protocol')
         finally:
@@ -871,7 +873,9 @@ class ProtocolVideoStep:
                     # words the run's ending records. The reason is written
                     # out because the run-ending vocabulary is collected from
                     # the funnel's literal first argument.
-                    died = VideoWriterFailedError(protocol_step=True)
+                    died = VideoWriterFailedError(
+                        protocol_step=True, recording_format=self._recording_format
+                    )
                     died.__cause__ = result.writer_failure
                     notifications.report_outcome(
                         died, solicited=False, category='Recording', log_only=True
