@@ -4338,7 +4338,7 @@ Each derived file, the folder they are in, and the outcome in words.
 
 - `LiveFolderPathRefusedError`: `'path_not_found'`, nothing is at *target*.
 - `PostProcessingRefusedError`: reason `unreadable`, *target* is a file that is not an image Quick Enhance can read; reason `no_images`, a folder that holds no image file; reason `no_data`, a folder whose images are none it can read.
-- `PostProcessingFailedError`: a file could not be enhanced.
+- `PostProcessingFailedError`: a file could not be enhanced; a folder's images after it are still tried. The disk had no room for an image, its size and 500 MB more, as a run's write is judged: the enhance stopped there, and no image after it was tried.
 - `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started.
 
 **Refusals**

@@ -737,6 +737,81 @@ def test_folder_batch_skips_unreadable_file_and_continues(tmp_path):
     assert (tmp_path / 'valid_enhanced.tiff').exists()
 
 
+def _three_sources(folder: pathlib.Path) -> None:
+    for name in ('a', 'b', 'c'):
+        _write_source(
+            folder / f'{name}.tif',
+            np.arange(64, dtype=np.uint16).reshape(8, 8),
+            significant_bits=12,
+        )
+
+
+def test_a_folder_enhance_stops_at_the_first_image_the_disk_has_no_room_for(tmp_path, monkeypatch):
+    from _lumascope.modules import common_utils
+
+    _three_sources(tmp_path)
+    full = []
+
+    # a stand-in by design: a full disk is a fault the test host cannot
+    # produce, so the free-space judge's read answers short once a.tif is done.
+    def free_space(path, required_mb):
+        return (not full, 10.0 if full else 10_000_000.0)
+
+    monkeypatch.setattr(common_utils, 'check_disk_space_ok', free_space)
+    progress = []
+
+    def on_progress(completed, total, path):
+        progress.append((completed, total))
+        full.append(True)
+
+    with pytest.raises(PostProcessingFailedError) as raised:
+        QuickEnhancer().export_folder(
+            tmp_path,
+            quick_enhance_settings(),
+            progress_callback=on_progress,
+            channel_colors=release_colors(),
+        )
+
+    assert raised.value.reason == 'post_processing_incomplete'
+    assert raised.value.produced_paths == (str(tmp_path / 'a_enhanced.tiff'),)
+    assert progress == [(1, 3)]
+    assert not (tmp_path / 'b_enhanced.tiff').exists()
+    assert not (tmp_path / 'c_enhanced.tiff').exists()
+    words = str(raised.value)
+    assert 'stopped at b.tif' in words
+    assert 'the enhanced b.tif needs' in words
+    assert '1 image(s) were not reached' in words
+    assert [item for item, _ in raised.value.errors] == ['b.tif']
+
+
+def test_a_write_the_disk_has_room_for_that_fails_skips_only_that_image(tmp_path, monkeypatch):
+    import errno
+    import os
+
+    _three_sources(tmp_path)
+    replace = os.replace
+
+    # a stand-in by design: one image's own write failure (a name the
+    # system will not take) is a fault the test host cannot produce on demand.
+    def refuse_b(src, dst):
+        if pathlib.Path(dst).name == 'b_enhanced.tiff':
+            raise OSError(errno.ENAMETOOLONG, os.strerror(errno.ENAMETOOLONG), dst)
+        return replace(src, dst)
+
+    monkeypatch.setattr(os, 'replace', refuse_b)
+    with pytest.raises(PostProcessingFailedError) as raised:
+        QuickEnhancer().export_folder(
+            tmp_path, quick_enhance_settings(), channel_colors=release_colors()
+        )
+
+    assert raised.value.produced_paths == (
+        str(tmp_path / 'a_enhanced.tiff'),
+        str(tmp_path / 'c_enhanced.tiff'),
+    )
+    assert [item for item, _ in raised.value.errors] == ['b.tif']
+    assert 'stopped' not in str(raised.value)
+
+
 def test_mixed_folder_exports_bf_composite_png_jpeg_and_skips_bad_or_derived_files(tmp_path):
     bf = tmp_path / 'bf.tif'
     composite = tmp_path / 'composite.tif'

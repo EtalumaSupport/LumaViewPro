@@ -20,7 +20,7 @@ from _lumascope.lib.real_numbers import is_integer_number
 from _lumascope.lvp_logger import logger
 from _lumascope.modules import image_mode, image_utils, path_utils, wall_time
 from _lumascope.modules.channel_record import GRAY, ChannelColors, Color, stored_key
-from _lumascope.modules.common_utils import causes_in_words
+from _lumascope.modules.common_utils import causes_in_words, room_to_write
 from _lumascope.modules.notification_center import cause_in_words
 from _lumascope.modules.exceptions import (
     InputFramesUnusableError,
@@ -427,6 +427,16 @@ class QuickEnhancer:
         *,
         channel_colors: ChannelColors,
     ) -> dict:
+        """Enhance *source_path* to its own derived file and recipe beside it.
+
+        Raises:
+            PostProcessingRefusedError: ``'unreadable'``, the source cannot
+                be read as an image.
+            PostProcessingFailedError: the disk has no room for the enhanced
+                file (``common_utils.room_to_write``); nothing was written.
+                Its one ``errors`` pair is the source's name and why.
+            OSError: the enhanced file or its recipe could not be written.
+        """
         source_path = pathlib.Path(source_path)
         try:
             # The white is not used: the enhance stretches its output across
@@ -453,38 +463,53 @@ class QuickEnhancer:
         output = self.apply(image, settings, significant_bits)
         output_path, recipe_path = self._next_output_paths(source_path)
 
+        # Read once: the channel and the output's record both come from it.
+        source_record = image_utils.read_file_record(source_path)
+        channel = str(
+            self._source_channel(
+                source_path,
+                source_pixels=source_pixels,
+                source_record=source_record,
+            )
+            or 'Unknown'
+        )
+        metadata = image_utils.build_postproc_output_metadata(
+            input_records=[source_record],
+            channel=channel,
+            significant_bits=significant_bits,
+            adds_frames=False,
+        )
+        output_for_write = self.colorize_mono_for_visual_output(output, channel, channel_colors)
+        if output_for_write.ndim == 3 and output_for_write.shape[2] == 4:
+            # The TIFF writer supports RGB samples, not RGBA. Alpha is a
+            # display-only component for these composite inputs, so retain
+            # the enhanced RGB data and preserve the Composite metadata.
+            output_for_write = output_for_write[..., :3]
+        if not image_utils.is_tiff(source_path) and output_for_write.ndim == 3:
+            # cv2 loads PNG/JPEG in BGR(A), whereas TIFF metadata and the
+            # project's TIFF writer are RGB-native. Convert the alpha-free
+            # display payload so a Composite PNG cannot reintroduce RGBA.
+            output_for_write = cv2.cvtColor(
+                output_for_write,
+                cv2.COLOR_BGR2RGB,
+            )
+        # Judged as a run's write is, on the pixels it will write, before
+        # anything is: a disk short of room for this image is short for the
+        # images after it too.
+        no_room = room_to_write(
+            output_path.parent,
+            f'the enhanced {source_path.name}',
+            output_for_write.nbytes / (1024**2),
+        )
+        if no_room is not None:
+            raise PostProcessingFailedError(
+                operation=QUICK_ENHANCE_OPERATION,
+                missing=no_room,
+                errors=[(source_path.name, no_room)],
+            )
+
         # The recipe takes its name first, inside the image's block.
         with path_utils.written_whole(output_path) as temp_output:
-            # Read once: the channel and the output's record both come from it.
-            source_record = image_utils.read_file_record(source_path)
-            channel = str(
-                self._source_channel(
-                    source_path,
-                    source_pixels=source_pixels,
-                    source_record=source_record,
-                )
-                or 'Unknown'
-            )
-            metadata = image_utils.build_postproc_output_metadata(
-                input_records=[source_record],
-                channel=channel,
-                significant_bits=significant_bits,
-                adds_frames=False,
-            )
-            output_for_write = self.colorize_mono_for_visual_output(output, channel, channel_colors)
-            if output_for_write.ndim == 3 and output_for_write.shape[2] == 4:
-                # The TIFF writer supports RGB samples, not RGBA. Alpha is a
-                # display-only component for these composite inputs, so retain
-                # the enhanced RGB data and preserve the Composite metadata.
-                output_for_write = output_for_write[..., :3]
-            if not image_utils.is_tiff(source_path) and output_for_write.ndim == 3:
-                # cv2 loads PNG/JPEG in BGR(A), whereas TIFF metadata and the
-                # project's TIFF writer are RGB-native. Convert the alpha-free
-                # display payload so a Composite PNG cannot reintroduce RGBA.
-                output_for_write = cv2.cvtColor(
-                    output_for_write,
-                    cv2.COLOR_BGR2RGB,
-                )
             render_color = self._channel_color(channel, channel_colors)
             image_utils.write_tiff(
                 data=output_for_write,
@@ -529,14 +554,18 @@ class QuickEnhancer:
     ) -> dict:
         """Enhance every supported image in *folder*, each to its own derived file.
 
-        Returns only when every image was enhanced.
+        Returns only when every image was enhanced. An image that cannot be
+        read, enhanced or written is skipped and the next is tried; the first
+        the disk has no room for stops the folder there.
 
         Raises:
             PostProcessingRefusedError: ``'no_images'``, the folder holds no
                 image file to enhance; ``'no_data'``, none of its images is one this can
                 enhance.
-            PostProcessingFailedError: Some images could not be enhanced;
-                what was saved rides along.
+            PostProcessingFailedError: Some images could not be enhanced, or
+                the enhance stopped at an image the disk had no room for,
+                naming it and how many were not reached; what was saved
+                rides along.
         """
         folder = pathlib.Path(folder)
         files = sorted(
@@ -554,6 +583,7 @@ class QuickEnhancer:
             )
         created = []
         skipped = []
+        stopped = None
         total = len(files)
         for completed, source_path in enumerate(files, start=1):
             try:
@@ -565,6 +595,10 @@ class QuickEnhancer:
                         channel_colors=channel_colors,
                     )
                 )
+            except PostProcessingFailedError as no_room:
+                # Raised below, after what was saved is gathered.
+                stopped = no_room
+                break
             except (PostProcessingRefusedError, OSError, ValueError, cv2.error, MemoryError) as exc:
                 logger.warning('[QuickEnhance] Skipping %s: %s', source_path, exc, exc_info=True)
                 skipped.append(
@@ -576,9 +610,29 @@ class QuickEnhancer:
                 )
             if progress_callback is not None:
                 progress_callback(completed, total, source_path)
+        failures = [(item['source_path'].name, item['error']) for item in skipped]
+        if stopped is not None:
+            produced = [str(item['output_path']) for item in created]
+            ((stopped_at, no_room_words),) = stopped.errors
+            not_reached = total - len(created) - len(skipped) - 1
+            skipped_note = (
+                f' {len(skipped)} image(s) could not be enhanced: {causes_in_words(failures)}.'
+                if skipped
+                else ''
+            )
+            raise PostProcessingFailedError(
+                operation=QUICK_ENHANCE_OPERATION,
+                missing=(
+                    f'{len(created)} of {total} image(s) were enhanced, and it stopped at '
+                    f'{stopped_at}: {no_room_words} {not_reached} image(s) were not reached.'
+                    f'{skipped_note}'
+                ),
+                produced_paths=produced,
+                output_root=str(folder),
+                errors=[*failures, *stopped.errors],
+            ) from stopped
         # Nothing enhanced and nothing failed in the enhance itself: the
         # folder holds no image this can read, as the cell count says of it.
-        failures = [(item['source_path'].name, item['error']) for item in skipped]
         if not created and all(item['refused'] for item in skipped):
             raise PostProcessingRefusedError(
                 operation=QUICK_ENHANCE_OPERATION,
