@@ -8,7 +8,7 @@ Covers:
     - LiveProcessingRegistry: forwards to the scope's frame listeners
     - RESTRegistry: stub raises with clear message
     - PluginRegistry.all_health(): per-namespace snapshot shape
-    - is_version_compatible: semver compare with pre-release suffixes
+    - is_version_compatible: a PEP 440 specifier against the host's leading release
     - PluginRegistry.load / unload: discovery + lifecycle (mocked entry points)
 """
 
@@ -541,8 +541,17 @@ def test_all_health_initial_state_empty(harness_ctx):
         ('==4.0.0', '4.0.1', False),
         ('<5.0.0', '4.5.0', True),
         ('<5.0.0', '5.0.0', False),
-        ('~=4.0.0', '4.5.0', True),
+        ('~=4.0.0', '4.0.7', True),
+        ('~=4.0.0', '4.5.0', False),
         ('~=4.0.0', '5.0.0', False),
+        ('~=4.0', '4.5.0', True),
+        ('>=4.0,<5', '4.2.0', True),
+        ('>=4.0.0', '4.0.0-beta48', True),
+        ('>=4.0.0', '4.0.0-beta (2026-03-19 08:58)', True),
+        ('4.0.0', '4.0.0', False),
+        ('', '4.0.0', False),
+        (',', '4.0.0', False),
+        ('  ', '4.0.0', False),
         ('garbage', '4.0.0', False),
         ('>=4.0.0', 'garbage', False),
         ('>=4.0.0', '', False),

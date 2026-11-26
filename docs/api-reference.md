@@ -10819,7 +10819,7 @@ Declarative metadata a plugin presents at registration time.
 - <a id="PluginSpec.capabilities"></a>`capabilities`: `tuple[str, ...]` -- The API surfaces it uses, as dotted paths (`'scope.imaging'`). A declaration, not a sandbox: the tech-support report and diagnostic probes record it.
 - <a id="PluginSpec.description"></a>`description`: `str` -- One sentence saying what the plugin does.
 - <a id="PluginSpec.name"></a>`name`: `str` -- The plugin's name, unique within a namespace.
-- <a id="PluginSpec.requires_lvp_version"></a>`requires_lvp_version`: `str` -- The LumaViewPro versions it runs on, as a requirement (`'>=4.0.0'`); pre-release suffixes are stripped before comparing.
+- <a id="PluginSpec.requires_lvp_version"></a>`requires_lvp_version`: `str` -- The LumaViewPro versions it runs on, as a PEP 440 version specifier: `'>=4.0.0'`, `'~=4.0.0'` (4.0.x), `'>=4.0,<5'`. The host is compared by its leading release, `X.Y.Z`, whatever follows it (`4.0.0-beta48` is 4.0.0). A value that is not a specifier, or is empty, is not met.
 - <a id="PluginSpec.url"></a>`url`: `str` -- Its web address.
 - <a id="PluginSpec.version"></a>`version`: `str` -- The plugin's version.
 

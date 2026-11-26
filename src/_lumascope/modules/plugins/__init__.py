@@ -35,6 +35,9 @@ from dataclasses import dataclass
 from typing import Any
 from collections.abc import Callable
 
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.version import InvalidVersion, Version
+
 from _lumascope.modules.exceptions import (
     AlreadyStartedError,
     PluginFailedError,
@@ -75,7 +78,7 @@ ENGINEERING_PLUGIN = 'etaluma_engineering'
 # reads it at its own entry through session.plugin_api_level and refuses
 # below what it needs; a host older than the level has no such member,
 # which the plugin reads as 0.
-PLUGIN_API_LEVEL = 193
+PLUGIN_API_LEVEL = 194
 
 
 class UIMountPoint(enum.StrEnum):
@@ -142,8 +145,10 @@ class PluginSpec:
         name: The plugin's name, unique within a namespace.
         version: The plugin's version.
         requires_lvp_version: The LumaViewPro versions it runs on, as a
-            requirement (``'>=4.0.0'``); pre-release suffixes are stripped
-            before comparing.
+            PEP 440 version specifier: ``'>=4.0.0'``, ``'~=4.0.0'`` (4.0.x),
+            ``'>=4.0,<5'``. The host is compared by its leading release,
+            ``X.Y.Z``, whatever follows it (``4.0.0-beta48`` is 4.0.0). A
+            value that is not a specifier, or is empty, is not met.
         description: One sentence saying what the plugin does.
         capabilities: The API surfaces it uses, as dotted paths
             (``'scope.imaging'``). A declaration, not a sandbox: the
@@ -867,8 +872,9 @@ class PluginRegistry:
 
         minimum = MINIMUM_PLUGIN_VERSIONS.get(spec.name)
         if minimum is not None:
-            have = _parse_semver(spec.version)
-            if have is None:
+            try:
+                have = Version(spec.version)
+            except InvalidVersion:
                 self.record_load_failure(
                     spec.name,
                     spec.version,
@@ -876,7 +882,7 @@ class PluginRegistry:
                     f'LumaViewPro needs {minimum} or later',
                 )
                 return 0
-            if have < _parse_semver(minimum):
+            if have < Version(minimum):
                 self.record_load_failure(
                     spec.name,
                     spec.version,
@@ -1048,52 +1054,37 @@ def _what_it_made(outputs: tuple[FilePath, ...]) -> str:
 # ---------------------------------------------------------------------------
 
 
-_SEMVER_RE = re.compile(r'^(\d+)\.(\d+)\.(\d+)')
-_REQ_RE = re.compile(r'^(>=|>|==|<=|<|~=)?\s*(\d+)\.(\d+)\.(\d+)')
+_LEADING_RELEASE_RE = re.compile(r'^\d+\.\d+\.\d+')
 
 
-def _parse_semver(s: str) -> tuple[int, int, int] | None:
-    """Parse leading semver triple from a string. '4.0.0-beta8' -> (4,0,0)."""
-    m = _SEMVER_RE.match(s.strip())
-    if not m:
-        return None
-    return int(m.group(1)), int(m.group(2)), int(m.group(3))
+def _leading_release(host: str) -> Version | None:
+    """The host's version as its leading release: '4.0.0-beta8' -> 4.0.0.
 
-
-def _parse_requirement(req: str) -> tuple[str, tuple[int, int, int]] | None:
-    m = _REQ_RE.match(req.strip())
-    if not m:
-        return None
-    op = m.group(1) or '>='
-    return op, (int(m.group(2)), int(m.group(3)), int(m.group(4)))
+    version.txt's first line is not PEP 440 (it carries labels and
+    timestamps, '4.0.0-beta (2026-03-19 08:58)'), so only its release is
+    read.
+    """
+    m = _LEADING_RELEASE_RE.match(host.strip())
+    return Version(m.group(0)) if m else None
 
 
 def is_version_compatible(requires: str, host: str) -> bool:
-    """Check if the host satisfies the plugin's requires_lvp_version.
+    """Whether the host meets a plugin's requires_lvp_version.
 
-    Pre-release suffixes ('-beta8', '-rc1') are stripped before compare.
-    A malformed requirement string conservatively returns False so the
-    plugin gets visible-rejected rather than silently loaded.
+    The requirement is a PEP 440 version specifier ('~=4.0.0' is 4.0.x);
+    the host is compared by its leading release. A requirement that is not
+    a specifier, or holds none ('', ','), and a host with no leading
+    release answer False, so the plugin is refused visibly rather than
+    loaded on every version.
     """
-    req = _parse_requirement(requires)
-    have = _parse_semver(host)
-    if req is None or have is None:
+    try:
+        wanted = SpecifierSet(requires)
+    except InvalidSpecifier:
         return False
-    op, want = req
-    if op == '>=':
-        return have >= want
-    if op == '>':
-        return have > want
-    if op == '==':
-        return have == want
-    if op == '<=':
-        return have <= want
-    if op == '<':
-        return have < want
-    if op == '~=':
-        # Compatible release: same major, minor >= want.minor
-        return have[0] == want[0] and have >= want
-    return False
+    have = _leading_release(host)
+    if len(wanted) == 0 or have is None:
+        return False
+    return have in wanted
 
 
 # ---------------------------------------------------------------------------

@@ -147,7 +147,7 @@ def unregister(ctx: Any) -> None:
 |---|---|---|
 | `name` | yes | Unique within a namespace. Duplicate -> `PluginRegistrationError`. |
 | `version` | yes | Your plugin's version. Free-form; not parsed by the host. |
-| `requires_lvp_version` | yes | PEP-440-ish requirement (`>=4.0.0`, `==4.0.0`, `~=4.0.0`). Host strips pre-release suffixes (`-beta8`) before comparing. |
+| `requires_lvp_version` | yes | A PEP 440 version specifier: `>=4.0.0`, `~=4.0.0` (4.0.x), `>=4.0,<5`. The host is compared by its leading release, `X.Y.Z` (`4.0.0-beta8` is 4.0.0). A value that is not a specifier, or is empty, is not met: the plugin is not loaded. |
 | `description` | yes | One sentence saying what the plugin does. |
 | `capabilities` | no | Tuple of dotted paths the plugin uses (`scope.imaging`, `scope.camera`). A declaration only: not read, and not sandbox-enforced, in 4.x. |
 | `author` | no | Free-form. |
@@ -462,7 +462,7 @@ behavior a plugin relies on raises the level by one. A plugin that needs a level
 it at its own entry and refuses below it, naming both levels; a host older
 than the level has no `plugin_api_level`, which reads as 0
 (`getattr(session, 'plugin_api_level', 0)`). `PluginSpec.requires_lvp_version`
-still states the major version.
+still states the versions the plugin runs on.
 
 What each level added is a row of
 [`plugin-api-levels.md`](plugin-api-levels.md).
