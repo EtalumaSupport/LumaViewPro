@@ -7,17 +7,19 @@ answered one URN with two statuses, and nothing that read one class at a
 time could see it. Every outcome class declares its reasons as ``causes``,
 each mapped to its cause, and the root (``_lumascope.lib.lumascope_error``) checks the
 declaration against every outcome class Python holds when the class is
-defined: one kind and one cause per string, and a string another class
-carries is the same fact only when the class names that class in
-``same_fact_as``. An outcome built with a reason its class does not declare
-fails where it is built, whichever class builds it.
+defined: one kind, one cause and one title per string, and a string
+another class carries is the same fact only when the class names that class
+in ``same_fact_as``; a class that states no title has none to compare. An
+outcome built with a reason its class does not declare fails where it is
+built, whichever class builds it.
 
 Two record vocabularies carry reasons outside any class: the run's endings
 (``run_outcome.ENDING_KINDS``, each with its kind) and the bring-up record's
 causes (``bring_up.CAUSE_PHRASES``, why a part is not up). A string in
 either that a class also carries is carried with the record's kind: a
 failed run's ending and a part's cause by a fault, a stopped run's ending by
-a notice or a quiet outcome, and a completed run's by no class.
+a notice or a quiet outcome, and a completed run's by no class; and a class
+carrying a run's ending states the ending's heading as its title.
 
 Each class a test defines lives until it is collected, and a live one is a
 carrier to every later definition; the fixture collects them after each test.
@@ -28,7 +30,13 @@ from typing import ClassVar
 
 import pytest
 
-from _lumascope.lib.lumascope_error import Fault, LumascopeError, RefusalCause, _Umbrella
+from _lumascope.lib.lumascope_error import (
+    Fault,
+    LumascopeError,
+    RefusalCause,
+    _title_of,
+    _Umbrella,
+)
 from _lumascope.modules.exceptions import (
     CellCountScaleDroppedNotice,
     CompositeFailedError,
@@ -46,7 +54,7 @@ from _lumascope.modules.exceptions import (
 from _lumascope.modules.lumascope_api.bring_up import CAUSE_PHRASES
 from _lumascope.modules.path_utils import CaptureLocationError
 from _lumascope.modules.plugins import PluginRegistrationError
-from _lumascope.modules.run_outcome import ENDING_KINDS, EndingKind
+from _lumascope.modules.run_outcome import ENDING_KINDS, ENDING_TITLES, EndingKind
 from _lumascope.rest.problems import outcome_classes
 from tests.case_walk import failing_cases
 from tests.guards.test_every_outcome_joins_the_root import RAISABLE
@@ -186,6 +194,67 @@ def test_a_subclass_extends_its_parents_reasons_whoever_else_carries_them():
         }
 
     assert _ExtendedRunRefusedError.causes['exclusive_activity_running'] == RefusalCause.STATE
+
+
+def test_a_reason_another_class_carries_under_another_title_is_refused():
+    with pytest.raises(TypeError, match='one title'):
+
+        class _OtherTitleBusyError(Refusal, Exception):
+            causes: ClassVar[dict[str, RefusalCause | None]] = {
+                'exclusive_activity_running': RefusalCause.STATE
+            }
+            same_fact_as = (HardwareCommandRefusedError,)
+            title = 'Another Activity Running'
+
+
+def test_a_class_reading_the_carriers_title_is_defined():
+    class _SameTitleBusyError(Refusal, Exception):
+        causes: ClassVar[dict[str, RefusalCause | None]] = {
+            'exclusive_activity_running': RefusalCause.STATE
+        }
+        same_fact_as = (HardwareCommandRefusedError,)
+        title = ProtocolRunRefusedError.titles['exclusive_activity_running']
+
+    assert (
+        _SameTitleBusyError().title
+        == HardwareCommandRefusedError.titles['exclusive_activity_running']
+    )
+
+
+def test_a_subclass_that_inherits_its_parents_reason_under_another_title_is_refused():
+    class _TitledParentError(Refusal, Exception):
+        causes: ClassVar[dict[str, RefusalCause | None]] = {'zz_inherited': RefusalCause.STATE}
+        title = 'Parent Title'
+
+    with pytest.raises(TypeError, match='one title'):
+
+        class _RetitledChildError(_TitledParentError):
+            title = 'Child Title'
+
+
+def test_a_subclass_that_restates_its_parents_reason_under_another_title_is_refused():
+    class _TitledParentError(Refusal, Exception):
+        causes: ClassVar[dict[str, RefusalCause | None]] = {'zz_restated_title': RefusalCause.STATE}
+        title = 'Parent Title'
+
+    with pytest.raises(TypeError, match='one title'):
+
+        class _RestatingChildError(_TitledParentError):
+            causes: ClassVar[dict[str, RefusalCause | None]] = {
+                'zz_restated_title': RefusalCause.STATE
+            }
+            title = 'Child Title'
+
+
+def test_a_title_read_from_the_instance_is_refused():
+    with pytest.raises(TypeError, match='property'):
+
+        class _PropertyTitleError(Refusal, Exception):
+            causes: ClassVar[dict[str, RefusalCause | None]] = {'zz_property': RefusalCause.STATE}
+
+            @property
+            def title(self):
+                return 'Chosen Per Raise'
 
 
 def test_an_outcome_class_of_two_kinds_is_refused():
@@ -387,6 +456,18 @@ def _part_causes_kinds():
 
 def test_a_run_ending_a_class_carries_is_carried_with_the_ending_s_kind():
     assert _carried_with_another_kind(_endings_kinds(), RAISABLE) == []
+
+
+def test_a_class_carrying_a_run_ending_states_the_ending_s_heading():
+    """The record is no class, so the definition check cannot compare with it."""
+    wrong = [
+        f'{cls.__name__} titles {reason!r} {_title_of(cls, reason)!r}, '
+        f'the ending {ENDING_TITLES[reason]!r}'
+        for cls in RAISABLE
+        for reason in getattr(cls, 'causes', None) or {}
+        if reason in ENDING_TITLES and _title_of(cls, reason) not in (None, ENDING_TITLES[reason])
+    ]
+    assert wrong == []
 
 
 def test_a_bring_up_cause_a_class_carries_is_carried_as_a_fault():
