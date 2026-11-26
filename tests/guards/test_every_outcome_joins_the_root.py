@@ -401,7 +401,7 @@ def test_no_production_call_passes_a_title_to_an_outcome():
 
 _REASON_TABLES = MemberNames(
     ('src/_lumascope/modules/exceptions.py', 'src/_lumascope/drivers/exceptions.py'),
-    {'titles', '_TITLES', '_WORDS', '_SENTENCES', '_ADVICE', '_WHY'},
+    {'titles', '_WORDS', '_SENTENCES', '_ADVICE', '_WHY'},
 )
 
 
@@ -413,8 +413,8 @@ def test_every_reason_keyed_table_holds_every_reason_its_class_declares():
     short = []
     for cls in RAISABLE:
         # A table keyed by anything but plain reason strings is keyed by
-        # something else: PostProcessingRefusedError's _WORDS is its headings,
-        # by operation and (operation, reason).
+        # something else: PostProcessingRefusedError's _ADVICE is keyed by
+        # (operation, reason).
         for name in _REASON_TABLES:
             table = vars(cls).get(name)
             if table is None or not all(type(key) is str for key in table):

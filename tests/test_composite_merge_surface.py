@@ -39,7 +39,9 @@ def _bus_at_popup_threshold():
 
 
 def _about_the_composite(seen):
-    return [n for n in seen if 'omposite' in n.title]
+    # The merge's own failure names the composite in its title; a
+    # post-processing outcome names it at the head of its words.
+    return [n for n in seen if 'omposite' in n.title or n.message.startswith('Composite: ')]
 
 
 class TestASuccessfulCompositeIsSilent:
@@ -91,7 +93,7 @@ class TestAFailedMergeTellsTheUserOnce:
         assert excinfo.value.merge_failure == 'post_processing_failed'
         told = [(n.title, n.severity) for n in seen if n.severity.level >= Severity.NOTICE.level]
         assert told == [
-            ('Composite Failed', Severity.ERROR),
+            ('Post-Processing Failed', Severity.ERROR),
             ('Run Incomplete', Severity.ERROR),
         ], told
         assert all(LED0 in n.message for n in seen if n.severity.level >= Severity.NOTICE.level), (
@@ -121,7 +123,7 @@ class TestAFailedMergeTellsTheUserOnce:
         assert excinfo.value.reason == 'merge_error'
         assert excinfo.value.merge_failure == 'no_data'
         told = [(n.title, n.severity) for n in seen if n.severity.level >= Severity.NOTICE.level]
-        assert told == [('Composite Not Possible', Severity.WARNING)], told
+        assert told == [('Needed Data Not Found', Severity.WARNING)], told
 
     def test_the_merge_raises(self, tmp_path, monkeypatch):
         from _lumascope.modules.composite_generation import CompositeGeneration

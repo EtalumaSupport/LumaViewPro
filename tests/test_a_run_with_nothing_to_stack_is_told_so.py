@@ -4,7 +4,7 @@
 Only the run that wrote a folder builds its hyperstacks, so a folder where
 no well, tile or Add has more than one image is a complete answer: no stack,
 and the Hyperstacks Saved notice says there was nothing to stack and the
-images are saved, never "Hyperstack Not Possible". A place whose one
+images are saved, never a refused hyperstack. A place whose one
 capture failed is counted apart, since it has no image to be saved. A
 build a person points at a folder (Z-Projection here) still refuses a
 folder with nothing to combine.

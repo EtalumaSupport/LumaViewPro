@@ -1089,7 +1089,8 @@ class PostProcessingAPI:
                 # protocol folder to carry anything from.
                 takes = functools.partial(_rows_among, answer['carried_forward'])
         said = [f'{step.operation}: {step.result.message}' for step in built]
-        said += [f'{step.operation}: skipped -- {step.message}' for step in skipped]
+        # A skipped build's words name it, as every post-processing refusal's do.
+        said += [f'{step.message} Skipped.' for step in skipped]
         return BuildsResult(message=' '.join(said), built=tuple(built), skipped=tuple(skipped))
 
     def run_hyperstack(

@@ -13525,9 +13525,9 @@ Held in: [`BuildStep.operation`](#BuildStep.operation), [`ExcludedInput.kind`](#
 
 Every post-processing operation, by the name a person reads.
 
-A post-processing outcome's title is keyed by the operation and its
-reason, so the operations are a closed set: an operation outside it fails
-where its outcome is built.
+A post-processing outcome's words lead with its operation, so the
+operations are a closed set: an operation outside it fails where its
+outcome is built.
 
 - `Composite` (`COMPOSITE`)
 - `Stitch` (`STITCH`)

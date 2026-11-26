@@ -2874,9 +2874,9 @@ class InputFramesUnusableError(Refusal, CaptureError, ValueError):
 class PostProcessingOperation(StrEnum):
     """Every post-processing operation, by the name a person reads.
 
-    A post-processing outcome's title is keyed by the operation and its
-    reason, so the operations are a closed set: an operation outside it fails
-    where its outcome is built.
+    A post-processing outcome's words lead with its operation, so the
+    operations are a closed set: an operation outside it fails where its
+    outcome is built.
     """
 
     COMPOSITE = 'Composite'
@@ -3006,39 +3006,41 @@ class PostProcessingRefusedError(Refusal, CaptureError):
         RecordingRefusedError,
     )
 
+    titles: ClassVar[dict[str, str]] = {
+        'axis_not_plottable': 'Column Not Plottable',
+        'collision': 'Output Names Collide',
+        'excluded_inputs': 'Only Derived Images',
+        'fit_impossible': 'Fit Not Possible',
+        'graph_incomplete': 'Graph Not Set Up',
+        'invalid_path': 'No Folder Given',
+        'invalid_setting': 'Setting Not Usable',
+        'manifest_unreadable': 'Recording Details Unreadable',
+        'method_invalid': 'Method Not Usable',
+        'method_unreadable': 'Method File Unreadable',
+        'no_data': 'Needed Data Not Found',
+        'no_images': 'No Images Found',
+        'no_scale': 'Image Has No Scale',
+        'output_outside_folder': 'Output Outside Folder',
+        'protocol_data_unreadable': 'Protocol Data Unreadable',
+        'results_unreadable': 'Results File Unreadable',
+        'unreadable': InputFramesUnusableError.titles['unreadable'],
+        'unsupported_source_format': 'Source Format Not Supported',
+        'exclusive_activity_running': ProtocolRunRefusedError.titles['exclusive_activity_running'],
+        'files_writing': ProtocolRunRefusedError.titles['files_writing'],
+        'files_writing_stalled': ProtocolRunRefusedError.titles['files_writing_stalled'],
+        'disk_space_insufficient': ProtocolRunRefusedError.titles['disk_space_insufficient'],
+        'capture_location_unusable': ProtocolRunRefusedError.titles['capture_location_unusable'],
+        'names_exhausted': RecordingRefusedError.titles['names_exhausted'],
+    }
+
     # Refused for lack of Z-stack data, a z-projection names the thing the
     # folder is missing and where such a folder lives, rather than leaving
     # the person to guess which folder would have worked.
-    _NO_ZSTACK_ADVICE = (
-        ' Pick a folder that contains a Z-stack run -- look under '
-        "'Manual/Z-Stacks/<timestamp>/' for a manual Z-stack, or a "
-        "'ProtocolData/<timestamp>/' folder whose protocol included Z-stack steps."
-    )
-
-    # Each operation's heading and the advice its words end with, and the
-    # reasons that name their own: a z-projection refused for want of Z-stack
-    # data says so, and where such a folder lives; a build of any operation
-    # refused for want of disk is titled as a run refused for it is. A row
-    # carries its own advice, so a heading added for another reason says only
-    # what it names.
-    _WORDS: ClassVar[dict[object, tuple[str, str]]] = {
-        **{operation: (f'{operation} Not Possible', '') for operation in PostProcessingOperation},
+    _ADVICE: ClassVar[dict[tuple[PostProcessingOperation, str], str]] = {
         (PostProcessingOperation.Z_PROJECTION, 'no_data'): (
-            'No Z-Stack Data Found',
-            _NO_ZSTACK_ADVICE,
-        ),
-        'exclusive_activity_running': (
-            ProtocolRunRefusedError.titles['exclusive_activity_running'],
-            '',
-        ),
-        'files_writing': (ProtocolRunRefusedError.titles['files_writing'], ''),
-        'files_writing_stalled': (ProtocolRunRefusedError.titles['files_writing_stalled'], ''),
-        'unreadable': (InputFramesUnusableError.titles['unreadable'], ''),
-        'names_exhausted': (RecordingRefusedError.titles['names_exhausted'], ''),
-        'disk_space_insufficient': (ProtocolRunRefusedError.titles['disk_space_insufficient'], ''),
-        'capture_location_unusable': (
-            ProtocolRunRefusedError.titles['capture_location_unusable'],
-            '',
+            ' Pick a folder that contains a Z-stack run -- look under '
+            "'Manual/Z-Stacks/<timestamp>/' for a manual Z-stack, or a "
+            "'ProtocolData/<timestamp>/' folder whose protocol included Z-stack steps."
         ),
     }
 
@@ -3064,20 +3066,9 @@ class PostProcessingRefusedError(Refusal, CaptureError):
         self.holder = _holder(holder)
         self.holder_trigger = holder_trigger
         self.remedy = remedy
-        _, advice = self._row()
-        super().__init__(f'{message}{advice}', reason)
-
-    @property
-    def title(self) -> str:
-        """The operation's heading, or the one its reason names for itself."""
-        return self._row()[0]
-
-    def _row(self) -> tuple[str, str]:
-        """This refusal's heading and advice: its operation and reason's row, else its reason's, else its operation's."""
-        for key in ((self.operation, self.reason), self.reason):
-            if key in self._WORDS:
-                return self._WORDS[key]
-        return self._WORDS[self.operation]
+        # The words lead with the operation refused, which the title does not name.
+        advice = self._ADVICE.get((self.operation, reason), '')
+        super().__init__(f'{self.operation}: {message}{advice}', reason)
 
 
 @api_fields('kind', 'count')
@@ -3141,19 +3132,11 @@ class PostProcessingFailedError(Fault, CaptureError):
 
     excluded_inputs: tuple[ExcludedInput, ...]
 
-    _TITLES: ClassVar[dict[tuple[PostProcessingOperation, str], str]] = {
-        (operation, reason): f'{operation} {heading}'
-        for operation in PostProcessingOperation
-        for reason, heading in (
-            ('post_processing_failed', 'Failed'),
-            ('post_processing_incomplete', 'Incomplete'),
-        )
+    titles: ClassVar[dict[str, str]] = {
+        'post_processing_failed': 'Post-Processing Failed',
+        'post_processing_incomplete': 'Post-Processing Incomplete',
     }
-
-    causes: ClassVar[dict[str, RefusalCause | None]] = {
-        'post_processing_failed': None,
-        'post_processing_incomplete': None,
-    }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles)
 
     def __init__(
         self,
@@ -3172,17 +3155,13 @@ class PostProcessingFailedError(Fault, CaptureError):
             saved = 'Nothing was saved.'
         operation = PostProcessingOperation(operation)
         reason = 'post_processing_incomplete' if produced_paths else 'post_processing_failed'
-        super().__init__(f'{missing} {saved}', reason)
+        # The words lead with the operation, which the title does not name.
+        super().__init__(f'{operation}: {missing} {saved}', reason)
         self.operation = operation
         self.produced_paths = produced_paths
         self.output_root = output_root
         self.errors = tuple(errors)
         self.excluded_inputs = tuple(excluded_inputs)
-
-    @property
-    def title(self) -> str:
-        """The operation's heading for what the build produced."""
-        return self._TITLES[(self.operation, self.reason)]
 
 
 class RecordingFinalizeError(Fault, CaptureError):

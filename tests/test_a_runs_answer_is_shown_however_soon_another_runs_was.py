@@ -155,7 +155,7 @@ def test_two_composites_missing_a_channel_both_say_so(tmp_path, centre_posts):
                     events=_fail_these_channels(session.scope._camera_driver, ('BF', LED0), {LED0}),
                 )
 
-    assert len(_shown(centre_posts, title='Composite Failed')) == 2
+    assert len(_shown(centre_posts, title='Post-Processing Failed')) == 2
     assert len(_shown(centre_posts, title='Run Incomplete')) == 2
 
 

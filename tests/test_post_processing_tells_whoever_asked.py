@@ -30,7 +30,6 @@ from _lumascope.modules.exceptions import (
     HyperstackNotBuiltError,
     Notice,
     PostProcessingFailedError,
-    PostProcessingOperation,
     PostProcessingRefusedError,
 )
 from _lumascope.modules.notification_center import NotificationCenter, Severity, notifications
@@ -117,7 +116,7 @@ def test_a_build_where_some_groups_failed_raises_with_what_it_made(
 
     fault = raised.value
     assert fault.reason == 'post_processing_incomplete'
-    assert fault.title == 'Hyperstack Incomplete'
+    assert fault.title == 'Post-Processing Incomplete'
     assert fault.produced_paths == (str(tmp_path / 'Hyperstack' / 'out0.tiff'),)
     assert [cause for _, cause in fault.errors] == ['bad tile', 'bad plane']
     assert '2 of 3 hyperstack group(s) failed: bad tile (' in str(fault)
@@ -145,7 +144,7 @@ def test_a_build_where_every_group_failed_names_every_error(tmp_path, monkeypatc
 
     fault = raised.value
     assert fault.reason == 'post_processing_failed'
-    assert fault.title == 'Hyperstack Failed'
+    assert fault.title == 'Post-Processing Failed'
     assert fault.produced_paths == ()
     assert len(fault.errors) == 2
     assert 'Nothing was saved.' in str(fault)
@@ -188,7 +187,7 @@ def test_a_folder_with_no_images_is_refused(tmp_path, monkeypatch, centre_posts)
         _drive(_Processor([]), tmp_path, monkeypatch, helper=helper)
 
     assert raised.value.reason == 'no_images'
-    assert raised.value.title == 'Hyperstack Not Possible'
+    assert raised.value.title == 'No Images Found'
     assert centre_posts == []
 
 
@@ -199,7 +198,7 @@ def test_the_helpers_own_sentence_reaches_the_refusal(tmp_path, monkeypatch):
         _drive(_Processor([]), tmp_path, monkeypatch, helper=helper)
 
     assert raised.value.reason == 'protocol_data_unreadable'
-    assert str(raised.value) == 'Protocol and/or Protocol Record not found in folder'
+    assert str(raised.value) == 'Hyperstack: Protocol and/or Protocol Record not found in folder'
 
 
 def test_a_z_projection_with_no_z_stack_says_where_one_lives():
@@ -207,21 +206,16 @@ def test_a_z_projection_with_no_z_stack_says_where_one_lives():
         operation='Z-Projection', reason='no_data', message='No ZProject was generated.'
     )
 
-    assert refusal.title == 'No Z-Stack Data Found'
+    assert refusal.title == 'Needed Data Not Found'
     assert 'Pick a folder that contains a Z-stack run' in str(refusal)
 
 
-def test_a_heading_for_another_reason_says_only_what_its_own_row_names(monkeypatch):
-    """The Z-stack advice is its row's, not every pair row's: a stitch given a
-    heading of its own does not tell the person to look for a Z-stack."""
-    # a stand-in by design: the table has one pair row today; a second is the case
-    words = dict(PostProcessingRefusedError._WORDS)
-    words[(PostProcessingOperation.STITCH, 'no_data')] = ('No Tiles Found', '')
-    monkeypatch.setattr(PostProcessingRefusedError, '_WORDS', words)
-
+def test_another_operation_short_of_data_leads_with_itself_and_gets_no_z_stack_advice():
+    """The Z-stack advice is the z-projection's alone: a stitch short of data
+    is titled by its reason, and its words name the stitch and nothing else."""
     refusal = PostProcessingRefusedError(operation='Stitch', reason='no_data', message='No images.')
 
-    assert (refusal.title, str(refusal)) == ('No Tiles Found', 'No images.')
+    assert (refusal.title, str(refusal)) == ('Needed Data Not Found', 'Stitch: No images.')
 
 
 # ---------------------------------------------------------------------------
@@ -311,7 +305,8 @@ def test_report_outcome_hands_a_faults_operation_key_to_the_popup():
 
     ((notification,),) = [shown]
     assert notification.operation_key == 'post-processing:Stitched'
-    assert notification.title == 'Stitch Failed'
+    assert notification.title == 'Post-Processing Failed'
+    assert notification.message.startswith('Stitch: 2 of 9 stitch group(s) failed.')
 
 
 # ---------------------------------------------------------------------------
