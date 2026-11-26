@@ -187,7 +187,7 @@ def test_a_listener_members_event_is_its_record(client):
         )
         led = stream.until('led')[-1]
 
-    assert led['data'] == {'address': 0, 'name': LED0, 'state': 'lit', 'illumination_ma': 10.0}
+    assert led['data'] == {'address': 0, 'channel': LED0, 'state': 'lit', 'illumination_ma': 10.0}
     assert int(led['id']) > 0
 
 

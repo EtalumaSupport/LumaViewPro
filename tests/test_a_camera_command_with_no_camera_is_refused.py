@@ -342,7 +342,7 @@ def test_with_no_camera_showing_a_channel_shows_it_and_reports_nothing(
 
     assert session.show_channel(LED1) == ShownChannel(LED1, lit=True)
 
-    lit = {r.name for r in session.scope.illumination.led_states if r.state is LedState.LIT}
+    lit = {r.channel for r in session.scope.illumination.led_states if r.state is LedState.LIT}
     assert lit == {LED1}
     assert _camera_store(session) == before
     assert [(n.title, n.message) for n in centre_posts] == []

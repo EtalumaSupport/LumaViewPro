@@ -423,9 +423,9 @@ def lit_other_than(
     if lit is None:
         lit = dict(snapshot_lit_pairs(readings))
     return [
-        r.name or f'LED address {r.address}'
+        r.channel or f'LED address {r.address}'
         for r in readings
-        if r.address in lit and r.name != channel
+        if r.address in lit and r.channel != channel
     ]
 
 
@@ -461,7 +461,7 @@ class LedState(enum.StrEnum):
     UNKNOWN = 'unknown'
 
 
-@api_fields('address', 'name', 'state', 'illumination_ma')
+@api_fields('address', 'channel', 'state', 'illumination_ma')
 @dataclass(frozen=True)
 class LedReading:
     """One LED address: the channel it lights, what it is doing, and its current.
@@ -470,7 +470,7 @@ class LedReading:
 
     Attributes:
         address: The LED board address.
-        name: The channel the unit's identity names for the address, read at
+        channel: The channel the unit's identity names for the address, read at
             the moment of the reading; None when the identity names none,
             which never hides the address.
         state: Lit, dark, or unknown.
@@ -479,7 +479,7 @@ class LedReading:
     """
 
     address: int
-    name: str | None
+    channel: str | None
     state: LedState
     illumination_ma: float | None
 
@@ -700,7 +700,7 @@ class IlluminationAPI:
         del driver  # intentionally unused, kept for backward call sites
 
         # LED change listeners -- push-based UI update mechanism. Each
-        # listener is called with a reading's fields (address, name, state,
+        # listener is called with a reading's fields (address, channel, state,
         # illumination_ma) whenever any LED address changes state. Fires from the thread that
         # caused the change, so listeners MUST schedule UI work via
         # Clock.schedule_once.
@@ -1412,11 +1412,11 @@ class IlluminationAPI:
 
         The caller holds ``_led_state_lock``.
         """
-        name = self._scope.channel_identity.key_at(address)
+        channel = self._scope.channel_identity.key_at(address)
         held = self._led_state.get(address)
         if held is None:
-            return LedReading(address, name, LedState.DARK, None)
-        return LedReading(address, name, held.state, held.illumination_ma)
+            return LedReading(address, channel, LedState.DARK, None)
+        return LedReading(address, channel, held.state, held.illumination_ma)
 
     def _readings(self) -> tuple[LedReading, ...]:
         """Every address of the board and every address the store holds, by address.
@@ -1915,13 +1915,13 @@ class IlluminationAPI:
         """Register a callback for LED state changes.
 
         The listener is called with the changed address's reading,
-        ``(address, name, state, illumination_ma)`` as ``LedReading``
+        ``(address, channel, state, illumination_ma)`` as ``LedReading``
         holds them, whenever any LED address changes state. It fires from
         the thread that caused the change, so listeners **must** hand any
         UI work to their own UI thread.
 
         Args:
-            listener: ``callable(address: int, name: str | None, state:
+            listener: ``callable(address: int, channel: str | None, state:
                 LedState, illumination_ma: float | None)``
 
         Raises:
@@ -1958,7 +1958,7 @@ class IlluminationAPI:
         notifications.tell_listeners(
             listeners,
             reading.address,
-            reading.name,
+            reading.channel,
             reading.state,
             reading.illumination_ma,
             category='Illumination',

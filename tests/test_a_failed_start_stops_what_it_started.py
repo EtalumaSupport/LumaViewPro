@@ -118,7 +118,7 @@ def test_a_preview_refusal_after_the_moves_stops_them_and_the_step_is_not_gone_t
     assert not motion.is_any_axis_moving()
     session.scope.simulation.clear()
     session.start_go_to_step(protocol, 0).result(timeout=_WAIT_S)
-    lit = [r.name for r in session.scope.illumination.led_states if r.state == LedState.LIT]
+    lit = [r.channel for r in session.scope.illumination.led_states if r.state == LedState.LIT]
     assert lit == [channel]
 
 

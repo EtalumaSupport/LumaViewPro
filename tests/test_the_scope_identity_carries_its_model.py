@@ -203,5 +203,5 @@ def test_a_lumi_offers_darkfield_and_lights_its_led(sim_session):
 
     scope.illumination.led_on('DF', 10)
 
-    (df,) = [reading for reading in scope.illumination.led_states if reading.name == 'DF']
+    (df,) = [reading for reading in scope.illumination.led_states if reading.channel == 'DF']
     assert (df.address, df.state) == (5, LedState.LIT)

@@ -1965,7 +1965,7 @@ class TestLumascapeAPILed:
     def test_led_states_snapshot(self, scope):
         scope.illumination.led_on(channel=LED1, illumination_ma=200)
         scope.illumination.led_on(channel=LED2, illumination_ma=150)
-        states = {r.name: r for r in scope.illumination.led_states}
+        states = {r.channel: r for r in scope.illumination.led_states}
         assert (states[LED1].state, states[LED1].illumination_ma) == (LedState.LIT, 200)
         assert states[LED2].state is LedState.LIT
         assert states['BF'].state is LedState.DARK

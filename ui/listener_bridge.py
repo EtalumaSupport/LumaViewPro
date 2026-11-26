@@ -288,8 +288,8 @@ class UIListenerBridge:
             # since the event's address may have no name.
             readings = self._scope.illumination.led_states or ()
             reading = next((r for r in readings if r.address == a), None)
-            if reading is not None and reading.name is not None:
-                self._write_led_button(reading.name, lit=reading.state == LedState.LIT)
+            if reading is not None and reading.channel is not None:
+                self._write_led_button(reading.channel, lit=reading.state == LedState.LIT)
 
         schedule_ui_latest((self, 'led', address), _update_led_ui)
 
@@ -365,7 +365,9 @@ class UIListenerBridge:
         def _reconcile(dt):
             # None with no LED board installed: nothing is lit.
             lit = {
-                r.name for r in self._scope.illumination.led_states or () if r.state == LedState.LIT
+                r.channel
+                for r in self._scope.illumination.led_states or ()
+                if r.state == LedState.LIT
             }
             for color in common_utils.get_channels_with_led():
                 self._write_led_button(color, lit=color in lit)

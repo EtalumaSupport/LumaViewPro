@@ -6125,14 +6125,14 @@ Raises nothing.
 Register a callback for LED state changes.
 
 The listener is called with the changed address's reading,
-`(address, name, state, illumination_ma)` as `LedReading`
+`(address, channel, state, illumination_ma)` as `LedReading`
 holds them, whenever any LED address changes state. It fires from
 the thread that caused the change, so listeners **must** hand any
 UI work to their own UI thread.
 
 **Args**
 
-- `listener`: `callable(address: int, name: str | None, state: LedState, illumination_ma: float | None)`
+- `listener`: `callable(address: int, channel: str | None, state: LedState, illumination_ma: float | None)`
 
 <a id="IlluminationAPI.led_off"></a>
 ### `IlluminationAPI.led_off`
@@ -10294,8 +10294,8 @@ The answer of every LED read and the `led` event.
 **Fields**
 
 - <a id="LedReading.address"></a>`address`: `int` -- The LED board address.
+- <a id="LedReading.channel"></a>`channel`: `str | None` -- The channel the unit's identity names for the address, read at the moment of the reading; None when the identity names none, which never hides the address.
 - <a id="LedReading.illumination_ma"></a>`illumination_ma`: `float | None` -- The commanded current in mA when lit; None otherwise.
-- <a id="LedReading.name"></a>`name`: `str | None` -- The channel the unit's identity names for the address, read at the moment of the reading; None when the identity names none, which never hides the address.
 - <a id="LedReading.state"></a>`state`: `LedState` -- Lit, dark, or unknown.
 
 <a id="LeftOutImage"></a>

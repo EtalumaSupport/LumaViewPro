@@ -571,7 +571,7 @@ def test_a_clean_exit_still_runs_every_restore_step(scope, runner, monkeypatch):
     assert _focused(sweep(runner, scope, keep_led_on=True))
 
     assert precision[-1] is True, f'the precision restore must still run; {precision}'
-    lit = [r.name for r in scope.illumination.led_states if r.state is LedState.LIT]
+    lit = [r.channel for r in scope.illumination.led_states if r.state is LedState.LIT]
     assert lit == ['BF'], f'the AF-end LED transition must still run; lit: {lit}'
     assert scope.camera.auto_gain is CameraAutoMode.CONTINUOUS, 'the camera restore must still run'
 

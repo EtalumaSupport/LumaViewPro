@@ -154,7 +154,7 @@ def main():
 
         def _observed_move_turret(slot, restore_z=True):
             lit_at_turn.append(
-                sorted(str(r.name) for r in illumination.led_states if r.state is LedState.LIT)
+                sorted(str(r.channel) for r in illumination.led_states if r.state is LedState.LIT)
             )
             real_move_turret(slot=slot, restore_z=restore_z)
             turned_to.append((slot, motion.turret_status.slot))

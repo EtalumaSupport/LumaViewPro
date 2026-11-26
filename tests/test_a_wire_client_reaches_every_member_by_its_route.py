@@ -373,7 +373,7 @@ def test_a_sub_objects_method_is_called_with_its_arguments_by_name(client, sessi
     assert led_reading(session.scope, 2) == LedReading(2, LED2, LedState.LIT, 10.0)
 
     states = client.get('/api/v1/scope/illumination/led_states')
-    assert {'address': 2, 'name': LED2, 'state': 'lit', 'illumination_ma': 10.0} in states.json()
+    assert {'address': 2, 'channel': LED2, 'state': 'lit', 'illumination_ma': 10.0} in states.json()
 
 
 def test_readings_read_over_the_wire_are_taken_back_by_restore(client, session):
@@ -382,7 +382,12 @@ def test_readings_read_over_the_wire_are_taken_back_by_restore(client, session):
     session.scope.illumination.led_on(LED2, 10.0)
     readings = client.get('/api/v1/scope/illumination/led_states')
     assert readings.status_code == 200
-    assert {'address': 2, 'name': LED2, 'state': 'lit', 'illumination_ma': 10.0} in readings.json()
+    assert {
+        'address': 2,
+        'channel': LED2,
+        'state': 'lit',
+        'illumination_ma': 10.0,
+    } in readings.json()
     session.scope.illumination.leds_off()
 
     restored = client.post(

@@ -147,7 +147,7 @@ def test_a_signal_closes_the_session_with_its_clients_connected(session):
     )
     assert jobs.status_code == 200
     # The close's own report reached the stream before closing: the LED it turned off.
-    assert {'address': 0, 'name': LED0, 'state': 'dark', 'illumination_ma': None} in [
+    assert {'address': 0, 'channel': LED0, 'state': 'dark', 'illumination_ma': None} in [
         e['data'] for e in told if e['event'] == 'led'
     ]
     assert after == []
@@ -288,7 +288,7 @@ def test_the_hosts_close_closes_the_session_through_the_server_with_its_clients_
 
     assert answered == [True]
     assert len(shut) == 1 and shut[0] is not closer
-    assert {'address': 0, 'name': LED0, 'state': 'dark', 'illumination_ma': None} in [
+    assert {'address': 0, 'channel': LED0, 'state': 'dark', 'illumination_ma': None} in [
         e['data'] for e in told if e['event'] == 'led'
     ]
     assert after == []

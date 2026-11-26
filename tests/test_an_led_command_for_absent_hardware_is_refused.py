@@ -92,13 +92,13 @@ def test_with_its_board_an_led_lights_and_goes_dark_as_before(make_session, capl
 
     commanded = illumination.led_on('BF', 10.0)
     lit = channel_reading(illumination, 'BF')
-    assert (lit.name, lit.state, lit.illumination_ma) == ('BF', LedState.LIT, commanded)
+    assert (lit.channel, lit.state, lit.illumination_ma) == ('BF', LedState.LIT, commanded)
     illumination.led_off('BF')
     assert channel_reading(illumination, 'BF').state is LedState.DARK
     illumination.led_on('BF', 10.0)
     illumination.leds_off()
 
-    assert {r.name: r for r in illumination.led_states}['BF'].state is LedState.DARK
+    assert {r.channel: r for r in illumination.led_states}['BF'].state is LedState.DARK
     assert _led_lines(caplog) == []
 
 

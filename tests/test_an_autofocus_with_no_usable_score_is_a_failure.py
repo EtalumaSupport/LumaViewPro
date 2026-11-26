@@ -37,7 +37,7 @@ from tests.af_drives import (
 
 
 def _lit(scope):
-    return [r.name for r in scope.illumination.led_states if r.state is LedState.LIT]
+    return [r.channel for r in scope.illumination.led_states if r.state is LedState.LIT]
 
 
 def _sweep_blank(runner, scope, **overrides):

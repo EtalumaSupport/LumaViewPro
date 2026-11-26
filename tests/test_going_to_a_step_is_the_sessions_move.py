@@ -478,9 +478,9 @@ class TestTheStepIntoItsLayer:
 class TestTheLedPreview:
     @staticmethod
     def _lit(built: ScopeSession) -> set[str | None]:
-        """The name of every lit LED address (None for one the identity does not name)."""
+        """The channel of every lit LED address (None for one the identity does not name)."""
         return {
-            reading.name
+            reading.channel
             for reading in built.scope.illumination.led_states
             if reading.state is LedState.LIT
         }

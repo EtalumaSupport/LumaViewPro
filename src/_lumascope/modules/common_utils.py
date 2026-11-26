@@ -567,10 +567,10 @@ def light_of(readings: 'tuple[LedReading, ...] | None', shown_channel: str) -> L
     from _lumascope.modules.lumascope_api.illumination import snapshot_lit_pairs
 
     lit = {address for address, _ma in snapshot_lit_pairs(readings)}
-    named = [r for r in readings or () if r.address in lit and r.name is not None]
+    named = [r for r in readings or () if r.address in lit and r.channel is not None]
     return Light(
-        channel=named[0].name if named else shown_channel,
-        illumination_by_channel_ma={r.name: r.illumination_ma for r in named},
+        channel=named[0].channel if named else shown_channel,
+        illumination_by_channel_ma={r.channel: r.illumination_ma for r in named},
     )
 
 

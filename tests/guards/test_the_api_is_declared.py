@@ -970,7 +970,7 @@ OPEN_STRINGS: dict[str, str] = {
     'Labware.standard field': _CATALOGUE_TEXT,
     'LedBoardInfo.firmware_date field': _BOARD,
     'LedBoardInfo.firmware_version field': _BOARD,
-    'LedReading.name field': _CHANNEL,
+    'LedReading.channel field': _CHANNEL,
     'LiveFolderEntry.name field': _PATH,
     'Lumascope.labware parameter labware_id': _LABWARE,
     'Lumascope.objective parameter objective_id': _OBJECTIVE,

@@ -7480,7 +7480,7 @@ class ScopeSession:
                         # expiry does not mean LEDs were left on. The cached
                         # channel state answers that question directly.
                         lit = [
-                            r.name or f'address {r.address}'
+                            r.channel or f'address {r.address}'
                             for r in self.scope.illumination.led_states or ()
                             if r.state == LedState.LIT
                         ]

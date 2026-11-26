@@ -10,7 +10,7 @@ ill = s.scope.illumination
 try:
     ill.led_on(LED0, 50.0)
     ill.led_on(LED1, 60.0)
-    states = {r.name: r for r in ill.led_states if r.state is LedState.LIT}
+    states = {r.channel: r for r in ill.led_states if r.state is LedState.LIT}
     print('lit after two led_on calls:', states)
     print('EXCLUSIVITY ENFORCED BY API:', len(states) <= 1)
     ill.leds_off()

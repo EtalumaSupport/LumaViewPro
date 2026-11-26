@@ -165,9 +165,9 @@ def test_readings_a_caller_built_with_plain_strings_restore_their_lit_address(se
     readings = tuple(
         LedReading(
             r.address,
-            r.name,
-            'lit' if r.name == LED2 else 'dark',
-            10.0 if r.name == LED2 else None,
+            r.channel,
+            'lit' if r.channel == LED2 else 'dark',
+            10.0 if r.channel == LED2 else None,
         )
         for r in illumination.led_states
     )
