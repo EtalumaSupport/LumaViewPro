@@ -30,12 +30,10 @@ FAILED = object()  # any status that is neither completed nor cancelled
 
 
 def _camera():
-    """The libusb transport's ISO callback, feeding a stream.
-
-    Not streaming, so the callback does not resubmit the transfer.
-    """
+    """The libusb transport's ISO callback, feeding a stream that is running."""
     transport = fx2driver._LibusbTransport()
     transport._stream = fx2_stream()
+    transport._streaming = True
     return transport
 
 
@@ -45,7 +43,10 @@ def _received(cam):
 
 
 def _transfer(status, packets=()):
-    return SimpleNamespace(getStatus=lambda: status, iterISO=lambda: iter(packets))
+    # Resubmitted while the stream runs; no device takes it here.
+    return SimpleNamespace(
+        getStatus=lambda: status, iterISO=lambda: iter(packets), submit=lambda: None
+    )
 
 
 def _errors(cam):
@@ -79,6 +80,19 @@ def test_a_cancelled_transfer_is_the_stream_stopping_not_an_error():
     cam = _camera()
     cam._iso_callback(_transfer(CANCELLED))
     assert _errors(cam) == 0
+
+
+def test_a_transfer_the_stop_takes_back_is_not_counted_or_warned(caplog):
+    """Windows ends each transfer a stop takes back as failed, libusb status 1:
+    on the 2026-11-25 Windows bench every healthy stop logged that data was
+    lost and counted 8 USB errors, where nothing was lost."""
+    caplog.set_level(logging.WARNING, logger='LVP')
+    cam = _camera()
+    cam._streaming = False  # the stop has begun
+    cam._iso_callback(_transfer(1))
+    cam._iso_callback(_transfer(COMPLETED, [(4, b'')]))
+    assert cam._stream.take_counts().usb_failures == {}
+    assert messages(records_of(caplog, fx2driver)) == []
 
 
 def test_each_failure_is_counted_under_its_cause_and_each_cause_is_logged_once(caplog):

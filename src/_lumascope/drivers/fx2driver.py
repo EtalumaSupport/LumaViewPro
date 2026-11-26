@@ -1591,7 +1591,13 @@ class _LibusbTransport(_PyusbTransport):
         is where the device marks a frame's end. A failed packet, and a
         transfer that failed whole, go to the stream in their place: their
         bytes are missing from the frame they fell in.
+
+        A transfer that ends once the stop has begun is the stop's, whatever
+        its status: Windows ends each one the stop takes back as failed, not
+        canceled, and the stream it would count against is over.
         """
+        if not self._streaming:
+            return
         status = transfer.getStatus()
         if status == usb1.TRANSFER_CANCELLED:
             return

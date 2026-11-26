@@ -109,13 +109,18 @@ def test_a_failed_packet_damages_its_frame_and_not_the_next():
 
 
 def _libusb_transport(stream):
+    """The libusb transport's ISO callback on a stream that is running."""
     transport = fx2driver._LibusbTransport()
     transport._stream = stream
+    transport._streaming = True
     return transport
 
 
 def _transfer(status, packets=()):
-    return SimpleNamespace(getStatus=lambda: status, iterISO=lambda: iter(packets))
+    # Resubmitted while the stream runs; no device takes it here.
+    return SimpleNamespace(
+        getStatus=lambda: status, iterISO=lambda: iter(packets), submit=lambda: None
+    )
 
 
 def test_a_libusb_transfer_that_fails_whole_damages_the_frame_it_fell_in():
