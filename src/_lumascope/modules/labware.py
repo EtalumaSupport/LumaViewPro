@@ -100,7 +100,7 @@ class Labware:
         """
         if not (0 <= i < self.columns and 0 <= j < self.rows):
             raise ArgumentRefusedError(
-                'well_unknown', argument='(i, j)', value=(i, j), plate=self.id
+                'well_unknown', argument='(i, j)', value=(i, j), labware_id=self.id
             )
         x = self.offset_x_mm + i * self.spacing_x_mm
         y = self.offset_y_mm + j * self.spacing_y_mm

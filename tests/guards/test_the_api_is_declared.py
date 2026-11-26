@@ -899,7 +899,7 @@ OPEN_STRINGS: dict[str, str] = {
     'SimulatedScope.slide_images field': _PATH,
     'ArgumentRefusedError.board field': _PROSE,
     'ArgumentRefusedError.member field': _MEMBER,
-    'ArgumentRefusedError.plate field': _LABWARE,
+    'ArgumentRefusedError.labware_id field': _LABWARE,
     'ArgumentRefusedError.takes field': _PROSE,
     'CompositeFailedError.merge_failure field': _REASON,
     'CompositeFailedError.run_ending field': _REASON,

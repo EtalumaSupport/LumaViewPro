@@ -3319,11 +3319,13 @@ class MotionAPI:
         """
 
         def targets() -> tuple[tuple[str, float], ...]:
-            plate = self._scope.runtime_state.get_labware()
-            for x_mm, y_mm, label in plate.get_positions_with_labels():
+            labware = self._scope.runtime_state.get_labware()
+            for x_mm, y_mm, label in labware.get_positions_with_labels():
                 if label == well:
                     return (('X', x_mm), ('Y', y_mm))
-            raise ArgumentRefusedError('well_unknown', argument='well', value=well, plate=plate.id)
+            raise ArgumentRefusedError(
+                'well_unknown', argument='well', value=well, labware_id=labware.id
+            )
 
         return self._start_plate_moves('start_move_to_well', targets)
 

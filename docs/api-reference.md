@@ -14037,7 +14037,7 @@ replaces were, so a caller catching a bad argument keeps working.
   - `'not_offered'` -- a value of a closed set (a `StrEnum`) that is not one of `offered`: not a member, nor a member's plain string, or a member the taker does not take. Values are exact: `'off'` is not `'Off'`.
   - `'not_a_number'` -- a number was needed and the value is not a finite one: NaN, an infinity, a `bool` or not a number at all. Every comparison with NaN is False, so a range check alone passes it.
   - `'plate_frame_axis'` -- a plate coordinate for an axis the plate frame does not define (`offered`: X and Y).
-  - `'well_unknown'` -- a well label the selected plate (`plate`) does not have.
+  - `'well_unknown'` -- a well label the selected plate (`labware_id`) does not have.
   - `'out_of_range'` -- a number outside the fixed rule its member holds it to (`takes`, in words: `'at least 0'`, a whole number of at least 1, `'from 0 to 100'`), with `limits` where the rule has both ends. A value past the attached hardware's limit is clamped to it and told (`ValueClampedNotice`), not refused.
   - `'channel_unknown'` -- the name is not one of this release's channels (`offered`, the catalog). Names are exact: `'bf'` is not `'BF'`. A channel this model lacks is a name, and is refused as absent hardware, not here.
   - `'no_channel_selected'` -- the member needs a channel and was given None (`offered`, the catalog).
@@ -14065,18 +14065,18 @@ replaces were, so a caller catching a bad argument keeps working.
   - `'gain_range_inverted'` -- auto-gain settings whose `min_gain_db` is above their `max_gain_db`; `value` holds the two.
 - `value`: What was given, as given.
 
-`argument`, `offered`, `limits`, `takes`, `board`, `plate`
-and `member` are published, so a REST problem carries them beside the
-words; the client already holds the value it sent.
+`argument`, `offered`, `limits`, `takes`, `board`,
+`labware_id` and `member` are published, so a REST problem carries
+them beside the words; the client already holds the value it sent.
 
 **Fields**
 
 - <a id="ArgumentRefusedError.argument"></a>`argument`: `str` -- The name of the argument refused.
 - <a id="ArgumentRefusedError.board"></a>`board`: `str | None` -- The simulated board, in words, for `'not_injectable_on_board'`, `'argument_not_on_board'` and `'needs_simulated_firmware'`; None otherwise.
+- <a id="ArgumentRefusedError.labware_id"></a>`labware_id`: `str | None` -- The `Labware.id` of the plate looked on, for `'well_unknown'`; None otherwise.
 - <a id="ArgumentRefusedError.limits"></a>`limits`: `tuple[float, float] | None` -- The lowest and highest value the argument takes, for an `'out_of_range'` whose rule has both ends; None otherwise.
 - <a id="ArgumentRefusedError.member"></a>`member`: `str | None` -- The member to read instead, for `'has_member'`; None otherwise.
 - <a id="ArgumentRefusedError.offered"></a>`offered`: `tuple[str | int, ...] | None` -- The values the argument takes, where it takes a list; None otherwise.
-- <a id="ArgumentRefusedError.plate"></a>`plate`: `str | None` -- The `Labware.id` of the plate looked on, for `'well_unknown'`; None otherwise.
 - <a id="ArgumentRefusedError.takes"></a>`takes`: `str | None` -- The value the argument takes, in words, for `'out_of_range'`, `'wrong_kind'`, `'fault_bound'` and `'argument_not_on_board'`, and when it is read, for `'not_read'`; None otherwise.
 
 | Reason | Cause | REST status |

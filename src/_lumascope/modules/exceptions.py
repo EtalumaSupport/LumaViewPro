@@ -4841,7 +4841,7 @@ def under_control_sentence(holder_trigger: Caller | None, control_session: str |
     return f'{who}{through} has control of the microscope. Try again when it ends.'
 
 
-@api_fields('argument', 'board', 'limits', 'member', 'offered', 'plate', 'takes')
+@api_fields('argument', 'board', 'labware_id', 'limits', 'member', 'offered', 'takes')
 class ArgumentRefusedError(Refusal, ValueError):
     """An argument the scope cannot act on: it breaks a fixed rule, or names an objective no turret slot holds.
 
@@ -4864,7 +4864,7 @@ class ArgumentRefusedError(Refusal, ValueError):
             - ``'plate_frame_axis'`` -- a plate coordinate for an axis the
               plate frame does not define (``offered``: X and Y).
             - ``'well_unknown'`` -- a well label the selected plate
-              (``plate``) does not have.
+              (``labware_id``) does not have.
             - ``'out_of_range'`` -- a number outside the fixed rule its
               member holds it to (``takes``, in words: ``'at least 0'``, a
               whole number of at least 1, ``'from 0 to 100'``), with
@@ -4957,14 +4957,14 @@ class ArgumentRefusedError(Refusal, ValueError):
         board: The simulated board, in words, for
             ``'not_injectable_on_board'``, ``'argument_not_on_board'`` and
             ``'needs_simulated_firmware'``; None otherwise.
-        plate: The ``Labware.id`` of the plate looked on, for
+        labware_id: The ``Labware.id`` of the plate looked on, for
             ``'well_unknown'``; None otherwise.
         member: The member to read instead, for ``'has_member'``; None
             otherwise.
 
-    ``argument``, ``offered``, ``limits``, ``takes``, ``board``, ``plate``
-    and ``member`` are published, so a REST problem carries them beside the
-    words; the client already holds the value it sent.
+    ``argument``, ``offered``, ``limits``, ``takes``, ``board``,
+    ``labware_id`` and ``member`` are published, so a REST problem carries
+    them beside the words; the client already holds the value it sent.
     """
 
     argument: str
@@ -4972,7 +4972,7 @@ class ArgumentRefusedError(Refusal, ValueError):
     limits: tuple[float, float] | None
     takes: str | None
     board: str | None
-    plate: str | None
+    labware_id: str | None
     member: str | None
     _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
         'not_offered': (
@@ -4989,7 +4989,7 @@ class ArgumentRefusedError(Refusal, ValueError):
         ),
         'well_unknown': (
             'Not a Well',
-            '{plate} has no well {value!r}.',
+            '{labware_id} has no well {value!r}.',
         ),
         'out_of_range': (
             SettingRefusedError.titles['out_of_range'],
@@ -5121,7 +5121,7 @@ class ArgumentRefusedError(Refusal, ValueError):
         limits: tuple[float, float] | None = None,
         takes: str | None = None,
         board: str | None = None,
-        plate: str | None = None,
+        labware_id: str | None = None,
         member: str | None = None,
     ):
         self.reason = reason
@@ -5137,7 +5137,7 @@ class ArgumentRefusedError(Refusal, ValueError):
             raise TypeError(
                 f"ArgumentRefusedError({reason!r}) takes no limits: only 'out_of_range' has them"
             )
-        for name, given in (('takes', takes), ('board', board), ('plate', plate)):
+        for name, given in (('takes', takes), ('board', board), ('labware_id', labware_id)):
             if ('{' + name + '}' in words) != (given is not None):
                 raise TypeError(
                     f'ArgumentRefusedError({reason!r}) takes {name} exactly when its words name it'
@@ -5155,7 +5155,7 @@ class ArgumentRefusedError(Refusal, ValueError):
                 offered=_offered_words(offered or ()),
                 takes=takes,
                 board=board,
-                plate=plate,
+                labware_id=labware_id,
                 member=member,
             )
         )
@@ -5165,7 +5165,7 @@ class ArgumentRefusedError(Refusal, ValueError):
         self.limits = limits
         self.takes = takes
         self.board = board
-        self.plate = plate
+        self.labware_id = labware_id
         self.member = member
 
 

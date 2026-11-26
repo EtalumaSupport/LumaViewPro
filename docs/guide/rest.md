@@ -278,7 +278,7 @@ Every answer that is not a result is an RFC 9457 problem,
  "detail": "axis must be one of X, Y, Z, T; 'W' is not one.", "status": 422,
  "instance": "urn:uuid:3faa1296-...", "kind": "refusal", "reason": "not_offered",
  "remedy": null, "argument": "axis", "offered": ["X", "Y", "Z", "T"],
- "board": null, "limits": null, "member": null, "plate": null, "takes": null}
+ "board": null, "labware_id": null, "limits": null, "member": null, "takes": null}
 ```
 
 `title` and `detail` are the words a person is shown. `reason` is the code to
