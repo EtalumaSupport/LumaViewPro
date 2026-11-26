@@ -314,7 +314,7 @@ def test_scan_completes_and_keeps_an_image_of_each_well():
     assert (outcome.captures.asked, outcome.captures.captured) == (2, 2)
     assert (files.outcome, files.written) == (FilesOutcome.WRITTEN, 2)
     records = [read_file_record(p) for p in sorted(run_dir.glob('*.tiff'))]
-    assert [(r['channel'], r['plate']['well_label'], r['dark']) for r in records] == [
+    assert [(r['channel'], r['labware']['well_label'], r['dark']) for r in records] == [
         ('BF', 'B2', False),
         ('BF', 'B3', False),
     ]
@@ -331,7 +331,7 @@ def test_scan_over_rest_completes_and_keeps_its_images(served):
     assert files['status'] == 'completed', files
     assert (files['result']['outcome'], files['result']['written']) == ('written', 2)
     record = read_file_record(folder / 'first.tiff')
-    assert (record['channel'], record['plate']['well_label'], record['dark']) == (
+    assert (record['channel'], record['labware']['well_label'], record['dark']) == (
         'BF',
         'B2',
         False,

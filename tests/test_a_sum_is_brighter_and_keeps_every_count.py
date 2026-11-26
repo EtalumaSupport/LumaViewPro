@@ -335,7 +335,7 @@ def _write(
                 'serial_number': 'SN0',
                 'camera_model': 'MT9P031',
             },
-            'plate': {'name': '96-well', 'rows': 8, 'columns': 12, 'well_label': 'A1'},
+            'labware': {'id': '96-well', 'rows': 8, 'columns': 12, 'well_label': 'A1'},
         },
         ome=ome,
         color=release_color(color),

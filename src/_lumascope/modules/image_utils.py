@@ -536,10 +536,16 @@ class FactKind(enum.Enum):
 @dataclasses.dataclass(frozen=True)
 class FormerKey:
     """A key a shipped build wrote a fact's record under before its own, and
-    the build that stopped writing it."""
+    the build that stopped writing it.
+
+    ``fields``: each field of a structured fact that build wrote under
+    another name, as ``(then, today)``, so a value read under the former
+    key carries today's fields.
+    """
 
     key: str
     until: str
+    fields: tuple[tuple[str, str], ...] = ()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -550,13 +556,14 @@ class FileFact:
     lives elsewhere in the file; ``unit`` is written beside it as
     ``<plane>Unit``. ``dropped_by_a_sum``: a derivation that adds frames
     no longer states it. A structured fact names ``fields``, each its own
-    pair in a file's view (``plate.well_label``), for the published facts
+    pair in a file's view (``labware.well_label``), for the published facts
     table; ``keyed_by`` is what a fact holding one entry per something is
-    keyed by (``judgments.0.source``). Declared for the table only:
+    keyed by (``judgments.0.source``). Both declared for the table only:
     the producer and the readers name the fields themselves.
     ``formerly``: every key a shipped file states this fact under other
-    than its own, so a file any build wrote reads into today's record and
-    the published table names each word a person's own reader meets.
+    than its own, with the fields it renamed, so a file any build wrote
+    reads into today's record and the published table names each word a
+    person's own reader meets.
     """
 
     kind: FactKind
@@ -696,10 +703,14 @@ FILE_FACTS: dict[str, FileFact] = {
     'instrument': FileFact(
         FactKind.SHARED, fields=('manufacturer', 'model', 'serial_number', 'camera_model')
     ),
-    # The plate, and the well on it when the frame was taken over one: a
-    # well is a place on a plate, so a record cannot name one without it.
-    'plate': FileFact(
-        FactKind.SHARED, fields=('name', 'rows', 'columns', 'standard', 'well_label')
+    # The labware, by its catalogue id, and the well on it when the frame was
+    # taken over one: a well is a place on the labware, so a record cannot
+    # name one without it. The key and the id are the API's words
+    # (Labware.id); a file before them states the same fact as plate.name.
+    'labware': FileFact(
+        FactKind.SHARED,
+        fields=('id', 'rows', 'columns', 'standard', 'well_label'),
+        formerly=(FormerKey('plate', '4.0.0-beta48', fields=(('name', 'id'),)),),
     ),
     # The TIFF DateTime tag's fact, for the tag's readers: on a still the
     # capture's instant, the same as timestamp_iso; on a derived file, which
@@ -1210,9 +1221,14 @@ def _read_ome_input_metadata(ome_xml: str) -> dict | None:
     # The scale is a hard key whose None the writer reads as no PhysicalSize.
     flat: dict = {'pixel_size_um': _stated_scale(_float(pixels.attrib, 'PhysicalSizeX'))}
     # A record key is lower-case and a Plane name capitalized, so the two
-    # cannot collide; what is not a record key is the Plane's to read.
-    flat |= _plane_facts({key: value for key, value in annotated.items() if key not in FILE_FACTS})
-    flat |= {key: value for key, value in annotated.items() if key in FILE_FACTS}
+    # cannot collide; what is not a record key, today's or a former one, is
+    # the Plane's to read.
+    flat |= _plane_facts(
+        {key: value for key, value in annotated.items() if key not in _FACT_SPELLED}
+    )
+    flat |= dict(
+        _read_under(key, value) for key, value in annotated.items() if key in _FACT_SPELLED
+    )
     if 'datetime' in flat:
         flat['datetime'] = datetime.datetime.fromisoformat(flat['datetime'])
     if len(channels) == 1 and channels[0].attrib.get('Name'):
@@ -1479,8 +1495,8 @@ def _structured_record(structured: dict) -> dict | None:
 
     if 'Plate' in structured:
         p = structured['Plate']
-        flat['plate'] = stated_fields(
-            name=p.get('Name'),
+        flat['labware'] = stated_fields(
+            id=p.get('Name'),
             rows=p.get('Rows'),
             columns=p.get('Columns'),
             standard=p.get('Standard'),
@@ -1512,8 +1528,10 @@ def _spellings(facts: dict[str, FileFact], read_back: Iterable[str]) -> dict[str
 
     Raises:
         ValueError: a spelling two facts claim, which would read one file's
-            key as either; or a key read back from a shipped container that
-            names no fact, which would be read as nothing.
+            key as either; a key read back from a shipped container that
+            names no fact, which would be read as nothing; or a former
+            field renamed to a field its fact does not have, which would
+            read a file's value into a field no reader names.
     """
     spelled: dict[str, str] = {}
     for key, fact in facts.items():
@@ -1521,6 +1539,12 @@ def _spellings(facts: dict[str, FileFact], read_back: Iterable[str]) -> dict[str
             if spelling in spelled:
                 raise ValueError(f'{spelling!r} spells both {spelled[spelling]!r} and {key!r}')
             spelled[spelling] = key
+        for former in fact.formerly:
+            for then, today in former.fields:
+                if today not in fact.fields:
+                    raise ValueError(
+                        f'{former.key!r}.{then} is read as {key!r}.{today}, a field it does not have'
+                    )
     unknown = [key for key in read_back if key not in spelled]
     if unknown:
         raise ValueError(f'{unknown} are read back but name no fact')
@@ -1529,16 +1553,41 @@ def _spellings(facts: dict[str, FileFact], read_back: Iterable[str]) -> dict[str
 
 _FACT_SPELLED = _spellings(FILE_FACTS, _LEGACY_FRAME_KEYS)
 
+# Each former key LVP reads back into today's record, for the published
+# table: a recorded frame's flat dict states its keys as written then
+# (_LEGACY_FRAME_KEYS), and an OME file's annotation states a non-Plane fact
+# under its record key. Every other former key is a Plane fact's, which a
+# file states under its Plane name, so it appears only in the file's view.
+_FORMER_KEYS_READ_BACK = frozenset(
+    former.key
+    for fact in FILE_FACTS.values()
+    for former in fact.formerly
+    if fact.plane is None or former.key in _LEGACY_FRAME_KEYS
+)
+
+
+def _read_under(written: str, value) -> tuple[str, object]:
+    """A value a file states under the key *written*, today's or a former
+    one, as today's record holds it: under its fact's key, with the fields
+    a former key's build named otherwise under today's names."""
+    key = _FACT_SPELLED[written]
+    renamed = dict(
+        next((former.fields for former in FILE_FACTS[key].formerly if former.key == written), ())
+    )
+    if renamed:
+        value = {renamed.get(field, field): item for field, item in value.items()}
+    return key, value
+
 
 def _legacy_frame_record(flat: dict) -> dict | None:
     """The record a recorded frame written before v4.0.0-beta31 states, or None
     when the flat dict is no recorded frame's (a bare tifffile.imwrite's
     ``{'shape': ...}``)."""
-    record = {
-        _FACT_SPELLED[written]: flat[written]
+    record = dict(
+        _read_under(written, flat[written])
         for written in _LEGACY_FRAME_KEYS
         if flat.get(written) is not None
-    }
+    )
     if 'timestamp_iso' not in record and flat.get('timestamp'):
         record['timestamp_iso'] = datetime.datetime.strptime(
             flat['timestamp'], _LEGACY_FRAME_TIMESTAMP
@@ -1672,7 +1721,7 @@ def build_postproc_output_metadata(
     Takes every input's record (read_file_record) and states what they agree
     on (agreed_facts), as each fact's kind (``FILE_FACTS``) lets a derived
     file: the shared facts (objective, scale, position, instrument, and the
-    plate with its well), and a channel's settings only when the output is on
+    labware with its well), and a channel's settings only when the output is on
     its inputs' channel. A capture's own facts (its time, its id, how it was
     judged) describe the original capture, not the derived image, and a
     file's own facts are the output's writer's to set.
@@ -1806,21 +1855,22 @@ def _instrument_and_plate_blocks(record: dict) -> dict:
 
     The one writer of the two, for a still, a derived file and a
     hyperstack. Each is a rendering for Bio-Formats and Fiji, drawn from the
-    record's ``objective``, ``instrument`` and ``plate``, not a second
+    record's ``objective``, ``instrument`` and ``labware``, not a second
     store: the objective's home is ``Plane.Objective``, and in an OME file
     every other fact's is the LVP annotation. Its keys are the OME schema's
     attribute names, so the OME splice writes the Instrument as it stands.
-    A block that states nothing is absent. Whether there is a plate is the
+    A block that states nothing is absent. Whether there is labware is the
     record's to say, where it is made; a Plate is rendered exactly when the
-    record holds one. The OME container takes the Instrument alone: a schema
-    Plate in each file would import into OMERO as a plate per file. Not yet
+    record holds it, its Name the labware's id. The OME container takes the
+    Instrument alone: a schema Plate in each file would import into OMERO
+    as a plate per file. Not yet
     rendered: an OME LightSource (LED wavelength and power are not tracked
     per color), the Detector's gain and zoom, an OME FilterSet (filter
     wheel and dichroic are not tracked).
     """
     objective = record.get('objective') or {}
     instrument = record.get('instrument') or {}
-    plate = record.get('plate') or {}
+    labware = record.get('labware') or {}
     working_distance = stated_fields(
         WorkingDistance=objective.get('working_distance_mm'),
     )
@@ -1841,11 +1891,11 @@ def _instrument_and_plate_blocks(record: dict) -> dict:
             Detector=stated_fields(Model=instrument.get('camera_model')),
         ),
         'Plate': stated_fields(
-            Name=plate.get('name'),
-            Rows=plate.get('rows'),
-            Columns=plate.get('columns'),
-            WellLabel=plate.get('well_label'),
-            Standard=plate.get('standard'),
+            Name=labware.get('id'),
+            Rows=labware.get('rows'),
+            Columns=labware.get('columns'),
+            WellLabel=labware.get('well_label'),
+            Standard=labware.get('standard'),
         ),
     }
     return _stated_blocks(**blocks)
@@ -1863,7 +1913,7 @@ def build_hyperstack_output_metadata(
     """Build a TZCYX hyperstack OME metadata dict for ``write_hyperstack_tiff``.
 
     States what its input frames agree on (agreed_facts) as any derived file
-    does (``_derived_facts``): the scope, the objective, and the plate with
+    does (``_derived_facts``): the scope, the objective, and the labware with
     its well always, a channel's settings only on a one-channel stack of that
     channel, no capture's own fact. Per-plane positions arrive as parallel
     lists (one entry per T*Z*C plane in scan order); they land in the
@@ -2801,7 +2851,7 @@ def generate_tiff_data(
     # fact of the record rides in the image's LVP MapAnnotation: without it a
     # summed frame states its per-frame exposure and no count, a dark or
     # unsettled frame reads as a good one, and the file loses its scope and
-    # plate. Set in this arm only: tifffile would also serialize the key into
+    # labware. Set in this arm only: tifffile would also serialize the key into
     # the ImageJ and shaped descriptions.
     if image_type == 'ome':
         # The schema's own statement of the payload depth, rendered from the
@@ -3001,7 +3051,7 @@ def _readable_view(record: dict) -> list[tuple[str, str]]:
     attribute or a tag also states among them, so the view is the record,
     not a remainder; only ``FILE_FACTS`` keys, since the dict a writer is
     handed also holds the save path. A structured fact's fields are joined
-    to its key with ``.`` (``plate.well_label``), a list's items by index
+    to its key with ``.`` (``labware.well_label``), a list's items by index
     (``judgments.0.source``); a flag is ``true``/``false``, a time ISO
     8601, and a None states nothing (``pixel_size_um`` None is no scale).
     """

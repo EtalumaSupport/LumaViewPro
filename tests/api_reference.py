@@ -55,7 +55,7 @@ from _lumascope.modules.api_surface import (
     stop_of,
 )
 from _lumascope.modules.exceptions import Notice, Quiet, Refusal
-from _lumascope.modules.image_utils import _LEGACY_FRAME_KEYS, FILE_FACTS
+from _lumascope.modules.image_utils import _FORMER_KEYS_READ_BACK, FILE_FACTS
 from _lumascope.modules.run_events import RunEvents
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest import problems
@@ -638,11 +638,13 @@ def _fact_fields(fact) -> str:
 
 def _fact_formerly(fact) -> str:
     """The keys a shipped file states a fact under other than its own, each
-    with the build that stopped writing it and whether LumaViewPro reads it."""
+    with the build that stopped writing it, the fields it named otherwise,
+    and whether LumaViewPro reads it."""
     return (
         '; '.join(
             f'`{former.key}` until {former.until}, '
-            + ('read back' if former.key in _LEGACY_FRAME_KEYS else 'in the view only')
+            + ''.join(f'`{then}` as `{today}`, ' for then, today in former.fields)
+            + ('read back' if former.key in _FORMER_KEYS_READ_BACK else 'in the view only')
             for former in fact.formerly
         )
         or '--'
@@ -664,10 +666,11 @@ def _file_facts_table() -> str:
         'sum of frames drops it, the fields of a structured fact, and every other key a shipped '
         'file states it under. A file states a field only '
         'when it has a value, and shows a person each field as its own `key.field` pair '
-        '(`plate.well_label`; an entry of a keyed fact `key.<key>.field`). A former key is '
-        'either read back, from a recorded frame an older build wrote, into the record under '
-        "today's key, or appears only in the file's view, the pairs a person reads, and is "
-        "read by a person's own reader as the same fact.\n\n"
+        '(`labware.well_label`; an entry of a keyed fact `key.<key>.field`). A former key is '
+        "either read back, from a recorded frame or an OME file's annotation an older build "
+        "wrote, into the record under today's key and fields, or appears only in the file's "
+        "view, the pairs a person reads, and is read by a person's own reader as the same "
+        'fact.\n\n'
         '| Key | Kind | Plane key | Unit | Dropped by a sum | Fields | Formerly |\n'
         '|---|---|---|---|---|---|---|\n' + '\n'.join(lines)
     )

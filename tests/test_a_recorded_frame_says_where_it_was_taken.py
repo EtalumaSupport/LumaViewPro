@@ -371,7 +371,7 @@ class TestTheFrameFile:
         assert (written['exposure_ms'], written['gain_db']) == (25.0, 6.0)
         assert written['binning_size'] == A_CAMERA.binning_size
         assert written['objective'] == _stated_fields(sim_scope.objectives['10x Oly'])
-        assert written['plate']['name'] == plate().id
+        assert written['labware']['id'] == plate().id
         assert written['timestamp_iso'] == A_TIME.at.isoformat(timespec='microseconds')
         assert written['timestamp_source'] == 'host_arrival'
         assert (written['camera_timestamp_ticks'], written['frame_id']) == (123456789, 41)
@@ -501,7 +501,7 @@ class TestARecordingOnTheSimulator:
         assert written['channel'] == LED1
         assert written['exposure_ms'] > 0 and 'gain_db' in written
         assert written['objective'] == objective
-        assert written['plate']['name'] == plate_name
+        assert written['labware']['id'] == plate_name
         assert written['pixel_size_um'] is not None
         assert written['timestamp_source'] == 'camera_frame_start', 'the simulator latches'
         assert written['illumination_timing'] == 'on_arrival'

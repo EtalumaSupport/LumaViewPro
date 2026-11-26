@@ -67,8 +67,8 @@ def _build_metadata():
             'serial_number': 'EL0940-05',
             'camera_model': 'Basler a2A3536-31umBAS',
         },
-        'plate': {
-            'name': '96 well microplate',
+        'labware': {
+            'id': '96 well microplate',
             'rows': 8,
             'columns': 12,
             'standard': 'ANSI SLAS 2004',
@@ -167,7 +167,7 @@ def _unreported(md: dict) -> dict:
     """``md`` from a scope that reported no serial, and a frame in no well:
     the record states neither (``image_save`` omits an empty value)."""
     del md['instrument']['serial_number']
-    del md['plate']['well_label']
+    del md['labware']['well_label']
     return md
 
 

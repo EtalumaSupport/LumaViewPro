@@ -82,8 +82,8 @@ def _write_structured_input(
                 'serial_number': 'SN12062',
                 'camera_model': 'Basler a2A1920',
             },
-            'plate': {
-                'name': '96-well',
+            'labware': {
+                'id': '96-well',
                 'rows': 8,
                 'columns': 12,
                 'well_label': 'A1',
@@ -475,7 +475,7 @@ class TestAHyperstackStatesWhatItsFramesAgreeOn:
             'serial_number': 'SN12062',
             'camera_model': 'Basler a2A1920',
         }
-        assert record['plate'] == {'name': '96-well', 'rows': 8, 'columns': 12, 'well_label': 'A1'}
+        assert record['labware'] == {'id': '96-well', 'rows': 8, 'columns': 12, 'well_label': 'A1'}
         assert record['objective']['magnification'] == 20
         assert record['plate_pos_mm'] == {'x': 12.5, 'y': 8.25}
         # One channel: its settings travel; never a capture's own fact.
@@ -491,7 +491,7 @@ class TestAHyperstackStatesWhatItsFramesAgreeOn:
         assert root.find(q('Instrument')) is None
         record = image_utils.read_file_record(out)
         assert 'instrument' not in record
-        assert 'plate' not in record
+        assert 'labware' not in record
 
 
 class TestHyperstackChannelColor:

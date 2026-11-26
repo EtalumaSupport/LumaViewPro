@@ -493,13 +493,14 @@ def generate_image_metadata(
             serial_number=motor_info.serial_number,
             camera_model=frame_record.camera_model,
         ),
-        # Labware with no wells (Blank) is no plate. A well is a place on
-        # the plate, so it is stated inside it, and only when there is one:
-        # an empty or fabricated label is measured off the file forever.
+        # Labware with no wells (Blank, the catalogue's no-labware entry)
+        # states none. A well is a place on the labware, so it is stated
+        # inside it, and only when there is one: an empty or fabricated
+        # label is measured off the file forever.
         **(
             {
-                'plate': image_utils.stated_fields(
-                    name=labware.id,
+                'labware': image_utils.stated_fields(
+                    id=labware.id,
                     rows=labware.rows,
                     columns=labware.columns,
                     standard=labware.standard,

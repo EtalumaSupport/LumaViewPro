@@ -48,7 +48,7 @@ def _a_record(**overrides) -> dict:
         'timestamp_iso': _A_TIME.isoformat(timespec='microseconds'),
         'timestamp_source': 'host_wallclock',
         'instrument': {'manufacturer': 'Etaluma', 'model': 'LS850', 'camera_model': 'cam'},
-        'plate': {'name': '96 well microplate', 'rows': 8, 'columns': 12, 'well_label': 'A1'},
+        'labware': {'id': '96 well microplate', 'rows': 8, 'columns': 12, 'well_label': 'A1'},
         **overrides,
     }
 
@@ -250,7 +250,7 @@ def test_a_hyperstack_built_from_ome_stills_states_what_a_derived_file_does(tmp_
 
     assert root.find(f'{q("Instrument")}/{q("Microscope")}').get('Model') == 'LS850'
     stated = _a_record()
-    shared = ('instrument', 'plate', 'objective', 'filterset', 'binning_size')
+    shared = ('instrument', 'labware', 'objective', 'filterset', 'binning_size')
     on_its_channel = ('exposure_ms', 'gain_db', 'excitation_nm', 'channel_display')
     assert {key: record.get(key) for key in shared + on_its_channel} == {
         key: image_utils.read_file_record(tmp_path / 'frame_z0.ome.tiff')[key]
@@ -391,11 +391,39 @@ def test_a_recorded_frame_of_every_shipped_shape_reads_its_scale_and_time(tmp_pa
     assert [image_utils.load_pixels_with_timestamp(p)[3] for p in (v2, beta30)] == [_A_TIME] * 2
 
 
+def test_an_ome_file_naming_its_labware_plate_reads_back_as_today_s(tmp_path):
+    """From beta38 until beta48 an OME file stated its labware in its LVP
+    annotation as ``plate``, its catalogue id as ``name`` (the shipped
+    4.0.0-beta among them). Such a file reads back into the record a file
+    written today states, ``labware`` with ``id``, its well and every other
+    fact the same: read by today's key alone, it lost its labware and its
+    well without a word, and a count of it wrote no well."""
+    today = _write(tmp_path / 'today.ome.tiff', _a_record(), ome=True)
+    description = tf.TiffFile(str(today)).pages[0].description
+    as_shipped = description.replace('<M K="labware">{"id": ', '<M K="plate">{"name": ')
+    as_shipped = as_shipped.replace('labware.id', 'plate.name').replace('labware.', 'plate.')
+    assert as_shipped.count('<M K="plate">{"name": ') == 1, 'the file is the shipped shape'
+    shipped = tmp_path / 'beta43.ome.tiff'
+    shipped.write_bytes(today.read_bytes())
+    tf.tiffcomment(str(shipped), as_shipped.encode())
+
+    read = image_utils.read_file_record(shipped)
+
+    assert read['labware'] == {
+        'id': '96 well microplate',
+        'rows': 8,
+        'columns': 12,
+        'well_label': 'A1',
+    }
+    assert read == image_utils.read_file_record(today)
+
+
 def test_every_key_a_shipped_file_states_spells_one_fact():
     """A former key is one fact's alone, never a fact's own key or another's
-    former key, and every key read back from a shipped recorded frame names
-    a fact: either break reads a file's key as the wrong fact or as none,
-    and the table is refused where it is built."""
+    former key; every key read back from a shipped recorded frame names a
+    fact; and a field a former key renames is read into a field its fact
+    has: each break reads a file's value as the wrong fact or as none, and
+    the table is refused where it is built."""
     planted = {
         'reused': {
             'recording_frame': image_utils.FILE_FACTS['recording_frame'],
@@ -406,6 +434,13 @@ def test_every_key_a_shipped_file_states_spells_one_fact():
             'frame_id': image_utils.FileFact(
                 image_utils.FactKind.CAPTURE,
                 formerly=(image_utils.FormerKey('frame_num', 'a build'),),
+            ),
+        },
+        'renamed into nothing': {
+            'labware': image_utils.FileFact(
+                image_utils.FactKind.SHARED,
+                fields=('id', 'well_label'),
+                formerly=(image_utils.FormerKey('plate', 'a build', fields=(('name', 'ident'),)),),
             ),
         },
     }
@@ -420,6 +455,7 @@ def test_every_key_a_shipped_file_states_spells_one_fact():
     assert refused == {
         'reused': "'frame_num' spells both 'recording_frame' and 'frame_num'",
         'claimed twice': "'frame_num' spells both 'recording_frame' and 'frame_id'",
+        'renamed into nothing': "'plate'.name is read as 'labware'.ident, a field it does not have",
     }
     assert str(unread.value) == "['frame_no'] are read back but name no fact"
 

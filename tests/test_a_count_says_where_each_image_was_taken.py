@@ -35,9 +35,13 @@ from tests.count_runs import (
 def _stated(path):
     """The well, channel and Z the image at *path* states, as the results write them."""
     facts = image_utils.read_file_record(path)
-    plate = facts.get('plate') or {}
+    labware = facts.get('labware') or {}
     z = facts.get('z_um')
-    return (plate.get('well_label') or '', facts.get('channel') or '', '' if z is None else str(z))
+    return (
+        labware.get('well_label') or '',
+        facts.get('channel') or '',
+        '' if z is None else str(z),
+    )
 
 
 def test_each_row_says_the_well_channel_and_z_its_image_states_and_its_scan_and_tile(

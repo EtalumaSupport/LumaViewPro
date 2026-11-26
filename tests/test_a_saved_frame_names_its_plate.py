@@ -25,8 +25,8 @@ def test_the_plate_block_names_the_plate(sim_scope):
         fallback_focus=None,
     )
 
-    assert metadata['plate'] == {
-        'name': '384 well microplate',
+    assert metadata['labware'] == {
+        'id': '384 well microplate',
         'rows': 16,
         'columns': 24,
         'standard': 'ANSI SLAS 2004',

@@ -1501,15 +1501,15 @@ def test_a_stills_record_reads_back_value_for_value_from_ome_and_imagej(
                 **where,
             )
             read[case, output_format] = image_utils.read_file_record(path)
-        stated = {key: recorded.get(key) for key in ('instrument', 'plate')}
+        stated = {key: recorded.get(key) for key in ('instrument', 'labware')}
         assert {key: read[case, 'TIFF'].get(key) for key in stated} == stated, case
 
     assert {case: read[case, 'OME-TIFF'] for case in cases} == {
         case: read[case, 'TIFF'] for case in cases
     }
     assert 'serial_number' not in read['no serial, no standard', 'TIFF']['instrument']
-    assert 'standard' not in read['no serial, no standard', 'TIFF']['plate']
-    assert 'plate' not in read['blank', 'TIFF']
+    assert 'standard' not in read['no serial, no standard', 'TIFF']['labware']
+    assert 'labware' not in read['blank', 'TIFF']
 
 
 def test_a_stills_well_is_stated_inside_its_plate_in_every_container(sim_scope, tmp_path):
@@ -1534,10 +1534,10 @@ def test_a_stills_well_is_stated_inside_its_plate_in_every_container(sim_scope, 
             output_format=output_format,
             well_label='B7',
         )
-        read[container] = image_utils.read_file_record(path).get('plate')
+        read[container] = image_utils.read_file_record(path).get('labware')
 
-    assert recorded['plate']['well_label'] == 'B7'
-    assert read == dict.fromkeys(containers, recorded['plate'])
+    assert recorded['labware']['well_label'] == 'B7'
+    assert read == dict.fromkeys(containers, recorded['labware'])
 
 
 def test_a_derived_file_states_a_well_only_with_the_plate_every_input_was_on(sim_scope, tmp_path):
@@ -1578,9 +1578,9 @@ def test_a_derived_file_states_a_well_only_with_the_plate_every_input_was_on(sim
     one_well = derived('one_well', [records['A1'], records['A1']])
     two_wells = derived('two_wells', [records['A1'], records['A2']])
 
-    assert one_well['plate'] == records['A1']['plate']
-    assert one_well['plate']['well_label'] == 'A1'
-    assert 'plate' not in two_wells
+    assert one_well['labware'] == records['A1']['labware']
+    assert one_well['labware']['well_label'] == 'A1'
+    assert 'labware' not in two_wells
 
 
 def test_every_key_a_derived_file_keeps_reads_back_and_a_composite_keeps_no_layers_setting(
@@ -1886,7 +1886,7 @@ def test_a_still_shows_its_whole_record_where_fiji_reads_its_container(
     assert [pair for pair in view if pair[0] != 'datetime'] == [
         pair for pair in _flattened_record(written) if pair[0] != 'datetime'
     ]
-    assert ('plate.well_label', 'A1') in view
+    assert ('labware.well_label', 'A1') in view
     assert (
         datetime.datetime.fromisoformat(dict(view)['datetime']).replace(microsecond=0)
         == image_utils.read_file_record(path)['datetime']
@@ -1939,7 +1939,7 @@ def test_a_hyperstack_shows_its_record_and_its_build_time(sim_scope, tmp_path):
     assert stamped == built_at.strftime('%Y:%m:%d %H:%M:%S')
     assert view == _flattened_record(metadata['record'])
     assert ('channel', 'BF') in view
-    assert ('plate.well_label', 'A1') in view
+    assert ('labware.well_label', 'A1') in view
 
 
 def test_a_derived_file_shows_the_record_it_states(sim_scope, tmp_path):
@@ -1970,7 +1970,7 @@ def test_a_derived_file_shows_the_record_it_states(sim_scope, tmp_path):
     )
 
     assert _the_view(derived) == _flattened_record(metadata)
-    assert ('plate.well_label', 'A1') in _the_view(derived)
+    assert ('labware.well_label', 'A1') in _the_view(derived)
 
 
 def test_the_view_is_plain_text_and_a_plain_tiffs_is_ascii(tmp_path):
@@ -1985,7 +1985,7 @@ def test_the_view_is_plain_text_and_a_plain_tiffs_is_ascii(tmp_path):
         'channel': 'BF',
         'exposure_ms': 50.0,
         'judgments': [{'source': 'led', 'counts': True}, {'source': 'gain', 'counts': False}],
-        'plate': {'name': '96 well \u00b5plate', 'well_label': 'D6'},
+        'labware': {'id': '96 well \u00b5plate', 'well_label': 'D6'},
         'datetime': datetime.datetime(2026, 10, 30, 9, 15, 2, 250000),
     }
     shown = {}
@@ -2017,15 +2017,15 @@ def test_the_view_is_plain_text_and_a_plain_tiffs_is_ascii(tmp_path):
     ]
     assert shown['plain.tiff'] == [
         *plain,
-        ('plate.name', '96 well \\u00b5plate'),
-        ('plate.well_label', 'D6'),
+        ('labware.id', '96 well \\u00b5plate'),
+        ('labware.well_label', 'D6'),
         ('datetime', '2026-10-30T09:15:02.250000'),
         ('significant_bits', '8'),
     ]
     assert shown['frame.ome.tiff'] == [
         *plain,
-        ('plate.name', '96 well \u00b5plate'),
-        ('plate.well_label', 'D6'),
+        ('labware.id', '96 well \u00b5plate'),
+        ('labware.well_label', 'D6'),
         ('datetime', '2026-10-30T09:15:02.250000'),
         ('significant_bits', '12'),
     ]
@@ -2051,7 +2051,7 @@ def _a_judgment_of_a_change_and_a_move():
 
 def test_the_facts_table_names_every_field_a_save_states(sim_scope, tmp_path):
     """The published facts table listed a structured fact as one row, so a
-    caller could not learn that the well is ``plate.well_label``. Each
+    caller could not learn that the well is ``labware.well_label``. Each
     structured fact declares its fields and the table lists them, and a
     record the save builds states exactly those: a field the save adds and
     the table lacks, or one the table names and no save states, fails here.
@@ -2070,11 +2070,11 @@ def test_the_facts_table_names_every_field_a_save_states(sim_scope, tmp_path):
 
     unmeasured = {'objective': {'focus_peak_fwhm_dense_um'}}
     structured = {key: fact for key, fact in image_utils.FILE_FACTS.items() if fact.fields}
-    assert set(structured) == {'objective', 'plate_pos_mm', 'judgments', 'instrument', 'plate'}
+    assert set(structured) == {'objective', 'plate_pos_mm', 'judgments', 'instrument', 'labware'}
     for key, fact in structured.items():
         entries = recorded[key] if isinstance(recorded[key], list) else [recorded[key]]
         stated = set().union(*entries)
         assert stated == set(fact.fields) - unmeasured.get(key, set()), key
     rows = {line.split(' | ')[0]: line for line in _file_facts_table().splitlines()}
-    assert '`well_label`' in rows['| `plate`']
+    assert '`well_label`' in rows['| `labware`']
     assert 'keyed by channel name' in rows['| `illumination_by_channel_ma`']

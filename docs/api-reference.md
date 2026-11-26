@@ -18106,7 +18106,7 @@ The events the event stream sends of its own, which no member delivers.
 
 ## Saved-file facts
 
-Every fact a saved file's record can state, by its key, in the order the writer writes them: what it describes (a derived file states a `capture` fact never, a `channel` fact only on its inputs' channel, a `shared` fact as all its inputs state it), its key in the file's Plane block, the unit written beside it, whether a sum of frames drops it, the fields of a structured fact, and every other key a shipped file states it under. A file states a field only when it has a value, and shows a person each field as its own `key.field` pair (`plate.well_label`; an entry of a keyed fact `key.<key>.field`). A former key is either read back, from a recorded frame an older build wrote, into the record under today's key, or appears only in the file's view, the pairs a person reads, and is read by a person's own reader as the same fact.
+Every fact a saved file's record can state, by its key, in the order the writer writes them: what it describes (a derived file states a `capture` fact never, a `channel` fact only on its inputs' channel, a `shared` fact as all its inputs state it), its key in the file's Plane block, the unit written beside it, whether a sum of frames drops it, the fields of a structured fact, and every other key a shipped file states it under. A file states a field only when it has a value, and shows a person each field as its own `key.field` pair (`labware.well_label`; an entry of a keyed fact `key.<key>.field`). A former key is either read back, from a recorded frame or an OME file's annotation an older build wrote, into the record under today's key and fields, or appears only in the file's view, the pairs a person reads, and is read by a person's own reader as the same fact.
 
 | Key | Kind | Plane key | Unit | Dropped by a sum | Fields | Formerly |
 |---|---|---|---|---|---|---|
@@ -18140,7 +18140,7 @@ Every fact a saved file's record can state, by its key, in the order the writer 
 | `filterset` | shared | -- | -- | no | -- | -- |
 | `pixel_size_um` | shared | -- | -- | no | -- | -- |
 | `instrument` | shared | -- | -- | no | `manufacturer`, `model`, `serial_number`, `camera_model` | -- |
-| `plate` | shared | -- | -- | no | `name`, `rows`, `columns`, `standard`, `well_label` | -- |
+| `labware` | shared | -- | -- | no | `id`, `rows`, `columns`, `standard`, `well_label` | `plate` until 4.0.0-beta48, `name` as `id`, read back |
 | `datetime` | file | -- | -- | no | -- | -- |
 | `significant_bits` | file | -- | -- | no | -- | -- |
 | `algorithm` | file | -- | -- | no | -- | -- |
