@@ -660,10 +660,6 @@ _ALLOWED_WRITERS = {
         'src/_lumascope/modules/scope_session.py',
         'ScopeSession._replace_an_unknown_stored_objective',
     ),
-    # These two write a snapshot copy, not the store; the census matches the
-    # subscript shape and cannot tell a copy from the live dict.
-    ('src/_lumascope/modules/scope_session.py', 'ScopeSession.capture_settings_snapshot'),
-    ('src/_lumascope/modules/scope_session.py', 'ScopeSession.settings_snapshot'),
     # A confirmation stored before it recorded its light path, dated at
     # bring-up, the one place the light path is known.
     (

@@ -177,19 +177,25 @@ def innermost_subscript_key(node, keys):
 def writers_of_settings_keys(keys) -> set[tuple[str, str]]:
     """``(rel_path, qualname)`` for every production function that writes one of ``keys``.
 
-    A write is a subscript store whose innermost literal key is in
-    ``keys``, or an ``update_settings(path, ...)`` / ``_store_setting(path,
-    ...)`` call whose dotted path ends in one -- the path's last segment is
-    the key a subscript store would name innermost. The census a
-    single-writer guard pins against: the guard names the one home of each
-    fact and this returns everywhere that fact is written.
+    A write is a subscript store into the live settings store
+    (``settings_store_root``) whose innermost literal key is in ``keys``, or
+    an ``update_settings(path, ...)`` / ``_store_setting(path, ...)`` call
+    whose dotted path ends in one -- the path's last segment is the key a
+    subscript store would name innermost. A store keyed the same into any
+    other dict (a file's record, a snapshot, a recording's claim) is not a
+    write of the setting. The census a single-writer guard pins against:
+    the guard names the one home of each fact and this returns everywhere
+    that fact is written.
     """
     found = set()
     for rel_path, tree in production_modules():
         for qualname, fn in walk_defs(tree.body):
+            aliases = settings_store_aliases(fn)
             for node in ast.walk(fn):
                 if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Store):
-                    if innermost_subscript_key(node, keys) is not None:
+                    if innermost_subscript_key(node, keys) is not None and settings_store_root(
+                        node.value, aliases
+                    ):
                         found.add((rel_path, qualname))
                 elif (
                     isinstance(node, ast.Call)
@@ -202,19 +208,26 @@ def writers_of_settings_keys(keys) -> set[tuple[str, str]]:
     return found
 
 
+# The live settings store's names: ``settings`` everywhere, and
+# ``settings_dict`` in settings_init's preparation of a loaded file, where
+# the dict being repaired is the store every host then runs on.
+_SETTINGS_STORE_NAMES = frozenset({'settings', 'settings_dict'})
+
+
 def settings_store_root(node: ast.AST, aliases: set[str]) -> bool:
     """Whether ``node`` reaches the live settings store.
 
-    The store is ``settings`` by name, an attribute chain ending ``.settings``,
-    a subscript, ``.get`` or other call chain rooted there, or a local in
-    ``aliases`` (``settings_store_aliases``). The one resolver for the guards
-    that count the store's writers and its readers' second values.
+    The store is a name in ``_SETTINGS_STORE_NAMES``, an attribute chain
+    ending ``.settings``, a subscript, ``.get`` or other call chain rooted
+    there, or a local in ``aliases`` (``settings_store_aliases``). The one
+    resolver for the guards that count the store's writers and its readers'
+    second values.
     """
     while isinstance(node, (ast.Subscript, ast.Attribute, ast.Call)):
         if isinstance(node, ast.Attribute) and node.attr == 'settings':
             return True
         node = node.func if isinstance(node, ast.Call) else node.value
-    return isinstance(node, ast.Name) and (node.id == 'settings' or node.id in aliases)
+    return isinstance(node, ast.Name) and (node.id in _SETTINGS_STORE_NAMES or node.id in aliases)
 
 
 def settings_store_aliases(fn: ast.AST) -> set[str]:
