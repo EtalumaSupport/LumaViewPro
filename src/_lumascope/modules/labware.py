@@ -8,7 +8,7 @@ from _lumascope.modules.api_surface import api, api_fields
 
 
 @api_fields(
-    'name',
+    'id',
     'rows',
     'columns',
     'spacing_x_mm',
@@ -27,7 +27,7 @@ class Labware:
     Plate positions are in mm from the plate's top-left corner.
 
     Attributes:
-        name: The plate's name, its key in the catalog.
+        id: The plate's catalog key.
         rows: The number of rows of wells; 0 for a plate with no wells
             (the Blank labware).
         columns: The number of columns of wells; 0 for a plate with no
@@ -44,7 +44,7 @@ class Labware:
             (``ANSI SLAS 2004``); '' where it states none.
     """
 
-    name: str
+    id: str
     rows: int
     columns: int
     spacing_x_mm: float
@@ -100,7 +100,7 @@ class Labware:
         """
         if not (0 <= i < self.columns and 0 <= j < self.rows):
             raise ArgumentRefusedError(
-                'well_unknown', argument='(i, j)', value=(i, j), plate=self.name
+                'well_unknown', argument='(i, j)', value=(i, j), plate=self.id
             )
         x = self.offset_x_mm + i * self.spacing_x_mm
         y = self.offset_y_mm + j * self.spacing_y_mm

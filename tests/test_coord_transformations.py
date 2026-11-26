@@ -37,7 +37,7 @@ def test_a_stage_position_round_trips_on_another_plate_and_offset(runtime_state)
     """A protocol's own plate and a run's offset are a frame of their own:
     the pair is stated in it, not in the selection."""
     other = '6 well microplate'
-    assert runtime_state.get_labware().name != other
+    assert runtime_state.get_labware().id != other
     offset = StageOffset(x_um=1234.0, y_um=-567.0)
 
     plate, stage = _round_trip(runtime_state, labware_id=other, stage_offset=offset)

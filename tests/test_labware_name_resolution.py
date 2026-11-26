@@ -178,9 +178,9 @@ class TestTheApiLoad:
 
     def test_the_scopes_lookup_answers_a_retired_spelling_with_its_plate(self, session):
         def check(old_name, key):
-            plate = session.scope.plate(old_name)
-            assert plate.name == key
-            assert plate == session.scope.plate(key)
+            plate = session.scope.labware(old_name)
+            assert plate.id == key
+            assert plate == session.scope.labware(key)
 
         failed = failing_cases(sorted(RENAMED.items()), check)
         assert not failed, failed

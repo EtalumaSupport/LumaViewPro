@@ -98,7 +98,7 @@ def _read_plate(name: str, entry: object, filepath: pathlib.Path) -> labware.Lab
             f"gives plate {name!r} a 'diameter' of {diameter}, neither -1 (not stated) nor above 0",
         )
     return labware.Labware(
-        name=name,
+        id=name,
         **counts,
         spacing_x_mm=_above_zero(entry, ('spacing', 'x'), name, filepath),
         spacing_y_mm=_above_zero(entry, ('spacing', 'y'), name, filepath),

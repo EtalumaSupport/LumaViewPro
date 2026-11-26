@@ -22,12 +22,12 @@ def scope():
 
 
 def test_the_labware_refuses_a_change(scope):
-    listed = {plate.name: plate for plate in scope.all_labware}
+    listed = {plate.id: plate for plate in scope.all_labware}
     with pytest.raises(dataclasses.FrozenInstanceError):
         listed['96 well microplate'].spacing_x_mm = 10.0
     with pytest.raises(dataclasses.FrozenInstanceError):
-        scope.plate('96 well microplate').spacing_x_mm = 10.0
-    assert scope.plate('96 well microplate').spacing_x_mm == 9
+        scope.labware('96 well microplate').spacing_x_mm = 10.0
+    assert scope.labware('96 well microplate').spacing_x_mm == 9
 
 
 def test_the_scope_models_refuse_a_change(scope):

@@ -1659,7 +1659,7 @@ Raises nothing.
 
 The current plate's catalog key, the one `select_labware` selected.
 
-Its record is `scope.plate(labware_id)`.
+Its record is `scope.labware(labware_id)`.
 
 <a id="ScopeSession.last_run"></a>
 ### `ScopeSession.last_run`
@@ -4611,8 +4611,8 @@ Raises nothing.
 
 Every plate of the installation, read once at bring-up, in the catalog's order.
 
-Each record is read-only and carries its `name`, the key
-`plate` takes. Slides and Petri dishes are not offered yet.
+Each record is read-only and carries its `id`, the key
+`labware` takes. Slides and Petri dishes are not offered yet.
 
 <a id="Lumascope.all_objectives"></a>
 ### `Lumascope.all_objectives`
@@ -4647,6 +4647,33 @@ Every scope model of the installation, read once at bring-up, in the catalog's o
 
 Each record is read-only and carries its `id`, its name in the
 catalog, the name `ScopeSession.select_model` takes.
+
+<a id="Lumascope.labware"></a>
+### `Lumascope.labware`
+
+```python
+def labware(self, labware_id: str) -> Labware
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/labware`.
+
+The installation's plate `labware_id` names, by its catalog key or a retired one.
+
+A protocol or settings file written before a plate was renamed
+carries the old name; the plate it now lives under is answered.
+
+**Args**
+
+- `labware_id`: The plate's key in the labware catalog, or a name it has retired.
+
+**Raises**
+
+- `CatalogNameRefusedError`: `'labware_unknown'`, the catalog holds no plate under `labware_id` or a retired name of it; `offered` carries the plates it holds.
+
+**Refusals by REST status**
+
+- 422: [`CatalogNameRefusedError`](#CatalogNameRefusedError): `labware_unknown`
 
 <a id="Lumascope.motion_expected"></a>
 ### `Lumascope.motion_expected`
@@ -4691,33 +4718,6 @@ that fits two objectives is refused, never matched to one.
 **Refusals by REST status**
 
 - 422: [`CatalogNameRefusedError`](#CatalogNameRefusedError): `objective_not_in_catalog`
-
-<a id="Lumascope.plate"></a>
-### `Lumascope.plate`
-
-```python
-def plate(self, labware_id: str) -> Labware
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/plate`.
-
-The installation's plate `labware_id` names, by its catalog name or a retired one.
-
-A protocol or settings file written before a plate was renamed
-carries the old name; the plate it now lives under is answered.
-
-**Args**
-
-- `labware_id`: The plate's name in the labware catalog, or a name it has retired.
-
-**Raises**
-
-- `CatalogNameRefusedError`: `'labware_unknown'`, the catalog holds no plate under `labware_id` or a retired name of it; `offered` carries the plates it holds.
-
-**Refusals by REST status**
-
-- 422: [`CatalogNameRefusedError`](#CatalogNameRefusedError): `labware_unknown`
 
 <a id="Lumascope.simulation"></a>
 ### `Lumascope.simulation`
@@ -10069,7 +10069,7 @@ Whether one frame counts for one change, and the facts that decided it.
 ## `lumascope.Labware`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Returned by: [`Lumascope.all_labware`](#Lumascope.all_labware), [`Lumascope.plate`](#Lumascope.plate).
+Returned by: [`Lumascope.all_labware`](#Lumascope.all_labware), [`Lumascope.labware`](#Lumascope.labware).
 
 One multi-well plate of the installation's catalog, read once at bring-up.
 
@@ -10079,7 +10079,7 @@ Plate positions are in mm from the plate's top-left corner.
 
 - <a id="Labware.columns"></a>`columns`: `int` -- The number of columns of wells; 0 for a plate with no wells (the Blank labware).
 - <a id="Labware.height_mm"></a>`height_mm`: `float` -- The plate's outline along Y, in mm.
-- <a id="Labware.name"></a>`name`: `str` -- The plate's name, its key in the catalog.
+- <a id="Labware.id"></a>`id`: `str` -- The plate's catalog key.
 - <a id="Labware.offset_x_mm"></a>`offset_x_mm`: `float` -- The X of the first well's center, in mm.
 - <a id="Labware.offset_y_mm"></a>`offset_y_mm`: `float` -- The Y of the first well's center, in mm.
 - <a id="Labware.rows"></a>`rows`: `int` -- The number of rows of wells; 0 for a plate with no wells (the Blank labware).
@@ -13977,7 +13977,7 @@ words; the client already holds the value it sent.
 - <a id="ArgumentRefusedError.limits"></a>`limits`: `tuple[float, float] | None` -- The lowest and highest value the argument takes, for an `'out_of_range'` whose rule has both ends; None otherwise.
 - <a id="ArgumentRefusedError.member"></a>`member`: `str | None` -- The member to read instead, for `'has_member'`; None otherwise.
 - <a id="ArgumentRefusedError.offered"></a>`offered`: `tuple[str | int, ...] | None` -- The values the argument takes, where it takes a list; None otherwise.
-- <a id="ArgumentRefusedError.plate"></a>`plate`: `str | None` -- The name of the plate looked on, for `'well_unknown'`; None otherwise.
+- <a id="ArgumentRefusedError.plate"></a>`plate`: `str | None` -- The `Labware.id` of the plate looked on, for `'well_unknown'`; None otherwise.
 - <a id="ArgumentRefusedError.takes"></a>`takes`: `str | None` -- The value the argument takes, in words, for `'out_of_range'`, `'wrong_kind'`, `'fault_bound'` and `'argument_not_on_board'`, and when it is read, for `'not_read'`; None otherwise.
 
 | Reason | Cause | REST status |
@@ -14843,7 +14843,7 @@ A refusal; bases `Refusal`, `ConfigError`.
 
 A labware, objective or scope model name the installation's catalog does not hold.
 
-Raised by the catalog's lookup -- `Lumascope.plate` for a plate,
+Raised by the catalog's lookup -- `Lumascope.labware` for a plate,
 `Lumascope.objective` for an objective, `ScopeSession.select_model`'s
 for a scope model -- before anything is stored, so every door that names
 one is refused alike. A scope model is also refused at bring-up when the
@@ -17896,6 +17896,7 @@ reading the run's outcome reads what the person was shown.
 | `POST` | `/api/v1/scope/imaging/enable_streaming` | [`ImagingAPI.enable_streaming`](#ImagingAPI.enable_streaming) |
 | `GET` | `/api/v1/scope/imaging/read_streaming` | [`ImagingAPI.read_streaming`](#ImagingAPI.read_streaming) |
 | `GET` | `/api/v1/scope/imaging/significant_bits` | [`ImagingAPI.significant_bits`](#ImagingAPI.significant_bits) |
+| `GET` | `/api/v1/scope/labware` | [`Lumascope.labware`](#Lumascope.labware) |
 | `GET` | `/api/v1/scope/motion/axes_without_position` | [`MotionAPI.axes_without_position`](#MotionAPI.axes_without_position) |
 | `GET` | `/api/v1/scope/motion/axis_limits` | [`MotionAPI.axis_limits`](#MotionAPI.axis_limits) |
 | `GET` | `/api/v1/scope/motion/axis_positions` | [`MotionAPI.axis_positions`](#MotionAPI.axis_positions) |
@@ -17919,7 +17920,6 @@ reading the run's outcome reads what the person was shown.
 | `GET` | `/api/v1/scope/motion/turret_status` | [`MotionAPI.turret_status`](#MotionAPI.turret_status) |
 | `GET` | `/api/v1/scope/motion_expected` | [`Lumascope.motion_expected`](#Lumascope.motion_expected) |
 | `GET` | `/api/v1/scope/objective` | [`Lumascope.objective`](#Lumascope.objective) |
-| `GET` | `/api/v1/scope/plate` | [`Lumascope.plate`](#Lumascope.plate) |
 | `GET` | `/api/v1/scope/runtime_state/frame_point_distance` | [`RuntimeState.frame_point_distance`](#RuntimeState.frame_point_distance) |
 | `GET` | `/api/v1/scope/runtime_state/frame_point_plate` | [`RuntimeState.frame_point_plate`](#RuntimeState.frame_point_plate) |
 | `GET` | `/api/v1/scope/runtime_state/optics_status` | [`RuntimeState.optics_status`](#RuntimeState.optics_status) |

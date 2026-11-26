@@ -39,10 +39,10 @@ def test_a_well_index_off_the_plate_is_refused_as_no_well(plate):
         try:
             where.well_position(i, j)
         except ArgumentRefusedError as refused:
-            if refused.reason != 'well_unknown' or where.name not in str(refused):
-                wrong.append(f'{where.name} ({i}, {j}): {refused.reason!r} {refused}')
+            if refused.reason != 'well_unknown' or where.id not in str(refused):
+                wrong.append(f'{where.id} ({i}, {j}): {refused.reason!r} {refused}')
         else:
-            wrong.append(f'{where.name} ({i}, {j}): was not refused')
+            wrong.append(f'{where.id} ({i}, {j}): was not refused')
     assert not wrong, '\n'.join(wrong)
     plate.well_position(0, 0)
     plate.well_position(plate.columns - 1, plate.rows - 1)

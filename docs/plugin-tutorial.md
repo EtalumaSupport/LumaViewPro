@@ -437,7 +437,7 @@ starts from the session, `ctx`, as every caller does.
 - **The hardware**, `ctx.scope.<api>`: `motion` (a position to keep,
   `positions_to_keep`; the axes, `axis_positions`), `illumination`, `camera`,
   `imaging` (whether a frame would count, `changes_in_force`,
-  `judge_frame`), and the catalogs (`ctx.scope.plate`, `objective`,
+  `judge_frame`), and the catalogs (`ctx.scope.labware`, `objective`,
   `all_labware`, `all_objectives`).
 - **Registering**: `ctx.plugins.post_processing.register`,
   `ctx.plugins.live_processing.register` and `ctx.plugins.ui.register`;

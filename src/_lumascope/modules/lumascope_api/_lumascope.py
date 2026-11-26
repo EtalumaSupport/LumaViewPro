@@ -2289,20 +2289,6 @@ class Lumascope:
         """
         return self.objective_helper.objectives
 
-    @property
-    def labware(self) -> 'Mapping[str, Labware]':
-        """The installation's plates, by name, read once at bring-up.
-
-        Read-only, as each record is: no caller can change what another
-        reads. Which one is selected is ``ScopeSession.labware_id``.
-        Slides and Petri dishes are not offered yet. Not published: a caller
-        looks a plate up with ``plate`` and lists them with ``all_labware``.
-
-        Raises:
-            Nothing.
-        """
-        return self.wellplate_loader.plates
-
     @api(reads=True)
     def objective(self, objective_id: str) -> 'Objective':
         """The installation's objective ``objective_id`` names, by its catalog key.
@@ -2321,14 +2307,14 @@ class Lumascope:
         return self.objective_helper.get_objective_info(objective_id)
 
     @api(reads=True)
-    def plate(self, labware_id: str) -> 'Labware':
-        """The installation's plate ``labware_id`` names, by its catalog name or a retired one.
+    def labware(self, labware_id: str) -> 'Labware':
+        """The installation's plate ``labware_id`` names, by its catalog key or a retired one.
 
         A protocol or settings file written before a plate was renamed
         carries the old name; the plate it now lives under is answered.
 
         Args:
-            labware_id: The plate's name in the labware catalog, or a
+            labware_id: The plate's key in the labware catalog, or a
                 name it has retired.
 
         Raises:
@@ -2358,8 +2344,8 @@ class Lumascope:
     def all_labware(self) -> 'tuple[Labware, ...]':
         """Every plate of the installation, read once at bring-up, in the catalog's order.
 
-        Each record is read-only and carries its ``name``, the key
-        ``plate`` takes. Slides and Petri dishes are not offered yet.
+        Each record is read-only and carries its ``id``, the key
+        ``labware`` takes. Slides and Petri dishes are not offered yet.
 
         Raises:
             Nothing.

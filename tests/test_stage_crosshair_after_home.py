@@ -48,7 +48,7 @@ def _refuse_to_draw():
 def stage(gui_ctx, monkeypatch):
     """The stage map over an unhomed simulated session; the crosshair was last
     drawn where a home lands, the board's position after home."""
-    monkeypatch.setattr(gui_ctx.scope, 'plate', lambda labware_id: _refuse_to_draw())
+    monkeypatch.setattr(gui_ctx.scope, 'labware', lambda labware_id: _refuse_to_draw())
     built = Stage.__new__(Stage)
     built._protocol_step_redraw = False
     home = _where_a_home_lands(gui_ctx.scope)
@@ -115,7 +115,7 @@ def test_a_z_without_a_position_does_not_hide_the_xy_crosshair(stage, gui_ctx, s
 
 
 class _Plate:
-    name = 'plate'
+    id = 'plate'
 
     def __init__(self):
         self.spacing_x_mm = 9
@@ -142,7 +142,7 @@ def test_a_homed_stage_whose_position_the_api_no_longer_answers_draws_none(
         'axis_positions',
         property(lambda self: {a: AxisPosition(AxisState.UNKNOWN, None) for a in 'XYZ'}),
     )
-    monkeypatch.setattr(scope, 'plate', lambda labware_id: _Plate())
+    monkeypatch.setattr(scope, 'labware', lambda labware_id: _Plate())
     monkeypatch.setattr(stage_module, 'Clock', SimpleNamespace(schedule_once=lambda *a, **k: None))
     stage._cached_labware_name = 'plate'
     stage.width = stage.height = 100

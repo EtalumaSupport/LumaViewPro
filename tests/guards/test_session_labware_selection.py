@@ -59,11 +59,11 @@ def sessions():
 
 def _runtime_plate(session):
     """Which plate the scope is actually on, by its catalogue name."""
-    return session.scope.runtime_state.get_labware().name
+    return session.scope.runtime_state.get_labware().id
 
 
 def _expected_plate(plate_name):
-    return labware_loader.WellPlateLoader(source_path='.').get_plate(labware_id=plate_name).name
+    return labware_loader.WellPlateLoader(source_path='.').get_plate(labware_id=plate_name).id
 
 
 class TestSelectingAPlate:

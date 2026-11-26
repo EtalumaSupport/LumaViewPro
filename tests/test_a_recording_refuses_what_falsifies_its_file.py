@@ -589,7 +589,7 @@ class TestTheLabwarePanelReportsARefusal:
             'ctx',
             types.SimpleNamespace(
                 scope=types.SimpleNamespace(
-                    all_labware=(types.SimpleNamespace(name='A'), types.SimpleNamespace(name='B'))
+                    all_labware=(types.SimpleNamespace(id='A'), types.SimpleNamespace(id='B'))
                 ),
                 session=types.SimpleNamespace(
                     select_labware=_refuse,

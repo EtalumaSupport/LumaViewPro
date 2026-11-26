@@ -499,7 +499,7 @@ def generate_image_metadata(
         **(
             {
                 'plate': image_utils.stated_fields(
-                    name=labware.name,
+                    name=labware.id,
                     rows=labware.rows,
                     columns=labware.columns,
                     standard=labware.standard,

@@ -168,7 +168,7 @@ class Stage(Widget):
             mouse_y = mouse_y - self.y
 
             # Create current labware instance
-            labware = _app_ctx.ctx.scope.plate(_app_ctx.ctx.session.labware_id)
+            labware = _app_ctx.ctx.scope.labware(_app_ctx.ctx.session.labware_id)
 
             # Scale from pixels to mm (from the bottom left)
             scale_x = labware.width_mm / self.width
@@ -239,8 +239,8 @@ class Stage(Widget):
         Create FBO for static labware rendering (wells, outlines, stage area).
         This significantly optimizes performance by pre-rendering static elements.
         """
-        labware = _app_ctx.ctx.scope.plate(_app_ctx.ctx.session.labware_id)
-        labware_name = labware.name
+        labware = _app_ctx.ctx.scope.labware(_app_ctx.ctx.session.labware_id)
+        labware_name = labware.id
 
         if labware_name in self._labware_fbos:
             logger.debug(f'[Stage     ] Using cached labware FBO for {labware_name}')
@@ -365,8 +365,8 @@ class Stage(Widget):
         Create FBO for protocol step locations rendering.
         This optimizes performance by pre-rendering step markers.
         """
-        labware = _app_ctx.ctx.scope.plate(_app_ctx.ctx.session.labware_id)
-        labware_name = labware.name
+        labware = _app_ctx.ctx.scope.labware(_app_ctx.ctx.session.labware_id)
+        labware_name = labware.id
 
         # Check if we need to regenerate the FBO
         if self._protocol_step_locations_df is None or not self._protocol_step_locations_show:
@@ -490,8 +490,8 @@ class Stage(Widget):
                 return
 
         # Create current labware instance
-        labware = scope.plate(ctx.session.labware_id)
-        labware_name = labware.name
+        labware = scope.labware(ctx.session.labware_id)
+        labware_name = labware.id
 
         # Check if labware changed - trigger full redraw
         if labware_name != self._cached_labware_name:

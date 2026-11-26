@@ -3323,9 +3323,7 @@ class MotionAPI:
             for x_mm, y_mm, label in plate.get_positions_with_labels():
                 if label == well:
                     return (('X', x_mm), ('Y', y_mm))
-            raise ArgumentRefusedError(
-                'well_unknown', argument='well', value=well, plate=plate.name
-            )
+            raise ArgumentRefusedError('well_unknown', argument='well', value=well, plate=plate.id)
 
         return self._start_plate_moves('start_move_to_well', targets)
 

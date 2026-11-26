@@ -289,9 +289,9 @@ discrete one.
 The plate is chosen by
 `select_labware`, which answers whether it changed. The installation's plates
 and objectives are `scope.all_labware` and `scope.all_objectives`, in the
-order they are offered. Each record carries the name `select_labware` or
-`select_objective` takes. `scope.plate` and `scope.objective` look one up by
-name, and `scope.plate` also takes a name a plate has retired. A name the
+order they are offered. Each record carries the `id` `select_labware` or
+`select_objective` takes. `scope.labware` and `scope.objective` look one up by
+it, and `scope.labware` also takes a name a plate has retired. A name the
 catalog does not hold is refused `CatalogNameRefusedError`, whose `offered`
 lists the names it does hold.
 The objective is chosen by
@@ -323,8 +323,8 @@ running one, and `session.model_at_next_start` the model the next start runs
 as while it differs from the running one, else None.
 
 ```python model=LS850T
-print([plate.name for plate in scope.all_labware])      # every plate offered
-print(scope.plate('384 well microplate').columns)       # 24
+print([plate.id for plate in scope.all_labware])        # every plate offered
+print(scope.labware('384 well microplate').columns)     # 24
 print(session.select_labware('384 well microplate'))    # True: the plate changed
 question = session.objective_question
 if question is not None:                                # which objective is in slot 1?

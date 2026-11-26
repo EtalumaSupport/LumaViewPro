@@ -210,6 +210,13 @@ RENAMED = [
             'path': 'cells.json',
         },
     ),
+    (
+        'GET',
+        'scope/plate',
+        {'labware_id': '96 well microplate'},
+        'scope/labware',
+        {'labware_id': '96 well microplate'},
+    ),
 ]
 
 

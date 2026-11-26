@@ -396,7 +396,7 @@ class ProtocolSettings(FloatLayout):
         ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] ProtocolSettings.select_labware()')
         spinner = self.ids['labware_spinner']
-        spinner.values = [plate.name for plate in ctx.scope.all_labware]
+        spinner.values = [plate.id for plate in ctx.scope.all_labware]
 
         # An empty spinner (not yet populated at startup) names no plate, so
         # there is nothing to select; bring-up already put the stored plate
@@ -452,7 +452,7 @@ class ProtocolSettings(FloatLayout):
             # restore the full plate list and the saved labware.
             ctx = _app_ctx.ctx
             saved_labware = ctx.settings['protocol']['labware']
-            labware_spinner.values = [plate.name for plate in ctx.scope.all_labware]
+            labware_spinner.values = [plate.id for plate in ctx.scope.all_labware]
             if saved_labware and saved_labware in labware_spinner.values:
                 labware_spinner.text = saved_labware
 

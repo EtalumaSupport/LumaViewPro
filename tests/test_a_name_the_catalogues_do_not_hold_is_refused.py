@@ -79,7 +79,7 @@ def _selection(session):
 LABWARE_MEMBERS = {
     'resolve_plate_key': lambda s, v: s.scope.wellplate_loader.resolve_plate_key(v),
     'get_plate': lambda s, v: s.scope.wellplate_loader.get_plate(v),
-    'plate': lambda s, v: s.scope.plate(v),
+    'labware': lambda s, v: s.scope.labware(v),
     'select_labware': lambda s, v: s.select_labware(v),
     'set_protocol_labware': lambda s, v: s.set_protocol_labware(s.create_empty_protocol(), v),
 }
@@ -220,7 +220,7 @@ def test_a_wire_client_is_refused_as_the_request_naming_what_the_catalogue_offer
 @pytest.mark.parametrize(
     ('route', 'query', 'reason', 'argument'),
     [
-        ('plate', {'labware_id': 'Acme 1536 Ultra Plate'}, 'labware_unknown', 'labware_id'),
+        ('labware', {'labware_id': 'Acme 1536 Ultra Plate'}, 'labware_unknown', 'labware_id'),
         ('objective', {'objective_id': '10xOly'}, 'objective_not_in_catalog', 'objective_id'),
     ],
 )

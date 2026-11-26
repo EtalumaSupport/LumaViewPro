@@ -371,7 +371,7 @@ class TestTheFrameFile:
         assert (written['exposure_ms'], written['gain_db']) == (25.0, 6.0)
         assert written['binning_size'] == A_CAMERA.binning_size
         assert written['objective'] == _stated_fields(sim_scope.objectives['10x Oly'])
-        assert written['plate']['name'] == plate().name
+        assert written['plate']['name'] == plate().id
         assert written['timestamp_iso'] == A_TIME.at.isoformat(timespec='microseconds')
         assert written['timestamp_source'] == 'host_arrival'
         assert (written['camera_timestamp_ticks'], written['frame_id']) == (123456789, 41)
@@ -488,7 +488,7 @@ class TestARecordingOnTheSimulator:
             objective = _stated_fields(
                 session.scope.objectives[session.scope.runtime_state.resolve_current_objective()[0]]
             )
-            plate_name = session.scope.runtime_state.get_labware().name
+            plate_name = session.scope.runtime_state.get_labware().id
         finally:
             session.shutdown()
 

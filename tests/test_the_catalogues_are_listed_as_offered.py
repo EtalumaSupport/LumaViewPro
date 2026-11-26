@@ -7,7 +7,7 @@ model catalogues, in order: the objectives as the picker offers them (each
 maker's together, rising by magnification;
 ``test_the_objective_catalogue_lists_each_makers_glass_together`` pins that
 order), the plates and the models as their catalogue files list them. Each
-record is the one its lookup, ``scope.objective``, ``scope.plate`` or
+record is the one its lookup, ``scope.objective``, ``scope.labware`` or
 ``scope.scope_model``, answers for the name it carries, so a caller that
 lists the catalogue needs no second read. Over REST each list is one
 ``GET``, an array, so the order crosses the wire with it; the model
@@ -43,8 +43,8 @@ def test_the_plates_are_listed_in_the_catalogues_order_each_its_lookups_answer(s
     scope = session.scope
     in_file = list(json.loads(resolve_data_file('labware.json').read_text('utf-8'))['Wellplate'])
     listed = scope.all_labware
-    assert [p.name for p in listed] == in_file
-    assert all(scope.plate(p.name) is p for p in listed)
+    assert [p.id for p in listed] == in_file
+    assert all(scope.labware(p.id) is p for p in listed)
 
 
 def test_the_models_are_listed_in_the_catalogues_order_each_its_lookups_answer(session):
@@ -65,7 +65,7 @@ def test_a_wire_client_lists_each_catalogue_in_one_request_in_order(session):
     assert objectives.status_code == plates.status_code == models.status_code == 200
     assert one.status_code == 200
     assert [o['id'] for o in objectives.json()] == [o.id for o in session.scope.all_objectives]
-    assert [p['name'] for p in plates.json()] == [p.name for p in session.scope.all_labware]
+    assert [p['id'] for p in plates.json()] == [p.id for p in session.scope.all_labware]
     assert [m['id'] for m in models.json()] == [m.id for m in session.scope.all_scope_models]
     assert one.json() == next(o for o in objectives.json() if o['id'] == '10x Oly')
     assert whole_mapping.status_code == 404

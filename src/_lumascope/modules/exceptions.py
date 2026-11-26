@@ -1954,7 +1954,7 @@ def _offered_words(offered: Iterable[object]) -> str:
 class CatalogNameRefusedError(Refusal, ConfigError):
     """A labware, objective or scope model name the installation's catalog does not hold.
 
-    Raised by the catalog's lookup -- ``Lumascope.plate`` for a plate,
+    Raised by the catalog's lookup -- ``Lumascope.labware`` for a plate,
     ``Lumascope.objective`` for an objective, ``ScopeSession.select_model``'s
     for a scope model -- before anything is stored, so every door that names
     one is refused alike. A scope model is also refused at bring-up when the
@@ -4965,8 +4965,8 @@ class ArgumentRefusedError(Refusal, ValueError):
         board: The simulated board, in words, for
             ``'not_injectable_on_board'``, ``'argument_not_on_board'`` and
             ``'needs_simulated_firmware'``; None otherwise.
-        plate: The name of the plate looked on, for ``'well_unknown'``;
-            None otherwise.
+        plate: The ``Labware.id`` of the plate looked on, for
+            ``'well_unknown'``; None otherwise.
         member: The member to read instead, for ``'has_member'``; None
             otherwise.
 

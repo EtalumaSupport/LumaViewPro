@@ -63,7 +63,7 @@ def window(tmp_path, monkeypatch):
     stage._prev_x_target = stage._prev_y_target = None
     stage._prev_x_current = stage._prev_y_current = None
     stage.draw_labware = lambda *a, **k: stage.draw_labware_io_calculations()
-    monkeypatch.setattr(session.scope, 'plate', lambda labware_id: _refuse_to_draw())
+    monkeypatch.setattr(session.scope, 'labware', lambda labware_id: _refuse_to_draw())
     ctx = SimpleNamespace(
         # STOP's redraw is the Session's read; the widget write is Kivy's.
         lumaview=SimpleNamespace(

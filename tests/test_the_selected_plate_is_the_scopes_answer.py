@@ -25,7 +25,7 @@ def test_the_answer_is_the_plate_the_settings_name(scope_and_settings):
     scope, settings = scope_and_settings
     settings['protocol']['labware'] = '6 well microplate'
 
-    assert scope.runtime_state.get_labware() == scope.labware['6 well microplate']
+    assert scope.runtime_state.get_labware() == scope.labware('6 well microplate')
 
 
 def test_a_stored_plate_the_catalogue_lacks_is_refused_by_name(scope_and_settings):
