@@ -16839,13 +16839,11 @@ MP4 is finished at its close alone.
 
 **Attributes**
 
-- `reason`: `'video_step_finalize_failed'` -- a protocol video step's output could not be fully assembled. `'recording_finalize_failed'` -- a manual recording's output could not be fully assembled.
 - `protocol_step`: True for a protocol video step, False for a manual recording; each is named in its own words.
 
 | Reason | Cause | REST status |
 |---|---|---|
 | `recording_finalize_failed` | -- | 500 |
-| `video_step_finalize_failed` | -- | 500 |
 
 <a id="RecordingFramesUnstampedError"></a>
 ### `lumascope.RecordingFramesUnstampedError`

@@ -3173,19 +3173,12 @@ class RecordingFinalizeError(Fault, CaptureError):
     MP4 is finished at its close alone.
 
     Attributes:
-        reason: ``'video_step_finalize_failed'`` -- a protocol video step's
-            output could not be fully assembled.
-            ``'recording_finalize_failed'`` -- a manual recording's output
-            could not be fully assembled.
         protocol_step: True for a protocol video step, False for a manual
             recording; each is named in its own words.
     """
 
-    titles: ClassVar[dict[str, str]] = {
-        'video_step_finalize_failed': 'Video Finalize Failed',
-        'recording_finalize_failed': 'Recording Finalize Failed',
-    }
-    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles)
+    title = 'Recording Finalize Failed'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'recording_finalize_failed': None}
 
     def __init__(self, *, protocol_step: bool, recording_format: 'RecordingFormat'):
         kept = kept_clause(recording_format)
@@ -3194,14 +3187,12 @@ class RecordingFinalizeError(Fault, CaptureError):
                 'A video step finished but its output could not be fully assembled.'
                 f'{kept} {INTERNAL_FAULT_SENTENCE}'
             )
-            reason = 'video_step_finalize_failed'
         else:
             message = (
                 'The recording finished but its output could not be fully assembled.'
                 f'{kept} {INTERNAL_FAULT_SENTENCE}'
             )
-            reason = 'recording_finalize_failed'
-        super().__init__(message, reason)
+        super().__init__(message, 'recording_finalize_failed')
         self.protocol_step = protocol_step
 
 

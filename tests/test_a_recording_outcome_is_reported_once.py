@@ -101,7 +101,7 @@ def _record_reports(monkeypatch, module):
         ),
         (
             RecordingFinalizeError(protocol_step=True, recording_format=RecordingFormat.FRAMES),
-            'Video Finalize Failed',
+            'Recording Finalize Failed',
             'A video step finished but its output could not be fully assembled. '
             f'What was saved before it is kept. {INTERNAL_FAULT_SENTENCE}',
         ),
