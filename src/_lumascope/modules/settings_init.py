@@ -972,6 +972,8 @@ def prepare_loaded(
         SettingRefusedError: a handed dict's value the writer refuses, with
             the write's own reason (``'out_of_range'``, ``'wrong_kind'``,
             ``'not_a_number'``).
+        ArgumentRefusedError: ``'gain_range_inverted'``, a handed dict's
+            auto-gain range whose minimum gain is above its maximum.
     """
     template = copy.deepcopy(template)
     _normalize_turret_slot_keys(template)

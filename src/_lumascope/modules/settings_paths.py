@@ -775,10 +775,17 @@ def refuse_handed_values(settings: dict, template: dict) -> None:
 
     The write's half, for a dict handed to a session whole: the caller can
     fix its dict, so a value no write could store is refused as a write of
-    it would be, by the same rule, before anything runs on it.
+    it would be, by the same rule, before anything runs on it. The auto-gain
+    range is judged after its bounds, by the arm's own rule, as the load's
+    half judges it: otherwise an inverted pair is met at the first arm,
+    which at bring-up is partway through the session's creation.
 
     Raises:
         SettingRefusedError: as ``check_write`` raises it for that value.
+        ArgumentRefusedError: ``'gain_range_inverted'``, an auto-gain range
+            whose minimum gain is above its maximum, naming
+            ``protocol.autogain`` and both bounds.
     """
     for *_, refused in _values_the_writer_refuses(settings, template):
         raise refused
+    refuse_inverted_gain_range(settings['protocol']['autogain'], 'protocol.autogain')

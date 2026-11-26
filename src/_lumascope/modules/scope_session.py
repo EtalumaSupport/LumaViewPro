@@ -2007,7 +2007,9 @@ class ScopeSession:
                 refusal's count below 1; ``'not_offered'``, a node or an
                 answer the camera's write does not give. ``'wrong_kind'``, a block of
                 ``settings`` that is not the kind the shipped template holds
-                (``argument`` names it).
+                (``argument`` names it). ``'gain_range_inverted'``, the
+                auto-gain range in ``settings`` with its minimum gain above
+                its maximum (``argument`` names ``protocol.autogain``).
                 ``'needs_simulated_firmware'``, the record's ``unit_config``
                 for a scope whose motor board is not the simulated motor
                 firmware: the ``fast`` simulator tier (chosen, or run where

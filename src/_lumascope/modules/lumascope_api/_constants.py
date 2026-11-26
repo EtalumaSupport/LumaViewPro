@@ -81,7 +81,8 @@ def refuse_inverted_gain_range(settings: dict, argument: str) -> None:
     """Refuse an auto-gain range whose minimum gain is above its maximum.
 
     The one check of the pair, for every place it is judged: an arm of
-    auto-gain and a stored pair at load. Not at the settings write: each
+    auto-gain, a stored pair at load and a settings dict handed to a
+    session whole. Not at the settings write: each
     bound is written alone, so a write judging the pair would make a client
     order its two writes.
 

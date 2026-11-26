@@ -7,9 +7,10 @@ hedged with a second value for the keys it might lack, dead on the
 prepared file and live only on that hand dict. Now ``create`` runs the
 file's own preparation on it (``settings_init.prepare_loaded``): every
 template key is present at every depth, a value the writer refuses is
-refused as a write is, a container of the wrong kind is refused as the
-argument, and a dict the file's preparation already made usable goes
-through unchanged, its stored turret assignments included.
+refused as a write is, an inverted auto-gain range is refused as an arm
+refuses it, a container of the wrong kind is refused as the argument,
+and a dict the file's preparation already made usable goes through
+unchanged, its stored turret assignments included.
 """
 
 import copy
@@ -98,6 +99,30 @@ def test_a_value_the_writer_refuses_is_refused_as_a_write_is_and_nothing_is_buil
     assert refused.value.reason == reason
     # Only the threads this create started count: a thread another test on
     # the same worker left running may end during this one.
+    assert [t.name for t in threading.enumerate() if t not in before] == []
+
+
+def test_an_inverted_auto_gain_range_is_refused_as_an_arm_refuses_it_and_nothing_is_built():
+    """A handed dict whose auto-gain minimum gain is above its maximum is
+    refused at the call, by the arm's own rule, before anything runs on it.
+
+    Each bound alone is in range, so only the pair rule refuses it. Every
+    layer's auto-gain is off, so no arm at bring-up meets the pair: without
+    the handed judge's pair check the scope comes up holding it.
+    """
+    settings = complete_settings()
+    auto_gain_paths = [path for path, _ in _leaf_paths(settings) if path.endswith('.auto_gain')]
+    assert auto_gain_paths
+    assert [path for path in auto_gain_paths if _value_at(settings, path)] == []
+    settings['protocol']['autogain'].update(min_gain_db=15.0, max_gain_db=5.0)
+    before = set(threading.enumerate())
+    with pytest.raises(ArgumentRefusedError) as refused:
+        ScopeSession.create(settings, simulate=True)
+    assert (refused.value.reason, refused.value.argument, refused.value.value) == (
+        'gain_range_inverted',
+        'protocol.autogain',
+        {'min_gain_db': 15.0, 'max_gain_db': 5.0},
+    )
     assert [t.name for t in threading.enumerate() if t not in before] == []
 
 
