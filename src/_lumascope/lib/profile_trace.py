@@ -13,7 +13,7 @@ setting and knows no root: it sits below every layer that does.
 Writes CSV files under ``<output_dir>/<timestamp>_run<n>/``:
   - serial_trace.csv        (SerialBoard.exchange_command timings)
   - motion_trace.csv        (motion-monitor poll durations + axis state transitions)
-  - frame_validity_trace.csv (invalidate/credit/nocredit/dedupe/settled events)
+  - frame_validity_trace.csv (invalidate/in_force/ended/credit/nocredit/dedupe/settled events)
 
 Columns are documented in the trace-site wrappers (see timer() and trace()
 callers in src/_lumascope/drivers/serialboard.py, src/_lumascope/modules/lumascope_api.py,

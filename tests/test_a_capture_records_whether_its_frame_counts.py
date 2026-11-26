@@ -73,6 +73,28 @@ def test_a_frame_counts_only_once_the_count_was_met_before_it():
     ]
 
 
+def test_a_change_that_ended_counts_a_frame_after_its_end_and_says_so():
+    """An ended change is met by its end: a frame after the end counts for
+    it, one from before the end still needed the count, and the judgment's
+    fields say how many frames after the change it ended; a change that
+    did not end says nothing of an end."""
+    delivered = [6]
+    fv = FrameValidity(lambda: delivered[0])
+    fv.invalidate('auto_gain', began_ns=None)  # skip 20, recorded at frame 6
+    fv.count_frame(7, by=Counter.GRAB)
+    unended = fv.judge(_frame(8), fv.changes()['auto_gain'])
+    delivered[0] = 8
+    fv.end('auto_gain')  # ended at frame 8
+    change = fv.changes()['auto_gain']
+
+    before = fv.judge(_frame(8), change)
+    after = fv.judge(_frame(9), change)
+
+    assert (before.counts, after.counts) == (False, True)
+    assert after.fields()['ended_after'] == 2
+    assert 'ended_after' not in unended.fields()
+
+
 def test_a_rule_states_a_whole_count():
     """Every rule carries a whole count of frames, 0 or more; its
     provenance is the run that measured it, or None for a shipped one."""

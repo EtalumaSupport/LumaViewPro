@@ -221,10 +221,11 @@ def _capture_line(grabbed: _Grabbed, record: FrameRecord, previous_seq: int | No
             continue
         f = judgment.fields()
         in_force = f' in_force+{f["after_in_force_ms"]}ms' if 'after_in_force_ms' in f else ''
+        ended = f' ended+{f["ended_after"]}fr' if 'ended_after' in f else ''
         parts.append(
             f'{f["source"]} {"counts" if f["counts"] else "DOES NOT COUNT"} '
             f'+{f["frames_after"]}fr +{f["after_write_ms"]}ms{in_force} '
-            f'skip={f["skip"]} by={_counted_by(judgment.change)}'
+            f'skip={f["skip"]}{ended} by={_counted_by(judgment.change)}'
         )
     return ' | '.join(parts)
 

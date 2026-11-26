@@ -204,7 +204,11 @@ when the currents were read. Each `judgments.<n>` (the Plane's `FrameValidity`) 
 `counts`, `frames_after`, `after_write_ms`, `after_in_force_ms`. It comes with
 its [`Change`](../api-reference.md#Change)'s `source`, its rule's `skip`, the
 frames it needed, and `counted_by`, each counted frame's number and the
-[`Counter`](../api-reference.md#Counter) that counted it (`287:drain`).
+[`Counter`](../api-reference.md#Counter) that counted it (`287:drain`). A
+change met by its end rather than its frames states `ended_after`, the
+frames handed over after the change when it ended: turning auto-gain off
+ends the settle its arm recorded, so a frame after the off counts for the
+arm's change without its `skip` frames.
 
 The API has no reader of a saved file's record: read it with any TIFF reader,
 or keep the `SavedStill` or the run's record the capture answered. In Python:

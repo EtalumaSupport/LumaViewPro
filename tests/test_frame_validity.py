@@ -352,9 +352,10 @@ class TestAutoGainSettle:
     """Hardware continuous-AG settling as a deterministic skip-frame source.
 
     auto_gain is a measure of the instrumentation (frames for hardware AG to
-    settle against the lit scene), not of the sample. It clears by frame count
-    only -- never early from frame content -- which is what keeps it in the
-    settle-tracker layer and reusable by a future software-AG loop.
+    settle against the lit scene), not of the sample. It clears by frame count,
+    or by its end when the loop is turned off -- never early from frame
+    content -- which is what keeps it in the settle-tracker layer and
+    reusable by a future software-AG loop.
     """
 
     @pytest.fixture(autouse=True)
@@ -373,6 +374,34 @@ class TestAutoGainSettle:
             assert fv.owed().frames > 0
             fv.count_frame(_f(), by=Counter.GRAB)
         assert fv.owed().frames == 0
+
+    def test_its_end_leaves_nothing_owed(self):
+        """Ended with its count unmet (the loop turned off), the change is
+        owed no more frames."""
+        fv = FrameValidity(_frames)
+        fv.invalidate('auto_gain', began_ns=None)
+        fv.count_frame(_f(), by=Counter.GRAB)
+        fv.end('auto_gain')
+        assert fv.owed().frames == 0
+
+    def test_a_change_met_by_its_count_does_not_end(self):
+        """An end after the count was met leaves it met by its count, so a
+        frame's record never says it ended."""
+        fv = FrameValidity(_frames)
+        fv.invalidate('auto_gain', began_ns=None)
+        for _ in range(FrameValidity.SKIP_FRAMES['auto_gain']):
+            fv.count_frame(_f(), by=Counter.GRAB)
+        fv.end('auto_gain')
+        assert fv.changes()['auto_gain'].ended_seq is None
+
+    def test_a_change_recorded_after_an_end_waits_its_whole_count(self):
+        """A new arm after an off records a change of its own, owed its
+        whole count."""
+        fv = FrameValidity(_frames)
+        fv.invalidate('auto_gain', began_ns=None)
+        fv.end('auto_gain')
+        fv.invalidate('auto_gain', began_ns=None)
+        assert fv.owed().frames == FrameValidity.SKIP_FRAMES['auto_gain']
 
     def test_not_a_motion_source(self):
         """auto_gain settles on count alone; no settle-callback gating."""

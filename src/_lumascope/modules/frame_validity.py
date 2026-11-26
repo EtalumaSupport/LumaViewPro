@@ -24,9 +24,11 @@ counted after it would retire part of the wait it was never subject to.
 Whether one frame counts for one change is ``FrameValidity.judge``, on
 every camera and for every source by counting frames: a frame counts once
 the source's frame count (``FrameRule``) was met by frames before it, a
-move's counted from its stop. The count is the one the camera's timing
-record measured, else the shipped count (``SKIP_FRAMES``); each source's is
-decided at bring-up and published as ``capabilities.frame_rules``.
+move's counted from its stop, or once the change ended before it (the
+auto-gain loop turned off: ``FrameValidity.end``). The count is the one
+the camera's timing record measured, else the shipped count
+(``SKIP_FRAMES``); each source's is decided at bring-up and published as
+``capabilities.frame_rules``.
 
 Usage:
     fv = FrameValidity(lambda: camera.frames_delivered)
@@ -160,6 +162,7 @@ class FrameRule:
     'credits',
     'needs_in_force',
     'in_force_ns',
+    'ended_seq',
 )
 @dataclasses.dataclass(frozen=True)
 class Change:
@@ -202,6 +205,11 @@ class Change:
             the axis state the settle check reads became settled, stamped by
             the motion API; None until then,
             and for a change that does not wait on an axis.
+        ended_seq: The last frame the camera's driver had been handed when
+            what the change waits for ended before its count was met:
+            turning the auto-gain loop off ends the settle its arm recorded,
+            since there is no loop left to settle. None while it has not
+            ended.
     """
 
     source: FrameValiditySource
@@ -212,11 +220,27 @@ class Change:
     credits: tuple[Credit, ...]
     needs_in_force: bool
     in_force_ns: int | None
+    ended_seq: int | None = None
+
+    def met_before(self, frame_seq: int | None) -> bool:
+        """Whether the change was met before the frame ``frame_seq``: its
+        count by frames that arrived before it, or its end before it; with
+        None, by every frame counted so far, or its end.
+
+        The one test of a change met: ``judge`` asks it of a frame,
+        ``remaining`` (so ``owed`` and the settle) of the change as it stands.
+        """
+        if self.ended_seq is not None and (frame_seq is None or self.ended_seq < frame_seq):
+            return True
+        counted = sum(1 for credit in self.credits if frame_seq is None or credit.seq < frame_seq)
+        return counted >= self.rule.skip
 
     @property
     def remaining(self) -> int:
-        """Frames the change still needs counted; 0 once the count is met."""
-        return max(0, self.rule.skip - len(self.credits))
+        """Frames the change still needs counted; 0 once it is met."""
+        if self.met_before(None):
+            return 0
+        return self.rule.skip - len(self.credits)
 
 
 @api_fields(
@@ -242,9 +266,9 @@ class Judgment:
             frame's arrival.
         after_in_force_ms: Milliseconds from the change's in-force time to
             the frame's arrival; None when it has none.
-        counts: The frame arrived after the change, the change's count was
-            met by frames before it, and an axis the change waits on had
-            settled before it arrived.
+        counts: The frame arrived after the change, the change was met
+            before it (its count by frames before it, or its end), and an
+            axis the change waits on had settled before it arrived.
     """
 
     change: Change
@@ -257,7 +281,9 @@ class Judgment:
     def fields(self) -> dict:
         """The judgment as plain fields, the shape a saved file carries
         whole. A time the judgment has none of is absent, never a
-        stand-in."""
+        stand-in, and so is an end the change never had: ``ended_after``,
+        the frames handed over after the change when it ended, says the
+        change was met by its end, not by ``skip`` frames."""
         out = {
             'source': self.change.source.value,
             'counts': self.counts,
@@ -268,6 +294,8 @@ class Judgment:
         }
         if self.after_in_force_ms is not None:
             out['after_in_force_ms'] = round(self.after_in_force_ms, 3)
+        if self.change.ended_seq is not None:
+            out['ended_after'] = self.change.ended_seq - self.change.at_seq
         return out
 
 
@@ -578,6 +606,28 @@ class FrameValidity:
             self._trace_rows([('invalidate', source, '', at_seq, rule.skip, pending_count)])
         return entry
 
+    def end(self, source: FrameValiditySource) -> None:
+        """Record that what ``source``'s change waits for has ended, its count unmet.
+
+        Turning the auto-gain loop off ends the settle its arm recorded:
+        with no loop running there is nothing left to settle, and the off's
+        own write records the change a frame must wait for. The change
+        stays the source's, its ``at_seq`` kept, met by its end
+        (``Change.ended_seq``), so a frame after the end counts for it and
+        nothing waits on it. A change already met, or none, is left as it is.
+        """
+        with self._lock:
+            change = self._changes.get(source)
+            if change is None or source not in self._pending:
+                return
+            change = dataclasses.replace(change, ended_seq=self._frames_delivered())
+            self._changes[source] = change
+            self._pending.discard(source)
+            at_seq = change.at_seq
+            pending_count = len(self._pending)
+        if profile_trace.ENABLE_PROFILE_TRACE:
+            self._trace_rows([('ended', source, '', at_seq, change.remaining, pending_count)])
+
     def count_frame(self, frame_seq: int, *, by: Counter) -> None:
         """Record that a frame was grabbed from the camera.
 
@@ -687,7 +737,7 @@ class FrameValidity:
 
     def _is_source_settled_unlocked(self, source: FrameValiditySource, pending: Change) -> bool:
         """Check if a source has settled. Must be called with _lock held."""
-        if pending.remaining > 0:
+        if not pending.met_before(None):
             return False
         # Motion sources also require physical completion
         if source in self.MOTION_SOURCES and self._settle_check_fn is not None:
@@ -812,8 +862,8 @@ class FrameValidity:
         A function of facts the frame and the change carry, so a capture,
         the characterization tool and a test ask the same question of any
         frame and get the gate's own answer: the frame counts when it
-        arrived after the change was recorded, the change's count was met by
-        frames that arrived before it, and, for a change that waits on an
+        arrived after the change was recorded, the change was met before it
+        (``Change.met_before``), and, for a change that waits on an
         axis, the axis had settled before it arrived.
 
         Args:
@@ -823,10 +873,9 @@ class FrameValidity:
                 ``invalidate`` returned).
         """
         in_force = change.in_force_ns
-        counted_before = sum(1 for credit in change.credits if credit.seq < frame.seq)
         counts = (
             frame.seq > change.at_seq
-            and counted_before >= change.rule.skip
+            and change.met_before(frame.seq)
             and (
                 not change.needs_in_force or (in_force is not None and in_force <= frame.arrived_ns)
             )

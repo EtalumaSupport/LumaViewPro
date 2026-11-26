@@ -9469,6 +9469,7 @@ long after the change its frame came.
 - <a id="Change.at_seq"></a>`at_seq`: `int` -- The last frame the camera's driver had been handed when the change was recorded, a frame still in a host queue included; for a move, once in force, when its stop was stamped. A frame already in the camera's pipeline when the register was written cannot show the new state, so crediting it would retire the skip count against frames that predate the change -- and the capture then returns a frame from before the write. An ordinal rather than a clock reading, because the comparison has to survive the clock moving: wall time runs backwards across a DST fall-back, an NTP correction or a host resume, and a settle count measured against a timestamp that jumped forward never completes. Frame numbers only go up.
 - <a id="Change.credits"></a>`credits`: `tuple[Credit, ...]` -- The frames counted toward it, in the order counted, until its rule's `skip` was met.
 - <a id="Change.earliest_ns"></a>`earliest_ns`: `int` -- The scope's steady clock (`ScopeSession.host_steady_ns`) of the earliest moment the change could have reached the hardware: a write's start, as its writer stamped it, since the register may change anywhere inside the write; for a move, once in force, the start of the last read that saw its axis still moving, else `written_ns`. A lag measured from here is never short.
+- <a id="Change.ended_seq"></a>`ended_seq`: `int | None` -- The last frame the camera's driver had been handed when what the change waits for ended before its count was met: turning the auto-gain loop off ends the settle its arm recorded, since there is no loop left to settle. None while it has not ended.
 - <a id="Change.in_force_ns"></a>`in_force_ns`: `int | None` -- The scope's steady clock (`ScopeSession.host_steady_ns`) when the axis state the settle check reads became settled, stamped by the motion API; None until then, and for a change that does not wait on an axis.
 - <a id="Change.needs_in_force"></a>`needs_in_force`: `bool` -- A motion source the axis must also settle for: the frame count alone does not end its wait.
 - <a id="Change.rule"></a>`rule`: `FrameRule` -- Its source's count and where it came from, as they stood when the change was recorded.
@@ -10162,7 +10163,7 @@ Whether one frame counts for one change, and the facts that decided it.
 - <a id="Judgment.after_in_force_ms"></a>`after_in_force_ms`: `float | None` -- Milliseconds from the change's in-force time to the frame's arrival; None when it has none.
 - <a id="Judgment.after_write_ms"></a>`after_write_ms`: `float` -- Milliseconds from the change's recording to the frame's arrival.
 - <a id="Judgment.change"></a>`change`: `Change` -- The change judged against, as it stood when judged.
-- <a id="Judgment.counts"></a>`counts`: `bool` -- The frame arrived after the change, the change's count was met by frames before it, and an axis the change waits on had settled before it arrived.
+- <a id="Judgment.counts"></a>`counts`: `bool` -- The frame arrived after the change, the change was met before it (its count by frames before it, or its end), and an axis the change waits on had settled before it arrived.
 - <a id="Judgment.frame_seq"></a>`frame_seq`: `int` -- The frame's hand-over ordinal.
 - <a id="Judgment.frames_after"></a>`frames_after`: `int` -- Frames handed over after the change was recorded, up to and including this one: an upper bound on the frames stored after it, since a frame handed over may be dropped before the store.
 
@@ -18160,7 +18161,7 @@ Every fact a saved file's record can state, by its key, in the order the writer 
 | `camera_timestamp_ticks` | capture | `TimestampCameraTicks` | -- | no | -- | `timestamp_camera_ticks` until 4.0.0-beta48, read back |
 | `camera_timestamp_tick_hz` | capture | `TimestampCameraTickHz` | -- | no | -- | `timestamp_camera_tick_hz` until 4.0.0-beta48, read back |
 | `frame_id` | capture | `FrameID` | -- | no | -- | -- |
-| `judgments` | capture | `FrameValidity` | -- | no | keyed by judgment index: `source`, `counts`, `frames_after`, `after_write_ms`, `skip`, `counted_by`, `after_in_force_ms` | `frame_validity` until 4.0.0-beta48, in the view only |
+| `judgments` | capture | `FrameValidity` | -- | no | keyed by judgment index: `source`, `counts`, `frames_after`, `after_write_ms`, `skip`, `counted_by`, `after_in_force_ms`, `ended_after` | `frame_validity` until 4.0.0-beta48, in the view only |
 | `saturated_fraction` | capture | `SaturatedFraction` | -- | no | -- | -- |
 | `dark` | capture | `Dark` | -- | no | -- | -- |
 | `held_a_channel` | capture | `CameraHeldAChannel` | -- | no | -- | `camera_held_a_channel` until 4.0.0-beta48, in the view only |

@@ -2252,6 +2252,10 @@ class CameraAPI:
                     rejected.__cause__
                 )
             raise
+        if not state:
+            # The loop is off, so its arm's settle has nothing left to wait
+            # for; the off's own GAIN change is what a frame waits on now.
+            self._frame_validity.end(FrameValiditySource.AUTO_GAIN)
         with self._state_lock:
             self._auto_gain_arm = (
                 _AutoGainArm(arm, resume_after_capture, ceiling_ms) if arm_settle else None
@@ -2289,6 +2293,9 @@ class CameraAPI:
                 cache_update={'auto_gain': CameraAutoMode.OFF, 'auto_exposure': CameraAutoMode.OFF},
             )
             mode = CameraAutoMode.OFF
+            # The refused arm still recorded its settle; with the loop off
+            # there is none to wait for.
+            self._frame_validity.end(FrameValiditySource.AUTO_GAIN)
         except CameraSettingRejected as not_off:
             self._report_refused_write(not_off)
             mode = not_off.in_effect

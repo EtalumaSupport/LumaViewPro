@@ -2032,8 +2032,9 @@ def test_the_view_is_plain_text_and_a_plain_tiffs_is_ascii(tmp_path):
 
 
 def _a_judgment_of_a_change_and_a_move():
-    """A gain change, and a settled Z move: between them every field a
-    judgment can state (a move's in-force time the gain change has none of)."""
+    """A gain change, a settled Z move and an ended auto-gain arm: between
+    them every field a judgment can state (a move's in-force time and an
+    arm's end, which the gain change has none of)."""
     from _lumascope.modules.frame_validity import FrameValidity
     from tests.test_a_capture_records_whether_its_frame_counts import _frame
 
@@ -2043,9 +2044,12 @@ def _a_judgment_of_a_change_and_a_move():
     move = fv.invalidate('z_move', began_ns=None)
     fv.motion_settled('z_move', at_ns=move.written_ns + 1_000_000, moving_seen_ns=None)
     move = fv.changes()['z_move']
+    fv.invalidate('auto_gain', began_ns=None)
+    fv.end('auto_gain')
     return (
         fv.judge(_frame(3), gain),
         fv.judge(_frame(2, arrived_ns=move.in_force_ns + 4_000_000), move),
+        fv.judge(_frame(1), fv.changes()['auto_gain']),
     )
 
 

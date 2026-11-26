@@ -640,9 +640,10 @@ FILE_FACTS: dict[str, FileFact] = {
     # Each change the frame was judged against: whether it counts, how many
     # frames and milliseconds after the change it came, and who counted the
     # frames that met the change's count: one judgment per change, its fields
-    # as Judgment.fields() states them, the last only where it has one. The
-    # key is FrameRecord's word; the Plane name is kept for the readers that
-    # parse the block.
+    # as Judgment.fields() states them, the last two only where it has one
+    # (an in-force time; an end, for a change met by its end rather than its
+    # count). The key is FrameRecord's word; the Plane name is kept for the
+    # readers that parse the block.
     'judgments': FileFact(
         FactKind.CAPTURE,
         'FrameValidity',
@@ -656,6 +657,7 @@ FILE_FACTS: dict[str, FileFact] = {
             'skip',
             'counted_by',
             'after_in_force_ms',
+            'ended_after',
         ),
     ),
     # What the capture found the frame to be: the fraction of its pixels at
