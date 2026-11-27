@@ -24,9 +24,10 @@ as arguments (a lane's task), through the project's code, the layers a
 decorator wraps around a function included. A call's target is read from
 what the simulated session's live objects hold, else from annotations, a
 local's assignment, a closure's cell or an import inside the function. A
-lane's receiver (``self._scope._camera_executor``) is evaluated on the live
-owner, so the IO and CAMERA lanes, which ask the claim, are told from the
-post-processing and file lanes, which do not.
+lane's receiver (``self._scope._camera_executor``, written out or through a
+local assigned it once) is evaluated on the live owner, so the IO and CAMERA
+lanes, which ask the claim, are told from the post-processing and file
+lanes, which do not.
 
 Its limit: a member that enters a door only through a call the walk
 cannot resolve is not caught by (1), and is not judged by (2).
@@ -236,11 +237,12 @@ class _Walk:
     def _lane_asks_the_claim(self, func: ast.expr, scope: _Scope) -> bool | None:
         """Whether the lane a ``<receiver>.call``/``.submit`` lands on asks the claim; None when no live owner shows it.
 
-        The receiver is a chain of attributes from ``self``, read on every
-        live instance of the function's class.
+        The receiver is a chain of attributes from ``self``, or a local
+        assigned one once, read on every live instance of the function's
+        class.
         """
         names: list[str] = []
-        receiver = func.value if isinstance(func, ast.Attribute) else None
+        receiver = scope.assigned_once(func.value) if isinstance(func, ast.Attribute) else None
         while isinstance(receiver, ast.Attribute):
             names.insert(0, receiver.attr)
             receiver = receiver.value
@@ -412,6 +414,20 @@ class _Scope:
             return set().union(*(self.resolve(v) for v in values))
         finally:
             self._binding.discard(name)
+
+    def assigned_once(self, expr: ast.expr) -> ast.expr:
+        """The expression a local *expr* names is assigned, when it is assigned exactly once; *expr* otherwise."""
+        if not isinstance(expr, ast.Name) or expr.id == 'self':
+            return expr
+        values = [
+            n.value
+            for n in ast.walk(self.node)
+            if isinstance(n, ast.Assign)
+            and len(n.targets) == 1
+            and isinstance(n.targets[0], ast.Name)
+            and n.targets[0].id == expr.id
+        ]
+        return values[0] if len(values) == 1 else expr
 
     def _imported(self, name: str) -> set[object]:
         """What an ``import`` inside the function binds to *name*."""

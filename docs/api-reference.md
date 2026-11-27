@@ -3951,6 +3951,7 @@ def start_save_still(
 ) -> Operation[tuple[SavedStill, ...]]
 ```
 
+Marks: enters: `lane_submit`.  
 Route: `POST /api/v1/manual_capture/start_save_still`.
 
 Capture one still and save it; returns at once.
@@ -3983,7 +3984,9 @@ An `Operation` whose result is a `SavedStill` per file written, the unmarked fil
 
 **Refusals by REST status**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `capture_in_flight`
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `capture_in_flight`, `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
 <a id="ManualRecordingController"></a>
 ## `lumascope.ManualRecordingController`

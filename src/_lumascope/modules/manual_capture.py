@@ -15,7 +15,7 @@ import pathlib
 import threading
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.config_helpers as config_helpers
@@ -34,10 +34,13 @@ from _lumascope.modules.channel_record import ChannelColors
 from _lumascope.modules.lumascope_api.frame_record import CapturedStill, FrameRecord, SumProgress
 from _lumascope.modules.lumascope_api.illumination import lit_other_than
 from _lumascope.modules.recording_frames import frame_fact
-from _lumascope.modules.api_surface import api, api_fields
+from _lumascope.modules.api_surface import Admission, api, api_fields
 from _lumascope.modules.operation import Operation
 from _lumascope.modules.protocol_image_writer import WRITE_STALL_FATAL_S
 from _lumascope.modules.run_events import RunEvents, deliver_here
+
+if TYPE_CHECKING:
+    from _lumascope.modules.lumascope_api._lumascope import Lumascope
 
 logger = logging.getLogger('LVP.modules.manual_capture')
 
@@ -173,7 +176,7 @@ class ManualCaptureController:
     def _record_sum_progress(self, progress: SumProgress) -> None:
         self._sum_progress = progress
 
-    @api
+    @api(admitted_by=(Admission.LANE_SUBMIT,))
     def start_save_still(
         self,
         *,
@@ -585,27 +588,17 @@ def _make_folder(settings: dict, folder: pathlib.Path) -> None:
         ) from exc
 
 
+@dataclasses.dataclass(kw_only=True)
 class _StillRequest:
     """Everything one still is decided from, fixed when it is asked for."""
 
-    def __init__(
-        self,
-        *,
-        scope: Any,
-        settings: dict,
-        bullseye: bool,
-        crosshairs: bool,
-        engineering_mode: bool,
-        channel_colors: ChannelColors,
-        events: RunEvents,
-    ):
-        self.scope = scope
-        self.settings = settings
-        self.bullseye = bullseye
-        self.crosshairs = crosshairs
-        self.engineering_mode = engineering_mode
-        self.channel_colors = channel_colors
-        self.events = events
-        # Set as the lane body's first act: after it, the body owns releasing
-        # the in-flight guard.
-        self.body_started = threading.Event()
+    scope: 'Lumascope'
+    settings: dict
+    bullseye: bool
+    crosshairs: bool
+    engineering_mode: bool
+    channel_colors: ChannelColors
+    events: RunEvents
+    # Set as the lane body's first act: after it, the body owns releasing
+    # the in-flight guard.
+    body_started: threading.Event = dataclasses.field(default_factory=threading.Event)
