@@ -223,9 +223,7 @@ class TestNothingBuildsFromAFolderMissingImages:
         registry = PluginRegistry(object())  # a stand-in by design: no scope member is reached
         registry.post_processing.handlers = MagicMock(return_value=[(spec, processor)])
 
-        registry.run_protocol_complete_processors(
-            input_dir='run', manifest={}, output_dir='run', files='incomplete'
-        )
+        registry.run_protocol_complete_processors(input_dir='run', manifest={}, files='incomplete')
 
         processor.assert_not_called()
 

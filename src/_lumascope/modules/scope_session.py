@@ -6437,7 +6437,7 @@ class ScopeSession:
         def processors() -> None:
             write_batch.wait_complete(None)
             self._plugins.run_protocol_complete_processors(
-                run_dir_str, manifest, run_dir_str, write_batch.outcome
+                run_dir_str, manifest, write_batch.outcome
             )
 
         def answer(settled: concurrent.futures.Future) -> None:

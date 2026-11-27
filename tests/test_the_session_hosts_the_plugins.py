@@ -18,6 +18,7 @@ hyperstack build are done.
 from __future__ import annotations
 
 import datetime
+import os
 import threading
 import types
 from unittest.mock import patch
@@ -83,12 +84,20 @@ def _load(session, *modules):
 
 
 def _recording_processor():
-    """A processor that records each call and the thread it ran on."""
+    """A processor that records each call, the thread it ran on and whether its output folder was there."""
     calls = []
     called = threading.Event()
 
     def processor(input_dir, manifest, output_dir):
-        calls.append((input_dir, dict(manifest), threading.current_thread().name))
+        calls.append(
+            (
+                input_dir,
+                dict(manifest),
+                threading.current_thread().name,
+                output_dir,
+                os.path.isdir(output_dir),
+            )
+        )
         called.set()
         return ProcessorResult(success=True, message='done')
 
@@ -131,7 +140,7 @@ def _run_protocol(runner, tmp_path, *, sequenced_format='TIFF'):
 
 
 class TestAFullProtocolRunsTheOptedInProcessors:
-    def test_a_protocol_started_through_the_session_hands_its_folder_on_once(self, tmp_path):
+    def test_a_protocol_hands_its_folder_and_the_plugins_own_folder_on_once(self, tmp_path):
         opted_in = _recording_processor()
         not_opted_in = _recording_processor()
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
@@ -146,8 +155,11 @@ class TestAFullProtocolRunsTheOptedInProcessors:
 
         assert files.outcome == 'written'
         assert len(opted_in.calls) == 1
-        input_dir, manifest, thread_name = opted_in.calls[0]
+        input_dir, manifest, thread_name, output_dir, output_made = opted_in.calls[0]
         assert input_dir == str(run.progress().run_dir)
+        # Its own folder inside the run's, made before the call: the run's
+        # folder was once handed over as the output folder too.
+        assert (output_dir, output_made) == (os.path.join(input_dir, 'opted_in'), True)
         assert manifest['trigger_source'] == Caller.API, "a run no host stamped is a script's"
         assert manifest['protocol_name'] == 'protocol'
         assert thread_name.startswith('POSTPROC'), thread_name
@@ -289,19 +301,20 @@ class TestOnlyALoadedPluginIsHandedTheFolder:
             host.plugins.load(host, '4.0.0')
         return host
 
-    def test_an_unloaded_plugins_processor_is_not_run(self):
+    def test_an_unloaded_plugins_processor_is_not_run(self, tmp_path):
         processor = _recording_processor()
         host = self._registry_with(_plugin('unloaded', processor=processor, auto_run=True))
+        first, second = str(tmp_path / '1'), str(tmp_path / '2')
         # The positive control: loaded, it is handed the folder.
-        host.plugins.run_protocol_complete_processors('/run/1', {}, '/run/1', 'written')
+        host.plugins.run_protocol_complete_processors(first, {}, 'written')
         assert len(processor.calls) == 1
 
         host.plugins.unload(host)
-        host.plugins.run_protocol_complete_processors('/run/2', {}, '/run/2', 'written')
+        host.plugins.run_protocol_complete_processors(second, {}, 'written')
 
-        assert [call[0] for call in processor.calls] == ['/run/1']
+        assert [call[0] for call in processor.calls] == [first]
 
-    def test_a_plugin_whose_register_failed_is_not_run(self):
+    def test_a_plugin_whose_register_failed_is_not_run(self, tmp_path):
         processor = _recording_processor()
 
         def fail_after_registering(ctx):
@@ -312,7 +325,7 @@ class TestOnlyALoadedPluginIsHandedTheFolder:
         )
         assert 'half' in [p.name for p in host.plugins.not_loaded()]
 
-        host.plugins.run_protocol_complete_processors('/run/1', {}, '/run/1', 'written')
+        host.plugins.run_protocol_complete_processors(str(tmp_path), {}, 'written')
 
         assert processor.calls == []
 
@@ -332,9 +345,9 @@ class TestOnlyALoadedPluginIsHandedTheFolder:
             _load(session, _plugin('opted_in', processor=processor, auto_run=True))
             real = session.plugins.run_protocol_complete_processors
 
-            def _spy(input_dir, manifest, output_dir, files):
+            def _spy(input_dir, manifest, files):
                 handed.append(files)
-                real(input_dir, manifest, output_dir, files)
+                real(input_dir, manifest, files)
                 handed_on.set()
 
             monkeypatch.setattr(session.plugins, 'run_protocol_complete_processors', _spy)

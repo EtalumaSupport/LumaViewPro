@@ -227,7 +227,7 @@ def test_a_plugin_in_no_namespace_is_still_reported(harness_ctx, centre_posts, o
 
 
 def _run_complete(ctx, tmp_path):
-    ctx.plugins.run_protocol_complete_processors(str(tmp_path), {}, str(tmp_path), 'written')
+    ctx.plugins.run_protocol_complete_processors(str(tmp_path), {}, 'written')
 
 
 def test_a_post_run_processor_that_raises_is_reported(

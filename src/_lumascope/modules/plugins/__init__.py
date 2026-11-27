@@ -78,7 +78,7 @@ ENGINEERING_PLUGIN = 'etaluma_engineering'
 # reads it at its own entry through session.plugin_api_level and refuses
 # below what it needs; a host older than the level has no such member,
 # which the plugin reads as 0.
-PLUGIN_API_LEVEL = 205
+PLUGIN_API_LEVEL = 206
 
 
 class UIMountPoint(enum.StrEnum):
@@ -395,7 +395,8 @@ class PostProcessingRegistry(_BaseNamespace):
         processor: callable
             processor(input_dir, manifest, output_dir) -> ProcessorResult
         Invoked at the end of every Full Protocol run when
-        spec.auto_run_on_protocol_complete=True.
+        spec.auto_run_on_protocol_complete=True, with the run's folder and
+        the plugin's own folder inside it.
         Ad-hoc invocation: callers fetch via .get(name) and call directly.
     """
 
@@ -413,7 +414,12 @@ class PostProcessingRegistry(_BaseNamespace):
             spec: The plugin.
             processor: Called ``processor(input_dir, manifest, output_dir)``
                 with the folder to read, the run's manifest and the folder to
-                write into; answers a ``ProcessorResult``.
+                write into; answers a ``ProcessorResult``. After a Full
+                Protocol run, ``input_dir`` is the run's folder, ``manifest``
+                is ``{'protocol_name', 'run_dir', 'trigger_source'}`` and
+                ``output_dir`` is ``<run folder>/<spec.name>``, made before
+                the call, so a plugin's files are never mixed with the run's
+                or another plugin's.
 
         Raises:
             PluginRegistrationError: ``'name_taken'``, the namespace already
@@ -962,7 +968,6 @@ class PluginRegistry:
         self,
         input_dir: str,
         manifest: dict,
-        output_dir: str,
         files: FilesOutcome,
     ) -> None:
         """Invoke every post_processing plugin that opted in via
@@ -975,10 +980,12 @@ class PluginRegistry:
         build from a partial one. Only a loaded plugin's processor runs: one
         unloaded since is not handed the folder -- the session's close
         unloads plugins first -- and is reported as skipped,
-        naming the run (``PluginProcessorSkippedError``). Each plugin's processor runs in
-        turn; a processor that raises, returns something other than a
-        ProcessorResult, or returns one that reports failure is recorded
-        and reported, and does not block the others. A success is logged at
+        naming the run (``PluginProcessorSkippedError``). Each plugin's
+        processor runs in turn, writing into its own folder inside
+        ``input_dir``, named for the plugin and made before the call. A
+        folder that cannot be made, or a processor that raises, returns
+        something other than a ProcessorResult, or returns one that reports
+        failure, is recorded and reported, and does not block the others. A success is logged at
         INFO with what it made: the count of its outputs and their common
         folder, since a plate's stitch makes thousands of files. Never raises.
         """
@@ -1005,6 +1012,8 @@ class PluginRegistry:
                     )
                 continue
             try:
+                output_dir = os.path.join(input_dir, spec.name)
+                os.makedirs(output_dir, exist_ok=True)
                 result = processor(input_dir, manifest, output_dir)
             except Exception as e:
                 self.record_runtime_error(spec.name, 'auto_run_on_protocol_complete', e)

@@ -10900,7 +10900,8 @@ register(spec, processor):
     processor: callable
         processor(input_dir, manifest, output_dir) -> ProcessorResult
     Invoked at the end of every Full Protocol run when
-    spec.auto_run_on_protocol_complete=True.
+    spec.auto_run_on_protocol_complete=True, with the run's folder and
+    the plugin's own folder inside it.
     Ad-hoc invocation: callers fetch via .get(name) and call directly.
 
 <a id="PostProcessingRegistry.get"></a>
@@ -10953,7 +10954,7 @@ Register a processor of saved files.
 **Args**
 
 - `spec`: The plugin.
-- `processor`: Called `processor(input_dir, manifest, output_dir)` with the folder to read, the run's manifest and the folder to write into; answers a `ProcessorResult`.
+- `processor`: Called `processor(input_dir, manifest, output_dir)` with the folder to read, the run's manifest and the folder to write into; answers a `ProcessorResult`. After a Full Protocol run, `input_dir` is the run's folder, `manifest` is `{'protocol_name', 'run_dir', 'trigger_source'}` and `output_dir` is `<run folder>/<spec.name>`, made before the call, so a plugin's files are never mixed with the run's or another plugin's.
 
 **Raises**
 

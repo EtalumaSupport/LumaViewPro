@@ -95,10 +95,12 @@ def _process(input_dir: str, manifest: dict, output_dir: str) -> ProcessorResult
 
     Args:
         input_dir: Absolute path to the capture folder being processed.
-        manifest: Capture manifest dict. Contents are protocol-specific;
-            treat unknown keys as opaque.
-        output_dir: Absolute path the plugin writes outputs into. The
-            host creates this directory before invoking the processor.
+        manifest: Capture manifest dict. After a run it is
+            {'protocol_name', 'run_dir', 'trigger_source'}; treat other
+            keys as opaque.
+        output_dir: Absolute path the plugin writes outputs into: after a
+            run, <run folder>/<plugin name>. The host creates this
+            directory before invoking the processor.
 
     Returns:
         ProcessorResult naming the produced files plus a one-line

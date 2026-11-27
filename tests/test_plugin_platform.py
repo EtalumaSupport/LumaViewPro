@@ -14,6 +14,7 @@ Covers:
 
 from __future__ import annotations
 
+import os
 import re
 import threading
 import types
@@ -240,11 +241,15 @@ def test_post_processing_handlers_returns_spec_processor_pairs(harness_ctx):
 # ---------------------------------------------------------------------------
 
 
-def test_auto_run_dispatcher_invokes_only_opted_in(harness_ctx):
+def test_an_auto_run_hands_each_opted_in_processor_the_run_and_its_own_made_folder(
+    harness_ctx, tmp_path
+):
+    # The run's folder was once handed over as the output folder too, so a
+    # plugin's files landed among the run's and every other plugin's.
     calls = []
 
     def opted_in(input_dir, manifest, output_dir):
-        calls.append(('opted_in', input_dir, manifest, output_dir))
+        calls.append(('opted_in', input_dir, manifest, output_dir, os.path.isdir(output_dir)))
         return ProcessorResult(success=True, message='did the work')
 
     def not_opted_in(input_dir, manifest, output_dir):
@@ -270,14 +275,10 @@ def test_auto_run_dispatcher_invokes_only_opted_in(harness_ctx):
         harness_ctx.plugins._track(name, types.ModuleType(name))
 
     harness_ctx.plugins.run_protocol_complete_processors(
-        input_dir='/in',
-        manifest={'k': 'v'},
-        output_dir='/out',
-        files='written',
+        input_dir=str(tmp_path), manifest={'k': 'v'}, files='written'
     )
 
-    assert len(calls) == 1
-    assert calls[0] == ('opted_in', '/in', {'k': 'v'}, '/out')
+    assert calls == [('opted_in', str(tmp_path), {'k': 'v'}, str(tmp_path / 'opted'), True)]
 
 
 def test_an_auto_run_success_is_logged_with_what_it_made(harness_ctx, caplog, tmp_path):
@@ -300,7 +301,7 @@ def test_an_auto_run_success_is_logged_with_what_it_made(harness_ctx, caplog, tm
 
     with caplog.at_level('INFO', logger='LVP'):
         harness_ctx.plugins.run_protocol_complete_processors(
-            input_dir='/in', manifest={}, output_dir='/out', files='written'
+            input_dir=str(tmp_path), manifest={}, files='written'
         )
 
     succeeded = [r.getMessage() for r in caplog.records if 'auto-run succeeded' in r.getMessage()]
@@ -309,7 +310,7 @@ def test_an_auto_run_success_is_logged_with_what_it_made(harness_ctx, caplog, tm
     ]
 
 
-def test_auto_run_dispatcher_swallows_processor_exception(harness_ctx, caplog):
+def test_auto_run_dispatcher_swallows_processor_exception(harness_ctx, caplog, tmp_path):
     calls = []
 
     def boom(input_dir, manifest, output_dir):
@@ -340,16 +341,13 @@ def test_auto_run_dispatcher_swallows_processor_exception(harness_ctx, caplog):
 
     # Should not raise; runs_after should still execute despite boomer failing.
     harness_ctx.plugins.run_protocol_complete_processors(
-        input_dir='/in',
-        manifest={},
-        output_dir='/out',
-        files='written',
+        input_dir=str(tmp_path), manifest={}, files='written'
     )
 
     assert calls == ['runs_after']
 
 
-def test_auto_run_dispatcher_skips_when_all_opt_out(harness_ctx):
+def test_auto_run_dispatcher_skips_when_all_opt_out(harness_ctx, tmp_path):
     calls = []
 
     def proc(input_dir, manifest, output_dir):
@@ -359,10 +357,7 @@ def test_auto_run_dispatcher_skips_when_all_opt_out(harness_ctx):
     spec = _make_spec(name='not_opted')  # default False
     harness_ctx.plugins.post_processing.register(spec, proc)
     harness_ctx.plugins.run_protocol_complete_processors(
-        input_dir='/in',
-        manifest={},
-        output_dir='/out',
-        files='written',
+        input_dir=str(tmp_path), manifest={}, files='written'
     )
     assert calls == []
 

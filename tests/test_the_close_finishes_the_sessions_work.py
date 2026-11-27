@@ -279,7 +279,6 @@ def test_a_runs_processor_skipped_by_the_unload_is_reported(monkeypatch):
     registry.run_protocol_complete_processors(
         input_dir='/runs/plate1',
         manifest={'protocol_name': 'plate1'},
-        output_dir='',
         files='written',
     )
 
