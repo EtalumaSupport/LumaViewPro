@@ -181,7 +181,7 @@ def declared(
     under the status each of its reasons answers -- a refusal's cause per
     reason, a fault 500 -- with the reasons the entry quotes, or every
     reason the class can carry when it quotes none. Each status carries
-    ``x-refusals``, class to reasons.
+    ``x-outcomes``, class to reasons.
 
     Raises:
         KeyError: An entry names a class that is not an outcome class.
@@ -200,12 +200,12 @@ def declared(
         status: {
             'description': '; '.join(
                 f'`{name}`' + (f': {", ".join(f"`{r}`" for r in reasons)}' if reasons else '')
-                for name, reasons in refusals.items()
+                for name, reasons in outcomes.items()
             ),
             'content': {MEDIA_TYPE: {'schema': _SCHEMA}},
-            'x-refusals': refusals,
+            'x-outcomes': outcomes,
         }
-        for status, refusals in sorted(by_status.items())
+        for status, outcomes in sorted(by_status.items())
     }
 
 

@@ -94,7 +94,7 @@ Every member and field of the API, rendered from the source: a member is API whe
 
 Every name with a section of its own is imported from `lumascope`, as its heading says: `from lumascope import ScopeSession`.
 
-A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes; a member that raises nothing says so beside its marks. **Refusals** adds the refusals of the doors the member enters (a hardware lane, a guarded write, a post-processing build's admission); for a member on the wire they are **Refusals by REST status**, under the HTTP status each answers. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
+A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes; a member that raises nothing says so beside its marks. **Outcomes** lists those with the outcomes of the doors the member enters (a hardware lane, a guarded write, a post-processing build's admission), refusals and faults alike; for a member on the wire they are **Outcomes by REST status**, under the HTTP status each answers. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
 
 <a id="to_dict"></a>A **record** crosses the wire as its data. In the same process every record also answers `to_dict()`, *in-process*, for a caller that takes a dict and not a record, such as MATLAB's `struct()`:
 
@@ -413,23 +413,23 @@ def _said(name: str, reasons: list[str]) -> str:
     return f'[`{name}`](#{name})' + (f': {", ".join(f"`{r}`" for r in reasons)}' if reasons else '')
 
 
-def _refusals(doc: str, item: Marked, index: _Index) -> str:
-    """The refusals a member's ``Raises:`` and its doors declare: by the REST status each answers, for a member on the wire."""
+def _outcomes(doc: str, item: Marked, index: _Index) -> str:
+    """The outcomes a member's ``Raises:`` and its doors declare: by the REST status each answers, for a member on the wire."""
     declared = problems.declared(doc, index.outcomes, admitted_by_of(item.value))
     if not declared:
         return ''
     if index.routes.get((item.owner, item.member)):
         lines = [
-            f'- {status}: ' + '; '.join(_said(n, r) for n, r in response['x-refusals'].items())
+            f'- {status}: ' + '; '.join(_said(n, r) for n, r in response['x-outcomes'].items())
             for status, response in declared.items()
         ]
-        return '**Refusals by REST status**\n\n' + '\n'.join(lines)
+        return '**Outcomes by REST status**\n\n' + '\n'.join(lines)
     merged: dict[str, list[str]] = {}
     for response in declared.values():
-        for name, reasons in response['x-refusals'].items():
+        for name, reasons in response['x-outcomes'].items():
             said = merged.setdefault(name, [])
             said += [r for r in reasons if r not in said]
-    return '**Refusals**\n\n' + '\n'.join(f'- {_said(n, r)}' for n, r in merged.items())
+    return '**Outcomes**\n\n' + '\n'.join(f'- {_said(n, r)}' for n, r in merged.items())
 
 
 def _member(item: Marked, index: _Index) -> str:
@@ -466,9 +466,9 @@ def _member(item: Marked, index: _Index) -> str:
         parts.append('  \n'.join(facts))
     if doc:
         parts.append(markdown_of(doc, leave_out=('Raises',) if raises_nothing else ()))
-    refusals = _refusals(doc, item, index)
-    if refusals:
-        parts.append(refusals)
+    outcomes = _outcomes(doc, item, index)
+    if outcomes:
+        parts.append(outcomes)
     return '\n\n'.join(parts)
 
 

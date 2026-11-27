@@ -8,7 +8,7 @@ every reason its class can carry. A member that enters a lane asking the
 scope's activity claim, or a guarded write, adds that door's own entries
 (``@api(admitted_by=...)``), so a route that a held control session
 refuses says so. Each status carries the classes and reasons as
-``x-refusals``; the ``4XX`` and ``5XX`` ranges stay for what no section
+``x-outcomes``; the ``4XX`` and ``5XX`` ranges stay for what no section
 declares.
 """
 
@@ -41,7 +41,7 @@ def described(tmp_path_factory):
 
 def _refusals(described: dict, path: str, method: str = 'post') -> dict[str, dict[str, list[str]]]:
     responses = described['paths'][path][method]['responses']
-    return {status: r['x-refusals'] for status, r in responses.items() if 'x-refusals' in r}
+    return {status: r['x-outcomes'] for status, r in responses.items() if 'x-outcomes' in r}
 
 
 def _status(cls: type, reason: str) -> str:
@@ -152,7 +152,7 @@ def test_a_server_refusal_is_described_under_the_status_the_server_answers():
 
     described = problems.declared(doc, problems.outcome_classes())
 
-    assert {status: d['x-refusals'] for status, d in described.items()} == {
+    assert {status: d['x-outcomes'] for status, d in described.items()} == {
         404: {'ServerRefusedError': ['not_found']},
         503: {'ServerRefusedError': ['overloaded']},
     }
