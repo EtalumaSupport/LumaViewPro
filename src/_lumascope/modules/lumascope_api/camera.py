@@ -4975,7 +4975,7 @@ class CameraAPI:
         auto_gain: CameraAutoMode | None = None,
         auto_gain_settings: AutoGainSettings | None = None,
         resume_after_capture: bool = True,
-        channel: str = '(unspecified)',
+        channel: str | None = None,
     ) -> CameraSettingsInEffect | None:
         """Apply a gain, an exposure and an auto-gain mode in one batched call, and wait.
 
@@ -5003,7 +5003,7 @@ class CameraAPI:
                 capture that locks the arm re-arms it afterwards (live view)
                 or leaves the camera at the locked values (a protocol step).
             channel: The channel these settings belong to, named in the log
-                line; left out, the line says ``(unspecified)``.
+                line; None, the default, names none.
 
         Returns:
             CameraSettingsInEffect | None: The gain and the exposure now in
@@ -5085,7 +5085,7 @@ class CameraAPI:
         gain_db: float | None,
         exposure_ms: float | None,
         *,
-        channel: str,
+        channel: str | None,
         auto_gain: bool | None = None,
         auto_gain_settings: AutoGainSettings | None = None,
         resume_after_capture: bool = True,
@@ -5113,7 +5113,8 @@ class CameraAPI:
             channel: The channel these settings belong to. Required, and
                 keyword-only: two channels sharing a gain and an exposure
                 otherwise write identical log lines, and one apply becomes
-                indistinguishable from two. Every caller already holds it.
+                indistinguishable from two. None when the caller names none
+                (``apply`` given no channel).
             auto_gain: The auto-gain mode to leave the camera in: True arms
                 it, False turns it off, None leaves the mode as it is and
                 writes none. A camera without hardware auto-gain applies

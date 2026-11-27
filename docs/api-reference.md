@@ -4953,7 +4953,7 @@ def apply(
     auto_gain: CameraAutoMode | None = None,
     auto_gain_settings: AutoGainSettings | None = None,
     resume_after_capture: bool = True,
-    channel: str = '(unspecified)',
+    channel: str | None = None,
 ) -> CameraSettingsInEffect | None
 ```
 
@@ -4980,7 +4980,7 @@ range is set at its end and told, in one notice for both, as
 - `auto_gain`: The auto-gain mode the camera is left in: `CameraAutoMode.CONTINUOUS` arms it from `auto_gain_settings`; `OFF` turns it off; None, the default, leaves the mode as it is and writes none.
 - `auto_gain_settings`: The arm's settings; given with `CONTINUOUS`, and only with it.
 - `resume_after_capture`: With `auto_gain` `CONTINUOUS`, whether a capture that locks the arm re-arms it afterwards (live view) or leaves the camera at the locked values (a protocol step).
-- `channel`: The channel these settings belong to, named in the log line; left out, the line says `(unspecified)`.
+- `channel`: The channel these settings belong to, named in the log line; None, the default, names none.
 
 **Returns**
 
