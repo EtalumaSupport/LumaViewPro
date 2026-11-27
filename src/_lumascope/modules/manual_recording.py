@@ -1045,6 +1045,7 @@ class ManualRecordingController:
 
         result = None
         unfinished = None
+        hyperstack = None
         try:
             # Close the encoder before reading measured truth. An unclosed
             # container is a corrupt file on disk, while the result is only a
@@ -1062,7 +1063,7 @@ class ManualRecordingController:
             result = engine.result()
 
             if recording.hyperstack_rows is not None:
-                self._build_hyperstack(recording)
+                hyperstack = self._build_hyperstack(recording)
         except HyperstackNotBuiltError as not_built:
             # The builder's reason is the whole answer, in its own words:
             # "check the log" is no answer to a REST caller or to a user who
@@ -1172,6 +1173,12 @@ class ManualRecordingController:
             finished = RecordingFinished(
                 end_reason=engine.end_reason,
                 save_wait_s=None if result is None else result.save_wait_s,
+                files=()
+                if result is None
+                else (
+                    *result.files,
+                    *(path for path in (result.manifest_path, hyperstack) if path is not None),
+                ),
             )
             # Once it reads False a new recording may start and rebind every
             # per-recording slot this thread reads above. The claim was
@@ -1182,7 +1189,8 @@ class ManualRecordingController:
             self._claim.announce()
             concurrent.futures.Future.set_result(operation, finished)
 
-    def _build_hyperstack(self, recording) -> None:
+    def _build_hyperstack(self, recording) -> Path:
+        """Build *recording*'s hyperstack from its frames; the file built."""
         plan = recording.plan
         # The lanes append as their writes finish, out of frame order.
         df = pd.DataFrame(sorted(recording.hyperstack_rows, key=lambda row: row['Scan Count']))
@@ -1216,6 +1224,7 @@ class ManualRecordingController:
         if not result['status']:
             raise HyperstackNotBuiltError(result['error'], 'builder_declined')
         logger.info(f'[ManualRecord] Hyperstack created at {output}')
+        return output
 
 
 # Each reason a recording's frames cannot be used, as the hyperstack fault's.

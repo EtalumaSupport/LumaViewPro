@@ -11896,6 +11896,7 @@ What a manual recording's operation answers once it is done.
 **Fields**
 
 - <a id="RecordingFinished.end_reason"></a>`end_reason`: `RecordingEndReason | None` -- Why frame selection ended, the manifest's `end_reason`; None when the recording never got as far as recording.
+- <a id="RecordingFinished.files"></a>`files`: `tuple[Path, ...]` -- Every file the recording wrote: its frames' TIFFs in frame order, or its MP4, then its manifest, then its hyperstack. A file not written is not named: a manifest or a hyperstack that failed is told on its own; an MP4 whose close failed is named, as it is the only copy of what was captured. Empty when nothing was written, or when the finish failed before the recording's result was read (`RecordingFinalizeError`).
 - <a id="RecordingFinished.save_wait_s"></a>`save_wait_s`: `float | None` -- Seconds saving ran on after the recording ended; None when its backlog was discarded or it has no measured result.
 
 <a id="Remedy"></a>

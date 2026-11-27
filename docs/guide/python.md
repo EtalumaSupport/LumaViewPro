@@ -285,8 +285,8 @@ registration on; read the current value first.
 **An Operation** is what every `start_` member returns. It is typed by what its
 `result()` answers: `Operation[RunOutcome]` for a run, `Operation[None]` for a
 move or a home, `Operation[tuple[SavedStill, ...]]` for a still and
-`Operation[RecordingFinished]` for a recording (its `end_reason`, and how long
-saving ran on). `result()` waits
+`Operation[RecordingFinished]` for a recording (its `end_reason`, how long
+saving ran on, and the files it wrote). `result()` waits
 for the run to let go of the scope and answers its outcome. `done()` says
 whether it has, and `progress()` answers where it has got. `stop()` asks it to
 stop and returns at once: the run unwinds, puts the scope back, and ends

@@ -343,7 +343,7 @@ class RecordingConfig:
         return frame_budget(self.fps, self.duration_s)
 
 
-@api_fields('end_reason', 'save_wait_s')
+@api_fields('end_reason', 'save_wait_s', 'files')
 @dataclass(frozen=True)
 class RecordingFinished:
     """What a manual recording's operation answers once it is done.
@@ -354,10 +354,18 @@ class RecordingFinished:
             recording.
         save_wait_s: Seconds saving ran on after the recording ended; None
             when its backlog was discarded or it has no measured result.
+        files: Every file the recording wrote: its frames' TIFFs in frame
+            order, or its MP4, then its manifest, then its hyperstack.
+            A file not written is not named: a manifest or a hyperstack that
+            failed is told on its own; an MP4 whose close failed is named, as
+            it is the only copy of what was captured. Empty when nothing was
+            written, or when the finish failed before the recording's
+            result was read (``RecordingFinalizeError``).
     """
 
     end_reason: RecordingEndReason | None
     save_wait_s: float | None
+    files: tuple[pathlib.Path, ...]
 
 
 @dataclass(frozen=True)
@@ -458,6 +466,9 @@ class RecordingResult:
             ``timestamp_source``.
         frame_timestamps_s: Per-frame capture timestamps in seconds, in
             frame order.
+        files: Each file a frame's write landed, in frame order: one TIFF
+            per frame written, or the one video. The manifest is
+            ``manifest_path``.
         manifest_path: The written manifest file, or None if aborted
             before the manifest landed.
         end_reason: Why frame SELECTION ended -- the caller's reason at
@@ -485,6 +496,7 @@ class RecordingResult:
     measured_duration_s: float
     timestamp_source: TimestampSource
     frame_timestamps_s: tuple
+    files: tuple[pathlib.Path, ...]
     manifest_path: pathlib.Path | None
     end_reason: RecordingEndReason
     save_wait_s: float | None
@@ -597,11 +609,13 @@ class _Take:
     pending: int = 0
     frames_selected: int = 0
     frames_written: int = 0
-    # The artifact this recording actually produced, as reported by the
-    # write edge. A writer may not take the name it was asked for -- an MP4
-    # writer renames on collision -- so a manifest named from the REQUESTED
-    # name can end up describing a different recording's file.
-    last_written_path: pathlib.Path | None = None
+    # The artifacts this recording actually produced, as reported by the
+    # write edge: each path a write returned, to the first frame number
+    # written to it (an MP4's every frame returns its one file). A writer may
+    # not take the name it was asked for -- an MP4 writer renames on
+    # collision -- so a manifest named from the REQUESTED name can end up
+    # describing a different recording's file.
+    written: dict[pathlib.Path, int] = field(default_factory=dict)
     # Each frame lost to its write: (its frame number, why).
     failed_writes: list[tuple[int, str]] = field(default_factory=list)
     frames_unstamped: int = 0
@@ -1189,7 +1203,7 @@ class VideoRecordingEngine:
                 else:
                     with self._lock:
                         take.frames_written += 1
-                        take.last_written_path = written
+                        take.written.setdefault(written, frame_number)
                         take.refusals_in_a_row = 0
                 finally:
                     with self._lock:
@@ -1325,6 +1339,7 @@ class VideoRecordingEngine:
             measured_duration_s=measured_duration,
             timestamp_source=source,
             frame_timestamps_s=timestamps,
+            files=tuple(sorted(take.written, key=take.written.__getitem__)),
             manifest_path=manifest_path,
             end_reason=take.end_reason,
             save_wait_s=save_wait_s,
@@ -1347,9 +1362,9 @@ class VideoRecordingEngine:
         pinned = take.config.manifest_filename
         if pinned is not None:
             return pinned
-        if take.last_written_path is None:
+        if not take.written:
             return None
-        return f'{take.last_written_path.stem}_manifest.json'
+        return f'{next(reversed(take.written)).stem}_manifest.json'
 
     def _write_manifest(
         self,

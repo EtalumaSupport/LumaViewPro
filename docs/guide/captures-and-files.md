@@ -107,9 +107,10 @@ downloads by its name in the live folder, `GET /api/v1/files/<name>`
 
 **A recording.** `session.manual_recording.start()` starts the recording
 LumaViewPro's Record button starts and returns its `Operation`: `stop()` ends
-it, and `result()` answers a `RecordingFinished`, its `end_reason` and
-`save_wait_s`. It keeps at most `video.max_fps` frames a second (0, shipped, is
-every frame) for at most `video.max_duration_s`. Its format is the one
+it, and `result()` answers a `RecordingFinished`: its `end_reason`, its
+`save_wait_s`, and its `files`, each file it wrote. It keeps at most
+`video.max_fps` frames a second (0, shipped, is every frame) for at most
+`video.max_duration_s`. Its format is the one
 `video_recording_format` names: mp4 (shipped), one MP4; frames, numbered
 TIFFs; hyperstack, the TIFFs and then one OME-TIFF hyperstack of them beside
 them. A protocol's video steps follow the same setting ([Saved files](#saved-files)).
@@ -121,6 +122,7 @@ recording = session.manual_recording.start()
 recording.stop()
 finished = recording.result(timeout=60)
 print(finished.end_reason, finished.save_wait_s)   # why it ended, and how long saving ran on
+print(finished.files)   # the frames or the MP4, then the manifest, then any hyperstack
 ```
 
 Over REST: `POST /api/v1/manual_recording/start`, answered `202` with its job.
