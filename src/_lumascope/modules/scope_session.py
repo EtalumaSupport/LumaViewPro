@@ -7584,8 +7584,11 @@ class ScopeSession:
         A scope whose model has no motor board (``scope.motion_expected``
         False) has nothing to home, so it issues no startup motion either;
         nor does one whose motor board bring-up recorded as missing, which
-        bring-up's own report has already named. A skip takes nothing and
-        returns an operation already done.
+        bring-up's own report has already named. A skip takes nothing.
+
+        The operation, a skip's as well, is done only once the session's
+        host reading (``host_reading``) is kept, so a caller told the motion
+        has ended reads it.
 
         Args:
             disable_homing: If True, issue no startup motion at all.
@@ -7603,12 +7606,15 @@ class ScopeSession:
         """
         from _lumascope.lib import log_helpers
 
-        def skipped(why: str) -> Operation[None]:
+        def skip(why: str) -> None:
             logger.info(f'startup motion skipped: {why}')
             log_helpers.end_bring_up()
-            done = Operation()
-            concurrent.futures.Future.set_result(done, None)
-            return self._read_the_host_when_settled(done)
+            self._take_the_host_reading()
+
+        # On the diagnostics lane, because the host reading walks every
+        # process and a GUI asks for the motion on its UI thread.
+        def skipped(why: str) -> Operation[None]:
+            return self._start_on_diagnostics_lane(skip, why=why)
 
         if disable_homing:
             return skipped('homing disabled; the turret is left where it is')
@@ -7635,6 +7641,7 @@ class ScopeSession:
                 self._startup_motion(home_fn, turret_fn)
             finally:
                 log_helpers.end_bring_up()
+            self._take_the_host_reading()
 
         # The whole motion is one home's taking, so no request lands between
         # its moves; the diagnostics worker carries it, because the moves
@@ -7652,23 +7659,18 @@ class ScopeSession:
         except BaseException:
             release_if_unrun()
             raise
-        return self._read_the_host_when_settled(
-            Operation.following(waiter, stop=stop, first=release_if_unrun)
-        )
+        return Operation.following(waiter, stop=stop, first=release_if_unrun)
 
-    def _read_the_host_when_settled(self, motion: 'Operation[None]') -> 'Operation[None]':
-        """``motion``, which takes the session's one host reading when it settles."""
-        motion.add_done_callback(self._take_the_host_reading)
-        return motion
-
-    def _take_the_host_reading(self, done: 'Operation[None]') -> None:
+    def _take_the_host_reading(self) -> None:
         """At the startup motion's end, read the host once, keep it, log it and tell what is past its line.
 
-        Taken only at a motion that ended as the motion's (homed, a reported
-        failed home, a skip, STOP), never a defect's or the close's, and
-        only once a session: a later startup motion's end reads nothing.
+        The motion's last step on its lane, so its operation is done only once
+        the reading is kept. Taken only at a motion that ended as the motion's
+        (homed, a reported failed home, a skip, STOP), never a defect's, which
+        raises before it, or the close's, and only once a session: a later
+        startup motion's end reads nothing.
         """
-        if done.exception() is not None or self.startup_motion_ended_by_the_close(done):
+        if self.live_work.lifecycle != SessionLifecycle.OPEN:
             return
         opened, self._host_opened = self._host_opened, None
         if opened is None:

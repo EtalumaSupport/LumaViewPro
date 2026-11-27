@@ -16,6 +16,7 @@ nothing is told.
 
 from __future__ import annotations
 
+import concurrent.futures
 import dataclasses
 import threading
 from collections import namedtuple
@@ -456,10 +457,25 @@ def _session(notices) -> ScopeSession:
 
 
 def _settle(motion) -> None:
-    """Wait until every done-callback handed before this one has run."""
-    settled = threading.Event()
-    motion.add_done_callback(lambda done: settled.set())
-    assert settled.wait(SETTLED_S), 'the startup motion did not settle'
+    """Wait for the startup motion's operation to be done, and for nothing after it."""
+    done, _ = concurrent.futures.wait([motion], timeout=SETTLED_S)
+    assert done, 'the startup motion did not settle'
+
+
+class _WatchedHost(_Host):
+    """``_Host``, whose motion's-end read waits for the motion in hand and notes whether it was done."""
+
+    def __init__(self, monkeypatch, **settled):
+        super().__init__(monkeypatch, **settled)
+        self.motion = None
+        self.in_hand = threading.Event()
+        self.done_at_the_read: list[bool] = []
+
+    def read(self, save_folder, *, read_gpus):
+        if save_folder is not None:
+            assert self.in_hand.wait(SETTLED_S)
+            self.done_at_the_read.append(self.motion.done())
+        return super().read(save_folder, read_gpus=read_gpus)
 
 
 def _homed(*args, **kwargs) -> None:
@@ -503,6 +519,32 @@ def test_each_end_of_the_startup_motion_reads_the_pc_once_and_tells_what_is_past
         assert session.host_reading.ram_available_bytes == GB
         assert session.status.host_reading == session.host_reading
         assert len(notices) == 1 and 'With 1.0 GB of memory available' in notices[0].message
+    finally:
+        session.shutdown()
+
+
+# The motion's task and a skip's are two bodies, each its own lane task.
+@pytest.mark.parametrize(
+    'motion',
+    [{}, {'disable_homing': True}],
+    ids=['homed', 'skipped'],
+)
+def test_a_caller_told_the_motion_has_ended_reads_the_pcs_reading(monkeypatch, notices, motion):
+    """The startup motion's operation is done only once ``host_reading`` is kept.
+
+    The reading was once taken in a done-callback, after a caller waiting on
+    the motion had woken: ``host_reading`` was None on the line after
+    ``run_application_session()``.
+    """
+    host = _WatchedHost(monkeypatch, ram_available_bytes=GB)
+    session = _session(notices)
+    try:
+        host.motion = session.start_application_session(**motion)
+        host.in_hand.set()
+        host.motion.result(timeout=SETTLED_S)
+
+        assert host.done_at_the_read == [False]
+        assert session.host_reading.ram_available_bytes == GB
     finally:
         session.shutdown()
 

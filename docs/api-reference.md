@@ -3527,8 +3527,11 @@ skip is the requested behavior, so it is logged, not signaled.
 A scope whose model has no motor board (`scope.motion_expected`
 False) has nothing to home, so it issues no startup motion either;
 nor does one whose motor board bring-up recorded as missing, which
-bring-up's own report has already named. A skip takes nothing and
-returns an operation already done.
+bring-up's own report has already named. A skip takes nothing.
+
+The operation, a skip's as well, is done only once the session's
+host reading (`host_reading`) is kept, so a caller told the motion
+has ended reads it.
 
 **Args**
 
