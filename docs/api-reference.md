@@ -2628,11 +2628,13 @@ standard startup orchestration without copy-pasting from the App.
 
 - `BlockingCallRefusedError`: `'blocking_on_worker'`, called from an executor's worker. The motion runs on the diagnostics worker and waits on the io lane, so a worker waiting for it can be waiting on itself; `start_application_session` is the form a worker uses. Still a `RuntimeError`. `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_application_session` too. Nothing was started.
 - `HardwareCommandRefusedError`: `'home_in_flight'` or `'exclusive_activity_running'`, as `start_application_session`; nothing was taken. `'scope_disconnected'`, the scope shut down before or during the startup motion.
+- `SessionClosingError`: `'session_closing'`, as `start_application_session`.
 
 **Outcomes**
 
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `home_in_flight`, `exclusive_activity_running`, `scope_disconnected`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `wait_on_ui_thread`
+- [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.save_bookmark"></a>
 ### `ScopeSession.save_bookmark`
@@ -3541,10 +3543,12 @@ has ended reads it.
 **Raises**
 
 - `HardwareCommandRefusedError`: `'home_in_flight'` or `'exclusive_activity_running'`: something already holds the scope. Nothing was taken.
+- `SessionClosingError`: `'session_closing'`, the session's close has begun, so its diagnostics lane takes no motion and no skip. Nothing was started.
 
 **Outcomes**
 
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `home_in_flight`, `exclusive_activity_running`
+- [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.start_go_to_bookmark"></a>
 ### `ScopeSession.start_go_to_bookmark`

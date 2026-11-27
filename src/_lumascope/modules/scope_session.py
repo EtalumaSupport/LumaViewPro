@@ -7605,6 +7605,9 @@ class ScopeSession:
             HardwareCommandRefusedError: ``'home_in_flight'`` or
                 ``'exclusive_activity_running'``: something already holds
                 the scope. Nothing was taken.
+            SessionClosingError: ``'session_closing'``, the session's close
+                has begun, so its diagnostics lane takes no motion and no
+                skip. Nothing was started.
         """
         from _lumascope.lib import log_helpers
 
@@ -7671,6 +7674,10 @@ class ScopeSession:
         (homed, a reported failed home, a skip, STOP), never a defect's, which
         raises before it, or the close's, and only once a session: a later
         startup motion's end reads nothing.
+
+        A read Windows refuses (``OSError``, its GPUs not listed) is reported
+        and leaves no reading: the reading observes the PC, so the motion's
+        end stands.
         """
         if self.live_work.lifecycle != SessionLifecycle.OPEN:
             return
@@ -7678,7 +7685,11 @@ class ScopeSession:
         if opened is None:
             return
         live_folder = self.setting('live_folder')
-        settled = host_resources.read_host(live_folder, read_gpus=True)
+        try:
+            settled = host_resources.read_host(live_folder, read_gpus=True)
+        except OSError as refused:
+            notifications.report_outcome(refused, solicited=False, category='Host')
+            return
         reading = host_resources.reading_between(opened, settled, live_folder, self._drawing_gpu)
         self._host_reading = reading
         logger.info(host_resources.log_line(reading, settled.read_s))
@@ -7758,6 +7769,8 @@ class ScopeSession:
                 ``start_application_session``; nothing was taken.
                 ``'scope_disconnected'``, the scope shut down before or
                 during the startup motion.
+            SessionClosingError: ``'session_closing'``, as
+                ``start_application_session``.
         """
         refuse_blocking_on_a_worker('run_application_session')
         refuse_waiting_on_ui_thread('run_application_session')

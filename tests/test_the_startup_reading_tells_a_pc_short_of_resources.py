@@ -40,6 +40,7 @@ from _lumascope.modules.host_resources import (
     judge,
     log_line,
 )
+from _lumascope.modules.notification_center import OutcomeKind
 from _lumascope.modules.scope_session import ScopeSession
 from tests.conftest import a_roomy_host
 from tests.settings_fixtures import complete_settings
@@ -545,6 +546,38 @@ def test_a_caller_told_the_motion_has_ended_reads_the_pcs_reading(monkeypatch, n
 
         assert host.done_at_the_read == [False]
         assert session.host_reading.ram_available_bytes == GB
+    finally:
+        session.shutdown()
+
+
+def test_a_read_windows_refuses_is_reported_and_the_motion_still_ends(monkeypatch):
+    """A GPU list Windows refuses leaves no reading; the startup motion is not failed by it.
+
+    The read raises ``OSError`` when DXGI fails; taken on the motion's lane,
+    it once failed the motion, so ``run_application_session()`` raised it
+    after a good home.
+    """
+
+    def refused(save_folder, *, read_gpus):
+        if save_folder is None:
+            return a_roomy_host(save_folder, read_gpus=read_gpus)
+        raise OSError('CreateDXGIFactory1 failed: 0x887a0004')
+
+    monkeypatch.setattr(host_resources, 'read_host', refused)
+    heard = []
+    session = ScopeSession.create(
+        complete_settings(microscope='LS850T'),
+        simulate=True,
+        warn_pre_release=False,
+        outcome_listener=heard.append,
+    )
+    try:
+        session.run_application_session()
+
+        assert session.host_reading is None
+        assert [(n.category, n.kind) for n in heard if n.category == 'Host'] == [
+            ('Host', OutcomeKind.FAULT)
+        ]
     finally:
         session.shutdown()
 
