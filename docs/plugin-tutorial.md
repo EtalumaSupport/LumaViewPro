@@ -9,7 +9,7 @@ is pre-release until then, as the guide's preface says
 `ctx.plugins.post_processing` operates on saved files. `ctx.plugins.ui`
 has one mount point, `left_sidebar.accordion`.
 `ctx.plugins.live_processing` is a per-frame listener on the live camera
-stream. `ctx.plugins.rest` is reserved and outside the freeze
+stream. A plugin cannot add REST routes
 ([The reserved namespace](#the-reserved-namespace)).
 
 ---
@@ -407,16 +407,14 @@ camera connected, registration raises and nothing is registered.
 
 ### The reserved namespace
 
-`ctx.plugins.rest` is reserved, and a plugin cannot add REST routes in
+The REST namespace is reserved, and a plugin cannot add REST routes in
 this release, so a shipped plugin registers none. Registering a route
-there raises `PluginRegistrationError` (`rest_namespace_reserved`). The
+raises `PluginRegistrationError` (`rest_namespace_reserved`). The
 namespace is outside the 4.0 freeze: a route would take a framework
 router, which has no published type, and what a plugin route looks like
 is not settled. Don't catch and ignore the raise; let your
 plugin fail to load, and serve what it needs through `post_processing`,
-`live_processing` or `ui`. While a plugin is being developed,
-`ctx.plugins.rest.enable_stub_mode()` records a registration and serves
-nothing, so the rest of the plugin can be tried.
+`live_processing` or `ui`.
 
 ---
 
@@ -443,7 +441,7 @@ starts from the session, `ctx`, as every caller does.
   `all_labware`, `all_objectives`).
 - **Registering**: `ctx.plugins.post_processing.register`,
   `ctx.plugins.live_processing.register` and `ctx.plugins.ui.register`;
-  `ctx.plugins.rest` is reserved.
+  a plugin adds no REST routes.
 - **Listening**: a frame listener for the plugin's life through
   `ctx.plugins.live_processing.register`, and one for a single action
   through `scope.imaging.add_frame_listener`; a position, turret or LED

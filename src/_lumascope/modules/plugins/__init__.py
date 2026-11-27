@@ -78,7 +78,7 @@ ENGINEERING_PLUGIN = 'etaluma_engineering'
 # reads it at its own entry through session.plugin_api_level and refuses
 # below what it needs; a host older than the level has no such member,
 # which the plugin reads as 0.
-PLUGIN_API_LEVEL = 206
+PLUGIN_API_LEVEL = 207
 
 
 class UIMountPoint(enum.StrEnum):
@@ -554,67 +554,18 @@ class LiveProcessingRegistry(_BaseNamespace):
 class RESTRegistry(_BaseNamespace):
     """REST endpoint plugins: the namespace is reserved, and takes no routes in this release.
 
-    A plugin cannot add REST routes yet: a registration is refused, and a
-    shipped plugin registers none.
-
-    **Stub mode**: while a plugin is being developed, its author can opt
-    into ``enable_stub_mode()``. In stub mode, register() accepts the
-    spec and records it, so ``session.plugin_health`` reflects the
-    registration, but serves nothing, so the rest of the plugin -- its
-    load and unregister hooks -- can be tried. Stub mode is opt-in and
-    not the default, so a shipped plugin's registration is refused,
-    never quietly unserved.
+    A plugin cannot add REST routes yet: a registration is refused, so a
+    route a plugin expects to serve is never silently missing.
     """
 
     NAMESPACE = 'rest'
 
-    def __init__(self) -> None:
-        super().__init__()
-        self._stub_mode: bool = False
-
-    @api(in_process=True)
-    def enable_stub_mode(self) -> None:
-        """Opt into accepting REST registrations as stubs.
-
-        After enable_stub_mode(), register(spec, router) records the
-        registration (visible in ``session.plugin_health``) and serves
-        nothing, since a plugin cannot add REST routes in this release. A
-        plugin author uses this while developing a plugin, to try the rest
-        of its lifecycle.
-
-        A shipped plugin does not call this: its registration is refused,
-        so a route it expects to serve is never silently missing.
-
-        Raises:
-            Nothing.
-        """
-        with self._lock:
-            self._stub_mode = True
-
-    def disable_stub_mode(self) -> None:
-        """Revert to the default fail-loud register() behavior.
-
-        Existing stubbed registrations remain visible in health(); only
-        future register() calls are affected. Symmetric with
-        enable_stub_mode for tests that toggle modes.
-        """
-        with self._lock:
-            self._stub_mode = False
-
     def register(self, spec: PluginSpec, router: Any) -> None:
-        if self._stub_mode:
-            # The router is held, not mounted: it serves nothing.
-            with self._lock:
-                self._assert_unique(spec)
-                self._entries[spec.name] = (spec, router)
-            return
         raise PluginRegistrationError(
             'rest_namespace_reserved',
             'ctx.plugins.rest is reserved, and a plugin cannot add REST routes '
-            'in this release, so a shipped plugin registers none. While a '
-            'plugin is being developed, ctx.plugins.rest.enable_stub_mode() '
-            'records a registration and serves nothing, so the rest of the '
-            'plugin can be tried.',
+            'in this release. Serve what the plugin needs through '
+            'post_processing, live_processing or ui.',
         )
 
 
@@ -623,16 +574,18 @@ class RESTRegistry(_BaseNamespace):
 # ---------------------------------------------------------------------------
 
 
-@api_fields('ui', 'post_processing', 'live_processing', 'rest')
+@api_fields('ui', 'post_processing', 'live_processing')
 @host_wiring('attribute_exception', 'record_runtime_error')
 class PluginRegistry:
-    """Single ctx.plugins entry point exposing the four namespaces.
+    """Single ctx.plugins entry point exposing the plugin namespaces.
+
+    ``rest`` is reserved and not published: a plugin cannot add REST routes
+    in this release, and a registration there is refused.
 
     Attributes:
         ui: Widgets at the window's mount points.
         post_processing: Processors of saved files.
         live_processing: Listeners on every frame the camera delivers.
-        rest: Reserved: a plugin cannot add REST routes in this release.
 
     Lifecycle:
         - Built by the session when its host asks for plugins

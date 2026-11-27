@@ -42,7 +42,6 @@ NaN stays a NaN, and a key keeps its type.
 - [`PostProcessingRegistry`](#PostProcessingRegistry)
 - [`Protocol`](#Protocol)
 - [`ProtocolRunner`](#ProtocolRunner)
-- [`RESTRegistry`](#RESTRegistry)
 - [`UIRegistry`](#UIRegistry)
 
 **Functions**
@@ -10806,7 +10805,10 @@ which a plugin that never loaded did not do.
 
 Returned by: [`ScopeSession.plugins`](#ScopeSession.plugins).
 
-Single ctx.plugins entry point exposing the four namespaces.
+Single ctx.plugins entry point exposing the plugin namespaces.
+
+`rest` is reserved and not published: a plugin cannot add REST routes
+in this release, and a registration there is refused.
 
 Lifecycle:
     - Built by the session when its host asks for plugins
@@ -10818,7 +10820,6 @@ Lifecycle:
 
 - <a id="PluginRegistry.live_processing"></a>`live_processing`: `LiveProcessingRegistry` -- Listeners on every frame the camera delivers.
 - <a id="PluginRegistry.post_processing"></a>`post_processing`: `PostProcessingRegistry` -- Processors of saved files.
-- <a id="PluginRegistry.rest"></a>`rest`: `RESTRegistry` -- Reserved: a plugin cannot add REST routes in this release.
 - <a id="PluginRegistry.ui"></a>`ui`: `UIRegistry` -- Widgets at the window's mount points.
 
 <a id="PluginRuntimeFailure"></a>
@@ -11845,45 +11846,6 @@ have to parse it back out.
 - <a id="ProtocolSizeAdvisory.num_steps"></a>`num_steps`: `int` -- How many steps the protocol has.
 - <a id="ProtocolSizeAdvisory.run_mb"></a>`run_mb`: `float | None` -- About how many megabytes a full run writes, every scan of it; None when `scan_mb` is.
 - <a id="ProtocolSizeAdvisory.scan_mb"></a>`scan_mb`: `float | None` -- About how many megabytes one scan of the protocol writes; None when it cannot be sized (the camera's frame size or depth not known, or a video step with no rate to size it at).
-
-<a id="RESTRegistry"></a>
-## `lumascope.RESTRegistry`
-
-Held in: [`PluginRegistry.rest`](#PluginRegistry.rest).
-
-REST endpoint plugins: the namespace is reserved, and takes no routes in this release.
-
-A plugin cannot add REST routes yet: a registration is refused, and a
-shipped plugin registers none.
-
-**Stub mode**: while a plugin is being developed, its author can opt
-into `enable_stub_mode()`. In stub mode, register() accepts the
-spec and records it, so `session.plugin_health` reflects the
-registration, but serves nothing, so the rest of the plugin -- its
-load and unregister hooks -- can be tried. Stub mode is opt-in and
-not the default, so a shipped plugin's registration is refused,
-never quietly unserved.
-
-<a id="RESTRegistry.enable_stub_mode"></a>
-### `RESTRegistry.enable_stub_mode`
-
-```python
-def enable_stub_mode(self) -> None
-```
-
-Marks: in-process.  
-Raises nothing.
-
-Opt into accepting REST registrations as stubs.
-
-After enable_stub_mode(), register(spec, router) records the
-registration (visible in `session.plugin_health`) and serves
-nothing, since a plugin cannot add REST routes in this release. A
-plugin author uses this while developing a plugin, to try the rest
-of its lifecycle.
-
-A shipped plugin does not call this: its registration is refused,
-so a route it expects to serve is never silently missing.
 
 <a id="RecordingFinished"></a>
 ## `lumascope.RecordingFinished`

@@ -394,7 +394,6 @@ from _lumascope.modules.plugins import (
     PluginStatus,
     PostProcessingRegistry,
     ProcessorResult,
-    RESTRegistry,
     UIMountPoint,
     UIRegistry,
 )
@@ -786,7 +785,6 @@ __all__ = [
     'ProtocolSizeAdvisory',
     'ProtocolStepsInvalidNotice',
     'Quiet',
-    'RESTRegistry',
     'RecordIncompleteError',
     'RecordingDetailsNotSavedError',
     'RecordingEndReason',
