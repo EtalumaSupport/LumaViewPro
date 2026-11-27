@@ -2470,7 +2470,8 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             change. ``'positions_unreachable'`` -- the
             work needs motion on an axis this scope has no motor for.
             ``'step_position_missing'`` -- steps have no position on an axis
-            this scope moves, having been recorded on a scope without it.
+            this scope moves, having been recorded on a scope without it, or
+            a step being added was given none there.
             ``'not_on_this_scope'`` -- steps take a channel this scope
             does not have, as ``HardwareCommandRefusedError`` explains it
             (``missing``: the first such channel's part; the words name

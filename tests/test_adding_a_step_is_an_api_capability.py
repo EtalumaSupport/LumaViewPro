@@ -227,11 +227,11 @@ class TestAScriptAddsAStepThroughTheSession:
         assert steps[['X', 'Y', 'Z']].values.tolist() == [[20.0, 15.0, 6000.0]] * 2
         assert config_helpers.get_channel_configs(session.settings) == before
 
-    def test_a_step_at_a_position_off_the_stage_or_nan_is_refused_and_none_is_no_position(
-        self, session
-    ):
+    def test_a_step_off_the_stage_nan_or_with_no_position_on_a_moved_axis_is_refused(self, session):
         # X 1e9 mm was stored and refused only when a run started; a NaN was
-        # stored as no position. None on every axis is a step with no position.
+        # stored as no position; a Z of None, as ``stage_to_plate`` answers,
+        # was stored and refused only at the run, as recorded on a scope
+        # without Z.
         _only_acquiring(session)
         protocol = session.create_empty_protocol()
         wrong = []
@@ -251,6 +251,16 @@ class TestAScriptAddsAStepThroughTheSession:
                 ArgumentRefusedError,
                 'not_a_number',
             ),
+            (
+                PlateLocation(x_mm=20.0, y_mm=15.0, z_um=None),
+                ProtocolRunRefusedError,
+                'step_position_missing',
+            ),
+            (
+                PlateLocation(x_mm=None, y_mm=None, z_um=None),
+                ProtocolRunRefusedError,
+                'step_position_missing',
+            ),
         ):
             try:
                 session.add_step(protocol, channels=('BF',), at=at)
@@ -261,10 +271,6 @@ class TestAScriptAddsAStepThroughTheSession:
                 wrong.append(f'{at}: was not refused')
         assert not wrong, '\n'.join(wrong)
         assert protocol.num_steps == 0
-
-        session.add_step(protocol, channels=('BF',), at=PlateLocation(None, None, None))
-
-        assert protocol.steps()[['X', 'Y', 'Z']].isna().all(axis=None)
 
     def test_the_session_forwards_the_refusal(self, session, centre_posts):
         _only_acquiring(session)

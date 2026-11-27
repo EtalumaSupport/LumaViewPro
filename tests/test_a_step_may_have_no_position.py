@@ -21,6 +21,7 @@ import csv
 import pytest
 
 import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.exceptions import ProtocolRunRefusedError
 from _lumascope.modules.protocol import ProtocolFormatError
 from tests.test_a_command_for_absent_motion_hardware_is_refused import make_session  # noqa: F401
@@ -251,6 +252,18 @@ def test_the_plate_read_and_the_steps_record_nothing_for_an_absent_axis(
     first = new.step_row(step_index=0)
     assert shape(first['X'], first['Y'], first['Z']) == expected
     assert first['Well'] == 'A1'
+
+
+def test_a_step_added_at_no_x_and_y_on_a_scope_without_a_stage_records_none_there(make_session):
+    # On a scope that moves the axis, None there is refused
+    # (test_adding_a_step_is_an_api_capability.py); here it is the step's position.
+    session = make_session('LS820', acquiring=('BF',))
+    protocol = session.create_empty_protocol()
+
+    session.add_step(protocol, at=PlateLocation(x_mm=None, y_mm=None, z_um=5000.0))
+
+    step = protocol.step_row(step_index=0)
+    assert (step['X'], step['Y'], step['Z']) == (None, None, 5000.0)
 
 
 @pytest.mark.parametrize('model', ['LS620', 'LS820'])  # parametrize-justified: one scope each

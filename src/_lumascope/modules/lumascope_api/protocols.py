@@ -411,7 +411,9 @@ class ProtocolsAPI:
 
         Raises:
             ProtocolRunRefusedError: an axis does not know its position, or
-                no channel acquires; ``'positions_outside_travel'``,
+                no channel acquires; ``'step_position_missing'``,
+                ``plate_position`` is None on an axis this scope moves;
+                ``'positions_outside_travel'``,
                 ``plate_position`` lies outside the stage's travel. With
                 ``zstack_params``, also what ``apply_zstacking`` refuses.
             ObjectiveUnknownError: the active objective is unknown, for the
@@ -429,11 +431,22 @@ class ProtocolsAPI:
 
         objective_id = self._recordable_objective(verb='add')
         self.refuse_no_acquiring_channel(channel_configs)
+        axes = _plate_location_axes(plate_position, 'at')
+        # A step with no position on an axis this scope moves would be taken
+        # wherever the last move left the stage; a run refuses it only once
+        # it starts, in words about a scope without that axis.
+        lacking = [axis for axis in self._driven_axes() if axes[axis] is None]
+        if lacking:
+            named = ', '.join(lacking)
+            self._refuse(
+                reason='step_position_missing',
+                message=(
+                    f'The new step has no {named} position, and this scope moves {named}.\n\n'
+                    f'Give it a {named} position, or add it at the live position.'
+                ),
+            )
         # Judged before the z-stack, so a base Z outside travel is one refusal.
-        outside = self._outside_travel(
-            [('the new step', _plate_location_axes(plate_position, 'at'))],
-            protocol.labware_id,
-        )
+        outside = self._outside_travel([('the new step', axes)], protocol.labware_id)
         if outside:
             self._refuse(
                 reason='positions_outside_travel',

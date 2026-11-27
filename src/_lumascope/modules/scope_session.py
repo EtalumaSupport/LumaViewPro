@@ -3433,8 +3433,10 @@ class ScopeSession:
                 caller adds without changing the settings. None (the
                 default) adds one step per acquiring channel.
             at: Where on the protocol's plate the steps are, instead of the
-                live position: X and Y in mm, Z in um. None (the default)
-                takes the live position.
+                live position: X and Y in mm, Z in um. None on an axis this
+                scope has no motor for is no position there; on an axis it
+                moves, it is refused. None (the default) takes the live
+                position.
             before_step_index: The step the new steps are placed before.
             after_step_index: The step the new steps are placed after. With
                 neither given, they follow the last step; both given is
@@ -3449,8 +3451,9 @@ class ScopeSession:
                 through. Nothing is added.
             ProtocolRunRefusedError: ``'position_unknown'``, an axis does
                 not know its position; ``'no_acquiring_channel'``, no channel
-                acquires; ``'positions_outside_travel'``, ``at`` lies outside
-                the stage's travel. With ``use_zstacking``, also
+                acquires; ``'step_position_missing'``, ``at`` is None on an
+                axis this scope moves; ``'positions_outside_travel'``, ``at``
+                lies outside the stage's travel. With ``use_zstacking``, also
                 ``'zstack_not_configured'``, ``'positions_unreachable'`` or
                 ``'zslices_outside_travel'``, as ``apply_zstacking`` refuses
                 the stored stack. Nothing is added.
@@ -3461,8 +3464,7 @@ class ScopeSession:
             ConfigurationDefectError: ``'channels_unresolved'``, ``channels`` is given
                 and this scope's channels could not be resolved. Nothing is added.
             ArgumentRefusedError: ``'channel_unknown'``, a name in ``channels``
-                is not a channel; ``'not_a_number'``, an axis of ``at`` is NaN
-                (None is no position on that axis).
+                is not a channel; ``'not_a_number'``, an axis of ``at`` is NaN.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no channel named in ``channels``; ``'not_connected'``, with no
                 ``at``, the model's motor controller is not connected, so
