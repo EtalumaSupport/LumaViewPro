@@ -2090,7 +2090,7 @@ class ImagingAPI:
         """
         return self._frame_validity.changes()
 
-    @api(in_process=True)
+    @api(in_process=True, engineering=True)
     @contextlib.contextmanager
     def held_frame_rules(self, record: dict) -> Iterator[None]:
         """Judge the changes recorded inside the ``with`` block by counts not yet on disk.

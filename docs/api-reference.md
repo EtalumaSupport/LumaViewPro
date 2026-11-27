@@ -6518,43 +6518,6 @@ near 11 s on a Pylon body.
 - 500: [`CameraStreamStartFailedError`](#CameraStreamStartFailedError): `camera_stream_start_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
-<a id="ImagingAPI.held_frame_rules"></a>
-### `ImagingAPI.held_frame_rules`
-
-```python
-def held_frame_rules(self, record: dict) -> Iterator[None]
-```
-
-Marks: in-process.
-
-Judge the changes recorded inside the `with` block by counts not yet on disk.
-
-Use as `with scope.imaging.held_frame_rules(record): ...`. The
-rules are built from `record` as bring-up builds them from the
-camera's timing record file (`capabilities.frame_rules`), and are
-handed to the gate for the block: each change recorded inside it
-waits its held count. When the block ends, however it ends, the
-installation's rules are back, and each change recorded after it
-waits the installation's count. A change keeps the rule it was
-recorded under, on either side. For a characterization's verify
-phase, which captures under the counts it just measured before they
-are saved; `capabilities.frame_rules` still publishes the
-installation's.
-
-**Args**
-
-- `record`: A camera timing record, schema 3, checked as a timing file is when the scope comes up.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'wrong_kind'`, a record this release cannot take as measured; nothing was held.
-- `ControlSessionRefusedError`: `'control_session_held'`, a control session is held by someone else; nothing was held.
-
-**Outcomes**
-
-- [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- [`ArgumentRefusedError`](#ArgumentRefusedError): `wrong_kind`
-
 <a id="ImagingAPI.judge_frame"></a>
 ### `ImagingAPI.judge_frame`
 
