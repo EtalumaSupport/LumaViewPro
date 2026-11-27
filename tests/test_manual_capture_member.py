@@ -242,6 +242,19 @@ class TestOverlays:
             'the unmarked file carries the crosshairs'
         )
 
+    def test_a_still_answers_the_tuple_its_signature_declares(self, still_session):
+        """The operation's result is ``tuple[SavedStill, ...]``, the unmarked
+        file first, as ``start_save_still`` declares it: a caller comparing it
+        with a tuple, or a type checker, reads what it was promised."""
+        session, _ = still_session
+
+        stills = session.manual_capture.start_save_still(crosshairs=True).result(
+            timeout=RESULT_TIMEOUT_S
+        )
+
+        assert type(stills) is tuple
+        assert [still.file.name.endswith('_overlay.tiff') for still in stills] == [False, True]
+
     def test_a_summed_capture_saves_its_overlay(self, tmp_path):
         """A lit 12-bit frame summed three times peaks above 4095; the
         overlay's 8-bit rendering must scale against the summed depth, since

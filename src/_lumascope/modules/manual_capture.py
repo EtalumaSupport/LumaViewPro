@@ -296,7 +296,7 @@ class ManualCaptureController:
         if not request.body_started.is_set():
             self._in_flight.release()
 
-    def _still_body(self, request: '_StillRequest') -> list[SavedStill]:
+    def _still_body(self, request: '_StillRequest') -> tuple[SavedStill, ...]:
         """The whole still on the camera worker: grab, record and write.
 
         One lane task, so no camera write can land between the grab and the
@@ -376,7 +376,7 @@ class ManualCaptureController:
             )
             channel = shown
 
-    def _capture_and_save(self, request: '_StillRequest') -> list[SavedStill]:
+    def _capture_and_save(self, request: '_StillRequest') -> tuple[SavedStill, ...]:
         scope = request.scope
         settings = request.settings
         capture_config = config_helpers.get_image_capture_config_from_settings(settings)
@@ -565,7 +565,7 @@ class ManualCaptureController:
             f'dtype={array.dtype} shape={array.shape} -> '
             f'{", ".join(s.file.name for s in stills)}'
         )
-        return stills
+        return tuple(stills)
 
 
 def _make_folder(settings: dict, folder: pathlib.Path) -> None:
