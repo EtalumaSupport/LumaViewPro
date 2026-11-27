@@ -120,20 +120,15 @@ def test_how_long_a_capture_is_shown_is_stored_at_each_end_of_its_range(session)
     ('path', 'owner', 'member', 'words', 'reason'),
     [
         ('microscope', ScopeSession, 'select_model', 'ScopeSession.select_model', 'has_member'),
-        # In-process members: only the host moves the live folder, which
-        # confines every path a wire caller sends.
+        # An in-process member: only the host moves the live folder, which
+        # confines every path a wire caller sends. A member not published
+        # is named to nobody (tests/guards/
+        # test_a_settings_refusal_names_only_a_published_member.py).
         (
             'live_folder',
             ScopeSession,
             'set_live_folder',
             'ScopeSession.set_live_folder',
-            'host_only',
-        ),
-        (
-            'protocol.filepath',
-            ScopeSession,
-            'set_protocol_filepath',
-            'ScopeSession.set_protocol_filepath',
             'host_only',
         ),
         (

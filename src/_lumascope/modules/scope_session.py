@@ -4993,7 +4993,8 @@ class ScopeSession:
                 member (named by its path from the session:
                 ``scope.camera.set_frame_size`` for the camera's); ``'host_only'``, its member is
                 not on the wire, so only the application hosting the scope
-                changes it (``live_folder``, ``protocol.filepath``);
+                changes it (``live_folder``, ``protocol.filepath``), the
+                member named in ``member`` when it is published, in-process;
                 ``'installation_only'``, it is set
                 only by the installation; ``'not_a_setting'``, it is not a
                 setting; ``'block'``, it names a block; ``'wrong_kind'``,
@@ -5034,16 +5035,23 @@ class ScopeSession:
         """
         value = python_values(value)
         member = settings_paths.member_for(path)
-        if member is not None and mark_of(getattr(_owner_of(member), member.name)) != API:
+        mark = mark_of(getattr(_owner_of(member), member.name)) if member is not None else API
+        if mark != API:
             # A member no wire carries -- in-process, or not published at
             # all -- is moved only by the host; advice naming the member
-            # alone sends a REST client to a route that does not exist.
+            # alone sends a REST client to a route that does not exist, and
+            # a member not published is named to nobody.
+            changed_by = (
+                f'it is changed by {member.words}, which only the application hosting the scope '
+                'can call'
+                if mark is not None
+                else 'only the application hosting the scope changes it'
+            )
             raise SettingRefusedError(
                 'host_only',
                 path,
-                f'it is changed by {member.words}, which only the application '
-                'hosting the scope can call; a REST client reads it and cannot move it',
-                member=member.path,
+                f'{changed_by}; a REST client reads it and cannot move it',
+                member=member.path if mark is not None else None,
             )
         settings_paths.check_write(self.scope.settings_template, path, value)
         preference = path in settings_paths.PREFERENCES

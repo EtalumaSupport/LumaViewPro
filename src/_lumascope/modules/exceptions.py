@@ -2034,8 +2034,9 @@ class SettingRefusedError(Refusal, ConfigError):
         reason: ``'has_member'`` -- the setting is changed by its own
             member, named in ``member`` by its path from the session (the
             camera's as ``scope.camera.<name>``). ``'host_only'`` -- that
-            member is in-process: only the application hosting the scope
-            changes the setting, and a REST client reads it. ``'not_a_setting'`` -- no
+            member is in-process or not published: only the application
+            hosting the scope changes the setting, and a REST client reads
+            it. ``'not_a_setting'`` -- no
             setting has this path. ``'block'`` -- the path names a block of
             settings, which is written one setting at a time.
             ``'installation_only'`` -- the setting is read only from the
@@ -2055,8 +2056,9 @@ class SettingRefusedError(Refusal, ConfigError):
         detail: Why, as a clause about the value (``'it must be above 0,
             not 0'``), for a caller that names the setting its own way: a
             protocol step's column.
-        member: The member that changes the setting, for ``'has_member'``
-            and ``'host_only'``; otherwise None.
+        member: The member that changes the setting, for ``'has_member'``,
+            and for ``'host_only'`` when that member is published
+            (in-process); otherwise None.
         limits: The lowest and highest value the setting takes, for an
             ``'out_of_range'`` setting with both ends; otherwise None.
         takes: The range the value is outside, as a clause (``'at least
@@ -2067,7 +2069,7 @@ class SettingRefusedError(Refusal, ConfigError):
     ``path``, ``member`` and ``limits`` are published, so a REST problem
     names the setting refused, the member and the range, beside the words:
     for ``'has_member'`` the member to call instead, for ``'host_only'``
-    the one only the host calls.
+    the in-process one only the host calls.
     """
 
     path: str

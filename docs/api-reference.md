@@ -3827,7 +3827,7 @@ settings has a path.
 
 **Raises**
 
-- `SettingRefusedError`: `'has_member'`, `path` is owned by a member (named by its path from the session: `scope.camera.set_frame_size` for the camera's); `'host_only'`, its member is not on the wire, so only the application hosting the scope changes it (`live_folder`, `protocol.filepath`); `'installation_only'`, it is set only by the installation; `'not_a_setting'`, it is not a setting; `'block'`, it names a block; `'wrong_kind'`, `value` is not the setting's kind; `'out_of_range'`, it is outside its range (a `protocol.period` or `protocol.duration` no protocol can run among them). Nothing is written.
+- `SettingRefusedError`: `'has_member'`, `path` is owned by a member (named by its path from the session: `scope.camera.set_frame_size` for the camera's); `'host_only'`, its member is not on the wire, so only the application hosting the scope changes it (`live_folder`, `protocol.filepath`), the member named in `member` when it is published, in-process; `'installation_only'`, it is set only by the installation; `'not_a_setting'`, it is not a setting; `'block'`, it names a block; `'wrong_kind'`, `value` is not the setting's kind; `'out_of_range'`, it is outside its range (a `protocol.period` or `protocol.duration` no protocol can run among them). Nothing is written.
 - `ConfigurationDefectError`: `'channels_unresolved'`, the write is an auto-gain bound the shown channel's camera takes and this scope's channels could not be resolved. Nothing is stored, and the camera is not changed.
 - `ArgumentRefusedError`: `'gain_range_inverted'`, the write is an auto-gain bound the shown channel's camera takes and leaves the minimum gain above the maximum. Nothing is stored, and the camera keeps its arm.
 - `CameraSettingRejected`: the shown channel's camera did not take the auto-gain bound. Nothing is stored.
@@ -17581,19 +17581,19 @@ responses branches on `reason`; a person reads the message.
 
 **Attributes**
 
-- `reason`: `'has_member'` -- the setting is changed by its own member, named in `member` by its path from the session (the camera's as `scope.camera.<name>`). `'host_only'` -- that member is in-process: only the application hosting the scope changes the setting, and a REST client reads it. `'not_a_setting'` -- no setting has this path. `'block'` -- the path names a block of settings, which is written one setting at a time. `'installation_only'` -- the setting is read only from the installation's settings file. `'not_a_number'` -- the setting holds a number and the value is not a finite one: a string, a `bool`, NaN or an infinity, as an argument is refused for it (`ArgumentRefusedError`). `'wrong_kind'` -- the value is not the other kind the setting holds. `'out_of_range'` -- the value is outside the setting's range. `'model_named_by_board'` -- the scope model was chosen on a scope whose board names its own, which it runs as at every start (`ScopeSession.select_model`). `'not_offered'` -- the setting holds a closed set (a `StrEnum`, such as `image_mode`'s `ImageMode`) and the value is not one of its values.
+- `reason`: `'has_member'` -- the setting is changed by its own member, named in `member` by its path from the session (the camera's as `scope.camera.<name>`). `'host_only'` -- that member is in-process or not published: only the application hosting the scope changes the setting, and a REST client reads it. `'not_a_setting'` -- no setting has this path. `'block'` -- the path names a block of settings, which is written one setting at a time. `'installation_only'` -- the setting is read only from the installation's settings file. `'not_a_number'` -- the setting holds a number and the value is not a finite one: a string, a `bool`, NaN or an infinity, as an argument is refused for it (`ArgumentRefusedError`). `'wrong_kind'` -- the value is not the other kind the setting holds. `'out_of_range'` -- the value is outside the setting's range. `'model_named_by_board'` -- the scope model was chosen on a scope whose board names its own, which it runs as at every start (`ScopeSession.select_model`). `'not_offered'` -- the setting holds a closed set (a `StrEnum`, such as `image_mode`'s `ImageMode`) and the value is not one of its values.
 - `detail`: Why, as a clause about the value (`'it must be above 0, not 0'`), for a caller that names the setting its own way: a protocol step's column.
 - `takes`: The range the value is outside, as a clause (`'at least 0'`, `'above 0 and at most 1'`), for an `'out_of_range'` refused by a range's bound; otherwise None. A caller judging an argument by a setting's rule says it in the argument's own words.
 
 `path`, `member` and `limits` are published, so a REST problem
 names the setting refused, the member and the range, beside the words:
 for `'has_member'` the member to call instead, for `'host_only'`
-the one only the host calls.
+the in-process one only the host calls.
 
 **Fields**
 
 - <a id="SettingRefusedError.limits"></a>`limits`: `tuple[float, float] | None` -- The lowest and highest value the setting takes, for an `'out_of_range'` setting with both ends; otherwise None.
-- <a id="SettingRefusedError.member"></a>`member`: `str | None` -- The member that changes the setting, for `'has_member'` and `'host_only'`; otherwise None.
+- <a id="SettingRefusedError.member"></a>`member`: `str | None` -- The member that changes the setting, for `'has_member'`, and for `'host_only'` when that member is published (in-process); otherwise None.
 - <a id="SettingRefusedError.path"></a>`path`: `str` -- The dotted path that was written.
 
 | Reason | Cause | REST status |

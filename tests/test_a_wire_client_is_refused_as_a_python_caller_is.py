@@ -333,18 +333,20 @@ def test_a_reads_argument_its_member_refuses_is_422_and_names_it(client):
 def test_a_setting_only_the_host_moves_is_refused_as_host_only_not_sent_to_a_missing_route(
     client, session
 ):
-    """The live folder confines every path a wire caller sends, so its two
-    setters are in-process. A wire write to either setting is refused as the
-    host's, never with advice to call a member the wire has no route for."""
+    """The live folder confines every path a wire caller sends, so the two
+    settings' setters have no route: the live folder's is in-process, the
+    protocol file's not published. A wire write to either setting is refused
+    as the host's, never with advice to call a member the wire has no route
+    for, and names the in-process setter alone."""
     before = session.settings_snapshot
-    for path, member in (
-        ('live_folder', 'set_live_folder'),
-        ('protocol.filepath', 'set_protocol_filepath'),
+    for path, setter, named in (
+        ('live_folder', 'set_live_folder', 'set_live_folder'),
+        ('protocol.filepath', 'set_protocol_filepath', None),
     ):
         body = {'path': path, 'value': '/elsewhere'}
         answer = _problem(client.post('/api/v1/update_settings', json=body), 422)
-        assert (answer['reason'], answer['member']) == ('host_only', member)
-        assert client.post(f'/api/v1/{member}', json={}).status_code == 404
+        assert (answer['reason'], answer['member']) == ('host_only', named)
+        assert client.post(f'/api/v1/{setter}', json={}).status_code == 404
     assert session.settings_snapshot == before
 
 
