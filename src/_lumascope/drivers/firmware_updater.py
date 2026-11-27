@@ -88,7 +88,7 @@ class UpdateStage(Enum):
     FAILED = 'failed'
 
 
-class UpdateError(Fault, Exception):
+class _UpdateError(Fault, Exception):
     """Firmware update failure with stage and recoverability info."""
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'update_failed': None}
@@ -225,7 +225,7 @@ def _create_board(config, port=None, timeout=2.0):
         Connected SerialBoard instance.
 
     Raises:
-        UpdateError if board cannot be found or connected.
+        _UpdateError if board cannot be found or connected.
     """
     board = SerialBoard(
         vid=config.vid,
@@ -237,7 +237,7 @@ def _create_board(config, port=None, timeout=2.0):
     )
 
     if not board.found:
-        raise UpdateError(
+        raise _UpdateError(
             f'{config.label} board not found. Check USB cable and power.',
             stage=UpdateStage.CHECKING_VERSION,
         )
@@ -245,7 +245,7 @@ def _create_board(config, port=None, timeout=2.0):
     board.connect()
 
     if board.driver is None:
-        raise UpdateError(
+        raise _UpdateError(
             f'Cannot open serial port for {config.label} board. '
             f'Close any other applications using the port (Thonny, etc).',
             stage=UpdateStage.CHECKING_VERSION,
@@ -485,7 +485,7 @@ def _send_fwupdate_command(board, board_config):
     After this call, the board is disconnected (rebooting into BOOTSEL),
     whether it succeeded or raised.
 
-    Raises UpdateError if neither method succeeds.
+    Raises _UpdateError if neither method succeeds.
     """
     try:
         # Try FWUPDATE command first (v3.0.4+ firmware)
@@ -508,7 +508,7 @@ def _send_fwupdate_command(board, board_config):
                 _bootloader_via_raw_repl(board)
 
     except (HardwareError, serial.SerialException, OSError) as e:
-        raise UpdateError(
+        raise _UpdateError(
             f'FWUPDATE command failed: {e}',
             stage=UpdateStage.SENDING_FWUPDATE,
         ) from e
@@ -528,7 +528,7 @@ def _bootloader_via_raw_repl(board):
     logger.info('Entering raw REPL for machine.bootloader() fallback')
 
     if not board.enter_raw_repl(soft_reset=False):
-        raise UpdateError(
+        raise _UpdateError(
             'Failed to enter raw REPL for bootloader fallback',
             stage=UpdateStage.SENDING_FWUPDATE,
         )
@@ -549,7 +549,7 @@ def _make_backup_dir(backup_dir):
     """The caller's backup folder, made before the board is touched; None
     when the caller takes no backup.
 
-    Raises UpdateError at PREFLIGHT, naming the folder, when it cannot be
+    Raises _UpdateError at PREFLIGHT, naming the folder, when it cannot be
     made, so an unwritable folder fails the update before the board is
     taken into raw REPL.
     """
@@ -559,7 +559,7 @@ def _make_backup_dir(backup_dir):
     try:
         backup_dir.mkdir(parents=True, exist_ok=True)
     except OSError as e:
-        raise UpdateError(
+        raise _UpdateError(
             f'Cannot make the backup folder {backup_dir}: {e}',
             stage=UpdateStage.PREFLIGHT,
         ) from e
@@ -571,7 +571,7 @@ def _backup_configs(board, board_config, backup_dir, callback=None):
     which _make_backup_dir has made.
 
     Returns dict of {filename: bytes_content}.
-    Raises UpdateError if the board's files cannot be listed, or a file
+    Raises _UpdateError if the board's files cannot be listed, or a file
     exists on board but cannot be read (the board's HardwareError, chained).
     """
     configs = {}
@@ -584,7 +584,7 @@ def _backup_configs(board, board_config, backup_dir, callback=None):
     )
 
     if not board.enter_raw_repl():
-        raise UpdateError(
+        raise _UpdateError(
             f'Failed to enter raw REPL on {board_config.label} board',
             stage=UpdateStage.BACKING_UP_CONFIG,
         )
@@ -608,7 +608,7 @@ def _backup_configs(board, board_config, backup_dir, callback=None):
             logger.info(f'Backed up {filename}: {len(data)} bytes')
 
     except HardwareError as failed:
-        raise UpdateError(
+        raise _UpdateError(
             f"The {board_config.label} board's configuration could not be backed up "
             f'({failed}). Update aborted -- config backup must succeed before flashing.',
             stage=UpdateStage.BACKING_UP_CONFIG,
@@ -619,7 +619,7 @@ def _backup_configs(board, board_config, backup_dir, callback=None):
     # Verify firmware recovered after raw REPL
     fw_response = board.verify_firmware_running()
     if fw_response is None:
-        raise UpdateError(
+        raise _UpdateError(
             f'{board_config.label} board not responding after config backup. '
             f'Try power-cycling the system.',
             stage=UpdateStage.BACKING_UP_CONFIG,
@@ -655,7 +655,7 @@ def _restore_configs(board, board_config, config_data, backup_dir, callback=None
     judged by reading it back, never by the board's listing: a flashed
     board that cannot list its files still gets every backup it lacks.
     Returns True if all files restored successfully.
-    Raises UpdateError on failure.
+    Raises _UpdateError on failure.
     """
     if not config_data:
         logger.info('No config files to restore')
@@ -669,7 +669,7 @@ def _restore_configs(board, board_config, config_data, backup_dir, callback=None
     )
 
     if not board.enter_raw_repl():
-        raise UpdateError(
+        raise _UpdateError(
             'Failed to enter raw REPL for config restore',
             stage=UpdateStage.RESTORING_CONFIG,
         )
@@ -695,7 +695,7 @@ def _restore_configs(board, board_config, config_data, backup_dir, callback=None
             )
 
             if not board.repl_write_file(filename, data):
-                raise UpdateError(
+                raise _UpdateError(
                     f'Failed to restore config: {filename}. The backup is in '
                     f'{backup_dir / board_config.board_type.value}.',
                     stage=UpdateStage.RESTORING_CONFIG,
@@ -708,7 +708,7 @@ def _restore_configs(board, board_config, config_data, backup_dir, callback=None
     # Verify firmware recovered
     fw_response = board.verify_firmware_running()
     if fw_response is None:
-        raise UpdateError(
+        raise _UpdateError(
             f'{board_config.label} board not responding after config restore. '
             f'Try power-cycling the system.',
             stage=UpdateStage.RESTORING_CONFIG,
@@ -793,7 +793,7 @@ def get_available_updates(firmware_dir, board_type):
     return files
 
 
-def check_update_needed(board_type, uf2_path):
+def check_update_needed(board_type: BoardType, uf2_path: Path) -> tuple[bool, str | None, str]:
     """Compare board's current version against UF2 file version.
 
     Returns (needs_update, current_version, target_version).
@@ -804,7 +804,7 @@ def check_update_needed(board_type, uf2_path):
 
     try:
         board = _create_board(config)
-    except UpdateError:
+    except _UpdateError:
         return True, None, target
 
     try:
@@ -853,14 +853,14 @@ def update_firmware(
         _report_progress(progress_callback, UpdateStage.PREFLIGHT, 'Checking UF2 file...', 0.0)
 
         if not uf2_path.is_file():
-            raise UpdateError(
+            raise _UpdateError(
                 f'UF2 file not found: {uf2_path}',
                 stage=UpdateStage.PREFLIGHT,
             )
 
         # LED boards have no USB to the RP2040 -- UF2 flashing won't work
         if not config.has_direct_usb:
-            raise UpdateError(
+            raise _UpdateError(
                 f'{config.label} board has no direct USB to the RP2040 '
                 f'(UART only via USB hub). UF2 flashing is not possible '
                 f'via software. Use deploy_firmware_file() to update '
@@ -871,7 +871,7 @@ def update_firmware(
 
         uf2_size = uf2_path.stat().st_size
         if uf2_size < 512:
-            raise UpdateError(
+            raise _UpdateError(
                 f'UF2 file too small ({uf2_size} bytes) -- likely corrupted',
                 stage=UpdateStage.PREFLIGHT,
             )
@@ -882,7 +882,7 @@ def update_firmware(
         # Check no other board is already in BOOTSEL mode
         existing_bootsel = _detect_bootsel_drive()
         if existing_bootsel is not None:
-            raise UpdateError(
+            raise _UpdateError(
                 f'An RPI-RP2 drive is already mounted at {existing_bootsel}. '
                 f'Cannot determine which board it belongs to. '
                 f'Please eject it or power-cycle the system first.',
@@ -983,14 +983,14 @@ def update_firmware(
                 if ok:
                     logger.info('UF2 flashed successfully via picotool')
                 else:
-                    raise UpdateError(
+                    raise _UpdateError(
                         f'picotool failed to flash {uf2_path.name}. '
                         f'The board may need a power cycle.',
                         stage=UpdateStage.COPYING_UF2,
                         recoverable=False,
                     )
             else:
-                raise UpdateError(
+                raise _UpdateError(
                     f'BOOTSEL drive did not appear within '
                     f'{config.bootsel_timeout}s and picotool is not '
                     f'installed. Install picotool (brew install picotool) '
@@ -1016,14 +1016,14 @@ def update_firmware(
             # Check if the board fell back to BOOTSEL
             bootsel_again = _detect_bootsel_drive()
             if bootsel_again is not None:
-                raise UpdateError(
+                raise _UpdateError(
                     'Board returned to BOOTSEL mode instead of booting. '
                     'The UF2 may be invalid. '
                     'You can retry with a different UF2 file.',
                     stage=UpdateStage.WAITING_REBOOT,
                     recoverable=True,
                 )
-            raise UpdateError(
+            raise _UpdateError(
                 f'Serial port did not reappear within '
                 f'{config.serial_reappear_timeout}s. '
                 f'Try power-cycling the system.',
@@ -1082,7 +1082,7 @@ def update_firmware(
         logger.info(f'Firmware update successful: {current_version} -> {new_version}')
         return result
 
-    except UpdateError as e:
+    except _UpdateError as e:
         result.error_message = str(e)
         result.error_stage = e.stage
         logger.error(f'Firmware update failed at {e.stage.value}: {e}')
@@ -1103,10 +1103,10 @@ def update_firmware(
 
 
 def nuke_board(
-    board_type,
-    nuke_uf2_path,
-    progress_callback=None,
-):
+    board_type: BoardType,
+    nuke_uf2_path: Path | str,
+    progress_callback: Callable[[UpdateStage, str, float], object] | None = None,
+) -> UpdateResult:
     """Erase all flash on a board and leave it in BOOTSEL mode.
 
     This uses the Raspberry Pi flash_nuke UF2 which:
@@ -1137,7 +1137,7 @@ def nuke_board(
     try:
         # LED boards have no USB to the RP2040 -- nuke won't work
         if not config.has_direct_usb:
-            raise UpdateError(
+            raise _UpdateError(
                 f'{config.label} board has no direct USB to the RP2040 '
                 f'(UART only via USB hub). Flash nuke requires BOOTSEL '
                 f'access. Use a physical BOOTSEL button.',
@@ -1146,7 +1146,7 @@ def nuke_board(
 
         # Validate nuke UF2
         if not nuke_uf2_path.is_file():
-            raise UpdateError(
+            raise _UpdateError(
                 f'Flash nuke UF2 not found: {nuke_uf2_path}',
                 stage=UpdateStage.PREFLIGHT,
             )
@@ -1211,14 +1211,14 @@ def nuke_board(
                 if ok:
                     logger.info('Nuke UF2 flashed via picotool')
                 else:
-                    raise UpdateError(
+                    raise _UpdateError(
                         'picotool failed to flash nuke UF2. '
                         'Hold BOOTSEL and power-cycle the board.',
                         stage=UpdateStage.COPYING_UF2,
                         recoverable=False,
                     )
             else:
-                raise UpdateError(
+                raise _UpdateError(
                     'BOOTSEL drive not found and picotool is not '
                     'installed. Install picotool (brew install picotool) '
                     'or hold BOOTSEL and power-cycle the board.',
@@ -1266,7 +1266,7 @@ def nuke_board(
 
         return result
 
-    except UpdateError as e:
+    except _UpdateError as e:
         result.error_message = str(e)
         result.error_stage = e.stage
         logger.error(f'Flash nuke failed: {e}')
@@ -1330,14 +1330,14 @@ def deploy_firmware_file(
         _report_progress(progress_callback, UpdateStage.PREFLIGHT, 'Checking firmware file...', 0.0)
 
         if not firmware_path.is_file():
-            raise UpdateError(
+            raise _UpdateError(
                 f'Firmware file not found: {firmware_path}',
                 stage=UpdateStage.PREFLIGHT,
             )
 
         fw_data = firmware_path.read_bytes()
         if len(fw_data) < 100:
-            raise UpdateError(
+            raise _UpdateError(
                 f'Firmware file too small ({len(fw_data)} bytes)',
                 stage=UpdateStage.PREFLIGHT,
             )
@@ -1384,7 +1384,7 @@ def deploy_firmware_file(
         # UART writes (57KB at 115200) take ~9s -- not enough time.
         # Without soft reset, the Timer keeps feeding WDT during the write.
         if not board.enter_raw_repl(soft_reset=False):
-            raise UpdateError(
+            raise _UpdateError(
                 'Failed to enter raw REPL for firmware deploy',
                 stage=UpdateStage.RESTORING_CONFIG,
             )
@@ -1393,7 +1393,7 @@ def deploy_firmware_file(
         # board, so a failed write reboots the board on its old main.py
         try:
             if not board.repl_write_file('main.py', fw_data):
-                raise UpdateError(
+                raise _UpdateError(
                     f'Failed to write main.py ({len(fw_data)} bytes)',
                     stage=UpdateStage.RESTORING_CONFIG,
                 )
@@ -1430,7 +1430,7 @@ def deploy_firmware_file(
         logger.info(f'Firmware deploy successful: {current_version} -> {new_version}')
         return result
 
-    except UpdateError as e:
+    except _UpdateError as e:
         result.error_message = str(e)
         result.error_stage = e.stage
         logger.error(f'Firmware deploy failed at {e.stage.value}: {e}')

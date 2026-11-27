@@ -1954,7 +1954,8 @@ class ScopeSession:
                 a plugin may turn it on when the host loads plugins.
             no_engineering: ``load_plugins`` leaves out the installed
                 plugin named ``etaluma_engineering`` before it is imported,
-                as if it were not installed.
+                as if it were not installed: Etaluma's own bench switch, and
+                a caller leaves it False.
             simulated: the scope a simulated session is built as and the
                 faults it shows from bring-up on (``SimulatedScope``, the
                 simulator surface's); None (the default) is the declared

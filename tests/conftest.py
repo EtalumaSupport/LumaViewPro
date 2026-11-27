@@ -967,7 +967,7 @@ def no_hardware(monkeypatch):
     """The registries answer as a machine with no scope does: null boards, no camera."""
     from _lumascope.drivers.null_ledboard import NullLEDBoard
     from _lumascope.drivers.null_motorboard import NullMotionBoard
-    from _lumascope.drivers.registry import DriverFallback, NoLiveDriverError
+    from _lumascope.drivers.registry import DriverFallback, _NoLiveDriverError
     from _lumascope.modules.lumascope_api import _lumascope
 
     absent = DriverFallback('not_detected', ())
@@ -985,7 +985,7 @@ def no_hardware(monkeypatch):
     def no_camera(name='auto', **kw):
         if kw.get('simulate'):
             return real_create(name, **kw)
-        raise NoLiveDriverError('camera', absent)
+        raise _NoLiveDriverError('camera', absent)
 
     real_create = _lumascope.camera_registry.create
     monkeypatch.setattr(_lumascope.camera_registry, 'create', no_camera)

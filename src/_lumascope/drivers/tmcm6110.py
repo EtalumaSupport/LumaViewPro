@@ -48,7 +48,7 @@ from _lumascope.drivers.exceptions import (
     HardwareError,
     MotionInterlockError,
     MotionNotCompletedError,
-    PartAbsentError,
+    _PartAbsentError,
 )
 from _lumascope.drivers import motion_units
 from _lumascope.drivers.motorconfig import read_only_axes_config
@@ -510,7 +510,7 @@ class Tmcm6110Board:
 
     def _motor(self, axis: str) -> int:
         if axis not in MOTORS:
-            raise PartAbsentError(f'Unsupported axis ({axis})')
+            raise _PartAbsentError(f'Unsupported axis ({axis})')
         return MOTORS[axis]
 
     def _index_usteps(self, axis: str) -> int:
@@ -834,7 +834,7 @@ class Tmcm6110Board:
         self._home_send(SAP, AP_ACTUAL_POSITION, motor, 0)
 
     def thome(self) -> None:
-        raise PartAbsentError('the TMCM-6110 stage has no turret')
+        raise _PartAbsentError('the TMCM-6110 stage has no turret')
 
     def has_homed(self) -> bool:
         """False: the board keeps no record of a home, as ``detect_homed_axes``
@@ -950,7 +950,7 @@ class Tmcm6110Board:
 
     def axis_limits(self, axis: str) -> Mapping[str, float] | None:
         if axis not in self.axes_config:
-            raise PartAbsentError(f'Unsupported axis ({axis})')
+            raise _PartAbsentError(f'Unsupported axis ({axis})')
         return self.axes_config[axis]['limits']
 
     # ------------------------------------------------------------------

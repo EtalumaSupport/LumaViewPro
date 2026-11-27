@@ -143,7 +143,7 @@ class NoWireFormError(Fault, TypeError):
     _at = ''
 
 
-class NotHandedOutError(NoWireFormError):
+class _NotHandedOutError(NoWireFormError):
     """A parameter takes only a live object no wire member hands out, so no client can name one."""
 
     causes: typing.ClassVar[dict[str, RefusalCause | None]] = {'not_handed_out': None}
@@ -875,7 +875,7 @@ def inbound(
             no operation, a thread, a path inside an array -- or is a union
             a sent value could be read as either side of (a name or a path),
             so which one the client meant is not knowable.
-        NotHandedOutError: every alternative but None is a live object no
+        _NotHandedOutError: every alternative but None is a live object no
             wire member hands out.
     """
     found: list[Inbound] = []
@@ -915,7 +915,7 @@ def inbound(
         else:
             raise NoWireFormError(f'{text}: {name} has no inbound form')
     if unobtainable and all(a.name == 'None' for a in found):
-        raise NotHandedOutError(
+        raise _NotHandedOutError(
             f'{text}: no wire member hands out the live object {unobtainable[0]}'
         )
     converted = [a for a in found if a.form in _CONVERTED]
@@ -1030,7 +1030,7 @@ def wire_members(
         NoWireFormError: a parameter's type has no inbound form, a return
             type has no outbound form, or a parameter without a default
             takes only a live object no wire member hands out
-            (``NotHandedOutError``).
+            (``_NotHandedOutError``).
         TypeError: a method takes ``*args`` or ``**kwargs``, which a client
             cannot name.
     """
@@ -1061,9 +1061,11 @@ def wire_members(
             required = p.default is p.empty
             try:
                 alternatives = inbound(text, classes, aliases, handed_out=handed_out)
-            except NotHandedOutError as e:
+            except _NotHandedOutError as e:
                 if required:
-                    raise NotHandedOutError(f'{cls.__name__}.{name} parameter {p.name}: {e}') from e
+                    raise _NotHandedOutError(
+                        f'{cls.__name__}.{name} parameter {p.name}: {e}'
+                    ) from e
                 continue
             if not alternatives:
                 if 'ProgressCallback' in _names(text):

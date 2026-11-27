@@ -40,7 +40,7 @@ from _lumascope.drivers.exceptions import (
     CameraStreamStartFailedError,
     CameraWriteFailedError,
     HardwareError,
-    PartAbsentError,
+    _PartAbsentError,
 )
 from _lumascope.drivers.registry import camera_registry
 from _lumascope.drivers.simulated_specimen import (
@@ -1477,7 +1477,7 @@ class SimulatedCamera(Camera):
             HardwareError: No camera is active.
         """
         if not self.active:
-            raise PartAbsentError('Camera temperature read: no camera is active')
+            raise _PartAbsentError('Camera temperature read: no camera is active')
         return {'sensor': 35.0, 'board': 40.0}
 
     def supports_temperature(self) -> bool:

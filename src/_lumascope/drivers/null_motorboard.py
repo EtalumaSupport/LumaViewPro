@@ -21,7 +21,7 @@ import threading
 from collections.abc import Mapping
 from typing import ClassVar
 
-from _lumascope.drivers.exceptions import PartAbsentError
+from _lumascope.drivers.exceptions import _PartAbsentError
 from _lumascope.drivers.registry import motor_registry
 from _lumascope.drivers.motorconfig import read_only_axes_config
 
@@ -111,7 +111,7 @@ class NullMotionBoard:
         Raises:
             HardwareError: there is no motor board.
         """
-        raise PartAbsentError(f'target_pos({axis}): no motor board')
+        raise _PartAbsentError(f'target_pos({axis}): no motor board')
 
     def current_pos(self, axis: str) -> float:
         """Null implementation: raises, as a board that cannot be read does.
@@ -119,7 +119,7 @@ class NullMotionBoard:
         Raises:
             HardwareError: there is no motor board.
         """
-        raise PartAbsentError(f'current_pos({axis}): no motor board')
+        raise _PartAbsentError(f'current_pos({axis}): no motor board')
 
     def target_pos_steps(self, axis: str) -> int:
         """Null implementation: raises, as a board that cannot be read does.
@@ -127,7 +127,7 @@ class NullMotionBoard:
         Raises:
             HardwareError: there is no motor board.
         """
-        raise PartAbsentError(f'target_pos_steps({axis}): no motor board')
+        raise _PartAbsentError(f'target_pos_steps({axis}): no motor board')
 
     def current_pos_steps(self, axis: str) -> int:
         """Null implementation: raises, as a board that cannot be read does.
@@ -135,7 +135,7 @@ class NullMotionBoard:
         Raises:
             HardwareError: there is no motor board.
         """
-        raise PartAbsentError(f'current_pos_steps({axis}): no motor board')
+        raise _PartAbsentError(f'current_pos_steps({axis}): no motor board')
 
     def steps_to_position(self, axis: str, steps: int) -> float:
         """Null implementation: raises, as its position reads do.
@@ -143,7 +143,7 @@ class NullMotionBoard:
         Raises:
             HardwareError: there is no motor board.
         """
-        raise PartAbsentError(f'steps_to_position({axis}): no motor board')
+        raise _PartAbsentError(f'steps_to_position({axis}): no motor board')
 
     def position_to_steps(self, axis: str, position: float) -> int:
         """Null implementation: raises, as its position reads do.
@@ -151,7 +151,7 @@ class NullMotionBoard:
         Raises:
             HardwareError: there is no motor board.
         """
-        raise PartAbsentError(f'position_to_steps({axis}): no motor board')
+        raise _PartAbsentError(f'position_to_steps({axis}): no motor board')
 
     # ------------------------------------------------------------------
     # Status

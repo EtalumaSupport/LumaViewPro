@@ -729,10 +729,55 @@ def declared(
 ) -> Declared:
     """The reference's sections for the declared API *marked*, over the classes it can name."""
     # Left out before anything is indexed, so no other member's entry links to one.
-    marked = {k: m for k, m in marked.items() if m.field or not is_engineering(m.value)}
+    marked = _without_engineering(marked, universe)
     index = _index(marked, universe, aliases)
     classes, modules, outcome_owners = _owners(marked, index)
     return Declared(index, classes, modules, outcome_owners, _closed_sets(index))
+
+
+def _without_engineering(marked: dict[str, Marked], universe: dict[str, type]) -> dict[str, Marked]:
+    """*marked* without its engineering members, and without the fields of the records only they reach.
+
+    A record is reached from a member's signature and from the fields of the
+    records it reaches, and from the event a member delivers. One that an
+    engineering member's signature leads to and nothing else does is part of
+    that bench surface, and leaves the reference with it (``CameraNodeValue``,
+    the camera node a diagnostics read answers). An outcome's fields are a
+    root: an outcome is published whatever raises it.
+    """
+    engineering = {k for k, m in marked.items() if not m.field and is_engineering(m.value)}
+    fields_of: dict[str, list[Marked]] = collections.defaultdict(list)
+    for item in marked.values():
+        if item.field:
+            fields_of[item.owner_name].append(item)
+
+    def reached(roots: list[Marked]) -> set[str]:
+        seen: set[str] = set()
+        frontier = [name for item in roots for _, text in _edges(item) for name in _names(text)]
+        frontier += [
+            record.__name__
+            for item in roots
+            if not item.field and (record := event_of(item.value)) is not None
+        ]
+        while frontier:
+            name = frontier.pop()
+            if name in seen or name not in universe:
+                continue
+            seen.add(name)
+            frontier += [n for f in fields_of[name] for _, text in _edges(f) for n in _names(text)]
+        return seen
+
+    others = [
+        m
+        for k, m in marked.items()
+        if k not in engineering and (not m.field or issubclass(m.owner, BaseException))
+    ]
+    only_engineering = reached([marked[k] for k in engineering]) - reached(others)
+    return {
+        k: m
+        for k, m in marked.items()
+        if k not in engineering and not (m.field and m.owner_name in only_engineering)
+    }
 
 
 def published(sections: Declared) -> dict[str, object]:

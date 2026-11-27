@@ -25,7 +25,7 @@ from _lumascope.drivers import fx2driver
 from _lumascope.drivers.exceptions import BoardNoReplyError, CameraUsbDriverUnusableError
 from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.drivers.null_motorboard import NullMotionBoard
-from _lumascope.drivers.registry import DeclinedDriver, DriverFallback, NoLiveDriverError
+from _lumascope.drivers.registry import DeclinedDriver, DriverFallback, _NoLiveDriverError
 from _lumascope.drivers.simulated_camera import SimulatedCamera
 from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
 from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
@@ -317,7 +317,7 @@ class TestEachPartNamesItsCause:
             'report_outcome',
             lambda exc, **kw: reported.append(exc),
         )
-        backend_error = NoLiveDriverError(
+        backend_error = _NoLiveDriverError(
             'camera', DriverFallback('not_detected', ('PylonCamera', 'IDSCamera'))
         )
         s = _bring_up(monkeypatch, tmp_path, camera=backend_error, microscope='LS850T')
@@ -457,7 +457,7 @@ class TestNothingCameUp:
             tmp_path,
             motor=DriverFallback('not_detected', ('MotorBoard',)),
             led=DriverFallback('not_detected', ('LEDBoard',)),
-            camera=NoLiveDriverError('camera', DriverFallback('not_detected', ('PylonCamera',))),
+            camera=_NoLiveDriverError('camera', DriverFallback('not_detected', ('PylonCamera',))),
             microscope='LS850T',
         )
         try:
@@ -483,7 +483,7 @@ _FX2_DECLINED = (
 
 
 def _no_camera_with_the_fx2_declined():
-    return NoLiveDriverError(
+    return _NoLiveDriverError(
         'camera', DriverFallback('not_detected', ('PylonCamera',), declined=_FX2_DECLINED)
     )
 

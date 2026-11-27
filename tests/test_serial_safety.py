@@ -30,7 +30,7 @@ import serial
 
 import _lumascope.drivers.serialboard as serialboard
 from _lumascope.lib.log_helpers import VERBOSE
-from _lumascope.drivers.exceptions import BoardNoReplyError, BoardPortFailedError, PartAbsentError
+from _lumascope.drivers.exceptions import BoardNoReplyError, BoardPortFailedError, _PartAbsentError
 from _lumascope.drivers.ledboard import LEDBoard
 from _lumascope.drivers.serialboard import SerialBoard
 from _lumascope.drivers.sim_wire.mp.tmc5072 import XACTUAL, XTARGET
@@ -318,7 +318,7 @@ class TestTheMotorWrites:
 
     def test_a_move_on_an_axis_the_board_lacks_is_refused(self, motor):
         board, _sim = motor
-        with pytest.raises(PartAbsentError, match=r'Unsupported axis \(Q\)'):
+        with pytest.raises(_PartAbsentError, match=r'Unsupported axis \(Q\)'):
             board.move_abs_pos('Q', 100)
 
     def test_spi_read_returns_the_registers_value(self, motor):
@@ -357,7 +357,7 @@ class TestTheMotorBoardsConfig:
 
     def test_get_axis_limits_on_an_axis_the_board_lacks_is_refused(self, motor):
         board, _sim = motor
-        with pytest.raises(PartAbsentError, match=r'Unsupported axis \(Q\)'):
+        with pytest.raises(_PartAbsentError, match=r'Unsupported axis \(Q\)'):
             board.axis_limits('Q')
 
     def test_get_axes_config_has_all_four_axes_of_a_turret_scope(self, motor):
@@ -414,16 +414,16 @@ class TestMotorBoardConversions:
         """A slot with no row is the part absent, never a slot computed
         from an assumed spacing."""
         board, _sim = motor
-        with pytest.raises(PartAbsentError, match='turret slot 5'):
+        with pytest.raises(_PartAbsentError, match='turret slot 5'):
             board.position_to_steps('T', 5)
 
     def test_an_axis_no_board_has_converts_nothing(self, motor):
         """An axis letter outside X, Y, Z and T is refused both ways, never
         read as the turret."""
         board, _sim = motor
-        with pytest.raises(PartAbsentError, match=r'Unsupported axis \(Q\)'):
+        with pytest.raises(_PartAbsentError, match=r'Unsupported axis \(Q\)'):
             board.steps_to_position('Q', 80000)
-        with pytest.raises(PartAbsentError, match=r'Unsupported axis \(Q\)'):
+        with pytest.raises(_PartAbsentError, match=r'Unsupported axis \(Q\)'):
             board.position_to_steps('Q', 1000)
 
 

@@ -19,7 +19,7 @@ from _lumascope.drivers.exceptions import (
     ConfigReadError,
     HardwareError,
     MotionNotCompletedError,
-    PartAbsentError,
+    _PartAbsentError,
 )
 from _lumascope.drivers import motion_units
 from _lumascope.drivers.motorconfig import MotorConfig, read_only_axes_config
@@ -1026,7 +1026,7 @@ class MotorBoard(SerialBoard):
                 did not answer the target write.
         """
         if axis not in self.axes_config:
-            raise PartAbsentError(f'Unsupported axis ({axis})')
+            raise _PartAbsentError(f'Unsupported axis ({axis})')
         self.move(axis, self.position_to_steps(axis, pos))
 
     # ----------------------------------------------------------
@@ -1419,7 +1419,7 @@ class MotorBoard(SerialBoard):
         AXES_CONFIG = self.axes_config
         if axis not in AXES_CONFIG:
             logger.error(f'[XYZ Class ] MotorBoard.axis_limits(): Unsupported axis ({axis})')
-            raise PartAbsentError(f'Unsupported axis ({axis})')
+            raise _PartAbsentError(f'Unsupported axis ({axis})')
 
         axis_config = AXES_CONFIG[axis]
         if 'limits' not in axis_config:

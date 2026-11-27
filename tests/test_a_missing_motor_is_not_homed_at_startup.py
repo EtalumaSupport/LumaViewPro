@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from _lumascope.drivers.registry import DriverFallback, NoLiveDriverError
+from _lumascope.drivers.registry import DriverFallback, _NoLiveDriverError
 from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MotorBoardUnavailableError,
@@ -38,7 +38,7 @@ _NOT_DETECTED = DriverFallback('not_detected', ('MotorBoard',))
         pytest.param(
             {
                 'led': DriverFallback('not_detected', ('LEDBoard',)),
-                'camera': NoLiveDriverError(
+                'camera': _NoLiveDriverError(
                     'camera', DriverFallback('not_detected', ('PylonCamera',))
                 ),
             },

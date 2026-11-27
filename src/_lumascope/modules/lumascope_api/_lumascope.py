@@ -74,7 +74,7 @@ from _lumascope.drivers.registry import (
     DeclinedDriver,
     DriverFallback,
     DriverNotLiveError,
-    NoLiveDriverError,
+    _NoLiveDriverError,
     camera_registry,
     led_registry,
     motor_registry,
@@ -378,7 +378,7 @@ def _camera_failure_cause(exc: BaseException, fx2_could_be_this_scope: bool) -> 
     (``_the_declined_fx2_that_could_be_this_scope``). Anything outside the
     hardware's family is LumaViewPro's own failure, never the cable's.
     """
-    if isinstance(exc, NoLiveDriverError):
+    if isinstance(exc, _NoLiveDriverError):
         fallback = exc.fallback
         if fallback.cause == 'port_in_use':
             return 'port_in_use'
@@ -412,11 +412,11 @@ def _camera_detail(cause: str, failure: BaseException, declined_words: str | Non
 def _no_camera_found(exc: BaseException | None) -> bool:
     """Whether the camera's failure says no camera was found.
 
-    The registry raises ``NoLiveDriverError`` when no driver raised; its
+    The registry raises ``_NoLiveDriverError`` when no driver raised; its
     cause says whether a port was found held. Any other failure is a fault a
     driver raised for a camera it found.
     """
-    return isinstance(exc, NoLiveDriverError) and exc.fallback.cause != 'port_in_use'
+    return isinstance(exc, _NoLiveDriverError) and exc.fallback.cause != 'port_in_use'
 
 
 # The causes a camera that came up can meet coming up, the one a person acts
@@ -1434,7 +1434,7 @@ class Lumascope:
                 if fx2_failure is not None:
                     raise fx2_failure
                 if fx2_connection is None:
-                    raise NoLiveDriverError(
+                    raise _NoLiveDriverError(
                         'camera', DriverFallback('not_detected', ('FX2Camera',))
                     )
                 self._camera_driver: Camera = FX2Camera(connection=fx2_connection)

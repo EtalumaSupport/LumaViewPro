@@ -27,7 +27,7 @@ from _lumascope.drivers.exceptions import (
     BoardPortFailedError,
     BoardReplyUnreadableError,
     BoardReportedError,
-    PartAbsentError,
+    _PartAbsentError,
 )
 from _lumascope.drivers import host_clock, motion_units
 from _lumascope.drivers.motorconfig import MotorConfig, read_only_axes_config
@@ -1044,7 +1044,7 @@ class SimulatedMotorBoard:
                 did not answer the target write.
         """
         if axis not in self.axes_config:
-            raise PartAbsentError(f'Unsupported axis ({axis})')
+            raise _PartAbsentError(f'Unsupported axis ({axis})')
         self.move(axis, self.position_to_steps(axis, pos))
 
     # ------------------------------------------------------------------
@@ -1268,7 +1268,7 @@ class SimulatedMotorBoard:
                 real board's driver raises.
         """
         if axis not in self.axes_config:
-            raise PartAbsentError(f'Unsupported axis ({axis})')
+            raise _PartAbsentError(f'Unsupported axis ({axis})')
         if 'limits' not in self.axes_config[axis]:
             return None
         return self.axes_config[axis]['limits']

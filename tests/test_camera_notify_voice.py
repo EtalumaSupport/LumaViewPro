@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from _lumascope.drivers.exceptions import CameraFirmwareMissingError
-from _lumascope.drivers.registry import DeclinedDriver, DriverFallback, NoLiveDriverError
+from _lumascope.drivers.registry import DeclinedDriver, DriverFallback, _NoLiveDriverError
 from _lumascope.modules.exceptions import CameraNotAvailableError
 from _lumascope.modules.lumascope_api._lumascope import _camera_failure_cause
 
@@ -36,18 +36,18 @@ def _body(exc) -> str:
 
 class TestCameraNotifyVoice:
     def test_no_camera_found_is_not_detected_and_its_body_is_clean(self):
-        exc = NoLiveDriverError(
+        exc = _NoLiveDriverError(
             'camera', DriverFallback('not_detected', ('PylonCamera', 'IDSCamera'))
         )
         assert _camera_failure_cause(exc, False) == 'not_detected'
         body = _body(exc)
         assert body  # non-empty, actionable
-        assert 'NoLiveDriverError' not in body
+        assert '_NoLiveDriverError' not in body
         assert 'registry' not in body
         assert '..' not in body  # no doubled period
 
     def test_no_camera_found_where_a_declined_fx2_could_be_the_board_names_no_library(self):
-        exc = NoLiveDriverError(
+        exc = _NoLiveDriverError(
             'camera',
             DriverFallback(
                 'not_detected',
@@ -67,7 +67,7 @@ class TestCameraNotifyVoice:
         assert 'libusb' not in said and 'Reinstall LumaViewPro.' in said, said
 
     def test_a_held_camera_port_is_port_in_use(self):
-        exc = NoLiveDriverError('camera', DriverFallback('port_in_use', ('PylonCamera',)))
+        exc = _NoLiveDriverError('camera', DriverFallback('port_in_use', ('PylonCamera',)))
         assert _camera_failure_cause(exc, False) == 'port_in_use'
 
     def test_a_missing_firmware_file_is_its_own_cause(self):

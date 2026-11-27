@@ -42,7 +42,7 @@ from _lumascope.drivers.exceptions import (
     CameraUsbOpenFailedError,
     CameraWriteFailedError,
     HardwareError,
-    PartAbsentError,
+    _PartAbsentError,
 )
 from _lumascope.drivers.registry import camera_registry
 from _lumascope.lib.lumascope_error import Fault, RefusalCause
@@ -2473,7 +2473,7 @@ class IDSCamera(Camera):
         node. See ``Camera.get_all_temperatures``.
         """
         if not self.active or self.remote_nodemap is None:
-            raise PartAbsentError('Camera temperature read: no camera is active')
+            raise _PartAbsentError('Camera temperature read: no camera is active')
         try:
             temp = self._node('DeviceTemperature')
             if temp is None:

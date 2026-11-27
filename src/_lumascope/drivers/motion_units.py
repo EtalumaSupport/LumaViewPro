@@ -16,7 +16,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from _lumascope.drivers.exceptions import PartAbsentError
+from _lumascope.drivers.exceptions import _PartAbsentError
 
 if TYPE_CHECKING:
     from _lumascope.drivers.motorconfig import MotorConfig
@@ -36,7 +36,7 @@ def position_to_steps(config: MotorConfig | Tmcm6110Config, axis: str, position:
         return math.floor(config.usteps_per_mm(axis) * position / 1000 + 0.5)
     if axis == 'T':
         return config.turret_position_usteps(position)
-    raise PartAbsentError(f'Unsupported axis ({axis})')
+    raise _PartAbsentError(f'Unsupported axis ({axis})')
 
 
 def steps_to_position(config: MotorConfig | Tmcm6110Config, axis: str, steps: int) -> float | int:
@@ -52,4 +52,4 @@ def steps_to_position(config: MotorConfig | Tmcm6110Config, axis: str, steps: in
         # The T row of microsteps per mm is one slot's, 90 degrees.
         degrees = 90.0 / config.usteps_per_mm('T') * steps
         return int(degrees / 90) + 1
-    raise PartAbsentError(f'Unsupported axis ({axis})')
+    raise _PartAbsentError(f'Unsupported axis ({axis})')

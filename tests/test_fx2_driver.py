@@ -43,7 +43,7 @@ from _lumascope.drivers.exceptions import CameraSetupFailedError, CameraWriteFai
 from _lumascope.drivers.registry import (
     DeclinedDriver,
     DriverRegistry,
-    NoLiveDriverError,
+    _NoLiveDriverError,
     camera_registry,
     led_registry,
 )
@@ -152,7 +152,7 @@ class TestRegistryGatedOnPrereqs:
 
         assert fx2driver._register_if_fx2_available(registry, 'fx2', priority=80)(Dummy) is Dummy
         assert registry.registered_names() == []
-        with pytest.raises(NoLiveDriverError) as caught:
+        with pytest.raises(_NoLiveDriverError) as caught:
             registry.create('auto')
         assert caught.value.fallback.declined == (
             DeclinedDriver(

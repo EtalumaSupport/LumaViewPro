@@ -10,7 +10,6 @@ in any release. Importing this module loads the whole API.
 """
 
 from _lumascope.drivers.camera import (
-    CameraNodeValue,
     Frame,
 )
 from _lumascope.drivers.exceptions import (
@@ -33,14 +32,9 @@ from _lumascope.drivers.exceptions import (
     LedFirmwareWedgedError,
     MotionInterlockError,
     MotionNotCompletedError,
-    PartAbsentError,
-)
-from _lumascope.drivers.firmware_updater import (
-    UpdateError,
 )
 from _lumascope.drivers.registry import (
     DriverNotLiveError,
-    NoLiveDriverError,
 )
 from _lumascope.drivers.simulated_camera import (
     SensorExposure,
@@ -514,7 +508,6 @@ from _lumascope.modules.video_recording import (
 )
 from _lumascope.modules.wire_encoding import (
     NoWireFormError,
-    NotHandedOutError,
 )
 from _lumascope.modules.zproject_method import (
     ZProjectMethod,
@@ -577,7 +570,6 @@ __all__ = [
     'CameraLink',
     'CameraNoAnswerError',
     'CameraNodeNotReadableError',
-    'CameraNodeValue',
     'CameraNotAvailableError',
     'CameraReadAnswer',
     'CameraReadFailedError',
@@ -743,9 +735,7 @@ __all__ = [
     'MoveWaitExpiredError',
     'NamespaceHealth',
     'NoHardwareDetectedNotice',
-    'NoLiveDriverError',
     'NoWireFormError',
-    'NotHandedOutError',
     'Notice',
     'Notification',
     'Objective',
@@ -760,7 +750,6 @@ __all__ = [
     'OutputFormat',
     'PackagesNotAsPinnedError',
     'Part',
-    'PartAbsentError',
     'PartReason',
     'PartStatus',
     'PixelSizeUnknownError',
@@ -895,7 +884,6 @@ __all__ = [
     'UIRegistry',
     'UiDispatcher',
     'UnfitArgument',
-    'UpdateError',
     'UsbBoundDriver',
     'UsbBusCensus',
     'UsbCensusDevice',

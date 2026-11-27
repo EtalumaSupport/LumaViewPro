@@ -5,7 +5,7 @@
 
 import pytest
 
-from _lumascope.drivers.exceptions import HardwareError, PartAbsentError
+from _lumascope.drivers.exceptions import HardwareError, _PartAbsentError
 from _lumascope.drivers.null_motorboard import NullMotionBoard
 
 
@@ -128,9 +128,9 @@ def test_no_board_converts_no_position_either_way():
     position reads do, with the part absent."""
     board = NullMotionBoard()
     for axis in ('X', 'Y', 'Z', 'T'):
-        with pytest.raises(PartAbsentError, match='no motor board'):
+        with pytest.raises(_PartAbsentError, match='no motor board'):
             board.position_to_steps(axis, 1)
-        with pytest.raises(PartAbsentError, match='no motor board'):
+        with pytest.raises(_PartAbsentError, match='no motor board'):
             board.steps_to_position(axis, 1)
 
 

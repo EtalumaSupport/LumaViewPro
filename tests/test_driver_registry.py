@@ -23,7 +23,7 @@ from _lumascope.drivers.registry import (
     DriverFallback,
     DriverNotLiveError,
     DriverRegistry,
-    NoLiveDriverError,
+    _NoLiveDriverError,
     motor_registry,
     led_registry,
     camera_registry,
@@ -691,7 +691,7 @@ class TestAKindWithNoNullDriverThatFindsNothing:
         class Beta:
             found = False
 
-        with pytest.raises(NoLiveDriverError) as caught:
+        with pytest.raises(_NoLiveDriverError) as caught:
             reg.create('auto')
 
         assert caught.value.fallback == DriverFallback('not_detected', ('Alpha', 'Beta'))
@@ -707,7 +707,7 @@ class TestAKindWithNoNullDriverThatFindsNothing:
         class Gamma:
             pass
 
-        with pytest.raises(NoLiveDriverError) as caught:
+        with pytest.raises(_NoLiveDriverError) as caught:
             reg.create('auto')
 
         assert caught.value.fallback.cause == 'not_detected'

@@ -67,7 +67,6 @@ NaN stays a NaN, and a key keeps its type.
 - [`BuildsResult`](#BuildsResult)
 - [`CameraLimits`](#CameraLimits)
 - [`CameraLink`](#CameraLink)
-- [`CameraNodeValue`](#CameraNodeValue)
 - [`CameraSettingLimits`](#CameraSettingLimits)
 - [`CameraSettingsInEffect`](#CameraSettingsInEffect)
 - [`CaptureTally`](#CaptureTally)
@@ -357,15 +356,12 @@ NaN stays a NaN, and a key keeps its type.
 - [`MoveStoppedError`](#MoveStoppedError)
 - [`MoveWaitExpiredError`](#MoveWaitExpiredError)
 - [`NoHardwareDetectedNotice`](#NoHardwareDetectedNotice)
-- [`NoLiveDriverError`](#NoLiveDriverError)
 - [`NoWireFormError`](#NoWireFormError)
-- [`NotHandedOutError`](#NotHandedOutError)
 - [`Notice`](#Notice)
 - [`ObjectiveUnknownError`](#ObjectiveUnknownError)
 - [`OperationSettleRefusedError`](#OperationSettleRefusedError)
 - [`OperationWaitExpiredError`](#OperationWaitExpiredError)
 - [`PackagesNotAsPinnedError`](#PackagesNotAsPinnedError)
-- [`PartAbsentError`](#PartAbsentError)
 - [`PixelSizeUnknownError`](#PixelSizeUnknownError)
 - [`PluginError`](#PluginError)
 - [`PluginFailedError`](#PluginFailedError)
@@ -420,7 +416,6 @@ NaN stays a NaN, and a key keeps its type.
 - [`StepNotFoundError`](#StepNotFoundError)
 - [`StoredSettingReplacedNotice`](#StoredSettingReplacedNotice)
 - [`SupportReportNotSavedError`](#SupportReportNotSavedError)
-- [`UpdateError`](#UpdateError)
 - [`ValueClampedNotice`](#ValueClampedNotice)
 - [`VideoFramesDroppedError`](#VideoFramesDroppedError)
 - [`VideoNotFinishedError`](#VideoNotFinishedError)
@@ -1221,7 +1216,7 @@ settings, then the camera start gate released) and is torn down by
 - `simulate`: build a simulated scope (the model from `settings['microscope']`, the motor board's tier from `settings['simulator_tier']`).
 - `warn_pre_release`: whether this construction fires the pre-release FutureWarning -- the factory's own call and the scope constructor's. A host that ships with the API passes False; a separately shipped caller leaves the default.
 - `engineering_mode`: the session's engineering mode to begin with; a plugin may turn it on when the host loads plugins.
-- `no_engineering`: `load_plugins` leaves out the installed plugin named `etaluma_engineering` before it is imported, as if it were not installed.
+- `no_engineering`: `load_plugins` leaves out the installed plugin named `etaluma_engineering` before it is imported, as if it were not installed: Etaluma's own bench switch, and a caller leaves it False.
 - `simulated`: the scope a simulated session is built as and the faults it shows from bring-up on (`SimulatedScope`, the simulator surface's); None (the default) is the declared model with no fault. Refused unless `simulate`.
 - `outcome_listener`: heard from before the scope is built, so it hears what bring-up reports; the session's `add_outcome_listener` says what it receives. A factory that raises takes it back; otherwise the session's `shutdown()` does.
 - `settings_file`: the file the session saves its settings to, one second after the first unsaved write and once at `shutdown()`, whole or not at all; the hosts name the installation's `user_settings_file(source_path)`. None (the default) saves nothing: a script's or a test's handed dict stays in memory. Writes are kept unsaved, and the session says so once (`SettingsNotSavedNotice`), while the settings are provisional or when the scope found no hardware at bring-up. Saving starts once the scope is up, so a factory that raises writes no file.
@@ -9247,18 +9242,6 @@ camera does not report it.
 - <a id="CameraLink.packet_size_bytes"></a>`packet_size_bytes`: `int | None` -- GigE's stream packet size.
 - <a id="CameraLink.transport"></a>`transport`: `str | None` -- `'USB3'`, `'GigE'` or `'USB2'`; the SDK's own name when it is none of these.
 
-<a id="CameraNodeValue"></a>
-## `lumascope.CameraNodeValue`
-
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.
-
-One of the camera's named settings, as the camera answered a read of it.
-
-**Fields**
-
-- <a id="CameraNodeValue.unit"></a>`unit`: `str` -- The unit the node states (`'dB'`, `'us'`), or `''` for a node that states none.
-- <a id="CameraNodeValue.value"></a>`value`: `int | float | bool | str` -- The node's value. An enumeration's is its symbolic name (`'Mono8'`), not its number.
-
 <a id="CameraSettingLimits"></a>
 ## `lumascope.CameraSettingLimits`
 
@@ -16252,24 +16235,6 @@ with no instrument attached needs to be told once, not three times.
 | `no_hardware` | -- | reported, never an answer |
 | `no_hardware_driver_unavailable` | -- | reported, never an answer |
 
-<a id="NoLiveDriverError"></a>
-### `lumascope.NoLiveDriverError`
-
-A fault; bases `Fault`, `RuntimeError`.
-
-'auto' found no live driver, and the kind has no null driver to hand back.
-
-The camera's kind has none: bring-up records the cause this carries, as
-a board's `DriverFallback` is recorded beside its null driver.
-
-**Attributes**
-
-- `fallback`: The cause, the drivers tried, and the drivers declined.
-
-| Reason | Cause | REST status |
-|---|---|---|
-| `no_live_driver` | -- | 500 |
-
 <a id="NoWireFormError"></a>
 ### `lumascope.NoWireFormError`
 
@@ -16280,17 +16245,6 @@ A value whose type has no wire form reached `encode`.
 | Reason | Cause | REST status |
 |---|---|---|
 | `no_wire_form` | -- | 500 |
-
-<a id="NotHandedOutError"></a>
-### `lumascope.NotHandedOutError`
-
-A fault; bases `NoWireFormError`.
-
-A parameter takes only a live object no wire member hands out, so no client can name one.
-
-| Reason | Cause | REST status |
-|---|---|---|
-| `not_handed_out` | -- | 500 |
 
 <a id="Notice"></a>
 ### `lumascope.Notice`
@@ -16428,22 +16382,6 @@ acts on it.
 |---|---|---|
 | `packages_not_as_pinned` | -- | 500 |
 | `pins_unread` | -- | 500 |
-
-<a id="PartAbsentError"></a>
-### `lumascope.PartAbsentError`
-
-A fault; bases `Fault`, `HardwareError`.
-
-A driver was asked for a part it does not have: an axis, a turret, a
-board, an active camera or an SDK node.
-
-A fault, not a refusal: the API refuses a command for a part the scope
-lacks before the driver is asked (`axis_absent`, `not_on_this_scope`,
-`not_connected`), so only a caller below the API reaches this.
-
-| Reason | Cause | REST status |
-|---|---|---|
-| `part_absent` | -- | 500 |
 
 <a id="PixelSizeUnknownError"></a>
 ### `lumascope.PixelSizeUnknownError`
@@ -17791,17 +17729,6 @@ report.
 | Reason | Cause | REST status |
 |---|---|---|
 | `support_report_not_saved` | -- | 500 |
-
-<a id="UpdateError"></a>
-### `lumascope.UpdateError`
-
-A fault; bases `Fault`, `Exception`.
-
-Firmware update failure with stage and recoverability info.
-
-| Reason | Cause | REST status |
-|---|---|---|
-| `update_failed` | -- | 500 |
 
 <a id="ValueClampedNotice"></a>
 ### `lumascope.ValueClampedNotice`

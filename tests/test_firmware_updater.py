@@ -28,7 +28,7 @@ from _lumascope.drivers.firmware_updater import (
     deploy_firmware_file,
     BoardType,
     BOARD_CONFIGS,
-    UpdateError,
+    _UpdateError,
     UpdateResult,
     UpdateStage,
 )
@@ -225,7 +225,7 @@ class TestSendFwupdateCommand:
         board.disconnect.assert_called()
 
     def test_a_defect_in_the_exchange_leaves_as_itself(self):
-        """Only the board's failures become UpdateError; our own leaves as
+        """Only the board's failures become _UpdateError; our own leaves as
         itself, and the board's port is closed on the way out."""
         cfg = self._make_motor_config()
         board = MagicMock()
@@ -319,16 +319,16 @@ class TestBackupConfigs:
             file_contents=[BoardReportedError('read cal.json: the board raised: OSError')],
         )
 
-        with pytest.raises(UpdateError) as exc_info:
+        with pytest.raises(_UpdateError) as exc_info:
             _backup_configs(board, cfg, tmp_path)
         assert exc_info.value.stage == UpdateStage.BACKING_UP_CONFIG
 
     def test_enter_repl_failure_raises(self, tmp_path):
-        """Failure to enter raw REPL raises UpdateError."""
+        """Failure to enter raw REPL raises _UpdateError."""
         cfg = BOARD_CONFIGS[BoardType.LED]
         board = self._make_board(enter_repl_ok=False)
 
-        with pytest.raises(UpdateError) as exc_info:
+        with pytest.raises(_UpdateError) as exc_info:
             _backup_configs(board, cfg, tmp_path)
         assert exc_info.value.stage == UpdateStage.BACKING_UP_CONFIG
 
@@ -394,12 +394,12 @@ class TestRestoreConfigs:
         board.repl_write_file.assert_called_once()
 
     def test_write_failure_raises_naming_the_backup_folder(self, tmp_path):
-        """repl_write_file returning False raises UpdateError, naming the
+        """repl_write_file returning False raises _UpdateError, naming the
         folder the backup is in, so the user can find the copy to restore."""
         cfg = BOARD_CONFIGS[BoardType.LED]
         board = self._make_board(files_on_board=[], write_ok=False)
 
-        with pytest.raises(UpdateError) as exc_info:
+        with pytest.raises(_UpdateError) as exc_info:
             _restore_configs(board, cfg, {'cal.json': b'data'}, tmp_path)
         assert exc_info.value.stage == UpdateStage.RESTORING_CONFIG
         assert str(tmp_path / 'led') in str(exc_info.value)
@@ -593,13 +593,13 @@ class TestProgressCallback:
 
 class TestUpdateErrorDataclass:
     def test_fields(self):
-        e = UpdateError('msg', UpdateStage.COPYING_UF2, recoverable=False)
+        e = _UpdateError('msg', UpdateStage.COPYING_UF2, recoverable=False)
         assert str(e) == 'msg'
         assert e.stage == UpdateStage.COPYING_UF2
         assert e.recoverable is False
 
     def test_default_recoverable(self):
-        e = UpdateError('msg', UpdateStage.PREFLIGHT)
+        e = _UpdateError('msg', UpdateStage.PREFLIGHT)
         assert e.recoverable is True
 
 

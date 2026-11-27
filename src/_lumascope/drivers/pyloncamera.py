@@ -36,7 +36,7 @@ from _lumascope.drivers.exceptions import (
     CameraUsbOpenFailedError,
     CameraWriteFailedError,
     HardwareError,
-    PartAbsentError,
+    _PartAbsentError,
 )
 from _lumascope.drivers.registry import camera_registry
 from _lumascope.lib.log_helpers import camera_logger as _cam_log
@@ -1643,7 +1643,7 @@ class PylonCamera(Camera):
         ``Camera.get_all_temperatures``.
         """
         if not self.active:
-            raise PartAbsentError('Camera temperature read: no camera is active')
+            raise _PartAbsentError('Camera temperature read: no camera is active')
 
         try:
             if not self._has_temperature_nodes():

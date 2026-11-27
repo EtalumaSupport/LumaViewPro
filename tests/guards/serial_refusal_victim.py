@@ -12,14 +12,14 @@ from tests.scope_fakes import construct_scope
 def test_a_real_scope_swallows_the_refusal_into_null_boards(monkeypatch):
     """Passes on its own terms: a real scope's board registries hand back null
     boards when the real constructors find no port. The guard must fail it anyway."""
-    from _lumascope.drivers.registry import DriverFallback, NoLiveDriverError
+    from _lumascope.drivers.registry import DriverFallback, _NoLiveDriverError
     from _lumascope.modules.lumascope_api import _lumascope
     from tests.settings_fixtures import installation_of_its_own
 
     def no_camera(name='auto', **kwargs):
         # A stand-in by design: the subject is the boards' serial ports, and
         # a real camera search would reach the host's camera SDKs.
-        raise NoLiveDriverError('camera', DriverFallback('not_detected', ()))
+        raise _NoLiveDriverError('camera', DriverFallback('not_detected', ()))
 
     monkeypatch.setattr(_lumascope.camera_registry, 'create', no_camera)
     instance = construct_scope(source_path=installation_of_its_own(), warn_pre_release=False)

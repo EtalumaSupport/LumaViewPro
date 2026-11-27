@@ -346,7 +346,7 @@ class CameraFirmwareMissingError(Fault, Exception):
         self.searched = tuple(searched)
 
 
-class PartAbsentError(Fault, HardwareError):
+class _PartAbsentError(Fault, HardwareError):
     """A driver was asked for a part it does not have: an axis, a turret, a
     board, an active camera or an SDK node.
 

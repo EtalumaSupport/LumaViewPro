@@ -82,7 +82,7 @@ class DriverNotLiveError(Fault, RuntimeError):
     )
 
 
-class NoLiveDriverError(Fault, RuntimeError):
+class _NoLiveDriverError(Fault, RuntimeError):
     """'auto' found no live driver, and the kind has no null driver to hand back.
 
     The camera's kind has none: bring-up records the cause this carries, as
@@ -225,7 +225,7 @@ class DriverRegistry:
     def decline(self, name: str, reason: str, *, person_words: str) -> Callable:
         """Decorator. Leaves a driver this installation cannot load unregistered, with why.
 
-        The registry never tries it; a fallback or ``NoLiveDriverError``
+        The registry never tries it; a fallback or ``_NoLiveDriverError``
         names it and the reason, so an absent part on a scope that needs
         that driver is not read as an unplugged cable alone.
         """
@@ -334,7 +334,7 @@ class DriverRegistry:
         Raises:
             ValueError: If `name` is not 'auto' and isn't registered,
                 or if 'auto' finds no candidates and declined none.
-            NoLiveDriverError: 'auto' found no live driver and the kind has
+            _NoLiveDriverError: 'auto' found no live driver and the kind has
                 no null driver, and no driver raised (a driver that raised
                 is raised itself).
         """
@@ -507,7 +507,7 @@ class DriverRegistry:
         # otherwise the cause the null path would have recorded, typed.
         if cause == 'connect_failed':
             raise last_error
-        raise NoLiveDriverError(self._kind, fallback) from last_error
+        raise _NoLiveDriverError(self._kind, fallback) from last_error
 
     def registered_names(self) -> list[str]:
         """For tests and diagnostics."""

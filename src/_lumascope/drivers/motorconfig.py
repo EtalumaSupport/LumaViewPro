@@ -12,7 +12,7 @@ import types
 from collections.abc import Mapping
 from typing import ClassVar
 
-from _lumascope.drivers.exceptions import ConfigReadError, PartAbsentError
+from _lumascope.drivers.exceptions import ConfigReadError, _PartAbsentError
 from _lumascope.lib.log_helpers import logger
 from _lumascope.lib.real_numbers import is_count, is_finite_number
 
@@ -450,7 +450,7 @@ class MotorConfig:
         try:
             return int(self._figure(TURRET, str(position)))
         except KeyError as ex:
-            raise PartAbsentError(f'turret slot {position}: not in the motor config') from ex
+            raise _PartAbsentError(f'turret slot {position}: not in the motor config') from ex
 
     # --- Optics ---
 
