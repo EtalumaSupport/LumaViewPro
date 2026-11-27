@@ -37,7 +37,7 @@ except ImportError as _fx2_exc:
 else:
     _FX2_IMPORT_LINES = _fx2driver.fx2_gate_lines()
 from _lumascope.drivers import camera_profiles, host_clock
-from _lumascope.drivers.camera import Camera
+from _lumascope.drivers.camera import Camera, Frame
 from _lumascope.drivers.exceptions import (
     CameraFirmwareMissingError,
     CameraReadFailedError,
@@ -113,7 +113,7 @@ from _lumascope.modules.lumascope_api.bring_up import (
 )
 from _lumascope.modules.scope_parts import Board, Part
 from _lumascope.modules.composition import refuse_unless_composed
-from _lumascope.modules.frame_validity import FrameValidity, FrameValiditySource
+from _lumascope.modules.frame_validity import Counter, FrameValidity, FrameValiditySource
 from _lumascope.modules.fx2_driver_step import repair_refusal
 from _lumascope.modules.channel_record import LedBoardFamily, MotorBoardFamily
 from _lumascope.modules.lvp_lock import take_scope_lock
@@ -707,6 +707,10 @@ class Lumascope:
         """
         driver = self._camera_driver
         return driver.frames_delivered if driver else 0
+
+    def _count_delivered_frame(self, frame: Frame) -> None:
+        """Count a frame toward frame validity as the camera's driver stores it, on its delivery thread."""
+        self._frame_validity.count_frame(frame.seq, by=Counter.DELIVERY)
 
     @staticmethod
     def _build_simulated_motor_board(
@@ -1448,6 +1452,10 @@ class Lumascope:
                 if simulate:
                     simulated_camera = self._camera_driver
                     logger.info('[SCOPE API ] Using SIMULATED Camera')
+            # Every frame the camera hands over is counted toward the changes
+            # it postdates as it is stored, so a capture's readiness is the
+            # same for every host: the window, a headless server, a script.
+            self._camera_driver.register_frame_callback(self._count_delivered_frame)
             parts[Board.CAMERA] = PartStatus(Board.CAMERA, up=True)
         except Exception as _cam_exc:
             self._camera_failure = _cam_exc

@@ -9690,7 +9690,7 @@ One frame counted toward a change, and who counted it.
 
 **Fields**
 
-- <a id="Credit.by"></a>`by`: `Counter` -- Who counted it: the capture's drain, a grab, or the live preview.
+- <a id="Credit.by"></a>`by`: `Counter` -- Who counted it: the capture's drain, a grab, or its delivery.
 - <a id="Credit.seq"></a>`seq`: `int` -- The frame's arrival ordinal, from the grab that produced it.
 
 <a id="DegradedOutput"></a>
@@ -13279,14 +13279,15 @@ Held in: [`Credit.by`](#Credit.by).
 
 Who counted a frame toward a change: the capture's drain, a grab
 (a capture's own, or the engineering grab, which waits for no change),
-or the live preview.
+or its delivery, which counts every frame the camera hands over,
+whatever host reads it.
 
 A capture's wait can be met by frames another consumer counted, so the
 record of a wait names who counted each frame.
 
 - `drain`
 - `grab`
-- `preview`
+- `delivery`
 
 <a id="DisconnectStep"></a>
 ### `lumascope.DisconnectStep`

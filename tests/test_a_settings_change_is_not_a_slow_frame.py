@@ -158,7 +158,7 @@ def _exposure_changed(frames_counted: int) -> FrameValidity:
     validity.invalidate('exposure', began_ns=None)
     for _ in range(frames_counted):
         delivered['n'] += 1
-        validity.count_frame(delivered['n'], by=Counter.PREVIEW)
+        validity.count_frame(delivered['n'], by=Counter.DELIVERY)
     return validity
 
 
@@ -217,7 +217,7 @@ class _Scope:
         self.validity.invalidate(source, began_ns=None)
         for _ in range(FrameValidity.SKIP_FRAMES[source]):
             self._delivered += 1
-            self.validity.count_frame(self._delivered, by=Counter.PREVIEW)
+            self.validity.count_frame(self._delivered, by=Counter.DELIVERY)
 
 
 def _drawn(stand, scope, count, period_ms, *, held_ms=0.0):

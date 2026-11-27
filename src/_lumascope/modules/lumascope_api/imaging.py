@@ -181,7 +181,7 @@ class _FeedMark:
 
 def _counted_by(change: Change) -> str:
     """Who counted the change's frames, as runs of one counter in the order
-    counted: ``drain x3``, or ``preview x1,drain x2``."""
+    counted: ``drain x3``, or ``delivery x1,drain x2``."""
     runs: list[list] = []
     for credit in change.credits:
         if runs and runs[-1][0] is credit.by:
@@ -2301,14 +2301,6 @@ class ImagingAPI:
         frame = self._driver.grab()
         if frame is None:
             return None, None
-        # grab() returns the same buffered frame on every poll, and
-        # this preview path can poll faster than the camera delivers. The
-        # frame's arrival ordinal dedupes the count so validity skip counts
-        # retire against real frames, not poll rate -- counting polls let a
-        # capture accept a frame exposed under the previous gain/exposure/LED
-        # state. The ordinal also keeps a frame this path grabbed before a
-        # write from retiring any of that write's wait.
-        self._frame_validity.count_frame(frame.seq, by=Counter.PREVIEW)
         if frame.seq == unless_seq:
             return None, frame
         tmp = frame.image

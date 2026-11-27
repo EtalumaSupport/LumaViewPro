@@ -42,7 +42,8 @@ since the change (for a move, since its stop). The count is the largest the
 camera's timing record measured for that source on any model the camera ships
 in, else the shipped count. A Z or turret move takes the largest measured over
 both, and an XY move keeps its shipped count. A capture waits until a frame
-counts for every recorded change. `scope.capabilities.frame_rules` answers each source's count, and
+counts for every recorded change. A frame is counted as the camera hands it
+over, the same with a window or without one. `scope.capabilities.frame_rules` answers each source's count, and
 `scope.imaging.changes_in_force()` whether a frame arriving now would count. A
 capture never infers validity from pixel content, though a gain or exposure
 frame whose own chunk data disagrees with the change is not counted. When the

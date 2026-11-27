@@ -18,8 +18,8 @@ arrived after the stop.
 A frame only counts toward a change it could actually show: each pending
 source records which frame the camera had already delivered when its
 register was written, and a frame credits it only if it arrived later.
-Without that, a frame the live preview grabbed before the write but
-counted after it would retire part of the wait it was never subject to.
+Without that, a frame delivered before the write but counted after it
+would retire part of the wait it was never subject to.
 
 Whether one frame counts for one change is ``FrameValidity.judge``, on
 every camera and for every source by counting frames: a frame counts once
@@ -99,7 +99,8 @@ class FrameValiditySource(enum.StrEnum):
 class Counter(enum.StrEnum):
     """Who counted a frame toward a change: the capture's drain, a grab
     (a capture's own, or the engineering grab, which waits for no change),
-    or the live preview.
+    or its delivery, which counts every frame the camera hands over,
+    whatever host reads it.
 
     A capture's wait can be met by frames another consumer counted, so the
     record of a wait names who counted each frame.
@@ -107,7 +108,7 @@ class Counter(enum.StrEnum):
 
     DRAIN = 'drain'
     GRAB = 'grab'
-    PREVIEW = 'preview'
+    DELIVERY = 'delivery'
 
 
 @api_fields('seq', 'by')
@@ -117,8 +118,7 @@ class Credit:
 
     Attributes:
         seq: The frame's arrival ordinal, from the grab that produced it.
-        by: Who counted it: the capture's drain, a grab, or the live
-            preview.
+        by: Who counted it: the capture's drain, a grab, or its delivery.
     """
 
     seq: int

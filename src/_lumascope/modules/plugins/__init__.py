@@ -62,7 +62,7 @@ ENTRY_POINT_GROUP = 'lvp.plugins'
 # fail mid-use. A host change the plugin must follow raises the value
 # here, in the same commit, to the plugin version that follows it.
 MINIMUM_PLUGIN_VERSIONS = {
-    'etaluma_engineering': '1.0.242',
+    'etaluma_engineering': '1.0.243',
 }
 
 # Etaluma's bench tool. Once installed it cannot be disabled any other way,
@@ -78,7 +78,7 @@ ENGINEERING_PLUGIN = 'etaluma_engineering'
 # reads it at its own entry through session.plugin_api_level and refuses
 # below what it needs; a host older than the level has no such member,
 # which the plugin reads as 0.
-PLUGIN_API_LEVEL = 204
+PLUGIN_API_LEVEL = 205
 
 
 class UIMountPoint(enum.StrEnum):

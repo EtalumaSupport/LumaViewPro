@@ -657,7 +657,7 @@ class TestFramesOlderThanTheWriteDoNotCount:
         first, second = _f(), _f()
         fv.count_frame(first, by=Counter.DRAIN)
         fv.count_frame(second, by=Counter.DRAIN)
-        fv.count_frame(first, by=Counter.PREVIEW)
+        fv.count_frame(first, by=Counter.DELIVERY)
         assert fv.owed().frames == 1
 
     def test_an_ordinal_is_required(self):

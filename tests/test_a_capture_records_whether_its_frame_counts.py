@@ -150,7 +150,10 @@ def test_a_move_counts_the_third_frame_to_arrive_after_its_stop():
     assert fv.changes()['z_move'].in_force_ns is None
 
 
-def test_a_frame_the_preview_counted_names_the_preview(sim_scope, caplog):
+def test_a_frame_counted_at_its_delivery_names_its_delivery(sim_scope, caplog):
+    """No preview runs here, as on a headless host: the frames the camera
+    handed over after the write are counted as they arrive, so the
+    capture's record names their delivery as their counter, not its drain."""
     imaging = sim_scope.imaging
     change = None
     arrived = threading.Event()
@@ -164,23 +167,32 @@ def test_a_frame_the_preview_counted_names_the_preview(sim_scope, caplog):
     change = imaging._frame_validity.changes()['gain']
     assert arrived.wait(5.0), 'no frame arrived after the gain write'
     imaging.remove_frame_listener(on_frame)
-    imaging.buffered_image()
 
     with caplog.at_level(VERBOSE, logger='LVP.api'):
         record = imaging.capture_still(accept_dark=True).record
 
     gain = _judgment(record, 'gain')
     assert gain.counts
-    assert gain.change.credits[0].by is Counter.PREVIEW
+    assert gain.change.credits[0].by is Counter.DELIVERY
     assert gain.change.written_ns == change.written_ns
     line = next(r.getMessage() for r in caplog.records if 'capture_still: frame' in r.message)
     assert f'gain counts +{gain.frames_after}fr' in line
-    assert ' by=preview x' in _segment(line, 'gain')
+    assert ' by=delivery x' in _segment(line, 'gain')
+
+
+def _counted_once_by(gain, line: str, counters: set) -> None:
+    """Each frame counted toward the change once, by one of ``counters``, as the record and the log line say."""
+    seqs = [credit.seq for credit in gain.change.credits]
+    assert len(seqs) == len(set(seqs)) == gain.change.rule.skip
+    assert {credit.by for credit in gain.change.credits} <= counters
+    runs = _segment(line, 'gain').rpartition(' by=')[2].split(',')
+    assert {run.partition(' x')[0] for run in runs} <= {counter.value for counter in counters}
 
 
 def test_frames_the_captures_drain_counted_name_the_drain(sim_scope, caplog):
-    """With nothing else counting, the capture's own drain meets the
-    change's count, and its record and its log line say so."""
+    """The capture's own drain counts the frames it waits on, beside their
+    delivery, whichever reaches a frame first: each frame is credited once,
+    to the drain or its delivery, and the record and the log line say which."""
     imaging = sim_scope.imaging
     sim_scope.camera.set_gain_db(sim_scope.camera.read_gain_db() + 1.0)
 
@@ -189,15 +201,15 @@ def test_frames_the_captures_drain_counted_name_the_drain(sim_scope, caplog):
 
     gain = _judgment(record, 'gain')
     assert gain.counts
-    assert [credit.by for credit in gain.change.credits] == [Counter.DRAIN] * gain.change.rule.skip
     line = next(r.getMessage() for r in caplog.records if 'capture_still: frame' in r.message)
-    assert _segment(line, 'gain').endswith(f' by=drain x{gain.change.rule.skip}')
+    _counted_once_by(gain, line, {Counter.DRAIN, Counter.DELIVERY})
 
 
 def test_frames_a_grab_counted_name_the_grab(sim_scope, caplog):
-    """An ungated grab after a change counts the frames it takes, so a
-    capture after enough of them waits on none, and its record and its log
-    line name the grab as what counted them."""
+    """An ungated grab after a change counts the frames it takes, beside
+    their delivery, so a capture after enough of them waits on none; each
+    frame is credited once, to the grab or its delivery, and the record and
+    its log line say which."""
     imaging = sim_scope.imaging
     sim_scope.camera.set_gain_db(sim_scope.camera.read_gain_db() + 1.0)
     # A frame already on its way when the gain was written can be the one a
@@ -213,9 +225,8 @@ def test_frames_a_grab_counted_name_the_grab(sim_scope, caplog):
 
     gain = _judgment(record, 'gain')
     assert gain.counts
-    assert [credit.by for credit in gain.change.credits] == [Counter.GRAB] * gain.change.rule.skip
     line = next(r.getMessage() for r in caplog.records if 'capture_still: frame' in r.message)
-    assert _segment(line, 'gain').endswith(f' by=grab x{gain.change.rule.skip}')
+    _counted_once_by(gain, line, {Counter.GRAB, Counter.DELIVERY})
 
 
 def test_a_change_is_stated_on_the_first_capture_line_after_it(sim_scope, caplog):

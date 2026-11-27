@@ -46,7 +46,9 @@ def test_a_last_listener_auto_removed_on_the_pump_thread_unregisters_cleanly(mon
             if r.levelno == logging.WARNING and 'did not unregister' in r.getMessage()
         ]
         assert warnings == [], warnings
-        assert scope._camera_driver._registered_frame_callbacks == []
+        # Left registered: the scope's own count of every delivered frame,
+        # and nothing of the listener that removed itself.
+        assert scope._camera_driver._registered_frame_callbacks == [scope._count_delivered_frame]
     finally:
         scope.imaging.disable_streaming()
         scope.disconnect()
