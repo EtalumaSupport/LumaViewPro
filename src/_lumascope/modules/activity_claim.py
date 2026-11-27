@@ -501,6 +501,8 @@ def a_guarded_write(claim: 'ActivityClaim | None') -> Iterator[None]:
     the block runs as it is.
 
     Raises:
+        SessionClosingError: ``'session_closing'``, the session has closed.
+            The block did not run.
         ControlSessionRefusedError: ``'control_session_held'``. The block
             did not run.
     """
@@ -847,13 +849,20 @@ class ActivityClaim:
         the write's own member says what a run, a diagnostic or a home
         allows. Every admission is paired with ``leave_guarded_write`` when
         the write returns or raises, and no take lands while one runs.
+        Once the session's close has finished, nothing is written: a
+        setting would be read back and never saved, a file left to no one.
+        A write the close itself makes, while it runs, is admitted.
 
         Raises:
+            SessionClosingError: ``'session_closing'``, the session has
+                closed. Nothing was counted.
             ControlSessionRefusedError: ``'control_session_held'``. Nothing
                 was counted.
         """
         self._end_if_silent(taking)
         with self._lock:
+            if self._lifecycle == SessionLifecycle.CLOSED:
+                raise SessionClosingError(None, work='a setting or file write')
             session = self._control_refusing(taking)
             if session is not None:
                 raise control_refused(session)

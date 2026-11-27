@@ -303,8 +303,9 @@ def test_after_the_close_nothing_new_takes_the_scope_for_good(tmp_path):
 def test_after_the_close_a_start_form_is_refused_at_its_call(tmp_path):
     """Each start form puts its work on a session lane, so once the close has
     run it is refused at the call and starts nothing, never handed back as
-    an operation that fails later. A turret change is refused as its waiting
-    form is: the close disconnected the scope."""
+    an operation that fails later. A turret move is refused as its waiting
+    form is: the close disconnected the scope. Selecting an objective writes
+    a setting, refused as every write is once the session has closed."""
     session = _session(tmp_path, model='LS850T')
     session.assign_turret_objective(2, '4x Oly')
     session.shutdown()
@@ -332,7 +333,6 @@ def test_after_the_close_a_start_form_is_refused_at_its_call(tmp_path):
     assert answered == {
         **dict.fromkeys(starts, 'session_closing'),
         'start_move_turret': 'scope_disconnected',
-        'start_select_objective': 'scope_disconnected',
     }
 
 

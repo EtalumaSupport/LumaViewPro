@@ -622,7 +622,7 @@ slices when stacked.
 - 409: [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `position_unknown`, `no_acquiring_channel`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unassigned`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `positions_outside_travel`, `zstack_not_configured`, `positions_unreachable`, `zslices_outside_travel`; [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`; [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`StepEditRefusedError`](#StepEditRefusedError): `step_value_refused`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.app_version"></a>
 ### `ScopeSession.app_version`
@@ -676,6 +676,7 @@ Z and keeps its spacing. Returns how many steps took it.
 - 409: [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `positions_unreachable`; [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.apply_remedy"></a>
 ### `ScopeSession.apply_remedy`
@@ -718,6 +719,7 @@ The remedy's own answer: `recover_file_writer` answers how many of the run's ima
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`FileWriterNotStuckError`](#FileWriterNotStuckError): `file_writer_not_stuck`; [`CameraDriverRepairRefusedError`](#CameraDriverRepairRefusedError): `repair_declined`, `driver_not_accepted`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`CameraDriverRepairRefusedError`](#CameraDriverRepairRefusedError): `repair_needs_windows`, `repair_needs_installed_build`, `repair_needs_driver_package`, `no_classic_bindings`, `driver_already_ours`
 - 500: [`CameraDriverRepairFailedError`](#CameraDriverRepairFailedError): `camera_driver_repair_failed`; [`CameraUsbLookupFailedError`](#CameraUsbLookupFailedError): `camera_usb_lookup_failed`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.apply_tiling"></a>
 ### `ScopeSession.apply_tiling`
@@ -749,6 +751,7 @@ protocol's own plate.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `tiling_unknown`, `already_tiled`, `step_position_missing`, `objective_not_in_catalog`, `tiling_scale_unknown`, `positions_unreachable`, `tiles_outside_travel`; [`CatalogNameRefusedError`](#CatalogNameRefusedError): `labware_unknown`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.apply_zstacking"></a>
 ### `ScopeSession.apply_zstacking`
@@ -780,6 +783,7 @@ writes those settings first.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `zstack_not_configured`, `positions_unreachable`, `step_position_missing`, `zslices_outside_travel`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.assign_turret_objective"></a>
 ### `ScopeSession.assign_turret_objective`
@@ -814,6 +818,7 @@ under a hold too.
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`CatalogNameRefusedError`](#CatalogNameRefusedError): `objective_not_in_catalog`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.bookmark"></a>
 ### `ScopeSession.bookmark`
@@ -1087,6 +1092,7 @@ capture refused for that afterwards if the clear is in the record.
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.confirm_objective"></a>
 ### `ScopeSession.confirm_objective`
@@ -1126,7 +1132,7 @@ active objective changed.
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `slot_required`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`CatalogNameRefusedError`](#CatalogNameRefusedError): `objective_not_in_catalog`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.control"></a>
 ### `ScopeSession.control`
@@ -1326,6 +1332,7 @@ Remove step `step_index` from `protocol`, as the Delete button does.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`StepNotFoundError`](#StepNotFoundError): `no_such_step`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.diagnostic_claim"></a>
 ### `ScopeSession.diagnostic_claim`
@@ -1396,6 +1403,7 @@ disk stay.
 **Outcomes by REST status**
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.end_control"></a>
 ### `ScopeSession.end_control`
@@ -1506,6 +1514,7 @@ work meanwhile.
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
 - [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.start_go_to_step"></a>
 ### `ScopeSession.start_go_to_step`
@@ -1587,7 +1596,7 @@ raise goes on as it is.
 - 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `turret_objectives_unassigned`, `turret_slot_reassigned`, `turret_slot_ambiguous`, `objective_not_mounted`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `lid_open_mid_move`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `step_position_missing`, `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_read_failed`, `camera_rejected`, `camera_no_answer`; [`MoveFaultError`](#MoveFaultError): `driver_failed`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.held_by_other"></a>
 ### `ScopeSession.held_by_other`
@@ -1904,6 +1913,7 @@ The protocol comes back with no unsaved changes, its file this one
 - 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `objective_not_mounted`, `turret_objectives_unassigned`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_file`; [`ProtocolFormatError`](#ProtocolFormatError): `protocol_invalid`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `objectives_require_turret`, `not_on_this_scope`, `channel_unknown`, `values_out_of_range`
 - 500: [`ProtocolNotLoadedError`](#ProtocolNotLoadedError): `protocol_not_loaded`; [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.load_user_settings"></a>
 ### `ScopeSession.load_user_settings`
@@ -2363,6 +2373,7 @@ the indexes of the steps pointed, which are empty when no question names it.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`; [`ArgumentRefusedError`](#ArgumentRefusedError): `slot_not_holding_objective`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.protocol_runner"></a>
 ### `ScopeSession.protocol_runner`
@@ -2532,6 +2543,7 @@ Give step `step_index` of `protocol` the label `name`; returns its new name.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`StepEditRefusedError`](#StepEditRefusedError): `step_value_refused`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.renew_control"></a>
 ### `ScopeSession.renew_control`
@@ -2659,7 +2671,7 @@ The values stored, as `bookmark` reads them; an axis not in `axes` is None.
 
 - 409: [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.save_protocol"></a>
 ### `ScopeSession.save_protocol`
@@ -2702,6 +2714,7 @@ The path written; a missing folder is made.
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `not_a_file`, `wrong_extension`, `not_a_folder`
 - 500: [`ProtocolNotSavedError`](#ProtocolNotSavedError): `protocol_not_saved`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.scale_bar_enabled"></a>
 ### `ScopeSession.scale_bar_enabled`
@@ -2754,6 +2767,7 @@ on one would image one field under every well's name.
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`CatalogNameRefusedError`](#CatalogNameRefusedError): `labware_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.select_model"></a>
 ### `ScopeSession.select_model`
@@ -2794,6 +2808,7 @@ client hears that it applies at the next start.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`CatalogNameRefusedError`](#CatalogNameRefusedError): `model_unknown`; [`SettingRefusedError`](#SettingRefusedError): `model_named_by_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.select_objective"></a>
 ### `ScopeSession.select_objective`
@@ -2841,6 +2856,7 @@ objective already active is a no-op.
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.start_select_objective"></a>
 ### `ScopeSession.start_select_objective`
@@ -2880,7 +2896,7 @@ The pick's `Operation`: its `result()` is whether the active objective changed, 
 
 - 409: [`ArgumentRefusedError`](#ArgumentRefusedError): `turret_objectives_unassigned`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`CatalogNameRefusedError`](#CatalogNameRefusedError): `objective_not_in_catalog`; [`ArgumentRefusedError`](#ArgumentRefusedError): `objective_in_several_slots`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.selected_model"></a>
 ### `ScopeSession.selected_model`
@@ -2997,7 +3013,7 @@ The channel's settings as stored once the write is done, the lock's values and t
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`; [`SettingRefusedError`](#SettingRefusedError): `not_offered`, `wrong_kind`, `out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `positions_unreachable`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.set_engineering_mode"></a>
 ### `ScopeSession.set_engineering_mode`
@@ -3025,6 +3041,7 @@ prepared keeps the mode it was prepared with.
 **Outcomes by REST status**
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.set_live_folder"></a>
 ### `ScopeSession.set_live_folder`
@@ -3072,6 +3089,7 @@ Give `protocol` the capture root that prefixes its runs' file names.
 **Outcomes by REST status**
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.set_protocol_labware"></a>
 ### `ScopeSession.set_protocol_labware`
@@ -3101,6 +3119,7 @@ scope with no XY stage the protocol takes Center Plate.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`CatalogNameRefusedError`](#CatalogNameRefusedError): `labware_unknown`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.set_protocol_schedule"></a>
 ### `ScopeSession.set_protocol_schedule`
@@ -3136,6 +3155,7 @@ One scan is 0 for both.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ProtocolScheduleRefusedError`](#ProtocolScheduleRefusedError): `schedule_not_runnable`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.set_scale_bar_enabled"></a>
 ### `ScopeSession.set_scale_bar_enabled`
@@ -3163,6 +3183,7 @@ at each capture.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.set_step_autofocus"></a>
 ### `ScopeSession.set_step_autofocus`
@@ -3200,6 +3221,7 @@ channel's reference slice whichever slices were set.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`StepNotFoundError`](#StepNotFoundError): `no_such_step`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.set_ui_dispatcher"></a>
 ### `ScopeSession.set_ui_dispatcher`
@@ -3850,7 +3872,7 @@ effect as they are written.
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`SettingRefusedError`](#SettingRefusedError): `has_member`, `host_only`, `installation_only`, `not_a_setting`, `block`, `wrong_kind`, `out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `gain_range_inverted`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.update_step"></a>
 ### `ScopeSession.update_step`
@@ -3901,6 +3923,7 @@ Returns the step's name after the update.
 
 - 409: [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unassigned`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `position_unknown`, `no_acquiring_channel`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`; [`StepEditRefusedError`](#StepEditRefusedError): `step_value_refused`; [`StepNotFoundError`](#StepNotFoundError): `no_such_step`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ScopeSession.user_settings_file"></a>
 ### `ScopeSession.user_settings_file`
@@ -5646,7 +5669,7 @@ The frame the camera delivers.
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `binning_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="CameraAPI.set_black_level"></a>
 ### `CameraAPI.set_black_level`
@@ -5777,7 +5800,7 @@ The frame the camera delivers: the request, held to the limits, floored to even 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `wrong_kind`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="CameraAPI.set_gain_db"></a>
 ### `CameraAPI.set_gain_db`
@@ -5860,7 +5883,7 @@ without the mode is its state, and is saved.
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `high_conversion_gain_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="CameraAPI.set_image_mode"></a>
 ### `CameraAPI.set_image_mode`
@@ -5896,7 +5919,7 @@ nothing to apply; the mode is saved and bring-up applies it.
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="CameraAPI.set_line_noise_reduction"></a>
 ### `CameraAPI.set_line_noise_reduction`
@@ -5928,7 +5951,7 @@ the camera took it, as `set_high_conversion_gain` is.
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `line_noise_reduction_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="CameraAPI.setting_limits"></a>
 ### `CameraAPI.setting_limits`
@@ -8324,6 +8347,7 @@ model.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `fault_unknown`, `not_injectable_on_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.bind_camera_usb_driver"></a>
 ### `SimulationAPI.bind_camera_usb_driver`
@@ -8365,6 +8389,7 @@ checked at the next connect.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `fault_unknown`, `not_injectable_on_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.clear"></a>
 ### `SimulationAPI.clear`
@@ -8391,6 +8416,7 @@ silenced, and a reboot under way are not undone, as on a real scope.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.delay_delivery"></a>
 ### `SimulationAPI.delay_delivery`
@@ -8425,6 +8451,7 @@ are stored at once.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `not_a_number`, `fault_bound`, `not_injectable_on_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.delay_reply"></a>
 ### `SimulationAPI.delay_reply`
@@ -8454,6 +8481,7 @@ board did what it was told, and the host was not told so.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `not_offered`, `fault_unknown`, `not_a_number`, `fault_bound`, `not_injectable_on_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.drop_replies"></a>
 ### `SimulationAPI.drop_replies`
@@ -8486,6 +8514,7 @@ The board answers nothing to its next `count` commands.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `not_offered`, `fault_unknown`, `fault_bound`, `argument_not_on_board`, `not_injectable_on_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.exposed_under"></a>
 ### `SimulationAPI.exposed_under`
@@ -8542,6 +8571,7 @@ Route: `POST /api/v1/scope/simulation/fail_home`.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`, `needs_simulated_scope`, `fault_unknown`, `not_injectable_on_board`, `argument_not_on_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.hold_axis"></a>
 ### `SimulationAPI.hold_axis`
@@ -8576,6 +8606,7 @@ An operation done once the move has halted at the hold, for a caller acting on a
 
 - 409: [`HoldEndedError`](#HoldEndedError): `stopped`, `superseded`, `homed`, `released`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`, `needs_simulated_scope`, `not_a_number`, `fault_bound`, `fault_unknown`, `not_injectable_on_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.injected"></a>
 ### `SimulationAPI.injected`
@@ -8626,6 +8657,7 @@ The stage's interlock inputs read as given, until `clear`.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `fault_unknown`, `not_injectable_on_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.light_outside"></a>
 ### `SimulationAPI.light_outside`
@@ -8659,6 +8691,7 @@ validity record nothing. `exposed_under` names it in each frame's
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `fault_unknown`, `not_a_number`, `fault_bound`, `not_injectable_on_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.reboot"></a>
 ### `SimulationAPI.reboot`
@@ -8688,6 +8721,7 @@ again once it has booted.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `not_offered`, `fault_unknown`, `not_a_number`, `fault_bound`, `not_injectable_on_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.refuse_camera_read"></a>
 ### `SimulationAPI.refuse_camera_read`
@@ -8727,6 +8761,7 @@ first good read after a connect, since it keeps the format it read.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `not_offered`, `fault_bound`, `not_injectable_on_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.refuse_camera_write"></a>
 ### `SimulationAPI.refuse_camera_write`
@@ -8759,6 +8794,7 @@ The camera's next `count` writes of `node` answer `answer`.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `not_offered`, `fault_bound`, `not_injectable_on_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.refuse_led_write"></a>
 ### `SimulationAPI.refuse_led_write`
@@ -8788,6 +8824,7 @@ for the next command.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `fault_unknown`, `not_a_number`, `fault_bound`, `not_injectable_on_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.refuse_stream_start"></a>
 ### `SimulationAPI.refuse_stream_start`
@@ -8818,6 +8855,7 @@ is told once by the stream check, the write itself unrefused.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `not_a_number`, `fault_bound`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.remove_camera"></a>
 ### `SimulationAPI.remove_camera`
@@ -8842,6 +8880,7 @@ as nothing brings back a removed real camera but a new session.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `fault_unknown`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.replug"></a>
 ### `SimulationAPI.replug`
@@ -8867,6 +8906,7 @@ The board's cable goes back in: it is found again.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `not_offered`, `fault_unknown`, `not_injectable_on_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.silence"></a>
 ### `SimulationAPI.silence`
@@ -8892,6 +8932,7 @@ The board answers no command from now on, until `unsilence`.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `not_offered`, `fault_unknown`, `not_injectable_on_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.slow_next_stop"></a>
 ### `SimulationAPI.slow_next_stop`
@@ -8922,6 +8963,7 @@ stop that no stop has met yet.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `not_a_number`, `fault_bound`, `not_injectable_on_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.stall_stream"></a>
 ### `SimulationAPI.stall_stream`
@@ -8948,6 +8990,7 @@ The camera's stream delivers no frame for a while, staying connected and grabbin
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `not_a_number`, `fault_bound`, `not_injectable_on_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.unplug"></a>
 ### `SimulationAPI.unplug`
@@ -8973,6 +9016,7 @@ The board's cable is pulled: its port fails from the next command.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `not_offered`, `fault_unknown`, `not_injectable_on_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.unsilence"></a>
 ### `SimulationAPI.unsilence`
@@ -8998,6 +9042,7 @@ The board answers again after `silence`.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `not_offered`, `fault_unknown`, `not_injectable_on_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="SimulationAPI.withhold_chunk"></a>
 ### `SimulationAPI.withhold_chunk`
@@ -9028,6 +9073,7 @@ the frame is delivered, and only that one fact of it is missing.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`, `needs_simulated_scope`, `not_a_number`, `fault_bound`, `not_injectable_on_board`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="AppliedAutoGain"></a>
 ## `lumascope.AppliedAutoGain`
@@ -11558,7 +11604,7 @@ The run's operation, to wait on or to ignore; its result() is the run's outcome.
 - 409: [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalog`, `none_selected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `no_channel_selected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalog`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `not_on_this_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ProtocolRunner.start_autofocus_all_steps"></a>
 ### `ProtocolRunner.start_autofocus_all_steps`
@@ -11610,7 +11656,7 @@ The run's operation, to wait on or to ignore; its result() is the run's outcome.
 - 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalog`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `not_on_this_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
+- 503: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ProtocolRunner.start_composite"></a>
 ### `ProtocolRunner.start_composite`
@@ -11656,7 +11702,7 @@ The run's operation, to wait on or to ignore; its result() is the run's outcome.
 - 409: [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalog`, `none_selected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalog`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `not_on_this_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ProtocolRunner.start_protocol"></a>
 ### `ProtocolRunner.start_protocol`
@@ -11699,7 +11745,7 @@ The run's operation. Its result() is the run's outcome -- the status, reason, ti
 - 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalog`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `not_on_this_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
+- 503: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ProtocolRunner.start_single_scan"></a>
 ### `ProtocolRunner.start_single_scan`
@@ -11745,7 +11791,7 @@ The run's operation. Its result() is the run's outcome -- the status, reason, ti
 - 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalog`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `not_on_this_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
+- 503: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ProtocolRunner.start_zstack"></a>
 ### `ProtocolRunner.start_zstack`
@@ -11812,7 +11858,7 @@ The run's operation, to wait on or to ignore; its result() is the run's outcome.
 - 409: [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalog`, `none_selected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `no_channel_selected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalog`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `not_on_this_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="ProtocolSizeAdvisory"></a>
 ## `lumascope.ProtocolSizeAdvisory`
@@ -17493,7 +17539,8 @@ step under its run -- is not refused. Nothing was taken.
 Raised too for work on one of the session's own executors (the file
 writer, post-processing, the worker pool, diagnostics) that had not
 started when the executor closed, and for work put on one after it
-closed: that work was not done.
+closed: that work was not done. And for a setting or file write asked
+once the session has closed, which would be read back and never saved.
 
 **Attributes**
 

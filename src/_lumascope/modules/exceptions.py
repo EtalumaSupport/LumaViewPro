@@ -4695,7 +4695,8 @@ class SessionClosingError(Refusal, Exception):
     Raised too for work on one of the session's own executors (the file
     writer, post-processing, the worker pool, diagnostics) that had not
     started when the executor closed, and for work put on one after it
-    closed: that work was not done.
+    closed: that work was not done. And for a setting or file write asked
+    once the session has closed, which would be read back and never saved.
 
     Attributes:
         reason: ``'session_closing'``.

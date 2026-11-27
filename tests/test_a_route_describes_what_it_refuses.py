@@ -93,12 +93,13 @@ def test_a_read_that_enters_a_lane_names_the_lanes_refusals_and_no_other(describ
     assert not said & {'exclusive_activity_running', 'activity_ended'}, said
 
 
-def test_a_guarded_write_names_the_held_session_beside_its_own_refusals(described):
+def test_a_guarded_write_names_the_held_and_the_closed_session_beside_its_own_refusals(described):
     refusals = _refusals(described, '/api/v1/delete_step')
 
     assert refusals == {
         '409': {'ControlSessionRefusedError': ['control_session_held']},
         '422': {'StepNotFoundError': ['no_such_step']},
+        '503': {'SessionClosingError': ['session_closing']},
     }
 
 

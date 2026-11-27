@@ -150,3 +150,21 @@ def test_a_run_state_listener_hears_the_close_begin_and_end(tmp_path):
 
     assert SessionLifecycle.CLOSING in heard, heard
     assert heard[-1] == SessionLifecycle.CLOSED, heard
+
+
+def test_a_setting_written_once_the_session_has_closed_is_refused(tmp_path):
+    """A setting written after the close has finished would be read back and
+    never saved, with nothing said: it is refused, and the setting keeps the
+    value it had."""
+    from _lumascope.modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+
+    session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+    before = session.setting('zstack.step_size')
+    session.shutdown()
+
+    with pytest.raises(SessionClosingError) as refused:
+        session.update_settings('zstack.step_size', before + 1)
+
+    assert refused.value.reason == 'session_closing'
+    assert session.setting('zstack.step_size') == before

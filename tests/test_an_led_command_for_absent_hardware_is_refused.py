@@ -233,8 +233,11 @@ def test_after_disconnect_a_light_says_the_scope_is_disconnected(make_session, m
 
 @pytest.mark.parametrize('model', ('LS820', 'LS620'))
 def test_go_to_step_after_disconnect_says_the_scope_is_disconnected(make_session, model):
+    """The scope disconnected under an open session: a go-to-step is refused
+    naming the scope. Once the session has closed it is refused as the
+    session's close, as every write is."""
     session = make_session(model)
-    session.shutdown()
+    session.scope.disconnect()
 
     refusal = _refused(lambda: session.start_go_to_step(_protocol(), 0))
 
