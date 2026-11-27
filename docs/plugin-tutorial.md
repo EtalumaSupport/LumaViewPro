@@ -211,6 +211,10 @@ Install into the same Python environment LumaViewPro runs in:
 pip install -e /path/to/hello_postproc
 ```
 
+A plugin you install needs LumaViewPro run from source: the installed
+app loads its built-in plugins alone. A `ui` widget is mounted only in
+the window; the headless REST server loads the plugin and mounts nothing.
+
 Restart LumaViewPro. At startup its session iterates entry points,
 imports each one, reads its `spec`, checks `requires_lvp_version`
 against the running LumaViewPro version, then calls `register(ctx)`. If any

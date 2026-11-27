@@ -587,6 +587,12 @@ class PluginRegistry:
         post_processing: Processors of saved files.
         live_processing: Listeners on every frame the camera delivers.
 
+    Built as ``PluginRegistry(scope)``, with the scope whose camera the
+    live-processing listeners listen to. A plugin's own test builds one to
+    run its ``register`` against the production registry: with a simulated
+    session's ``scope``, or with None for a plugin that registers no frame
+    listener, since only ``live_processing`` reaches the scope.
+
     Lifecycle:
         - Built by the session when its host asks for plugins
           (``ScopeSession.load_plugins``), which then calls load().

@@ -10810,6 +10810,12 @@ Single ctx.plugins entry point exposing the plugin namespaces.
 `rest` is reserved and not published: a plugin cannot add REST routes
 in this release, and a registration there is refused.
 
+Built as `PluginRegistry(scope)`, with the scope whose camera the
+live-processing listeners listen to. A plugin's own test builds one to
+run its `register` against the production registry: with a simulated
+session's `scope`, or with None for a plugin that registers no frame
+listener, since only `live_processing` reaches the scope.
+
 Lifecycle:
     - Built by the session when its host asks for plugins
       (`ScopeSession.load_plugins`), which then calls load().
