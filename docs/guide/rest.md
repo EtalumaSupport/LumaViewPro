@@ -389,8 +389,10 @@ names as its `instance`, and each request is one line of
 
 A session over REST with `curl`: the status, a move and a light, a one-step run and its files, and the control session.
 
-Against a server [started](#serving-it) with `--simulate`,
-reading the answers with `jq`, as the sections above describe them. Each line's
+Against a simulated server on a copy of `data/`, the `--source-path` form in
+[Serving it](#serving-it): the walkthrough confirms an objective and writes a
+channel's settings, which a server on your own `data/` would keep. It reads
+the answers with `jq`, as the sections above describe them. Each line's
 comment is the status it answers; a handle's or a job's id is read from the
 answer that made it. Every line here is run, in this order, in LumaViewPro's
 test suite.

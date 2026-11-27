@@ -329,6 +329,7 @@ print(scope.labware('384 well microplate').columns)     # 24
 print(session.select_labware('384 well microplate'))    # True: the plate changed
 question = session.objective_question
 if question is not None:                                # which objective is in slot 1?
+    # On a real scope, name the objective mounted: one of question.choices.
     session.confirm_objective(question.proposed, slot=question.turret_slot)
 print(session.objective_id, scope.runtime_state.pixel_size_um)
 ```

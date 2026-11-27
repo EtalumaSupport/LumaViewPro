@@ -50,12 +50,12 @@ session = ScopeSession.create(
     settings,
     source_path=root,                        # the installation the scope is built from
     simulate=True,                           # False (the default) opens the real hardware
-    settings_file=ScopeSession.user_settings_file(root),   # where accepted writes are saved
 )
 session.run_application_session()           # the startup motion: home, then the turret
 scope = session.scope
 question = session.objective_question      # a new install: which objective is mounted?
 if question is not None:                     # until answered, a saved still and a run are refused
+    # On a real scope, name the objective mounted: one of question.choices.
     session.confirm_objective(question.proposed, slot=question.turret_slot)
 ```
 
@@ -85,7 +85,11 @@ itself, within a second and at shutdown, once the scope is up. While the
 settings are provisional (`session.bring_up_record.settings_set_aside` is
 not None), or when the scope found no hardware at bring-up, writes are kept
 unsaved and the session says so once (`SettingsNotSavedNotice`). Without `settings_file` nothing is
-saved, which is what a test or a one-off script usually wants.
+saved, which is what a test or a one-off script usually wants. Pass it,
+`settings_file=ScopeSession.user_settings_file(root)`, only when your
+program's writes should become LumaViewPro's stored settings: a simulated
+session given it saves what it confirmed, a simulated objective among them,
+into the installation's own `current.json`.
 
 ### Logging
 
