@@ -354,7 +354,7 @@ class TestTheSession:
 
     def test_the_file_writer_is_not_recovered_under_a_hold(self, sim_session):
         with sim_session.diagnostic_claim(), pytest.raises(HardwareCommandRefusedError) as refused:
-            sim_session.apply_remedy(FileWriterStalledError.recovery(1))
+            sim_session.apply_remedy(FileWriterStalledError.recovery(1).member)
         assert (refused.value.reason, refused.value.holder) == (
             'exclusive_activity_running',
             'diagnostic',

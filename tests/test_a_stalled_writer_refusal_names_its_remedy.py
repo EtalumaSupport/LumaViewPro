@@ -102,7 +102,7 @@ class TestTheSessionAppliesARemedyByName:
         batch = _draining(session, stalled=True, writes=2)
         refusal = _refused_start(session, tmp_path)
 
-        assert session.apply_remedy(refusal.remedy) == 2
+        assert session.apply_remedy(refusal.remedy.member) == 2
         session.file_io_executor.replace_stuck_worker.assert_called_once()
         assert batch.outcome == 'incomplete'
 
@@ -122,7 +122,7 @@ class TestTheSessionAppliesARemedyByName:
         try:
             for name in RemedyName:
                 with pytest.raises(Refusal):
-                    idle.apply_remedy(Remedy(member=name, confirm_text='Go', cancel_text='No'))
+                    idle.apply_remedy(name)
         finally:
             idle.shutdown()
 
@@ -137,7 +137,7 @@ class TestTheSessionAppliesARemedyByName:
             refused = {}
             for name in RemedyName:
                 with pytest.raises(ControlSessionRefusedError) as raised:
-                    idle.apply_remedy(Remedy(member=name, confirm_text='Go', cancel_text='No'))
+                    idle.apply_remedy(name)
                 refused[name] = raised.value.reason
         finally:
             idle.shutdown()

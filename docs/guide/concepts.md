@@ -242,7 +242,7 @@ carries that action as `remedy`: its name (`RemedyName`:
 `recover_file_writer`, `repair_camera_driver`) and the words of the offer.
 A refusal whose answer is your own call, such as a home before a move
 (`'position_unknown'`), has `remedy` None, and its words say what to do. Take a remedy through
-`session.apply_remedy(refusal.remedy)`, the one door to every remedy and the
+`session.apply_remedy(refusal.remedy.member)`, the one door to every remedy and the
 one place its name becomes an action. The remedy still decides whether it
 applies now.
 

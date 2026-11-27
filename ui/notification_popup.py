@@ -244,7 +244,7 @@ def _open(n):
         # context exists: the session is taken from bring-up itself.
         App.get_running_app().with_the_session(
             lambda session: submit_reported(
-                lambda: session.apply_remedy(remedy), None, 'APPLY_REMEDY'
+                lambda: session.apply_remedy(remedy.member), None, 'APPLY_REMEDY'
             )
         )
 

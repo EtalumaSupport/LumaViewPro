@@ -89,7 +89,7 @@ def test_the_remedy_runs_the_installed_step_and_returns_the_bound_device(
     heard = []
     refused_session.add_outcome_listener(heard.append)
 
-    bindings = refused_session.apply_remedy(CameraNotAvailableError.repair())
+    bindings = refused_session.apply_remedy(CameraNotAvailableError.repair().member)
 
     assert runs == [(launch_root() / 'lvp_fx2_driver_step.exe', 'install')]
     assert [identity.usable for identity in bindings] == [True, True]
@@ -104,7 +104,7 @@ def test_our_driver_windows_did_not_start_is_repaired_not_refused_as_already_our
     # a stand-in by design: Windows' administrator prompt, absent off Windows.
     monkeypatch.setattr(fx2_driver_step, 'run_as_administrator', run)
 
-    bindings = refused_session.apply_remedy(CameraNotAvailableError.repair())
+    bindings = refused_session.apply_remedy(CameraNotAvailableError.repair().member)
 
     assert len(runs) == 1
     assert [identity.usable for identity in bindings] == [True, True]
@@ -118,7 +118,7 @@ def test_a_declined_approval_is_refused_as_declined(
     monkeypatch.setattr(fx2_driver_step, 'run_as_administrator', lambda *a: None)
 
     with pytest.raises(CameraDriverRepairRefusedError) as refused:
-        refused_session.apply_remedy(CameraNotAvailableError.repair())
+        refused_session.apply_remedy(CameraNotAvailableError.repair().member)
 
     assert refused.value.reason == 'repair_declined'
 
@@ -136,7 +136,7 @@ def test_a_package_windows_did_not_take_is_refused_as_not_accepted(
     monkeypatch.setattr(fx2_driver_step, 'run_as_administrator', run)
 
     with pytest.raises(CameraDriverRepairRefusedError) as refused:
-        refused_session.apply_remedy(CameraNotAvailableError.repair())
+        refused_session.apply_remedy(CameraNotAvailableError.repair().member)
 
     assert refused.value.reason == 'driver_not_accepted'
     assert 'log' not in str(refused.value), str(refused.value)
@@ -148,7 +148,7 @@ def test_a_scope_with_no_classic_device_is_refused_not_crashed(on_installed_wind
     )
     try:
         with pytest.raises(CameraDriverRepairRefusedError) as refused:
-            session.apply_remedy(CameraNotAvailableError.repair())
+            session.apply_remedy(CameraNotAvailableError.repair().member)
     finally:
         session.shutdown()
 
@@ -165,7 +165,7 @@ def test_a_binding_already_ours_is_not_repaired(refused_session, on_installed_wi
     monkeypatch.setattr(fx2_driver_step, 'run_as_administrator', run)
 
     with pytest.raises(CameraDriverRepairRefusedError) as refused:
-        refused_session.apply_remedy(CameraNotAvailableError.repair())
+        refused_session.apply_remedy(CameraNotAvailableError.repair().member)
 
     assert refused.value.reason == 'driver_already_ours'
     assert runs == []
@@ -181,7 +181,7 @@ def test_a_camera_that_is_up_is_never_rebound(fx2_session, on_installed_windows,
     monkeypatch.setattr(fx2_driver_step, 'run_as_administrator', run)
 
     with pytest.raises(CameraDriverRepairRefusedError) as refused:
-        fx2_session.apply_remedy(CameraNotAvailableError.repair())
+        fx2_session.apply_remedy(CameraNotAvailableError.repair().member)
 
     assert refused.value.reason == 'driver_already_ours'
     assert runs == []
@@ -206,7 +206,7 @@ def test_a_step_that_did_not_bind_is_a_fault_naming_its_log(
     monkeypatch.setattr(fx2_driver_step, 'run_as_administrator', run)
 
     with pytest.raises(CameraDriverRepairFailedError) as failed:
-        refused_session.apply_remedy(CameraNotAvailableError.repair())
+        refused_session.apply_remedy(CameraNotAvailableError.repair().member)
 
     assert said in str(failed.value)
     assert str(launch_root() / 'logs') in str(failed.value)
@@ -216,7 +216,7 @@ def test_off_windows_repair_is_refused_before_anything_runs(fx2_session):
     fx2_session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, 'libusbK', problem_code=None)
 
     with pytest.raises(CameraDriverRepairRefusedError) as refused:
-        fx2_session.apply_remedy(CameraNotAvailableError.repair())
+        fx2_session.apply_remedy(CameraNotAvailableError.repair().member)
 
     assert refused.value.reason == 'repair_needs_windows'
 

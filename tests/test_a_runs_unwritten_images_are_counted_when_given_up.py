@@ -83,7 +83,7 @@ class TestRecoveringAStuckWriter:
             (images,) = session.live_work.work
             assert images.kind == live_work.WorkKind.RUN_FILES and images.stuck_write is not None
 
-            abandoned = session.apply_remedy(FileWriterStalledError.recovery(1))
+            abandoned = session.apply_remedy(FileWriterStalledError.recovery(1).member)
 
             assert abandoned == 1
             assert not session.live_work.has(live_work.WorkKind.RUN_FILES)
@@ -111,7 +111,7 @@ class TestRecoveringAStuckWriter:
             assert started.acquire(timeout=WAIT_S)
 
             with pytest.raises(FileWriterNotStuckError) as refused:
-                session.apply_remedy(FileWriterStalledError.recovery(1))
+                session.apply_remedy(FileWriterStalledError.recovery(1).member)
 
             assert refused.value.reason == 'file_writer_not_stuck'
             assert refused.value.pending == 1

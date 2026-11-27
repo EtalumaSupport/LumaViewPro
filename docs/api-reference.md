@@ -686,7 +686,7 @@ Z and keeps its spacing. Returns how many steps took it.
 ### `ScopeSession.apply_remedy`
 
 ```python
-def apply_remedy(self, remedy: Remedy) -> int | tuple[UsbIdentityBindings, ...]
+def apply_remedy(self, remedy: RemedyName) -> int | tuple[UsbIdentityBindings, ...]
 ```
 
 Marks: enters: `guarded_write`.  
@@ -696,15 +696,15 @@ Take the action a refusal named as its remedy, and return its answer.
 
 The one place a remedy's name becomes an action, and the one door to
 each remedy: the GUI's offer and a REST caller answer a refusal
-through this. A name arrives as data -- from a refusal another channel
-built, or from a caller sending it back -- and a `Remedy` holds
-only a `RemedyName`, so only the remedies listed here are reachable
-through it. The remedy still decides whether it applies now, and
-refuses if not.
+through this. A name arrives as data -- the `member` of the
+`Remedy` a refusal carried, sent back by its caller -- and only a
+`RemedyName` is taken, so only the remedies listed here are
+reachable through it. The remedy still decides whether it applies
+now, and refuses if not.
 
 **Args**
 
-- `remedy`: The remedy the refusal carried; its `member` names the remedy taken: `recover_file_writer` gives up on a finished run's unwritten images and unlocks its stuck file writer; `repair_camera_driver` installs LumaViewPro's driver for a Lumascope Classic and binds its USB identities to it, on the scope PC's desktop, where Windows asks for an administrator's approval.
+- `remedy`: The name of the remedy taken, the `member` of the `Remedy` the refusal carried: `recover_file_writer` gives up on a finished run's unwritten images and unlocks its stuck file writer; `repair_camera_driver` installs LumaViewPro's driver for a Lumascope Classic and binds its USB identities to it, on the scope PC's desktop, where Windows asks for an administrator's approval.
 
 **Returns**
 
@@ -11903,8 +11903,7 @@ What a manual recording's operation answers once it is done.
 ## `lumascope.Remedy`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Held in: [`Notification.remedy`](#Notification.remedy), [`Outcome.remedy`](#Outcome.remedy).  
-Taken by: [`ScopeSession.apply_remedy`](#ScopeSession.apply_remedy).
+Held in: [`Notification.remedy`](#Notification.remedy), [`Outcome.remedy`](#Outcome.remedy).
 
 The one action that answers a refusal, offered to whoever was refused.
 
@@ -13748,7 +13747,8 @@ itself.
 <a id="RemedyName"></a>
 ### `lumascope.RemedyName`
 
-Held in: [`Remedy.member`](#Remedy.member).
+Held in: [`Remedy.member`](#Remedy.member).  
+Taken by: [`ScopeSession.apply_remedy`](#ScopeSession.apply_remedy).
 
 The remedies a refusal can name, each one the Session applies (`ScopeSession.apply_remedy`).
 

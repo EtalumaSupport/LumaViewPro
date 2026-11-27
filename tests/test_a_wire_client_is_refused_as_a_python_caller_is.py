@@ -348,7 +348,10 @@ def test_a_setting_only_the_host_moves_is_refused_as_host_only_not_sent_to_a_mis
     assert session.settings_snapshot == before
 
 
-def test_a_refusals_remedy_is_sent_as_the_record_apply_remedy_takes(client, session, monkeypatch):
+def test_a_refusals_remedy_is_taken_by_sending_its_name_back(client, session, monkeypatch):
+    """A problem carries its remedy whole, and its ``member`` alone, sent back
+    to ``apply_remedy``, reaches that remedy: on an idle simulated scope
+    nothing is stuck, so the file writer's recovery refuses as itself."""
     remedy = Remedy('recover_file_writer', 'Recover', 'Wait')
     refusal = LiveFolderPathRefusedError('outside_live_folder', 'x', 'Not there.')
     refusal.remedy = remedy
@@ -359,12 +362,14 @@ def test_a_refusals_remedy_is_sent_as_the_record_apply_remedy_takes(client, sess
     monkeypatch.setattr(session.scope.illumination, 'leds_off', refuses)
 
     body = _problem(client.post('/api/v1/scope/illumination/leds_off'), 422)
+    taken = client.post('/api/v1/apply_remedy', json={'remedy': body['remedy']['member']})
 
     assert body['remedy'] == {
         'member': 'recover_file_writer',
         'confirm_text': 'Recover',
         'cancel_text': 'Wait',
     }
+    assert taken.json()['reason'] == 'file_writer_not_stuck'
 
 
 @pytest.mark.parametrize(

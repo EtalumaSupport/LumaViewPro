@@ -87,7 +87,6 @@ from _lumascope.modules.exceptions import (
     ObjectiveUnknownError,
     ProtocolNotLoadedError,
     ProtocolRunRefusedError,
-    Remedy,
     RemedyName,
     ScopeDisconnectError,
     ScopeModelDeferredNotice,
@@ -2495,20 +2494,20 @@ class ScopeSession:
         return after
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
-    def apply_remedy(self, remedy: Remedy) -> 'int | tuple[UsbIdentityBindings, ...]':
+    def apply_remedy(self, remedy: RemedyName) -> 'int | tuple[UsbIdentityBindings, ...]':
         """Take the action a refusal named as its remedy, and return its answer.
 
         The one place a remedy's name becomes an action, and the one door to
         each remedy: the GUI's offer and a REST caller answer a refusal
-        through this. A name arrives as data -- from a refusal another channel
-        built, or from a caller sending it back -- and a ``Remedy`` holds
-        only a ``RemedyName``, so only the remedies listed here are reachable
-        through it. The remedy still decides whether it applies now, and
-        refuses if not.
+        through this. A name arrives as data -- the ``member`` of the
+        ``Remedy`` a refusal carried, sent back by its caller -- and only a
+        ``RemedyName`` is taken, so only the remedies listed here are
+        reachable through it. The remedy still decides whether it applies
+        now, and refuses if not.
 
         Args:
-            remedy: The remedy the refusal carried; its ``member`` names the
-                remedy taken: ``recover_file_writer`` gives up on a finished
+            remedy: The name of the remedy taken, the ``member`` of the
+                ``Remedy`` the refusal carried: ``recover_file_writer`` gives up on a finished
                 run's unwritten images and unlocks its stuck file writer;
                 ``repair_camera_driver`` installs LumaViewPro's driver for a
                 Lumascope Classic and binds its USB identities to it, on the
@@ -2547,7 +2546,7 @@ class ScopeSession:
             RemedyName.RECOVER_FILE_WRITER: self._recover_file_writer,
             RemedyName.REPAIR_CAMERA_DRIVER: self._repair_camera_driver,
         }
-        return remedies[remedy.member]()
+        return remedies[remedy]()
 
     def get_channel_configs(self, specific_channels: list | None = None) -> dict:
         """Each channel's settings block in the session's settings, or only
