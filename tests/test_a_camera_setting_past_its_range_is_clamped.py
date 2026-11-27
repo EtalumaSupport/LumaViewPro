@@ -20,6 +20,7 @@ import math
 import pytest
 
 from _lumascope.modules.exceptions import ArgumentRefusedError, ValueClampedNotice
+from lumascope import CameraSettingsInEffect
 from tests.scope_fakes import set_camera_limits
 
 
@@ -103,16 +104,17 @@ def test_a_value_in_range_is_applied_and_nothing_is_told(sim_camera, centre_post
 
 def test_the_layer_apply_clamps_both_values_in_one_notice(sim_scope, centre_posts):
     """``apply`` is a public door to the same gain and exposure, so it holds
-    them to the same range, and tells both in the one notice of its call."""
+    them to the same range, answers the values in effect as its record, and
+    tells both in the one notice of its call."""
     camera = sim_scope.camera
     limits = camera.setting_limits
 
     in_effect = camera.apply(limits.gain_max_db + 5.0, limits.exposure_max_ms * 3, channel='BF')
 
-    assert in_effect == {
-        'gain_db': pytest.approx(limits.gain_max_db),
-        'exposure_ms': pytest.approx(limits.exposure_max_ms),
-    }
+    assert in_effect == CameraSettingsInEffect(
+        gain_db=pytest.approx(limits.gain_max_db),
+        exposure_ms=pytest.approx(limits.exposure_max_ms),
+    )
     assert _clamp_notices(centre_posts) == [
         str(
             ValueClampedNotice(

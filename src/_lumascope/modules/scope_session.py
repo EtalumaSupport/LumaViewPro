@@ -229,7 +229,11 @@ if TYPE_CHECKING:
     from _lumascope.modules.lumascope_api import Lumascope
     from _lumascope.modules.lumascope_api.bring_up import BringUpRecord, SettingsSetAside
     from _lumascope.modules.lumascope_api.diagnostics import UsbIdentityBindings
-    from _lumascope.modules.lumascope_api.camera import AutoGainLock, AutoGainSettings
+    from _lumascope.modules.lumascope_api.camera import (
+        AutoGainLock,
+        AutoGainSettings,
+        CameraSettingsInEffect,
+    )
     from _lumascope.modules.lumascope_api.simulation import SimulatedScope
     from _lumascope.modules.protocol import Protocol, ProtocolSizeAdvisory
     from _lumascope.modules.protocol_image_writer import RunWriteBatch
@@ -3143,7 +3147,7 @@ class ScopeSession:
         )
         return self.channel_settings(channel)
 
-    def apply_channel_camera(self, channel: str) -> dict | None:
+    def apply_channel_camera(self, channel: str) -> 'CameraSettingsInEffect | None':
         """Put ``channel``'s stored exposure, gain and auto-gain on the camera, and wait.
 
         Nothing is written when the camera already holds ``channel`` at its

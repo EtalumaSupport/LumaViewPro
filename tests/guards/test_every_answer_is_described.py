@@ -66,8 +66,9 @@ from tests.ast_seams import MemberNames
 # channel settings are records; 13 since the whole-settings snapshot, a
 # dict, left the wire for setting; 12 since the settings template, a
 # dict, left the surface; 9 since the frame at a binning and the camera's
-# alignment answer a FrameSize.
-UNTYPED_PIN = 9
+# alignment answer a FrameSize; 8 since apply answers a
+# CameraSettingsInEffect.
+UNTYPED_PIN = 8
 
 _SERVER_MODELS = MemberNames(
     ('src/_lumascope/rest/routes.py', 'src/_lumascope/rest/app.py'),

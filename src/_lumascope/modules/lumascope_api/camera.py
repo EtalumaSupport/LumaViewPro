@@ -260,7 +260,7 @@ class _HeldChannel:
 
     channel: str
     request: ChannelCameraRequest | None
-    taken: dict | None
+    taken: CameraSettingsInEffect | None
 
 
 @api_fields(
@@ -418,6 +418,26 @@ class AppliedWrite:
 
     gain: AppliedGain | None
     exposure: AppliedExposure | None
+
+
+@api_fields('exposure_ms', 'gain_db')
+@dataclasses.dataclass(frozen=True)
+class CameraSettingsInEffect:
+    """The gain and the exposure on the camera after a write (``apply``).
+
+    Each differs from the request when it was past the camera's range or
+    the camera snapped it.
+
+    Attributes:
+        gain_db: The gain now in effect, in dB; None when it is not known
+            (``set_gain_db`` says when) or the write asked for none.
+        exposure_ms: The exposure now in effect, in ms; None when it is not
+            known (``set_exposure_ms`` says when) or the write asked for
+            none.
+    """
+
+    gain_db: float | None
+    exposure_ms: float | None
 
 
 def _applied_gain(stored_gain_db: float, limits: CameraSettingLimits | None) -> AppliedGain:
@@ -4720,7 +4740,7 @@ class CameraAPI:
                 self._report_refused_write(rejected)
 
     # --- Camera config orchestration ---
-    def hold_channel(self, channel: str) -> dict | None:
+    def hold_channel(self, channel: str) -> CameraSettingsInEffect | None:
         """Put ``channel``'s stored settings on the camera unless it holds them, and wait.
 
         See ``_hold_channel_impl``; this adds the dispatch described on
@@ -4739,7 +4759,9 @@ class CameraAPI:
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
 
-    def hold_channel_writing(self, channel: str, writing: Mapping[str, object]) -> dict | None:
+    def hold_channel_writing(
+        self, channel: str, writing: Mapping[str, object]
+    ) -> CameraSettingsInEffect | None:
         """Put ``channel``'s settings on the camera as a write is about to store them, and wait.
 
         ``hold_channel`` for the settings a channel write is about to store:
@@ -4869,7 +4891,9 @@ class CameraAPI:
             if claim is not None and refusing is None:
                 claim.leave_falsifying_change()
 
-    def _hold_channel_impl(self, channel: str, request: ChannelCameraRequest) -> dict | None:
+    def _hold_channel_impl(
+        self, channel: str, request: ChannelCameraRequest
+    ) -> CameraSettingsInEffect | None:
         """Put ``channel``'s stored settings on the camera unless it holds them.
 
         The one writer of the camera's held channel. Nothing is written when
@@ -4917,10 +4941,14 @@ class CameraAPI:
                     channel=channel,
                 )
                 if taken is not None:
-                    taken = {
-                        key: standing.taken[key] if value is None else value
-                        for key, value in taken.items()
-                    }
+                    taken = CameraSettingsInEffect(
+                        gain_db=standing.taken.gain_db if taken.gain_db is None else taken.gain_db,
+                        exposure_ms=(
+                            standing.taken.exposure_ms
+                            if taken.exposure_ms is None
+                            else taken.exposure_ms
+                        ),
+                    )
             else:
                 taken = self._apply_settings_impl(
                     request.gain_db,
@@ -4930,7 +4958,7 @@ class CameraAPI:
                     auto_gain_settings=request.auto_gain_settings,
                 )
         except CameraSettingRejected:
-            now = {'gain_db': self.gain_db, 'exposure_ms': self.exposure_ms}
+            now = CameraSettingsInEffect(gain_db=self.gain_db, exposure_ms=self.exposure_ms)
             with self._state_lock:
                 self._held_channel = _HeldChannel(channel, None, now)
             raise
@@ -4948,7 +4976,7 @@ class CameraAPI:
         auto_gain_settings: AutoGainSettings | None = None,
         resume_after_capture: bool = True,
         channel: str = '(unspecified)',
-    ) -> dict | None:
+    ) -> CameraSettingsInEffect | None:
         """Apply a gain, an exposure and an auto-gain mode in one batched call, and wait.
 
         The batch is one command on the camera's lane, so no other camera
@@ -4978,11 +5006,9 @@ class CameraAPI:
                 line; left out, the line says ``(unspecified)``.
 
         Returns:
-            dict | None: ``{'gain_db': ..., 'exposure_ms': ...}``, each the
-                value now in effect, which differs from the request when it
-                was past the range or the camera snapped it, None for one not
-                known (``set_gain_db``). ``None`` when the camera's teardown
-                landed after the lane asked for it.
+            CameraSettingsInEffect | None: The gain and the exposure now in
+                effect. ``None`` when the camera's teardown landed after the
+                lane asked for it.
 
         Raises:
             ArgumentRefusedError: ``'not_offered'``, an ``auto_gain`` other
@@ -5063,7 +5089,7 @@ class CameraAPI:
         auto_gain: bool | None = None,
         auto_gain_settings: AutoGainSettings | None = None,
         resume_after_capture: bool = True,
-    ) -> dict | None:
+    ) -> CameraSettingsInEffect | None:
         """Apply per-channel camera settings in a single batched call.
 
         Sets gain, exposure, and auto-gain state. Replaces 3 separate
@@ -5096,9 +5122,9 @@ class CameraAPI:
                 ``auto_gain`` is True, which needs them.
 
         Returns:
-            dict | None: ``{'gain_db': ..., 'exposure_ms': ...}``, each the
-                value now in effect (see ``_set_gain_db_impl``), or None for
-                one not written. ``None`` when no camera is active.
+            CameraSettingsInEffect | None: Each value now in effect (see
+                ``_set_gain_db_impl``), or None for one not written. ``None``
+                when no camera is active.
 
         Raises:
             CameraSettingRejected: The camera did not take the gain, the
@@ -5198,7 +5224,7 @@ class CameraAPI:
                 reason=next(reason for reason in _COMBINED_REASONS if reason in reasons),
                 in_effect=tuple(r.in_effect for r in refused),
             ) from refused[0]
-        return {'gain_db': gain_result, 'exposure_ms': exposure_result}
+        return CameraSettingsInEffect(gain_db=gain_result, exposure_ms=exposure_result)
 
     def auto_gain_once(self, settings: AutoGainSettings) -> None:
         """Run one-shot auto-gain, and wait for it.

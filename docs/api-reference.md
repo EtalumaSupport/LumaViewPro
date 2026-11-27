@@ -69,6 +69,7 @@ NaN stays a NaN, and a key keeps its type.
 - [`CameraLink`](#CameraLink)
 - [`CameraNodeValue`](#CameraNodeValue)
 - [`CameraSettingLimits`](#CameraSettingLimits)
+- [`CameraSettingsInEffect`](#CameraSettingsInEffect)
 - [`CaptureTally`](#CaptureTally)
 - [`CapturedStill`](#CapturedStill)
 - [`CellCountFilters`](#CellCountFilters)
@@ -4953,7 +4954,7 @@ def apply(
     auto_gain_settings: AutoGainSettings | None = None,
     resume_after_capture: bool = True,
     channel: str = '(unspecified)',
-) -> dict | None
+) -> CameraSettingsInEffect | None
 ```
 
 Marks: enters: `lane_call`.  
@@ -4983,7 +4984,7 @@ range is set at its end and told, in one notice for both, as
 
 **Returns**
 
-dict | None: `{'gain_db': ..., 'exposure_ms': ...}`, each the value now in effect, which differs from the request when it was past the range or the camera snapped it, None for one not known (`set_gain_db`). `None` when the camera's teardown landed after the lane asked for it.
+CameraSettingsInEffect | None: The gain and the exposure now in effect. `None` when the camera's teardown landed after the lane asked for it.
 
 **Raises**
 
@@ -9275,6 +9276,22 @@ camera does not declare is None, and that end is not checked.
 - <a id="CameraSettingLimits.exposure_min_ms"></a>`exposure_min_ms`: `float | None` -- The shortest exposure the camera takes, in ms.
 - <a id="CameraSettingLimits.gain_max_db"></a>`gain_max_db`: `float | None` -- The most gain the camera applies, digital stage included, in dB.
 - <a id="CameraSettingLimits.gain_min_db"></a>`gain_min_db`: `float | None` -- The least gain the camera takes, in dB.
+
+<a id="CameraSettingsInEffect"></a>
+## `lumascope.CameraSettingsInEffect`
+
+A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+Returned by: [`CameraAPI.apply`](#CameraAPI.apply).
+
+The gain and the exposure on the camera after a write (`apply`).
+
+Each differs from the request when it was past the camera's range or
+the camera snapped it.
+
+**Fields**
+
+- <a id="CameraSettingsInEffect.exposure_ms"></a>`exposure_ms`: `float | None` -- The exposure now in effect, in ms; None when it is not known (`set_exposure_ms` says when) or the write asked for none.
+- <a id="CameraSettingsInEffect.gain_db"></a>`gain_db`: `float | None` -- The gain now in effect, in dB; None when it is not known (`set_gain_db` says when) or the write asked for none.
 
 <a id="CaptureTally"></a>
 ## `lumascope.CaptureTally`

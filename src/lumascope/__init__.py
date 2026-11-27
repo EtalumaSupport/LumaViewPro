@@ -301,6 +301,7 @@ from _lumascope.modules.lumascope_api.camera import (
     CameraAPI,
     CameraAutoMode,
     CameraSettingLimits,
+    CameraSettingsInEffect,
 )
 from _lumascope.modules.lumascope_api.diagnostics import (
     CameraLink,
@@ -584,6 +585,7 @@ __all__ = [
     'CameraSettingLimits',
     'CameraSettingRejected',
     'CameraSettingUnsupportedError',
+    'CameraSettingsInEffect',
     'CameraSetupFailedError',
     'CameraShutter',
     'CameraStopStalledNotice',
