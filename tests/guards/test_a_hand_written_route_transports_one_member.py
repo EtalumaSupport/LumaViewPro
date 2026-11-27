@@ -20,9 +20,10 @@ meets it. So:
    ``rest/app.py``, the helpers of that file they reach, and
    ``rest/live.py`` -- calls no ``_lumascope`` function outside ``rest/``
    but the wire's own form: ``wire_encoding``, ``wall_time``,
-   ``image_utils.preview_jpeg``, the display JPEG of a frame, and
+   ``image_utils.preview_jpeg``, the display JPEG of a frame,
    ``real_numbers.whole_number_in``, a whole number read off the text a
-   request carries. A member
+   request carries, and ``api_surface.markdown_of``, a route's own words
+   as its description publishes them. A member
    reached through the session is not such a call. What it calls besides is
    ``_DECIDED_IN_REST``, an equality list that only falls.
 
@@ -42,7 +43,7 @@ import fastapi.routing
 import pytest
 
 from _lumascope.lib import real_numbers
-from _lumascope.modules import image_utils, wall_time, wire_encoding
+from _lumascope.modules import api_surface, image_utils, wall_time, wire_encoding
 from _lumascope.modules.api_surface import mark_of
 from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 from _lumascope.modules.scope_session import ScopeSession
@@ -84,9 +85,14 @@ _TRANSPORTS = {
 _BUILT = '_add.<locals>.'
 
 # The wire's own form, which a route may call: encoding, the wall clock,
-# a frame's display JPEG, and a whole number read off a request's text.
+# a frame's display JPEG, a whole number read off a request's text, and a
+# route's words as Markdown.
 _WIRE_OWN_MODULES = {wire_encoding.__name__, wall_time.__name__}
-_WIRE_OWN_FUNCTIONS = {image_utils.preview_jpeg, real_numbers.whole_number_in}
+_WIRE_OWN_FUNCTIONS = {
+    image_utils.preview_jpeg,
+    real_numbers.whole_number_in,
+    api_surface.markdown_of,
+}
 
 # The calls the routes' code makes that decide a capability in rest/: an
 # equality list, so a fix that forgets its row fails too. GAP-14: a preview

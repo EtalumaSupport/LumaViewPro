@@ -38,8 +38,12 @@ from tests.settings_fixtures import complete_settings
 # (the path checks, the request reads), so posting it adds minutes and no
 # member: the support report and the logs zip (a whole bundle), the camera
 # bandwidth test, the close's drain (a step of a session ending), and the
-# engineering members (raw board commands).
-_NOT_WALKED = re.compile(r'discard_pending_video|bandwidth|support_report|logs_zip|engineering')
+# engineering members (raw board commands). The live view's stream is not
+# read either: given a width it takes, it never ends, and its width is
+# judged as the snapshot's and a preview's are, which are walked.
+_NOT_WALKED = re.compile(
+    r'discard_pending_video|bandwidth|support_report|logs_zip|engineering|/live$'
+)
 
 _FAULTS = '/api/v1/scope/simulation/'
 
@@ -61,6 +65,17 @@ def _schema(schema: dict, document: dict) -> dict:
     if '$ref' in schema:
         schema = document['components']['schemas'][schema['$ref'].split('/')[-1]]
     return schema
+
+
+def _parameter(document: dict):
+    """How to read a route's parameter: its own, or the shared one it references."""
+
+    def read(parameter: dict) -> dict:
+        if '$ref' in parameter:
+            return document['components']['parameters'][parameter['$ref'].split('/')[-1]]
+        return parameter
+
+    return read
 
 
 def _wrong_value(schema: dict, document: dict, variant: int) -> object:
@@ -125,7 +140,11 @@ def test_no_route_answers_a_bad_request_as_a_fault(session):
             (p.startswith(_FAULTS), p, m) for p in paths for m in paths[p]
         ):
             operations = paths[route]
-            asked = [p for p in operations[method].get('parameters', []) if p['in'] == 'query']
+            asked = [
+                p
+                for p in map(_parameter(document), operations[method].get('parameters', []))
+                if p['in'] == 'query'
+            ]
             if not (method in ('post', 'put') or asked) or _NOT_WALKED.search(route):
                 continue
             walked += 1

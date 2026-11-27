@@ -21,6 +21,7 @@ is not a result as such a problem, on every route.
 
 from __future__ import annotations
 
+import json
 import re
 
 import pytest
@@ -494,8 +495,16 @@ def test_the_openapi_declares_every_answer_that_is_not_a_result_as_a_problem(cli
         if not code.startswith('2')
         for media in response['content']
     }
-    schema = operations[0]['responses']['4XX']['content']['application/problem+json']['schema']
+    schemas = {
+        json.dumps(response['content']['application/problem+json']['schema'])
+        for op in operations
+        for code, response in op['responses'].items()
+        if not code.startswith('2')
+    }
+    problem = openapi['components']['schemas']['Problem']
     assert missing_ranges == []
     assert media == {'application/problem+json'}
+    # Every problem is the one component, published once.
+    assert schemas == {json.dumps({'$ref': '#/components/schemas/Problem'})}
     assert 'HTTPValidationError' not in str(openapi)
-    assert set(schema['required']) <= set(refused.json())
+    assert set(problem['required']) <= set(refused.json())

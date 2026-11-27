@@ -46,38 +46,10 @@ from _lumascope.rest.routes import wire_form
 MEDIA_TYPE = 'application/problem+json'
 
 # What every route declares in the OpenAPI description for an answer that is
-# not a result: each is a problem, whatever its status. Ranges, since which
-# reasons a route can answer is the member's, not the route's.
-_SCHEMA = {
-    'type': 'object',
-    'required': [
-        'type',
-        'title',
-        'detail',
-        'status',
-        'instance',
-        'kind',
-        'reason',
-        'cause',
-        'remedy',
-    ],
-    'properties': {
-        'type': {'type': 'string', 'description': 'urn:lumascope:problem:<reason>, or about:blank'},
-        'title': {'type': 'string'},
-        'detail': {'type': 'string'},
-        'status': {'type': 'integer'},
-        'instance': {'type': 'string', 'description': 'urn:uuid:<request id>'},
-        'kind': {'type': 'string', 'enum': [kind.value for kind in OutcomeKind]},
-        'reason': {'type': ['string', 'null'], 'description': 'What a client branches on'},
-        'cause': {
-            'type': ['string', 'null'],
-            'enum': [*(cause.value for cause in RefusalCause), None],
-            'description': 'Whether the same request could succeed later; null for a fault',
-        },
-        'remedy': {'type': ['object', 'null']},
-    },
-    'additionalProperties': True,
-}
+# not a result: each is a problem, whatever its status, published once.
+# Ranges, since which reasons a route can answer is the member's, not the
+# route's.
+_SCHEMA = {'$ref': '#/components/schemas/Problem'}
 
 
 def openapi_responses(

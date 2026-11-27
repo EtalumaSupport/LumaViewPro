@@ -135,10 +135,12 @@ def test_each_setting_is_written_by_put_and_answered_its_read(client):
 
 def test_a_setter_has_no_route_of_its_own(client):
     documented = client.get('/api/v1/openapi.json').json()['paths']
+    # A member's PUT, named for its setter; the server's own (a file's
+    # upload) is no setting.
     setters = {
         f'/api/v1/{ops["put"]["operationId"].replace(".", "/")}'
-        for ops in documented.values()
-        if 'put' in ops
+        for path, ops in documented.items()
+        if 'put' in ops and path.split('/')[3] not in SERVER_SEGMENTS
     }
     assert '/api/v1/scope/camera/set_binning' in setters
     served = {path: client.post(path, json={}).status_code for path in sorted(setters)}

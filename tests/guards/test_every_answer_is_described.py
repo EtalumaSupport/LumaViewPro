@@ -10,6 +10,7 @@ over a simulated session builds:
 - every member route's 200 is its answer's schema, never ``{}``, and bare
   (an object with no keys, an array of nothing said) only where the
   member's own type says no more (a bare ``dict``); its 202 is the job;
+  a member that hands back an operation answers only 202, its job;
 - a route that is not JSON declares what it is: a file, a JPEG, an MJPEG
   stream, an event stream; the server's own JSON routes their models;
 - each event the stream sends has a component, listed by ``/events``;
@@ -67,8 +68,8 @@ from tests.ast_seams import MemberNames
 # dict, left the wire for setting; 12 since the settings template, a
 # dict, left the surface; 9 since the frame at a binning and the camera's
 # alignment answer a FrameSize; 8 since apply answers a
-# CameraSettingsInEffect.
-UNTYPED_PIN = 8
+# CameraSettingsInEffect; 7 since a failed job's error is a Problem.
+UNTYPED_PIN = 7
 
 _SERVER_MODELS = MemberNames(
     ('src/_lumascope/rest/routes.py', 'src/_lumascope/rest/app.py'),
@@ -185,6 +186,14 @@ def test_every_member_route_declares_its_answer_and_its_job(built):
     wrong = []
     for route in member_routes:
         responses = _operation(described, route)['responses']
+        if route.member.returns_job:
+            # Answered its operation's job, and never 200.
+            job = rest_routes.job_answer(route.member.returns).__name__
+            if '200' in responses or _json(responses['202']) != {
+                '$ref': f'#/components/schemas/{job}'
+            }:
+                wrong.append(f'{_url(route)}: not answered 202 alone, with {job}')
+            continue
         answer = _json(responses['200'])
         if answer == {}:
             wrong.append(f'{_url(route)}: 200 is {{}}')
@@ -198,13 +207,8 @@ def test_every_member_route_declares_its_answer_and_its_job(built):
         bare = [s for s in top if _bare(s)]
         if len(bare) != len(said_nothing):
             wrong.append(f'{_url(route)}: 200 {json.dumps(answer)} for {route.member.returns}')
-        # A member that hands back an operation is answered its operation's
-        # job, the job its 200 names; any other call is the job of a call
-        # that outlived its wait.
-        jobs = {f'#/components/schemas/{name}' for name in ('Job', *rest_routes._JOBS)}
-        named = [s for s in top if s.get('$ref') in jobs]
-        job = named[0] if route.member.returns_job and len(named) == 1 else None
-        if _json(responses['202']) != (job or {'$ref': '#/components/schemas/Job'}):
+        # Any other call is the job of a call that outlived its wait.
+        if _json(responses['202']) != {'$ref': '#/components/schemas/Job'}:
             wrong.append(f'{_url(route)}: 202 is not the job')
     assert len(member_routes) > 200
     assert not wrong, '\n'.join(wrong)
@@ -238,7 +242,9 @@ def test_a_record_s_properties_say_its_fields_words(built):
     A field's words are its class's ``Attributes:`` entry
     (``field_descriptions``); the description reads them there at each of
     its four builders, sampled once each: an answer record, an inbound
-    record, a record read from a query string, and an event. The whole set
+    record (published as one schema with its answer's, which the
+    description is not built without when the two differ), a record read
+    from a query string, and an event. The whole set
     is held where the words are written (``test_every_field_is_described``).
     An answer's own description leaves its ``Attributes:`` section out, so a
     field's words are said once.
@@ -256,7 +262,8 @@ def test_a_record_s_properties_say_its_fields_words(built):
 
     answer = schemas['RunOutcome']['properties']['autofocus_data_path']
     assert answer.get('description') == words(RunOutcome, 'autofocus_data_path'), answer
-    inbound = schemas['PlateLocation-Input']['properties']['x_mm']
+    # One schema with its answer's, published where the two agree.
+    inbound = schemas['PlateLocation']['properties']['x_mm']
     assert inbound.get('description') == words(PlateLocation, 'x_mm'), inbound
     read = described['paths']['/api/v1/scope/runtime_state/plate_to_stage']['get']
     query = [p.get('description') for p in read['parameters'] if p['name'] == 'stage_offset.x_um']

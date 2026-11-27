@@ -93,6 +93,11 @@ CONTROL_SESSION_HEADER = 'control-session'
 SERVER_SEGMENTS = frozenset(
     {'handles', 'jobs', 'events', 'files', 'previews', 'live', 'live.jpg', 'still'}
 )
+# Where a running job is read, and how soon: every 202 a call answers.
+_JOB_HEADERS = {
+    'Location': {'$ref': '#/components/headers/Location'},
+    'Retry-After': {'$ref': '#/components/headers/Retry-After'},
+}
 # What any member answers when its call outlives what the client will wait.
 _ANSWERED_AS_JOB = {
     'model': Job,
@@ -100,7 +105,67 @@ _ANSWERED_AS_JOB = {
         'A running job, at `Location`: the operation the call started, or the '
         'call itself when it outlived the wait (`Prefer: wait`).'
     ),
+    'headers': _JOB_HEADERS,
 }
+# The parameters more than one route takes, each declared once.
+_PARAMETERS = {
+    'ControlSession': {
+        'name': 'Control-Session',
+        'in': 'header',
+        'required': False,
+        'schema': {'type': 'string'},
+        'description': (
+            'The id of the control session the write is made in (`take_control`). '
+            'While a session is held, a write that does not name it is refused 409 '
+            '`control_session_held`.'
+        ),
+    },
+    'MaxWidth': {
+        'name': 'max_width',
+        'in': 'query',
+        'required': False,
+        'schema': {'type': 'integer', 'minimum': 1},
+        'description': "The most pixels wide the image is; half the frame's width when not given.",
+    },
+}
+_CONTROL_SESSION = {'$ref': '#/components/parameters/ControlSession'}
+_MAX_WIDTH = {'parameters': [{'$ref': '#/components/parameters/MaxWidth'}]}
+_HEADERS = {
+    'Location': {
+        'description': 'Where the job is read: `/api/v1/jobs/<id>`.',
+        'schema': {'type': 'string'},
+    },
+    'Retry-After': {
+        'description': 'The seconds to wait before reading the job again.',
+        'schema': {'type': 'integer'},
+    },
+}
+# What the description says of every route, before its routes.
+_INFO = """\
+The Lumascope API: each member of the session, and of a live object a call
+hands out, at its own route. The guide's REST chapter says how they are used.
+
+- **Problems.** An answer that is not a result is a `Problem`
+  (`application/problem+json`): 409 when the same request can succeed later,
+  422 when it must change, 500 for a fault, 503 when the server cannot do it
+  now. A client branches on `reason`, and retries a 409, or a 503 that
+  carries `Retry-After`.
+- **Jobs.** A call still running when the client stops waiting answers 202
+  with its job, read at `Location` (`/api/v1/jobs/<id>`). `Prefer: wait=<s>`
+  says how long to wait, 2 s when not said, at most 60;
+  `Prefer: respond-async` waits for nothing. A preference taken is echoed in
+  `Preference-Applied`.
+- **Retries.** A call (`POST` or `PUT`) sent again with the same
+  `Idempotency-Key` runs nothing and is answered its first answer; a still
+  is taken again.
+- **Control.** While a control session is held, a write names it in
+  `Control-Session`.
+- **Bodies.** A body carries only the fields its record names: an unknown
+  one, nested included, is refused 422, so an answer that has gained a field
+  is not sent back as a body unchanged.
+- **Requests.** Every answer carries `X-Request-ID`, the id its log line and
+  a problem's `instance` name.
+"""
 
 
 class Versions(pydantic.BaseModel):
@@ -216,6 +281,7 @@ def build_app(session: ScopeSession, *, bound: bool = False) -> fastapi.FastAPI:
     app = fastapi.FastAPI(
         title='Lumascope',
         version=session.app_version or 'unknown',
+        description=_INFO,
         openapi_url=f'{PREFIX}/openapi.json',
         # Served from the installation (_add_reference_page): the default
         # page loads its script and style from a CDN, and is blank offline.
@@ -240,6 +306,8 @@ def build_app(session: ScopeSession, *, bound: bool = False) -> fastapi.FastAPI:
         '/api',
         versions,
         methods=['GET'],
+        operation_id='versions',
+        **_words(versions.__doc__),
         tags=['server'],
         response_model=None,
         responses={200: {'model': Versions, 'description': 'The versions.'}},
@@ -324,6 +392,29 @@ def _add_file_route(app: fastapi.FastAPI, session: ScopeSession) -> None:
         download,
         methods=['GET'],
         tags=['files'],
+        operation_id='files.download',
+        **_words(download.__doc__),
+        openapi_extra={
+            'parameters': [
+                {
+                    'name': 'Range',
+                    'in': 'header',
+                    'required': False,
+                    'schema': {'type': 'string'},
+                    'description': 'The bytes of the file to send, answered 206 on their own.',
+                }
+            ],
+            'responses': {
+                '206': {
+                    'description': 'The range of the file asked for.',
+                    'content': {
+                        'application/octet-stream': {
+                            'schema': {'type': 'string', 'format': 'binary'}
+                        }
+                    },
+                }
+            },
+        },
         **_not_json(
             'application/octet-stream',
             "The file's bytes, typed by its extension.",
@@ -449,13 +540,16 @@ def _add_upload_route(
         methods=['PUT'],
         tags=['files'],
         status_code=201,
+        operation_id='files.upload',
+        **_words(upload.__doc__),
         openapi_extra={
+            'parameters': [_CONTROL_SESSION],
             'requestBody': {
                 'required': True,
                 'content': {
                     'application/octet-stream': {'schema': {'type': 'string', 'format': 'binary'}}
                 },
-            }
+            },
         },
         response_model=None,
         responses={201: {'model': PathAnswer, 'description': 'The file written.'}},
@@ -556,7 +650,7 @@ def _add_still_route(
             inspect.Parameter(
                 'asked',
                 inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                annotation=asked_by | None,
+                annotation=asked_by,
                 default=fastapi.Body(None),
             ),
         ]
@@ -566,6 +660,33 @@ def _add_still_route(
         still,
         methods=['POST'],
         tags=['capture'],
+        operation_id='still',
+        **_words(still.__doc__),
+        openapi_extra={
+            'parameters': [_CONTROL_SESSION],
+            'responses': {
+                '200': {
+                    'headers': {
+                        'X-Record-Length': {
+                            'description': "The record's length in bytes.",
+                            'schema': {'type': 'integer'},
+                        },
+                        'X-Image-Shape': {
+                            'description': 'The rows and columns, as `<rows>,<columns>`.',
+                            'schema': {'type': 'string'},
+                        },
+                        'X-Image-Dtype': {
+                            'description': "The pixels' NumPy type, such as `uint16`, little-endian.",
+                            'schema': {'type': 'string'},
+                        },
+                        'X-Significant-Bits': {
+                            'description': 'The depth the camera took the still at.',
+                            'schema': {'type': 'integer'},
+                        },
+                    }
+                }
+            },
+        },
         **_not_json(
             'application/octet-stream',
             "The still's record as JSON, `X-Record-Length` bytes, then its pixels.",
@@ -628,6 +749,9 @@ def _add_preview_route(app: fastapi.FastAPI, session: ScopeSession) -> None:
         preview,
         methods=['GET'],
         tags=['files'],
+        operation_id='previews.read',
+        **_words(preview.__doc__),
+        openapi_extra=_MAX_WIDTH,
         **_not_json('image/jpeg', 'The image, downscaled.', {'type': 'string', 'format': 'binary'}),
     )
 
@@ -658,6 +782,19 @@ def _add_event_route(
         events,
         methods=['GET'],
         tags=['events'],
+        operation_id='events.stream',
+        **_words(events.__doc__),
+        openapi_extra={
+            'parameters': [
+                {
+                    'name': 'Last-Event-ID',
+                    'in': 'header',
+                    'required': False,
+                    'schema': {'type': 'string'},
+                    'description': 'The id of the last event a reconnecting client heard.',
+                }
+            ]
+        },
         **_not_json('text/event-stream', event_stream.described(published)),
     )
 
@@ -674,6 +811,8 @@ def _add_event_route(
         held,
         methods=['GET'],
         tags=['events'],
+        operation_id='events.held',
+        **_words(held.__doc__),
         response_model=None,
         responses={
             200: {'model': event_stream.held_model(published), 'description': 'The events.'}
@@ -682,22 +821,83 @@ def _add_event_route(
     built = app.openapi
 
     def openapi() -> dict:
-        """The description, with each event's data a component: no route answers one as JSON."""
+        """The description FastAPI builds, published as a client reads it.
+
+        Each event's data is a component, since no route answers one as
+        JSON; each record is one schema; the parameters and headers routes
+        share are components.
+        """
         if app.openapi_schema is None:
             described = built()
             _, schemas = pydantic.json_schema.models_json_schema(
                 [(m, 'serialization') for m in published.values()],
                 ref_template='#/components/schemas/{model}',
             )
-            components = described.setdefault('components', {}).setdefault('schemas', {})
+            components = described.setdefault('components', {})
+            records = components.setdefault('schemas', {})
             for name, schema in schemas.get('$defs', {}).items():
                 # A name already published is the same record (no two
                 # reachable classes share a name): a route's description of
-                # it stands, a parameter's included (``Remedy``).
-                components.setdefault(name, schema)
+                # it stands, a parameter's included.
+                records.setdefault(name, schema)
+            components['parameters'] = _PARAMETERS
+            components['headers'] = _HEADERS
+            app.openapi_schema = _one_schema_per_record(described)
         return app.openapi_schema
 
     app.openapi = openapi
+
+
+def _one_schema_per_record(described: dict) -> dict:
+    """*described* with each record one schema, where FastAPI publishes two.
+
+    A record a call takes is checked strict and one it answers is open, so
+    FastAPI names the two ``<Record>-Input`` and ``<Record>-Output``, which
+    a generated client reads as two types (and a few drop an answer for
+    it). They differ only in ``additionalProperties`` and the description
+    the answer carries: the one schema is the answer's, stating no
+    ``additionalProperties``, since a body is refused a field its record
+    does not name (``_INFO``).
+
+    Raises:
+        ConfigurationDefectError: ``'record_schemas_differ'``, a record's
+            two schemas differ in more than that, so one would describe
+            what the server does not do.
+    """
+    records = described['components']['schemas']
+    twins = sorted({n.rsplit('-', 1)[0] for n in records if n.endswith(('-Input', '-Output'))})
+    if not twins:
+        return described
+    named = {
+        f'#/components/schemas/{n}-{side}': f'#/components/schemas/{n}'
+        for n in twins
+        for side in ('Input', 'Output')
+    }
+
+    def renamed(value: object) -> object:
+        if isinstance(value, dict):
+            return {k: named.get(v, v) if k == '$ref' else renamed(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [renamed(v) for v in value]
+        return value
+
+    described = renamed(described)
+    records = described['components']['schemas']
+    for name in twins:
+        sides = [records.pop(f'{name}-{side}') for side in ('Input', 'Output')]
+        taken, answered = (
+            {k: v for k, v in side.items() if k not in ('additionalProperties', 'description')}
+            for side in sides
+        )
+        if taken != answered:
+            raise ConfigurationDefectError(
+                'record_schemas_differ',
+                f'{name} is described one way as an argument and another as an answer',
+            )
+        published = dict(sides[1])
+        published.pop('additionalProperties', None)
+        records[name] = published
+    return described
 
 
 def _add_live_routes(app: fastapi.FastAPI, live: live_view.LiveView, closing: Closing) -> None:
@@ -745,6 +945,9 @@ def _add_live_routes(app: fastapi.FastAPI, live: live_view.LiveView, closing: Cl
         watch,
         methods=['GET'],
         tags=['live'],
+        operation_id='live.watch',
+        **_words(watch.__doc__),
+        openapi_extra=_MAX_WIDTH,
         **_not_json('multipart/x-mixed-replace', 'The frames, each a JPEG part.'),
     )
     app.add_api_route(
@@ -752,6 +955,25 @@ def _add_live_routes(app: fastapi.FastAPI, live: live_view.LiveView, closing: Cl
         snapshot,
         methods=['GET'],
         tags=['live'],
+        operation_id='live.snapshot',
+        **_words(snapshot.__doc__),
+        openapi_extra={
+            **_MAX_WIDTH,
+            'responses': {
+                '200': {
+                    'headers': {
+                        'X-Frame-Ordinal': {
+                            'description': "The frame's place in the camera's stream.",
+                            'schema': {'type': 'integer'},
+                        },
+                        'X-Frame-Timestamp': {
+                            'description': 'When the frame was taken, ISO 8601.',
+                            'schema': {'type': 'string', 'format': 'date-time'},
+                        },
+                    }
+                }
+            },
+        },
         **_not_json('image/jpeg', 'The newest frame.', {'type': 'string', 'format': 'binary'}),
     )
 
@@ -789,6 +1011,8 @@ def _add_handle_routes(
         held,
         methods=['GET'],
         tags=['handles'],
+        operation_id='handles.list',
+        **_words(held.__doc__),
         response_model=None,
         responses={200: {'model': list[Handle], 'description': 'The handles.'}},
     )
@@ -830,6 +1054,7 @@ def _add_handle_routes(
             status_code=204,
             name=f'handles/{cls.__name__}/forget',
             operation_id=f'handles.{cls.__name__}.forget',
+            openapi_extra={'parameters': [_CONTROL_SESSION]},
             summary=f"Forget a {cls.__name__} handle's id, never its object.",
             description=(
                 "A run goes on, and its stop is its own member. The session's protocol "
@@ -1110,6 +1335,19 @@ async def _failed(request: fastapi.Request, error: Exception) -> JSONResponse:
     return problems.answered_by_member(error, request.state.request_id).response()
 
 
+def _words(doc: str | None) -> dict[str, str | None]:
+    """A route's summary and description, as Markdown, from its docstring.
+
+    Each parameter's words are on its property, so the description leaves
+    the Args: section out rather than say them twice.
+    """
+    doc = inspect.cleandoc(doc or '')
+    return {
+        'summary': markdown_of(doc.split('\n', 1)[0]) or None,
+        'description': markdown_of(doc, leave_out=('Args',)) or None,
+    }
+
+
 def served(route: Route) -> tuple[str, str, str]:
     """Where the server serves *route*, below ``PREFIX``: its path, its operation's name, and its tag.
 
@@ -1142,33 +1380,42 @@ def _add(
     member = route.member
     on_handle = route.root is not ScopeSession
     path, name, tag = served(route)
+    if member.returns_job:
+        # A member that hands back an operation is answered its job, as its
+        # answer describes it, and never 200.
+        answered = {
+            202: {
+                'model': job_answer(member.returns),
+                'description': 'The job of the operation the call started.',
+                'headers': _JOB_HEADERS,
+            }
+        }
+    else:
+        answered = {
+            200: {
+                'model': route.answer,
+                'description': (
+                    "The member's answer."
+                    if route.sets is None
+                    else 'The setting, as its read answers it after the write.'
+                ),
+            },
+            # Any other call is a job once it has outlived the wait.
+            202: _ANSWERED_AS_JOB,
+        }
     common = {
         'path': f'{PREFIX}/{path}',
         'name': name,
         'operation_id': name.replace('/', '.'),
-        'summary': doc.split('\n', 1)[0] or None,
-        # Each parameter's words are on its property, so the description
-        # leaves the Args: section out rather than say them twice.
-        'description': markdown_of(doc, leave_out=('Args',)) or None,
+        **_words(doc),
         'tags': [tag],
         # The answer is encoded from the value (``wire_encoding.encode``) and
         # sent as it is; the models only describe it, from the member's
         # declared return type.
         'response_model': None,
-        'responses': {
-            200: {'model': route.answer, 'description': "The member's answer."},
-            # A member that hands back an operation is answered its job, as
-            # its answer describes it; any other call is a job past its wait.
-            202: (
-                {
-                    'model': job_answer(member.returns),
-                    'description': 'The job of the operation the call started.',
-                }
-                if member.returns_job
-                else _ANSWERED_AS_JOB
-            ),
-            **problems.declared(doc, classes, member.admitted_by),
-        },
+        'status_code': 202 if member.returns_job else 200,
+        'responses': {**answered, **problems.declared(doc, classes, member.admitted_by)},
+        'openapi_extra': {'parameters': [_CONTROL_SESSION]} if _writes(member) else None,
     }
 
     async def answer(
@@ -1421,6 +1668,8 @@ def _add_job_routes(
         listing,
         methods=['GET'],
         tags=['jobs'],
+        operation_id='jobs.list',
+        **_words(listing.__doc__),
         response_model=None,
         responses={200: {'model': list[Job], 'description': 'The jobs.'}},
     )
@@ -1441,6 +1690,8 @@ def _add_job_routes(
         read,
         methods=['GET'],
         tags=['jobs'],
+        operation_id='jobs.read',
+        **_words(read.__doc__),
         response_model=None,
         responses={200: {'model': Job, 'description': 'The job.'}},
     )
@@ -1483,6 +1734,9 @@ def _add_job_routes(
         methods=['DELETE'],
         status_code=204,
         tags=['jobs'],
+        operation_id='jobs.delete',
+        **_words(delete.__doc__),
+        openapi_extra={'parameters': [_CONTROL_SESSION]},
         response_model=None,
         responses={202: {'model': Job, 'description': 'The job, asked to stop.'}},
     )
@@ -1514,7 +1768,9 @@ def _sign(endpoint: Callable, on_handle: bool, route: Route | None, *, query: bo
             inspect.Parameter(
                 'body',
                 inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                annotation=route.body if required else route.body | None,
+                # Not ``| None``: an absent body is the default, never checked,
+                # and the description names the model itself, not "or null".
+                annotation=route.body,
                 default=fastapi.Body(...) if required else fastapi.Body(None),
             )
         )

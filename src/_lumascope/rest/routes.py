@@ -27,7 +27,8 @@ import typing
 import pydantic
 
 from _lumascope.modules import api_surface, wire_encoding
-from _lumascope.modules.exceptions import RemedyName
+from _lumascope.modules.exceptions import Refusal, RefusalCause
+from _lumascope.modules.notification_center import OutcomeKind
 from _lumascope.modules.operation import Operation
 from _lumascope.modules.wire_encoding import WireMember, WireParameter
 
@@ -56,10 +57,24 @@ _QUERY_SCALARS = (
     wire_encoding.HANDLE,
     wire_encoding.JOB,
 )
+
+
+def _described_in_markdown(schema: dict, model: type) -> None:
+    """Publish *model*'s own docstring as Markdown, as every route's words are.
+
+    Each field's words are on its property, so the description leaves an
+    Attributes: section out rather than say them twice.
+    """
+    if model.__doc__:
+        schema['description'] = api_surface.markdown_of(
+            inspect.cleandoc(model.__doc__), leave_out=('Attributes',)
+        )
+
+
 # An answer's model only describes: the server sends what ``encode`` made,
 # never checked against it. Open, since a record's subclass is sent with
 # the keys it adds, and the description must not refuse what is sent.
-ANSWER_CONFIG = pydantic.ConfigDict(extra='allow')
+ANSWER_CONFIG = pydantic.ConfigDict(extra='allow', json_schema_extra=_described_in_markdown)
 
 
 class Handle(pydantic.BaseModel):
@@ -112,29 +127,6 @@ def body_of(
         )
         fields[name] = _field(parameter, {}, words[name])
     return pydantic.create_model(model, __config__=_MODEL_CONFIG, **fields)
-
-
-class RemedyAnswer(pydantic.BaseModel):
-    """The one action that answers a refusal: the remedy to send back to ``apply_remedy``, and the words that offer it."""
-
-    model_config = ANSWER_CONFIG
-    member: RemedyName
-    confirm_text: str
-    cancel_text: str
-
-
-class RefusalAnswer(pydantic.BaseModel):
-    """A refusal a record holds, as a refused call's problem carries it.
-
-    Beside these keys, any field the refusal's type publishes.
-    """
-
-    model_config = ANSWER_CONFIG
-    kind: str
-    reason: str | None
-    title: str
-    detail: str
-    remedy: RemedyAnswer | None
 
 
 class JobProgress(pydantic.BaseModel):
@@ -542,11 +534,9 @@ def _answer(a: wire_encoding.Outbound) -> object:
             f: (answer_type(alts), pydantic.Field(description=field_words(a.cls, f)))
             for f, alts in a.fields
         }
-        # Each field's words are on its property, so the class's description
-        # leaves its Attributes: section out rather than say them twice.
-        doc = api_surface.markdown_of(api_surface.own_doc(a.cls), leave_out=('Attributes',))
+        # Its description is published as Markdown by ANSWER_CONFIG.
         _ANSWER_RECORDS[a.cls] = pydantic.create_model(
-            a.name, __config__=ANSWER_CONFIG, __doc__=doc, **fields
+            a.name, __config__=ANSWER_CONFIG, __doc__=api_surface.own_doc(a.cls), **fields
         )
     return _ANSWER_RECORDS[a.cls]
 
@@ -584,7 +574,7 @@ class Job(pydantic.BaseModel):
     ended: datetime.datetime | None
     progress: JobProgress | _OPERATION_PROGRESS
     result: typing.Any = pydantic.Field(default=None)
-    error: dict | None = pydantic.Field(default=None)
+    error: Problem | None = pydantic.Field(default=None)
     files: _JOB_FILES = pydantic.Field(default=None)
 
 
@@ -627,6 +617,54 @@ def _label(alternatives: tuple[wire_encoding.Outbound, ...]) -> str:
     return 'Or'.join(parts)
 
 
+class RefusalAnswer(pydantic.BaseModel):
+    """A refusal a record holds, as a refused call's problem carries it.
+
+    Beside these keys, any field the refusal's type publishes.
+    """
+
+    model_config = ANSWER_CONFIG
+    kind: str
+    reason: str | None
+    title: str
+    detail: str
+    remedy: _REMEDY
+
+
+# A refusal's remedy, described as the record every other answer carrying
+# one is, so the remedy is one component.
+_REMEDY = answer_type(
+    wire_encoding.outbound(
+        wire_encoding.field_text(Refusal, 'remedy'),
+        wire_encoding.project_classes(),
+        wire_encoding.project_aliases(),
+    )
+)
+
+
+class Problem(pydantic.BaseModel):
+    """An answer that is not a result: an RFC 9457 problem, ``application/problem+json``, whatever its status.
+
+    Beside these keys, a problem carries the fields its type publishes, such
+    as ``argument``, and ``errors`` for a body that does not fit.
+    """
+
+    model_config = ANSWER_CONFIG
+    type: str = pydantic.Field(description='`urn:lumascope:problem:<reason>`, or `about:blank`.')
+    title: str
+    detail: str
+    status: int
+    instance: str = pydantic.Field(description='`urn:uuid:<request id>`.')
+    kind: typing.Literal[tuple(kind.value for kind in OutcomeKind)]
+    reason: str | None = pydantic.Field(description='What a client branches on.')
+    cause: typing.Literal[tuple(cause.value for cause in RefusalCause)] | None = pydantic.Field(
+        description='Whether the same request could succeed later; null for a fault.'
+    )
+    remedy: _REMEDY = pydantic.Field(
+        description='The one action that answers a refusal, when one exists.'
+    )
+
+
 # A job's ``files``, described from what ``Operation`` declares it is.
 _JOB_FILES = answer_type(
     wire_encoding.outbound(
@@ -635,6 +673,8 @@ _JOB_FILES = answer_type(
         wire_encoding.project_aliases(),
     )
 )
+RefusalAnswer.model_rebuild()
+Problem.model_rebuild()
 Job.model_rebuild()
 for _job in _JOBS.values():
     _job.model_rebuild()
