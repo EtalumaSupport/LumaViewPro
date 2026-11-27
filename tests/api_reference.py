@@ -96,7 +96,7 @@ Every name with a section of its own is imported from `lumascope`, as its headin
 
 A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes; a member that raises nothing says so beside its marks. **Outcomes** lists those with the outcomes of the doors the member enters (a hardware lane, a guarded write, a post-processing build's admission), refusals and faults alike; for a member on the wire they are **Outcomes by REST status**, under the HTTP status each answers. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
 
-<a id="to_dict"></a>A **record** crosses the wire as its data. In the same process every record also answers `to_dict()`, *in-process*, for a caller that takes a dict and not a record, such as MATLAB's `struct()`:
+<a id="to_dict"></a>A **record** crosses the wire as its data, unless its entry says it is in-process only. In the same process every record also answers `to_dict()`, *in-process*, for a caller that takes a dict and not a record, such as MATLAB's `struct()`:
 
 {markdown_of(inspect.getdoc(_to_dict))}
 """
@@ -253,6 +253,9 @@ class _Index:
     delivers: dict[str, list[str]]
     # Every outcome class a member's ``Raises:`` names: what a member can answer.
     answers: frozenset[str]
+    # Each record that has no wire form -> what in it has none, by the
+    # wire encoder's own verdict (``wire_gaps``), its own fields by name.
+    in_process_only: dict[type, list[str]]
 
 
 def _edges(item: Marked) -> list[tuple[str, str]]:
@@ -332,6 +335,12 @@ def _index(marked: dict[str, Marked], universe: dict[str, type], aliases: dict[s
             if member.segment is not None and member.segment not in reached:
                 reached[member.segment] = (f'{path}.{member.name}', f'{wire}{member.name}/')
                 queue.append(member.segment)
+    in_process_only = {}
+    for cls in universe.values():
+        if is_record(cls):
+            held = _without_wire_form(cls, wire_encoding.wire_gaps(cls, classes, project_aliases))
+            if held:
+                in_process_only[cls] = held
     return _Index(
         universe=universe,
         outcomes=outcome_classes(),
@@ -341,7 +350,20 @@ def _index(marked: dict[str, Marked], universe: dict[str, type], aliases: dict[s
         handed_out=handed_out,
         delivers=delivers,
         answers=frozenset(answers),
+        in_process_only=in_process_only,
     )
+
+
+def _without_wire_form(cls: type, gaps: list[str]) -> list[str]:
+    """What each gap names, ``Owner.name``, or ``name`` for one of *cls*'s own; in order, once."""
+    names = []
+    for gap in gaps:
+        where = gap.split(':', 1)[0].split(' ', 1)[0]
+        owner, _, name = where.partition('.')
+        shown = name if name and owner == cls.__name__ else where
+        if shown not in names:
+            names.append(shown)
+    return names
 
 
 def entry_key(item: Marked) -> str:
@@ -547,10 +569,12 @@ def _class(owner: _Owner, index: _Index, *, outcome: bool = False) -> str:
         )
         kind = _kind(cls)
         facts.append(f'{kind[0].upper()}{kind[1:]}; bases {bases}.')
+    elif cls in index.in_process_only:
+        held = index.in_process_only[cls]
+        verb = 'has' if len(held) == 1 else 'have'
+        facts.append(f'In-process only: {", ".join(f"`{n}`" for n in held)} {verb} no wire form.')
     elif is_record(cls):
-        facts.append(
-            'A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.'
-        )
+        facts.append('A record ([`to_dict()`](#to_dict)).')
     facts += _reached(cls, index)
     if facts:
         parts.append('  \n'.join(facts))

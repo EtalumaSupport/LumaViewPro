@@ -8,7 +8,7 @@ Every name with a section of its own is imported from `lumascope`, as its headin
 
 A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes; a member that raises nothing says so beside its marks. **Outcomes** lists those with the outcomes of the doors the member enters (a hardware lane, a guarded write, a post-processing build's admission), refusals and faults alike; for a member on the wire they are **Outcomes by REST status**, under the HTTP status each answers. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
 
-<a id="to_dict"></a>A **record** crosses the wire as its data. In the same process every record also answers `to_dict()`, *in-process*, for a caller that takes a dict and not a record, such as MATLAB's `struct()`:
+<a id="to_dict"></a>A **record** crosses the wire as its data, unless its entry says it is in-process only. In the same process every record also answers `to_dict()`, *in-process*, for a caller that takes a dict and not a record, such as MATLAB's `struct()`:
 
 This record's fields as a dict of plain Python data: a nested record a dict, an enum its string, a sequence a list.
 
@@ -9047,7 +9047,7 @@ the frame is delivered, and only that one fact of it is missing.
 <a id="AppliedAutoGain"></a>
 ## `lumascope.AppliedAutoGain`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`CameraAPI.applied_auto_gain_for`](#CameraAPI.applied_auto_gain_for).
 
 What a stored auto-gain preference becomes on the attached camera (`applied_auto_gain_for`).
@@ -9061,7 +9061,7 @@ What a stored auto-gain preference becomes on the attached camera (`applied_auto
 <a id="AppliedExposure"></a>
 ## `lumascope.AppliedExposure`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`CameraAPI.applied_exposure_ms_for`](#CameraAPI.applied_exposure_ms_for).
 
 What a stored exposure becomes on the attached camera, in ms (`applied_exposure_ms_for`).
@@ -9075,7 +9075,7 @@ What a stored exposure becomes on the attached camera, in ms (`applied_exposure_
 <a id="AppliedGain"></a>
 ## `lumascope.AppliedGain`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`CameraAPI.applied_gain_db_for`](#CameraAPI.applied_gain_db_for).
 
 What a stored gain becomes on the attached camera, in dB (`applied_gain_db_for`).
@@ -9089,7 +9089,7 @@ What a stored gain becomes on the attached camera, in dB (`applied_gain_db_for`)
 <a id="AutoGainLock"></a>
 ## `lumascope.AutoGainLock`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`CameraAPI.lock_auto_gain`](#CameraAPI.lock_auto_gain), [`ScopeSession.channel_auto_gain_lock`](#ScopeSession.channel_auto_gain_lock).
 
 The result of locking an auto-gain arm.
@@ -9106,7 +9106,7 @@ The result of locking an auto-gain arm.
 <a id="AutoGainSettings"></a>
 ## `lumascope.AutoGainSettings`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`AutoGainLock.settings`](#AutoGainLock.settings).  
 Taken by: [`CameraAPI.apply`](#CameraAPI.apply), [`CameraAPI.set_auto_gain`](#CameraAPI.set_auto_gain).
 
@@ -9127,7 +9127,7 @@ is a time above 0, None for no bound.
 <a id="AxisLimits"></a>
 ## `lumascope.AxisLimits`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`MotionAPI.axis_limits`](#MotionAPI.axis_limits).
 
 An axis's travel, in um: a move outside it is refused.
@@ -9140,7 +9140,7 @@ An axis's travel, in um: a move outside it is refused.
 <a id="AxisPosition"></a>
 ## `lumascope.AxisPosition`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`MotionAPI.axis_positions`](#MotionAPI.axis_positions).  
 Held in: [`PositionChanged.at`](#PositionChanged.at), [`Status.axes`](#Status.axes).  
 Taken by: [`MotionAPI.add_position_listener`](#MotionAPI.add_position_listener), [`MotionAPI.remove_position_listener`](#MotionAPI.remove_position_listener).
@@ -9157,7 +9157,7 @@ The turret has a slot, not a position: `TurretStatus`.
 <a id="BringUpRecord"></a>
 ## `lumascope.BringUpRecord`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ScopeSession.bring_up_record`](#ScopeSession.bring_up_record).
 
 What bring-up found, substituted and set aside.
@@ -9183,7 +9183,7 @@ The parts this scope should have and lacks.
 <a id="BuildResult"></a>
 ## `lumascope.BuildResult`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`BuildStep.result`](#BuildStep.result).
 
 What a stitch, z-projection, composite or video build made.
@@ -9199,7 +9199,7 @@ What a stitch, z-projection, composite or video build made.
 <a id="BuildStep"></a>
 ## `lumascope.BuildStep`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`BuildsResult.built`](#BuildsResult.built).
 
 One build `build` ran, and what it made.
@@ -9212,7 +9212,7 @@ One build `build` ran, and what it made.
 <a id="BuildsResult"></a>
 ## `lumascope.BuildsResult`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`PostProcessingAPI.build`](#PostProcessingAPI.build), [`PostProcessingAPI.start_build`](#PostProcessingAPI.start_build).
 
 What `build` made.
@@ -9226,7 +9226,7 @@ What `build` made.
 <a id="CameraLimits"></a>
 ## `lumascope.CameraLimits`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`ScopeCapabilities.camera_limits`](#ScopeCapabilities.camera_limits).
 
 The frames the attached camera takes, read once at connect.
@@ -9243,7 +9243,7 @@ is None, and that end is not held.
 <a id="CameraLink"></a>
 ## `lumascope.CameraLink`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`DiagnosticsAPI.read_camera_link`](#DiagnosticsAPI.read_camera_link).
 
 The camera's link to the host, read live; each field None where the
@@ -9260,7 +9260,7 @@ camera does not report it.
 <a id="CameraSettingLimits"></a>
 ## `lumascope.CameraSettingLimits`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`CameraAPI.setting_limits`](#CameraAPI.setting_limits).
 
 The gain and exposure the attached camera takes now (`CameraAPI.setting_limits`).
@@ -9281,7 +9281,7 @@ camera does not declare is None, and that end is not checked.
 <a id="CameraSettingsInEffect"></a>
 ## `lumascope.CameraSettingsInEffect`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`CameraAPI.apply`](#CameraAPI.apply).
 
 The gain and the exposure on the camera after a write (`apply`).
@@ -9297,7 +9297,7 @@ the camera snapped it.
 <a id="CaptureTally"></a>
 ## `lumascope.CaptureTally`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`RunOutcome.captures`](#RunOutcome.captures).
 
 The captures a run was asked for, and what became of each.
@@ -9319,7 +9319,7 @@ by its step, among `saturated` or `dark`.
 <a id="CapturedStill"></a>
 ## `lumascope.CapturedStill`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+In-process only: `image` has no wire form.  
 Returned by: [`ScopeSession.capture_still`](#ScopeSession.capture_still).
 
 One captured still: its pixels and the instrument's record of them, together.
@@ -9354,7 +9354,7 @@ records the same depth (`SavedStill.significant_bits`).
 <a id="CellCountFilters"></a>
 ## `lumascope.CellCountFilters`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`CellCountMethod.filters`](#CellCountMethod.filters).
 
 Which regions a count keeps, each bound checked as the filters are built.
@@ -9375,7 +9375,7 @@ Which regions a count keeps, each bound checked as the filters are built.
 <a id="CellCountImage"></a>
 ## `lumascope.CellCountImage`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+In-process only: `pixels` has no wire form.  
 Taken by: [`PostProcessingAPI.preview_cell_count`](#PostProcessingAPI.preview_cell_count).
 
 An image to count, with what its pixels mean: one value, so the depth
@@ -9390,7 +9390,7 @@ and the channel cannot be dropped from the pixels or mismatched with them.
 <a id="CellCountMethod"></a>
 ## `lumascope.CellCountMethod`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`PostProcessingAPI.default_cell_count_method`](#PostProcessingAPI.default_cell_count_method), [`PostProcessingAPI.load_cell_count_method`](#PostProcessingAPI.load_cell_count_method).  
 Taken by: [`PostProcessingAPI.cell_count_size_scale`](#PostProcessingAPI.cell_count_size_scale), [`PostProcessingAPI.count_cells`](#PostProcessingAPI.count_cells), [`PostProcessingAPI.preview_cell_count`](#PostProcessingAPI.preview_cell_count), [`PostProcessingAPI.save_cell_count_method`](#PostProcessingAPI.save_cell_count_method), [`PostProcessingAPI.start_count_cells`](#PostProcessingAPI.start_count_cells).
 
@@ -9414,7 +9414,7 @@ size filter, so an image that states none is counted in pixels.
 <a id="CellCountPreview"></a>
 ## `lumascope.CellCountPreview`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+In-process only: `image` has no wire form.  
 Returned by: [`PostProcessingAPI.preview_cell_count`](#PostProcessingAPI.preview_cell_count).
 
 One image counted by a method, as a form shows it.
@@ -9427,7 +9427,7 @@ One image counted by a method, as a form shows it.
 <a id="CellCountResult"></a>
 ## `lumascope.CellCountResult`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`PostProcessingAPI.count_cells`](#PostProcessingAPI.count_cells), [`PostProcessingAPI.start_count_cells`](#PostProcessingAPI.start_count_cells).
 
 What a cell count wrote.
@@ -9443,7 +9443,7 @@ What a cell count wrote.
 <a id="CellCountSizeScale"></a>
 ## `lumascope.CellCountSizeScale`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`PostProcessingAPI.cell_count_size_scale`](#PostProcessingAPI.cell_count_size_scale).
 
 The scale an image is counted at, and what its size sliders stand for.
@@ -9457,7 +9457,7 @@ The scale an image is counted at, and what its size sliders stand for.
 <a id="CellCounts"></a>
 ## `lumascope.CellCounts`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`CellCountPreview.counts`](#CellCountPreview.counts).
 
 What a cell count measured in one image: the values of its row in `results.csv`.
@@ -9472,7 +9472,7 @@ What a cell count measured in one image: the values of its row in `results.csv`.
 <a id="Change"></a>
 ## `lumascope.Change`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ImagingAPI.recorded_changes`](#ImagingAPI.recorded_changes).  
 Held in: [`Judgment.change`](#Judgment.change).
 
@@ -9497,7 +9497,7 @@ long after the change its frame came.
 <a id="ChannelIdentity"></a>
 ## `lumascope.ChannelIdentity`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`Lumascope.channel_identity`](#Lumascope.channel_identity).
 
 The resolved per-unit identity snapshot.
@@ -9513,7 +9513,7 @@ The resolved per-unit identity snapshot.
 <a id="ChannelRecord"></a>
 ## `lumascope.ChannelRecord`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`ChannelIdentity.channels`](#ChannelIdentity.channels), [`ScopeModel.channels`](#ScopeModel.channels).
 
 Identity of one channel on one unit.
@@ -9531,7 +9531,7 @@ Identity of one channel on one unit.
 <a id="ChannelSettings"></a>
 ## `lumascope.ChannelSettings`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`Protocol.channel_settings`](#Protocol.channel_settings), [`ScopeSession.channel_settings`](#ScopeSession.channel_settings), [`ScopeSession.set_channel_settings`](#ScopeSession.set_channel_settings).
 
 One channel's settings, each typed: as the session holds them, or as a protocol's Layer Settings row names them.
@@ -9571,7 +9571,7 @@ step cannot supply it, and for every field the row has no column for
 <a id="ChannelSliderMaxima"></a>
 ## `lumascope.ChannelSliderMaxima`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ScopeSession.channel_slider_maxima`](#ScopeSession.channel_slider_maxima).
 
 Where one channel's manual sliders stop: display hints, never a bound.
@@ -9592,7 +9592,7 @@ never by this record.
 <a id="ClockMapping"></a>
 ## `lumascope.ClockMapping`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`FrameRecord.clock_mapping`](#FrameRecord.clock_mapping).
 
 The camera's timestamp clock against the host's steady and wall clocks, measured once.
@@ -9617,7 +9617,7 @@ middle by the steady clock.
 <a id="ControlSession"></a>
 ## `lumascope.ControlSession`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ScopeSession.acting_in_control`](#ScopeSession.acting_in_control), [`ScopeSession.control`](#ScopeSession.control), [`ScopeSession.end_control`](#ScopeSession.end_control), [`ScopeSession.take_back_control`](#ScopeSession.take_back_control).  
 Held in: [`Status.control`](#Status.control).
 
@@ -9636,7 +9636,7 @@ client, a plugin, the GUI -- can act as the holder.
 <a id="ControlsLock"></a>
 ## `lumascope.ControlsLock`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ScopeSession.controls_lock`](#ScopeSession.controls_lock).  
 Held in: [`Status.lock`](#Status.lock).
 
@@ -9698,7 +9698,7 @@ the queue empties.
 <a id="Credit"></a>
 ## `lumascope.Credit`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`Change.credits`](#Change.credits).
 
 One frame counted toward a change, and who counted it.
@@ -9711,7 +9711,7 @@ One frame counted toward a change, and who counted it.
 <a id="DegradedOutput"></a>
 ## `lumascope.DegradedOutput`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`BuildResult.degraded_outputs`](#BuildResult.degraded_outputs).
 
 A file a build made by its fallback algorithm, and why.
@@ -9726,7 +9726,7 @@ A file a build made by its fallback algorithm, and why.
 <a id="DeliveredRate"></a>
 ## `lumascope.DeliveredRate`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ImagingAPI.delivered_rate`](#ImagingAPI.delivered_rate).
 
 What the camera delivered to the host over the last second.
@@ -9743,7 +9743,7 @@ camera not streaming, or no recent window measured.
 <a id="DisconnectFailure"></a>
 ## `lumascope.DisconnectFailure`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`ScopeDisconnectError.failures`](#ScopeDisconnectError.failures).
 
 One step of a board's teardown that did not complete.
@@ -9766,7 +9766,7 @@ raised is two failures.
 <a id="DrawingGpu"></a>
 ## `lumascope.DrawingGpu`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`HostReading.drawing_gpu`](#HostReading.drawing_gpu).  
 Taken by: [`ScopeSession.create`](#ScopeSession.create).
 
@@ -9783,7 +9783,7 @@ no window hands none.
 <a id="EnhanceResult"></a>
 ## `lumascope.EnhanceResult`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`PostProcessingAPI.enhance`](#PostProcessingAPI.enhance), [`PostProcessingAPI.start_enhance`](#PostProcessingAPI.start_enhance).
 
 What a Quick Enhance made.
@@ -9797,7 +9797,7 @@ What a Quick Enhance made.
 <a id="EnhancedFile"></a>
 ## `lumascope.EnhancedFile`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`EnhanceResult.created`](#EnhanceResult.created).
 
 One file Quick Enhance derived: its source, the derived image, and its recipe.
@@ -9811,7 +9811,7 @@ One file Quick Enhance derived: its source, the derived image, and its recipe.
 <a id="ExcludedInput"></a>
 ## `lumascope.ExcludedInput`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`BuildResult.excluded_inputs`](#BuildResult.excluded_inputs), [`PostProcessingFailedError.excluded_inputs`](#PostProcessingFailedError.excluded_inputs).
 
 Files of one kind a post-processing build found in the folder and did not take.
@@ -9827,7 +9827,7 @@ made.
 <a id="FailedCapture"></a>
 ## `lumascope.FailedCapture`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`CaptureTally.failed`](#CaptureTally.failed).
 
 One capture a run was asked for that produced no image.
@@ -9842,7 +9842,7 @@ One capture a run was asked for that produced no image.
 <a id="FieldOfView"></a>
 ## `lumascope.FieldOfView`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`OpticsStatus.field_of_view`](#OpticsStatus.field_of_view).
 
 The area a frame covers on the sample, in micrometers.
@@ -9855,7 +9855,7 @@ The area a frame covers on the sample, in micrometers.
 <a id="FilesWritten"></a>
 ## `lumascope.FilesWritten`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Delivered by: [`RunEvents.files_written`](#RunEvents.files_written).
 
 A `files_written` event, sent once the run's last image write has landed.
@@ -9868,7 +9868,7 @@ A `files_written` event, sent once the run's last image write has landed.
 <a id="FilterBounds"></a>
 ## `lumascope.FilterBounds`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`CellCountFilters.area_um2`](#CellCountFilters.area_um2), [`CellCountFilters.intensity_max_pct`](#CellCountFilters.intensity_max_pct), [`CellCountFilters.intensity_mean_pct`](#CellCountFilters.intensity_mean_pct), [`CellCountFilters.intensity_min_pct`](#CellCountFilters.intensity_min_pct), [`CellCountFilters.perimeter_um`](#CellCountFilters.perimeter_um), [`CellCountFilters.sphericity`](#CellCountFilters.sphericity).
 
 One filter's bounds: a region outside them is not counted.
@@ -9881,7 +9881,7 @@ One filter's bounds: a region outside them is not counted.
 <a id="FocusFailure"></a>
 ## `lumascope.FocusFailure`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`RunOutcome.focus_failures`](#RunOutcome.focus_failures).
 
 One step whose autofocus did not focus; the run went on at its fallback Z.
@@ -9897,7 +9897,7 @@ One step whose autofocus did not focus; the run went on at its fallback Z.
 <a id="Frame"></a>
 ## `lumascope.Frame`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+In-process only: `image` has no wire form.  
 Held in: [`FrameDelivered.frame`](#FrameDelivered.frame).  
 Taken by: [`ImagingAPI.add_frame_listener`](#ImagingAPI.add_frame_listener), [`ImagingAPI.judge_frame`](#ImagingAPI.judge_frame), [`ImagingAPI.remove_frame_listener`](#ImagingAPI.remove_frame_listener), [`LiveProcessingRegistry.register`](#LiveProcessingRegistry.register), [`SimulationAPI.exposed_under`](#SimulationAPI.exposed_under).
 
@@ -9923,7 +9923,7 @@ records are equal only when they are the same delivery (identity).
 <a id="FrameCaptured"></a>
 ## `lumascope.FrameCaptured`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+In-process only: `image` has no wire form.  
 Delivered by: [`RunEvents.frame_captured`](#RunEvents.frame_captured).
 
 A `frame_captured` event, sent for each frame whose write the run's writer has taken.
@@ -9938,7 +9938,7 @@ A `frame_captured` event, sent for each frame whose write the run's writer has t
 <a id="FrameDelivered"></a>
 ## `lumascope.FrameDelivered`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+In-process only: `Frame.image` has no wire form.  
 Delivered by: [`ImagingAPI.add_frame_listener`](#ImagingAPI.add_frame_listener).
 
 A frame the camera delivered.
@@ -9950,7 +9950,7 @@ A frame the camera delivered.
 <a id="FrameRecord"></a>
 ## `lumascope.FrameRecord`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`CapturedStill.record`](#CapturedStill.record), [`SavedStill.record`](#SavedStill.record).
 
 The instrument's own account of one captured frame.
@@ -9988,7 +9988,7 @@ Built only by this module's two entries: `grab_record` for a still,
 <a id="FrameRule"></a>
 ## `lumascope.FrameRule`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`Change.rule`](#Change.rule), [`ScopeCapabilities.frame_rules`](#ScopeCapabilities.frame_rules).
 
 The frames a source's changes wait, and where the count came from.
@@ -10005,7 +10005,7 @@ The frames a source's changes wait, and where the count came from.
 <a id="FrameSize"></a>
 ## `lumascope.FrameSize`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`CameraAPI.frame_at_binning`](#CameraAPI.frame_at_binning), [`CameraAPI.frame_size`](#CameraAPI.frame_size), [`CameraAPI.pixel_alignment`](#CameraAPI.pixel_alignment), [`CameraAPI.read_frame_size`](#CameraAPI.read_frame_size), [`CameraAPI.set_binning`](#CameraAPI.set_binning), [`CameraAPI.set_frame_size`](#CameraAPI.set_frame_size).  
 Held in: [`CameraLimits.frame_max`](#CameraLimits.frame_max), [`CameraLimits.frame_min`](#CameraLimits.frame_min), [`ScopeModel.max_frame`](#ScopeModel.max_frame).
 
@@ -10019,7 +10019,7 @@ A frame's size, in pixels.
 <a id="FrameTime"></a>
 ## `lumascope.FrameTime`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`FrameRecord.captured_at`](#FrameRecord.captured_at).
 
 When a frame was taken, with what that time is.
@@ -10039,7 +10039,7 @@ give a frame its time, and a reader comparing frames must know which.
 <a id="GpuAdapter"></a>
 ## `lumascope.GpuAdapter`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`HostReading.gpus`](#HostReading.gpus).
 
 One of this PC's GPUs, as Windows lists it.
@@ -10053,7 +10053,7 @@ One of this PC's GPUs, as Windows lists it.
 <a id="GraphOptions"></a>
 ## `lumascope.GraphOptions`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`PostProcessingAPI.graph_options`](#PostProcessingAPI.graph_options).
 
 What a graph of a results table can be drawn with.
@@ -10067,7 +10067,7 @@ What a graph of a results table can be drawn with.
 <a id="GraphResult"></a>
 ## `lumascope.GraphResult`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`PostProcessingAPI.graph`](#PostProcessingAPI.graph).
 
 What a graph save wrote.
@@ -10109,7 +10109,7 @@ same claim is a different object.
 <a id="HostReading"></a>
 ## `lumascope.HostReading`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ScopeSession.host_reading`](#ScopeSession.host_reading).  
 Held in: [`Status.host_reading`](#Status.host_reading).
 
@@ -10134,7 +10134,7 @@ home.
 <a id="ImageStatistics"></a>
 ## `lumascope.ImageStatistics`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`SavedStill.statistics`](#SavedStill.statistics).
 
 What an image's pixel values are, in its own counts.
@@ -10157,7 +10157,7 @@ against the frame's full scale by the capture.
 <a id="InjectedFault"></a>
 ## `lumascope.InjectedFault`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`SimulationAPI.injected`](#SimulationAPI.injected).
 
 One fault injected on a simulated scope, as it was asked for.
@@ -10170,7 +10170,7 @@ One fault injected on a simulated scope, as it was asked for.
 <a id="Judgment"></a>
 ## `lumascope.Judgment`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ImagingAPI.judge_frame`](#ImagingAPI.judge_frame).  
 Held in: [`FrameRecord.judgments`](#FrameRecord.judgments).
 
@@ -10188,7 +10188,7 @@ Whether one frame counts for one change, and the facts that decided it.
 <a id="Labware"></a>
 ## `lumascope.Labware`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`Lumascope.all_labware`](#Lumascope.all_labware), [`Lumascope.labware`](#Lumascope.labware).
 
 One multi-well plate of the installation's catalog, read once at bring-up.
@@ -10282,7 +10282,7 @@ spacing on each axis, so each well fills its place in the grid.
 <a id="LedBoardInfo"></a>
 ## `lumascope.LedBoardInfo`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`DiagnosticsAPI.led_info`](#DiagnosticsAPI.led_info).
 
 The LED board's firmware, as it reported it at connect.
@@ -10300,7 +10300,7 @@ peripheral).
 <a id="LedReading"></a>
 ## `lumascope.LedReading`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`IlluminationAPI.led_states`](#IlluminationAPI.led_states).  
 Taken by: [`IlluminationAPI.restore_led_state`](#IlluminationAPI.restore_led_state).  
 Delivered by: [`IlluminationAPI.add_led_listener`](#IlluminationAPI.add_led_listener).
@@ -10319,7 +10319,7 @@ The answer of every LED read and the `led` event.
 <a id="LeftOutImage"></a>
 ## `lumascope.LeftOutImage`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`CellCountResult.left_out`](#CellCountResult.left_out).
 
 An image in a counted folder the count left out, and why.
@@ -10332,7 +10332,7 @@ An image in a counted folder the count left out, and why.
 <a id="LiveFolderEntry"></a>
 ## `lumascope.LiveFolderEntry`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ScopeSession.live_folder_listing`](#ScopeSession.live_folder_listing).
 
 One file or folder in a live-folder listing.
@@ -10398,7 +10398,7 @@ Add a listener on every frame the camera delivers.
 <a id="LiveWork"></a>
 ## `lumascope.LiveWork`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ScopeSession.live_work`](#ScopeSession.live_work).  
 Held in: [`Status.live_work`](#Status.live_work).
 
@@ -10416,7 +10416,7 @@ slightly different moments; the close waits until a read finds none.
 <a id="MissingPart"></a>
 ## `lumascope.MissingPart`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`HardwareCommandRefusedError.missing`](#HardwareCommandRefusedError.missing), [`ProtocolRunRefusedError.missing`](#ProtocolRunRefusedError.missing).
 
 The part a refused command needed that the scope does not have.
@@ -10444,7 +10444,7 @@ address its `address`; every other part carries none.
 <a id="MotorBoardInfo"></a>
 ## `lumascope.MotorBoardInfo`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`DiagnosticsAPI.motor_info`](#DiagnosticsAPI.motor_info).
 
 The motor board's identity, as it reported it at connect.
@@ -10463,7 +10463,7 @@ answer, or a reply that could not be read.
 <a id="NamespaceHealth"></a>
 ## `lumascope.NamespaceHealth`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`PluginHealth.namespaces`](#PluginHealth.namespaces).
 
 Per-namespace snapshot for tech-support + diagnostic probes.
@@ -10477,7 +10477,7 @@ Per-namespace snapshot for tech-support + diagnostic probes.
 <a id="Notification"></a>
 ## `lumascope.Notification`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Taken by: [`ScopeSession.add_outcome_listener`](#ScopeSession.add_outcome_listener), [`ScopeSession.create`](#ScopeSession.create), [`ScopeSession.remove_outcome_listener`](#ScopeSession.remove_outcome_listener).  
 Delivered by: [`ScopeSession.add_outcome_listener`](#ScopeSession.add_outcome_listener).
 
@@ -10510,7 +10510,7 @@ them all.
 <a id="Objective"></a>
 ## `lumascope.Objective`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`Lumascope.all_objectives`](#Lumascope.all_objectives), [`Lumascope.objective`](#Lumascope.objective).
 
 One objective of the installation's catalog, read once at bring-up.
@@ -10538,7 +10538,7 @@ One objective of the installation's catalog, read once at bring-up.
 <a id="ObjectiveQuestion"></a>
 ## `lumascope.ObjectiveQuestion`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ScopeSession.current_slot_objective_question`](#ScopeSession.current_slot_objective_question), [`ScopeSession.objective_question`](#ScopeSession.objective_question).
 
 Which objective is in the light path; what to ask the user.
@@ -10703,7 +10703,7 @@ still): a stop that arrives late never touches another operation.
 <a id="OpticsStatus"></a>
 ## `lumascope.OpticsStatus`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`RuntimeState.optics_status`](#RuntimeState.optics_status).
 
 The objective in the light path and the area the camera's frame covers, each its value or why it is unknown.
@@ -10721,7 +10721,7 @@ both be held.
 <a id="Outcome"></a>
 ## `lumascope.Outcome`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`outcome_of`](#outcome_of).
 
 What an exception's type says it is, read once for every host that answers it.
@@ -10741,7 +10741,7 @@ What an exception's type says it is, read once for every host that answers it.
 <a id="PartStatus"></a>
 ## `lumascope.PartStatus`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`BringUpRecord.missing`](#BringUpRecord.missing).  
 Held in: [`BringUpRecord.parts`](#BringUpRecord.parts).
 
@@ -10759,7 +10759,7 @@ One part of the scope at bring-up.
 <a id="PlateLocation"></a>
 ## `lumascope.PlateLocation`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`MotionAPI.move_to_plate_nearest`](#MotionAPI.move_to_plate_nearest), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`RuntimeState.frame_point_plate`](#RuntimeState.frame_point_plate), [`RuntimeState.stage_to_plate`](#RuntimeState.stage_to_plate), [`ScopeSession.bookmark`](#ScopeSession.bookmark), [`ScopeSession.plate_position`](#ScopeSession.plate_position), [`ScopeSession.save_bookmark`](#ScopeSession.save_bookmark).  
 Taken by: [`MotionAPI.move_to_plate`](#MotionAPI.move_to_plate), [`MotionAPI.move_to_plate_nearest`](#MotionAPI.move_to_plate_nearest), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`ProtocolRunner.run_single_scan`](#ProtocolRunner.run_single_scan), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ScopeSession.add_step`](#ScopeSession.add_step).
 
@@ -10777,7 +10777,7 @@ a move to the plate state, so what one answers another takes.
 <a id="PluginHealth"></a>
 ## `lumascope.PluginHealth`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ScopeSession.plugin_health`](#ScopeSession.plugin_health).
 
 Every namespace's health and the plugins that did not load, for tech-support reports.
@@ -10790,7 +10790,7 @@ Every namespace's health and the plugins that did not load, for tech-support rep
 <a id="PluginNotLoaded"></a>
 ## `lumascope.PluginNotLoaded`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`PluginHealth.not_loaded`](#PluginHealth.not_loaded).
 
 A plugin that did not load, and why.
@@ -10835,7 +10835,7 @@ Lifecycle:
 <a id="PluginRuntimeFailure"></a>
 ## `lumascope.PluginRuntimeFailure`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`NamespaceHealth.runtime_failures`](#NamespaceHealth.runtime_failures).
 
 The record of a plugin handler's failure, raised or returned; a record, never raised.
@@ -10857,7 +10857,7 @@ attribute fault to the right plugin.
 <a id="PluginSpec"></a>
 ## `lumascope.PluginSpec`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Taken by: [`LiveProcessingRegistry.register`](#LiveProcessingRegistry.register), [`PostProcessingRegistry.register`](#PostProcessingRegistry.register), [`UIRegistry.register`](#UIRegistry.register).
 
 Declarative metadata a plugin presents at registration time.
@@ -10876,7 +10876,7 @@ Declarative metadata a plugin presents at registration time.
 <a id="PluginStatus"></a>
 ## `lumascope.PluginStatus`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`NamespaceHealth.loaded`](#NamespaceHealth.loaded).
 
 A loaded plugin, for health reports.
@@ -10890,7 +10890,7 @@ A loaded plugin, for health reports.
 <a id="PositionChanged"></a>
 ## `lumascope.PositionChanged`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Delivered by: [`MotionAPI.add_position_listener`](#MotionAPI.add_position_listener).
 
 A position event: a stage axis, and its state and position as `axis_positions` answers.
@@ -10978,7 +10978,7 @@ Register a processor of saved files.
 <a id="ProcessorResult"></a>
 ## `lumascope.ProcessorResult`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`PostProcessingRegistry.get`](#PostProcessingRegistry.get).  
 Taken by: [`PostProcessingRegistry.register`](#PostProcessingRegistry.register).
 
@@ -10996,7 +10996,7 @@ a failure to the person with its message.
 <a id="ProgramCpu"></a>
 ## `lumascope.ProgramCpu`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`HostReading.programs`](#HostReading.programs).
 
 Another program's share of the CPU over the startup.
@@ -11841,7 +11841,7 @@ The run's operation, to wait on or to ignore; its result() is the run's outcome.
 <a id="ProtocolSizeAdvisory"></a>
 ## `lumascope.ProtocolSizeAdvisory`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ScopeSession.protocol_size_advisory`](#ScopeSession.protocol_size_advisory).
 
 A protocol big enough that the user should be told before running it.
@@ -11860,7 +11860,7 @@ have to parse it back out.
 <a id="RecordingFinished"></a>
 ## `lumascope.RecordingFinished`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ManualRecordingController.start`](#ManualRecordingController.start).
 
 What a manual recording's operation answers once it is done.
@@ -11874,7 +11874,7 @@ What a manual recording's operation answers once it is done.
 <a id="Remedy"></a>
 ## `lumascope.Remedy`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`Notification.remedy`](#Notification.remedy), [`Outcome.remedy`](#Outcome.remedy), [`PartStatus.remedy`](#PartStatus.remedy).
 
 The one action that answers a refusal, offered to whoever was refused.
@@ -11895,7 +11895,7 @@ place.
 <a id="RunEnded"></a>
 ## `lumascope.RunEnded`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Delivered by: [`RunEvents.run_ended`](#RunEvents.run_ended).
 
 A `run_ended` event, sent once the run has let go of the scope and its outcome has settled.
@@ -11909,7 +11909,7 @@ A `run_ended` event, sent once the run has let go of the scope and its outcome h
 <a id="RunEvents"></a>
 ## `lumascope.RunEvents`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+In-process only: `files_written`, `frame_captured`, `run_ended`, `scan_ended`, `scan_started`, `step_started`, `video_progress` have no wire form.  
 Taken by: [`ManualCaptureController.start_save_still`](#ManualCaptureController.start_save_still), [`ProtocolRunner.run_autofocus`](#ProtocolRunner.run_autofocus), [`ProtocolRunner.run_autofocus_all_steps`](#ProtocolRunner.run_autofocus_all_steps), [`ProtocolRunner.run_composite`](#ProtocolRunner.run_composite), [`ProtocolRunner.run_protocol`](#ProtocolRunner.run_protocol), [`ProtocolRunner.run_single_scan`](#ProtocolRunner.run_single_scan), [`ProtocolRunner.run_zstack`](#ProtocolRunner.run_zstack), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack).
 
 The handlers a run calls as it goes, each optional; a misspelt one fails here.
@@ -11944,7 +11944,7 @@ event elsewhere builds the record from them.
 <a id="RunFiles"></a>
 ## `lumascope.RunFiles`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`Operation.files`](#Operation.files).
 
 What became of one run's images, once its writes are done.
@@ -11961,7 +11961,7 @@ The run's batch's own account, read when it completed.
 <a id="RunOutcome"></a>
 ## `lumascope.RunOutcome`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ProtocolRunner.run_autofocus`](#ProtocolRunner.run_autofocus), [`ProtocolRunner.run_autofocus_all_steps`](#ProtocolRunner.run_autofocus_all_steps), [`ProtocolRunner.run_composite`](#ProtocolRunner.run_composite), [`ProtocolRunner.run_protocol`](#ProtocolRunner.run_protocol), [`ProtocolRunner.run_single_scan`](#ProtocolRunner.run_single_scan), [`ProtocolRunner.run_zstack`](#ProtocolRunner.run_zstack), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run).  
 Held in: [`RunEnded.outcome`](#RunEnded.outcome), [`RunEvents.run_ended`](#RunEvents.run_ended).
 
@@ -12003,7 +12003,7 @@ shape for every run kind.
 <a id="RunProgress"></a>
 ## `lumascope.RunProgress`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`Operation.progress`](#Operation.progress).
 
 Where one run has got, read in one hold of the run lock: every field is that run's.
@@ -12024,7 +12024,7 @@ Where one run has got, read in one hold of the run lock: every field is that run
 <a id="SavedStill"></a>
 ## `lumascope.SavedStill`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ManualCaptureController.start_save_still`](#ManualCaptureController.start_save_still).
 
 One file a still wrote, with the instrument's record of it.
@@ -12050,7 +12050,7 @@ place a JPG's channel, position and frame are stated.
 <a id="ScanEnded"></a>
 ## `lumascope.ScanEnded`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Delivered by: [`RunEvents.scan_ended`](#RunEvents.scan_ended).
 
 A `scan_ended` event, sent as a scan ends, a stopped one included.
@@ -12064,7 +12064,7 @@ A `scan_ended` event, sent as a scan ends, a stopped one included.
 <a id="ScanStarted"></a>
 ## `lumascope.ScanStarted`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Delivered by: [`RunEvents.scan_started`](#RunEvents.scan_started).
 
 A `scan_started` event, sent as a scan begins.
@@ -12078,7 +12078,7 @@ A `scan_started` event, sent as a scan begins.
 <a id="ScopeCapabilities"></a>
 ## `lumascope.ScopeCapabilities`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`Lumascope.capabilities`](#Lumascope.capabilities).
 
 What a scope has, read once when it is built; immutable.
@@ -12125,7 +12125,7 @@ tuple.
 <a id="ScopeModel"></a>
 ## `lumascope.ScopeModel`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`Lumascope.all_scope_models`](#Lumascope.all_scope_models).
 
 One model of the installation's catalog (`scopes.json`'s `Models`), read once at bring-up.
@@ -12145,7 +12145,7 @@ One model of the installation's catalog (`scopes.json`'s `Models`), read once at
 <a id="SensorExposure"></a>
 ## `lumascope.SensorExposure`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`SimulationAPI.exposed_under`](#SimulationAPI.exposed_under).
 
 What one simulated frame was exposed under: the settings the sensor
@@ -12177,7 +12177,7 @@ gain its pixels were made at.
 <a id="SettingsChanged"></a>
 ## `lumascope.SettingsChanged`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Delivered by: [`ScopeSession.add_settings_listener`](#ScopeSession.add_settings_listener).
 
 Settings one write stored, told once the write has let go of the store.
@@ -12189,7 +12189,7 @@ Settings one write stored, told once the write has let go of the store.
 <a id="SettingsSetAside"></a>
 ## `lumascope.SettingsSetAside`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`BringUpRecord.settings_set_aside`](#BringUpRecord.settings_set_aside).
 
 The user's settings file that could not be used, and why.
@@ -12205,7 +12205,7 @@ save over the file until the person decides what happens to it.
 <a id="ShownChannel"></a>
 ## `lumascope.ShownChannel`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ScopeSession.light_shown_channel`](#ScopeSession.light_shown_channel), [`ScopeSession.show_channel`](#ScopeSession.show_channel), [`ScopeSession.shown_channel`](#ScopeSession.shown_channel).  
 Delivered by: [`ScopeSession.add_shown_channel_listener`](#ScopeSession.add_shown_channel_listener).
 
@@ -12220,7 +12220,7 @@ the camera, and whether its LED is lit with every other one dark.
 <a id="SimulatedCameraReadRefusal"></a>
 ## `lumascope.SimulatedCameraReadRefusal`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`SimulatedScope.refused_camera_reads`](#SimulatedScope.refused_camera_reads).
 
 Camera reads of one setting that a simulated camera fails (`refuse_camera_read`).
@@ -12234,7 +12234,7 @@ Camera reads of one setting that a simulated camera fails (`refuse_camera_read`)
 <a id="SimulatedCameraWriteRefusal"></a>
 ## `lumascope.SimulatedCameraWriteRefusal`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`SimulatedScope.refused_camera_writes`](#SimulatedScope.refused_camera_writes).
 
 Camera writes of one setting that a simulated camera refuses (`refuse_camera_write`).
@@ -12248,7 +12248,7 @@ Camera writes of one setting that a simulated camera refuses (`refuse_camera_wri
 <a id="SimulatedModelAnswer"></a>
 ## `lumascope.SimulatedModelAnswer`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`SimulatedScope.model_answer`](#SimulatedScope.model_answer).
 
 The model a simulated motor board names as its own (`answer_model`).
@@ -12263,7 +12263,7 @@ is an answer a caller can ask for.
 <a id="SimulatedScope"></a>
 ## `lumascope.SimulatedScope`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Taken by: [`ScopeSession.create`](#ScopeSession.create).
 
 The scope a simulated session is built as, and what it shows from bring-up on.
@@ -12297,7 +12297,7 @@ is the declared scope with no fault. A fault is refused where the
 <a id="SimulatedStall"></a>
 ## `lumascope.SimulatedStall`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`SimulatedScope.camera_stall`](#SimulatedScope.camera_stall), [`SimulatedScope.file_stall`](#SimulatedScope.file_stall).
 
 When a simulated camera's stream stalls, and for how long.
@@ -12319,7 +12319,7 @@ launch argument, a test), so a stall that cannot happen is refused there.
 <a id="SimulatedUsbBinding"></a>
 ## `lumascope.SimulatedUsbBinding`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`SimulatedScope.camera_usb_bindings`](#SimulatedScope.camera_usb_bindings).
 
 The driver Windows binds a USB identity of the simulated FX2 to (`bind_camera_usb_driver`).
@@ -12333,7 +12333,7 @@ The driver Windows binds a USB identity of the simulated FX2 to (`bind_camera_us
 <a id="SizeSliderStops"></a>
 ## `lumascope.SizeSliderStops`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`CellCountSizeScale.area`](#CellCountSizeScale.area), [`CellCountSizeScale.perimeter`](#CellCountSizeScale.perimeter).
 
 What a size slider's positions stand for: between two stops, a size in proportion.
@@ -12393,7 +12393,7 @@ The sizes a slider's two positions stand for.
 <a id="SkippedBuild"></a>
 ## `lumascope.SkippedBuild`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`BuildsResult.skipped`](#BuildsResult.skipped).
 
 A build `build` was asked for that had nothing to do in the folder.
@@ -12406,7 +12406,7 @@ A build `build` was asked for that had nothing to do in the folder.
 <a id="SlowCameraStop"></a>
 ## `lumascope.SlowCameraStop`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`Status.slow_camera_stop`](#Status.slow_camera_stop).
 
 The camera's slowest stop this session, told because it outlasted every exposure the camera takes.
@@ -12423,7 +12423,7 @@ exposure by 5 s.
 <a id="StageDistance"></a>
 ## `lumascope.StageDistance`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`RuntimeState.frame_point_distance`](#RuntimeState.frame_point_distance).
 
 A distance the stage moves on X and Y, in micrometers.
@@ -12436,7 +12436,7 @@ A distance the stage moves on X and Y, in micrometers.
 <a id="StageOffset"></a>
 ## `lumascope.StageOffset`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`RuntimeState.stage_offset`](#RuntimeState.stage_offset).  
 Taken by: [`RuntimeState.plate_to_stage`](#RuntimeState.plate_to_stage), [`RuntimeState.stage_to_plate`](#RuntimeState.stage_to_plate).
 
@@ -12450,7 +12450,7 @@ Where the plate is mounted on the stage, in um: the offset the two conversions a
 <a id="StagePosition"></a>
 ## `lumascope.StagePosition`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`RuntimeState.plate_to_stage`](#RuntimeState.plate_to_stage).
 
 A stage X/Y position, in um.
@@ -12463,7 +12463,7 @@ A stage X/Y position, in um.
 <a id="Status"></a>
 ## `lumascope.Status`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ScopeSession.status`](#ScopeSession.status).  
 Delivered by: [`ScopeSession.add_status_listener`](#ScopeSession.add_status_listener).
 
@@ -12490,7 +12490,7 @@ axis can read HOMING in `axes` a moment before the home appears in
 <a id="StepFrames"></a>
 ## `lumascope.StepFrames`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`CaptureTally.dark`](#CaptureTally.dark), [`CaptureTally.saturated`](#CaptureTally.saturated).
 
 One step's captures of one kind in a run: its blown frames, or its dark ones.
@@ -12505,7 +12505,7 @@ One step's captures of one kind in a run: its blown frames, or its dark ones.
 <a id="StepRecord"></a>
 ## `lumascope.StepRecord`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`Protocol.step_records`](#Protocol.step_records).
 
 One step of a protocol, a field per column of its steps table.
@@ -12542,7 +12542,7 @@ One step of a protocol, a field per column of its steps table.
 <a id="StepStarted"></a>
 ## `lumascope.StepStarted`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Delivered by: [`RunEvents.step_started`](#RunEvents.step_started).
 
 A `step_started` event, sent as each step begins, step 0 included.
@@ -12554,7 +12554,7 @@ A `step_started` event, sent as each step begins, step 0 included.
 <a id="Stitch"></a>
 ## `lumascope.Stitch`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Taken by: [`PostProcessingAPI.build`](#PostProcessingAPI.build), [`PostProcessingAPI.start_build`](#PostProcessingAPI.start_build).
 
 A stitch, as `build` takes it: each tiled scan to one mosaic.
@@ -12566,7 +12566,7 @@ A stitch, as `build` takes it: each tiled scan to one mosaic.
 <a id="Substitution"></a>
 ## `lumascope.Substitution`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`BringUpRecord.substitutions`](#BringUpRecord.substitutions).
 
 A saved setting the camera could not take, and what bring-up used instead.
@@ -12586,7 +12586,7 @@ refitted as the API fits one; the saved image mode stays saved.
 <a id="SumProgress"></a>
 ## `lumascope.SumProgress`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Taken by: [`ScopeSession.capture_still`](#ScopeSession.capture_still).
 
 How far a sum has got: handed to `sum_iteration_callback` after each frame it keeps.
@@ -12599,7 +12599,7 @@ How far a sum has got: handed to `sum_iteration_callback` after each frame it ke
 <a id="SupportReportSaved"></a>
 ## `lumascope.SupportReportSaved`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ScopeSession.make_logs_zip`](#ScopeSession.make_logs_zip), [`ScopeSession.make_support_report`](#ScopeSession.make_support_report), [`ScopeSession.start_make_logs_zip`](#ScopeSession.start_make_logs_zip), [`ScopeSession.start_make_support_report`](#ScopeSession.start_make_support_report).
 
 A support report or logs zip that was saved, and the words that say where.
@@ -12636,7 +12636,7 @@ The title the saved report's notice is shown under.
 <a id="TilingConfig"></a>
 ## `lumascope.TilingConfig`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ScopeSession.tiling_config`](#ScopeSession.tiling_config).
 
 The tiling grids an installation offers.
@@ -12649,7 +12649,7 @@ The tiling grids an installation offers.
 <a id="TurretChanged"></a>
 ## `lumascope.TurretChanged`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Delivered by: [`MotionAPI.add_turret_listener`](#MotionAPI.add_turret_listener).
 
 A turret event: its state and slot as `turret_status` answers.
@@ -12661,7 +12661,7 @@ A turret event: its state and slot as `turret_status` answers.
 <a id="TurretSlotQuestion"></a>
 ## `lumascope.TurretSlotQuestion`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ScopeSession.turret_slot_questions`](#ScopeSession.turret_slot_questions).
 
 Which turret slot some steps of a protocol mean: what to ask the person.
@@ -12684,7 +12684,7 @@ to one of these steps are refused.
 <a id="TurretStatus"></a>
 ## `lumascope.TurretStatus`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`MotionAPI.turret_status`](#MotionAPI.turret_status).  
 Held in: [`Status.turret`](#Status.turret), [`TurretChanged.at`](#TurretChanged.at).  
 Taken by: [`MotionAPI.add_turret_listener`](#MotionAPI.add_turret_listener), [`MotionAPI.remove_turret_listener`](#MotionAPI.remove_turret_listener).
@@ -12736,7 +12736,7 @@ Add a widget at a mount point.
 <a id="UiDispatcher"></a>
 ## `lumascope.UiDispatcher`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+In-process only: `schedule`, `thread` have no wire form.  
 Taken by: [`ScopeSession.set_ui_dispatcher`](#ScopeSession.set_ui_dispatcher).
 
 How the GUI delivers a callback, and the thread it delivers on.
@@ -12753,7 +12753,7 @@ do would never return, and a run's waits refuse it.
 <a id="UnfitArgument"></a>
 ## `lumascope.UnfitArgument`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`ServerRefusedError.errors`](#ServerRefusedError.errors).
 
 One argument of a request that does not fit its member, as the request reader found it.
@@ -12767,7 +12767,7 @@ One argument of a request that does not fit its member, as the request reader fo
 <a id="UsbBoundDriver"></a>
 ## `lumascope.UsbBoundDriver`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`UsbCensusDevice.driver`](#UsbCensusDevice.driver).
 
 The driver Windows has bound to a USB device, and whether it started it.
@@ -12789,7 +12789,7 @@ The driver Windows has bound to a USB device, and whether it started it.
 <a id="UsbBusCensus"></a>
 ## `lumascope.UsbBusCensus`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`DiagnosticsAPI.read_usb_census`](#DiagnosticsAPI.read_usb_census).
 
 What is on the USB bus of each vendor a Lumascope is built from.
@@ -12803,7 +12803,7 @@ What is on the USB bus of each vendor a Lumascope is built from.
 <a id="UsbCensusDevice"></a>
 ## `lumascope.UsbCensusDevice`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`UsbBusCensus.devices`](#UsbBusCensus.devices).
 
 One device on the USB bus, each layer the host could read.
@@ -12824,7 +12824,7 @@ One device on the USB bus, each layer the host could read.
 <a id="UsbDeviceBinding"></a>
 ## `lumascope.UsbDeviceBinding`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`UsbIdentityBindings.devices`](#UsbIdentityBindings.devices).
 
 One device of a USB identity and the driver Windows has bound to it.
@@ -12849,7 +12849,7 @@ One device of a USB identity and the driver Windows has bound to it.
 <a id="UsbIdentityBindings"></a>
 ## `lumascope.UsbIdentityBindings`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Returned by: [`ScopeSession.apply_remedy`](#ScopeSession.apply_remedy).
 
 A USB identity of a Lumascope Classic and each of its devices' drivers.
@@ -12864,7 +12864,7 @@ A USB identity of a Lumascope Classic and each of its devices' drivers.
 <a id="Video"></a>
 ## `lumascope.Video`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Taken by: [`PostProcessingAPI.build`](#PostProcessingAPI.build), [`PostProcessingAPI.start_build`](#PostProcessingAPI.start_build).
 
 A video, as `build` takes it: each position's time series to one video.
@@ -12877,7 +12877,7 @@ A video, as `build` takes it: each position's time series to one video.
 <a id="VideoConfig"></a>
 ## `lumascope.VideoConfig`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`StepRecord.video_config`](#StepRecord.video_config).
 
 What a video step records.
@@ -12892,7 +12892,7 @@ delivers, or samples down to the one global limit (`video.max_fps`).
 <a id="VideoProgress"></a>
 ## `lumascope.VideoProgress`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`RunEvents.video_progress`](#RunEvents.video_progress).  
 Delivered by: [`RunEvents.video_progress`](#RunEvents.video_progress).
 
@@ -12910,7 +12910,7 @@ A step that ends before it records sends no phase and no `ENDED`.
 <a id="WorkItem"></a>
 ## `lumascope.WorkItem`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Held in: [`LiveWork.work`](#LiveWork.work).
 
 One piece of work the session is still doing.
@@ -12929,7 +12929,7 @@ One piece of work the session is still doing.
 <a id="ZProject"></a>
 ## `lumascope.ZProject`
 
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+A record ([`to_dict()`](#to_dict)).  
 Taken by: [`PostProcessingAPI.build`](#PostProcessingAPI.build), [`PostProcessingAPI.start_build`](#PostProcessingAPI.start_build).
 
 A z-projection, as `build` takes it: each Z-stack to one image.
