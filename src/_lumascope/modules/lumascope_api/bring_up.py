@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from _lumascope.lvp_logger import logger
 from _lumascope.modules.api_surface import ProgressCallback, api, api_fields
+from _lumascope.modules.exceptions import Remedy
 from _lumascope.modules.scope_parts import Board
 
 if TYPE_CHECKING:
@@ -89,7 +90,7 @@ class PartReason(enum.StrEnum):
 REASON_PHRASES: dict[str, str] = {reason: reason._phrase for reason in PartReason}
 
 
-@api_fields('detail', 'expected', 'part', 'reason', 'up')
+@api_fields('detail', 'expected', 'part', 'reason', 'remedy', 'up')
 @dataclass(frozen=True)
 class PartStatus:
     """One part of the scope at bring-up.
@@ -111,6 +112,11 @@ class PartStatus:
         detail: The driver's or the error's own words, for the log and the
             record, each problem's joined with "; "; empty when there are
             none.
+        remedy: The action LumaViewPro can take for the part, the one the
+            notice of its reason offered, taken through
+            ``ScopeSession.apply_remedy`` by its ``member``: Repair for a
+            camera on ``camera_driver_unusable`` where this installation can
+            run it. None when there is none.
     """
 
     part: Board
@@ -118,6 +124,7 @@ class PartStatus:
     expected: bool = True
     reason: PartReason | None = None
     detail: str = ''
+    remedy: Remedy | None = None
 
     @property
     def missing(self) -> bool:

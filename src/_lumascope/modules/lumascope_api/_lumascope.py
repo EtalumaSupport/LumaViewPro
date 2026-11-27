@@ -1467,11 +1467,17 @@ class Lumascope:
         # the LED board's and the no-hardware notice each read it.
         self._declined_fx2 = _the_declined_fx2_that_could_be_this_scope(camera_up, led_fallback)
         if not camera_up:
+            cause = _camera_failure_cause(self._camera_failure, self._declined_fx2 is not None)
             parts[Board.CAMERA] = PartStatus(
                 Board.CAMERA,
                 up=False,
-                reason=_camera_failure_cause(self._camera_failure, self._declined_fx2 is not None),
+                reason=cause,
                 detail=f'{type(self._camera_failure).__name__}: {self._camera_failure}',
+                remedy=(
+                    CameraNotAvailableError.repair()
+                    if cause == 'camera_driver_unusable' and repair_refusal() is None
+                    else None
+                ),
             )
         if self._declined_fx2 is not None:
             parts[Board.LED] = dataclasses.replace(
@@ -2198,7 +2204,7 @@ class Lumascope:
         else:
             reported = CameraNotAvailableError(
                 camera.reason,
-                repairable=camera.reason == 'camera_driver_unusable' and repair_refusal() is None,
+                repairable=camera.remedy is not None,
                 detail=_camera_detail(camera.reason, failure, self._declined_words()),
             )
             reported.__cause__ = failure

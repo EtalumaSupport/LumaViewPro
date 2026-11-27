@@ -10752,6 +10752,7 @@ One part of the scope at bring-up.
 - <a id="PartStatus.expected"></a>`expected`: `bool` -- Whether this scope's model has one. A manual scope has no motor board, so its absence is not a failure; until the model is known every part is expected.
 - <a id="PartStatus.part"></a>`part`: `Board` -- Which board.
 - <a id="PartStatus.reason"></a>`reason`: `PartReason | None` -- Why it is not up; or, on a part that is up, a problem it met coming up (the LED board's safety LEDs-off not confirmed; the camera's stream that did not start, which a later start that succeeds does not clear, a setting it did not take, or its leaving, the camera keeping the one of these a person acts on first; the motor controller's stored acceleration limit not taken). None when nothing is wrong.
+- <a id="PartStatus.remedy"></a>`remedy`: `Remedy | None` -- The action LumaViewPro can take for the part, the one the notice of its reason offered, taken through `ScopeSession.apply_remedy` by its `member`: Repair for a camera on `camera_driver_unusable` where this installation can run it. None when there is none.
 - <a id="PartStatus.up"></a>`up`: `bool` -- Whether a real driver came up for it.
 
 <a id="PlateLocation"></a>
@@ -11903,7 +11904,7 @@ What a manual recording's operation answers once it is done.
 ## `lumascope.Remedy`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Held in: [`Notification.remedy`](#Notification.remedy), [`Outcome.remedy`](#Outcome.remedy).
+Held in: [`Notification.remedy`](#Notification.remedy), [`Outcome.remedy`](#Outcome.remedy), [`PartStatus.remedy`](#PartStatus.remedy).
 
 The one action that answers a refusal, offered to whoever was refused.
 

@@ -392,6 +392,37 @@ class TestAClassicRefusedItsDriver:
         finally:
             s.shutdown()
 
+    def test_the_record_keeps_the_repair_its_notice_offered(
+        self, monkeypatch, tmp_path, centre_posts
+    ):
+        """A client that reads bring-up late reads the remedy from the
+        camera's part: the Repair the notice offered where this installation
+        can run it, and none where it cannot."""
+        offered = {}
+        for installed_windows in (False, True):
+            if installed_windows:
+                # a stand-in by design: this host is a Mac running from
+                # source; Repair needs Windows and an installed build.
+                monkeypatch.setattr(lumascope_module, 'repair_refusal', lambda: None)
+            centre_posts.clear()
+            s = ScopeSession.create(
+                complete_settings(live_folder=str(tmp_path), microscope='LS620'),
+                simulate=True,
+                simulated=SimulatedScope(
+                    camera_usb_bindings=(SimulatedUsbBinding(FX2_FIRMWARE, 'WinUSB', 31),)
+                ),
+                warn_pre_release=False,
+            )
+            try:
+                kept = _status(s.bring_up_record, Board.CAMERA).remedy
+                (told,) = centre_posts
+                offered[installed_windows] = (kept, told.remedy)
+            finally:
+                s.shutdown()
+
+        assert offered[False] == (None, None)
+        assert offered[True] == (CameraNotAvailableError.repair(),) * 2
+
     def test_a_real_classic_is_told_by_the_camera_alone(self, monkeypatch, tmp_path, centre_posts):
         refused = CameraUsbDriverUnusableError(
             "Lumascope Classic USB\\VID_04B4&PID_EA17\\1 (present): libusbK, not LumaViewPro's",

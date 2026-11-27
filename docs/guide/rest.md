@@ -31,7 +31,9 @@ home, the plugins -- and serves where `rest_api` says (shipped
 `127.0.0.1:8000`, this computer only). It takes the single-instance lock, so
 it will not start while LumaViewPro or another server runs on this computer,
 simulated or not ([One session per scope](concepts.md#one-session-per-scope)). A failed startup home is
-reported and the server still serves, so a client can home again. Ctrl-C or
+reported and the server still serves, so a client can home again. What
+bring-up found -- each part, why one is not up, and the remedy it offers -- is
+`GET /api/v1/bring_up_record`, for a client that connects after it was told. Ctrl-C or
 SIGTERM closes it: new calls are refused (`'session_closing'`), the session
 shuts down with the event stream open, and the stream's last event is
 `closing`. It exits `0`, or `1` when it could not take the lock or serve
