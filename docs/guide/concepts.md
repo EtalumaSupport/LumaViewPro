@@ -188,8 +188,9 @@ except PositionOutOfRangeError as refused:
 | `RefusalCause.REQUEST` | The request cannot succeed as sent: a bad argument, hardware this scope lacks. | No; change the request. |
 | `RefusalCause.RESTART` | Nothing succeeds until the application restarts: a part is disconnected, the session is closing. | No. |
 
-Over REST a fault is `500` and a cause is its status, `409`, `422` or `503`
-([Problems](rest.md#problems)).
+Over REST a problem carries the cause as `cause`, its value (`state`,
+`request`, `restart`), and it decides the status, `409`, `422` or `503`; a
+fault is `500` ([Problems](rest.md#problems)).
 
 ### `Raises:` is the contract
 

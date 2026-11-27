@@ -5,9 +5,10 @@
 or ``about:blank`` for an outcome that declares no reason), ``title``,
 ``detail``, ``status``, ``instance`` (``urn:uuid:<request id>``), and the
 members a client branches on: ``kind`` (``OutcomeKind``'s value),
-``reason`` and ``remedy``. Beside them, a member's outcome carries each
-field its type publishes (``@api_fields``), such as the name of a refused
-argument, so a client corrects its request without reading the words.
+``reason``, ``cause`` (``RefusalCause``'s value) and ``remedy``. Beside
+them, a member's outcome carries each field its type publishes
+(``@api_fields``), such as the name of a refused argument, so a client
+corrects its request without reading the words.
 
 A member's outcome is read as every host reads it
 (``notification_center.outcome_of``), so a wire client is refused in the
@@ -49,7 +50,17 @@ MEDIA_TYPE = 'application/problem+json'
 # reasons a route can answer is the member's, not the route's.
 _SCHEMA = {
     'type': 'object',
-    'required': ['type', 'title', 'detail', 'status', 'instance', 'kind', 'reason', 'remedy'],
+    'required': [
+        'type',
+        'title',
+        'detail',
+        'status',
+        'instance',
+        'kind',
+        'reason',
+        'cause',
+        'remedy',
+    ],
     'properties': {
         'type': {'type': 'string', 'description': 'urn:lumascope:problem:<reason>, or about:blank'},
         'title': {'type': 'string'},
@@ -58,6 +69,11 @@ _SCHEMA = {
         'instance': {'type': 'string', 'description': 'urn:uuid:<request id>'},
         'kind': {'type': 'string', 'enum': [kind.value for kind in OutcomeKind]},
         'reason': {'type': ['string', 'null'], 'description': 'What a client branches on'},
+        'cause': {
+            'type': ['string', 'null'],
+            'enum': [*(cause.value for cause in RefusalCause), None],
+            'description': 'Whether the same request could succeed later; null for a fault',
+        },
         'remedy': {'type': ['object', 'null']},
     },
     'additionalProperties': True,

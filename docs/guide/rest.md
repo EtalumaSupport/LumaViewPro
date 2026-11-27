@@ -280,13 +280,15 @@ Every answer that is not a result is an RFC 9457 problem,
 {"type": "urn:lumascope:problem:not_offered", "title": "Not One of the Values Offered",
  "detail": "axis must be one of X, Y, Z, T; 'W' is not one.", "status": 422,
  "instance": "urn:uuid:3faa1296-...", "kind": "refusal", "reason": "not_offered",
- "remedy": null, "argument": "axis", "offered": ["X", "Y", "Z", "T"],
+ "cause": "request", "remedy": null, "argument": "axis", "offered": ["X", "Y", "Z", "T"],
  "board": null, "labware_id": null, "limits": null, "member": null, "takes": null}
 ```
 
 `title` and `detail` are the words a person is shown. `reason` is the code to
-branch on, and `kind` is the outcome's. `remedy` is sent back as
-`POST /api/v1/apply_remedy` with `{"remedy": ...}`. A refusal carries every
+branch on, and `kind` is the outcome's. `cause` is whether the same request
+could succeed later, the [cause](concepts.md#reasons-and-causes) a Python
+caller reads (`state`, `request` or `restart`; null for a fault). `remedy` is
+sent back as `POST /api/v1/apply_remedy` with `{"remedy": ...}`. A refusal carries every
 field its class publishes -- `argument`, `offered`, `limits`, `holder` --
 null where unused, so a client corrects its request without reading the
 words. An outcome that declares no reason is `type` `about:blank`.

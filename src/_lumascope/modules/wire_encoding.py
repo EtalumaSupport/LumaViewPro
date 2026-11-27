@@ -587,7 +587,9 @@ def outcome_fields(exception: BaseException, form: Callable[[object], object]) -
 
     The one composition of the keys a REST problem carries for an
     outcome and a record carries for a refusal it holds: ``kind``,
-    ``reason`` (None when the type declares none), ``title`` (the generic
+    ``reason`` (None when the type declares none), ``cause`` (the
+    ``RefusalCause``, whether the same request could succeed later; None
+    for a fault and a notice that has none), ``title`` (the generic
     fault heading when it declares none), ``detail`` (the words a person
     reads: a developer's words go to the log, never to the client) and
     ``remedy``.
@@ -603,6 +605,7 @@ def outcome_fields(exception: BaseException, form: Callable[[object], object]) -
         **found,
         'kind': outcome.kind.value,
         'reason': outcome.reason or None,
+        'cause': form(outcome.cause),
         'title': outcome.title or UNTYPED_FAULT_TITLE,
         'detail': outcome.shown_words,
         'remedy': form(outcome.remedy),

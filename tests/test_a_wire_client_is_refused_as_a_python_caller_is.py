@@ -94,9 +94,10 @@ def test_a_refusal_is_the_python_callers_refusal_and_is_logged_once(client, sess
 
     assert body['type'] == 'urn:lumascope:problem:outside_live_folder'
     assert (body['title'], body['detail']) == (python.value.title, str(python.value))
-    assert (body['kind'], body['reason'], body['remedy']) == (
+    assert (body['kind'], body['reason'], body['cause'], body['remedy']) == (
         'refusal',
         'outside_live_folder',
+        'request',
         None,
     )
     ((exception, how),) = reported
@@ -111,7 +112,7 @@ def test_a_refusal_the_scopes_state_gave_is_409(client, live):
 
     body = _problem(client.post('/api/v1/start_make_logs_zip', json={'output_dir': 'reports'}), 409)
 
-    assert body['reason'] == 'capture_location_unusable'
+    assert (body['reason'], body['cause']) == ('capture_location_unusable', 'state')
 
 
 def test_a_defect_is_500_in_the_generic_words_and_its_own_are_logged_under_the_request(
@@ -129,7 +130,7 @@ def test_a_defect_is_500_in_the_generic_words_and_its_own_are_logged_under_the_r
         UNTYPED_FAULT_TITLE,
         INTERNAL_FAULT_SENTENCE,
     )
-    assert (body['kind'], body['reason']) == ('fault', None)
+    assert (body['kind'], body['reason'], body['cause']) == ('fault', None, None)
     # The developer's words reach the log the client's answer leads to.
     ((exception, how),) = reported
     assert str(exception) == 'bad shape (3,)'
