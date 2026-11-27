@@ -1596,9 +1596,10 @@ class SequencedCaptureRunner:
         # must act on.
         self.refuse_unknown_positions()
 
-        # Every run commands X and Y at every plate step, and an open
-        # interlock refuses each of those moves, so a run admitted with one
-        # open would end at its first step. After the position gate: an
+        # Every run commands X and Y at every plate step: the open lid
+        # refuses each of those moves, and a stage without power cannot
+        # make them, so a run admitted with either would end at its first
+        # step. After the position gate: an
         # unhomed scope is told to home first, and the home is refused for
         # the interlock in its own words. Asked of the board directly rather
         # than queued behind a move or a home on the IO lane; the first open

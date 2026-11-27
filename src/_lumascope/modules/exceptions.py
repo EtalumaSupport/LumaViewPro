@@ -2421,8 +2421,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             starts or a step is added or updated; the axes are
             ``axes_without_position``. ``'lid_open_before_motion'`` -- the stage's lid is
             open, so the stage refuses to move.
-            ``'stage_unpowered_before_motion'`` -- the stage has no power, so
-            its interlock refuses to move it.
+            ``'stage_unpowered_before_motion'`` -- the stage has no power.
             ``'no_acquiring_channel'`` -- no channel, or not the step's, is
             set to acquire, so there is no step to make.
             ``'channel_already_in_add'`` -- another step added with this one
@@ -4381,6 +4380,9 @@ class HardwareCommandRefusedError(Refusal, Exception):
             ``'camera_not_streaming'``, ``'lid_open_before_motion'`` and
             ``'stage_unpowered_before_motion'`` are explained by
             ``ProtocolRunRefusedError``, which carries them as the same fact.
+            Of the commands, only a home is refused
+            ``'stage_unpowered_before_motion'``: a move is not checked against
+            the stage's power.
             ``'capture_in_flight'`` -- an earlier still has not finished. ``'home_in_flight'`` -- another home holds the
             scope. ``'home_not_stoppable'`` -- a home drives on a motor
             controller that cannot stop one. ``'scope_disconnected'`` -- the

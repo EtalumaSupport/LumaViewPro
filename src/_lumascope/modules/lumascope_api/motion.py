@@ -220,7 +220,8 @@ class HomeTarget(enum.StrEnum):
 Interlock = enum.StrEnum(
     'Interlock', [(reason.upper(), reason) for reason in INTERLOCK_TITLES], module=__name__
 )
-Interlock.__doc__ = """A stage hardware interlock that, open, stops the stage.
+Interlock.__doc__ = """A stage hardware interlock. Either one, open, refuses a home; the
+    lid also refuses a move and stops one under way.
 
     Its value is also the reason the driver's fault carries when the
     interlock stops a command, which stays a string, as every reason does;
@@ -3955,8 +3956,9 @@ class MotionAPI:
                 home; ``'exclusive_activity_running'``,
                 a run, a diagnostic or a recording holds the scope;
                 ``'home_in_flight'``, a home asked earlier, by any caller,
-                has not ended; or ``'lid_open_before_motion'``, the stage's
-                lid is open, and nothing moves. After a home that succeeded,
+                has not ended; ``'lid_open_before_motion'``, the stage's
+                lid is open, or ``'stage_unpowered_before_motion'``, the stage
+                has no power, and nothing moves. After a home that succeeded,
                 the put-back's move refused before it drove
                 (``'lid_open_before_motion'``, ``'monitor_ended'``). For
                 ``'T'``, the Z park before the turret's home refused before

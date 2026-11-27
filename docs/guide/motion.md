@@ -144,9 +144,12 @@ the event stream's `position` events.
 
 ### Interlocks
 
-The LS720's stage refuses to move with its lid open or its
-stage unpowered (`'lid_open_before_motion'`, `'stage_unpowered_before_motion'`).
-`read_interlocks()` asks the board which are tripped now. No other model has one.
+The LS720's stage refuses to move with its lid open
+(`'lid_open_before_motion'`), and a lid opened during a move stops the stage
+(`'lid_open_mid_move'`). With the stage unpowered, a home and a run's start are
+refused (`'stage_unpowered_before_motion'`); a move is not checked against the
+stage's power. `read_interlocks()` asks the board which are tripped now. No other
+model has one.
 
 ### The turret
 
