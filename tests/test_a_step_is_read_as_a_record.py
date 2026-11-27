@@ -13,6 +13,7 @@ from __future__ import annotations
 import dataclasses
 
 import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 
 from _lumascope.modules.coord_transformations import PlateLocation
@@ -22,9 +23,33 @@ from _lumascope.modules.protocol import (
     StepRecord,
     VideoConfig,
 )
+from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest.app import build_app
+from tests.scope_fakes import home_sim_scope
+from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 from tests.stock_channels import LED0
+
+
+@pytest.fixture
+def no_stage():
+    """A scope with Z and no X/Y stage: a step it records has no X or Y.
+
+    A scope that moves X and Y refuses a step added there with none.
+    """
+    built = ScopeSession.create(complete_settings(microscope='LS820'), simulate=True)
+    home_sim_scope(built.scope)
+    yield built
+    built.shutdown()
+
+
+def _at_no_xy(session):
+    """A protocol of one BF step at no X or Y, Z 6000 um."""
+    protocol = session.create_empty_protocol()
+    session.add_step(
+        protocol, channels=('BF',), at=PlateLocation(x_mm=None, y_mm=None, z_um=6000.0)
+    )
+    return protocol
 
 
 def _bf_and_blue(session):
@@ -67,27 +92,19 @@ def test_the_step_table_is_every_step_in_order(session):
     assert [step.channel for step in table] == ['BF', LED0]
 
 
-def test_a_step_with_no_position_on_an_axis_reads_none_there(session):
-    protocol = session.create_empty_protocol()
-    session.add_step(
-        protocol, channels=('BF',), at=PlateLocation(x_mm=None, y_mm=None, z_um=6000.0)
-    )
-
-    step = protocol.step_records[0]
+def test_a_step_with_no_position_on_an_axis_reads_none_there(no_stage):
+    step = _at_no_xy(no_stage).step_records[0]
 
     assert (step.x_mm, step.y_mm, step.z_um) == (None, None, 6000.0)
 
 
-def test_a_step_at_no_well_reads_none_where_the_table_holds_an_empty_label(session):
+def test_a_step_at_no_well_reads_none_where_the_table_holds_an_empty_label(session, no_stage):
     """A step's well is spelt as a still's: its label, or None for none; the table keeps its ''."""
     session.set_channel_settings('BF', acquire='image')
     plate = session.new_protocol()
     at_a_well = plate.step_row(step_index=0)['Well']
     assert at_a_well != ''
-    protocol = session.create_empty_protocol()
-    session.add_step(
-        protocol, channels=('BF',), at=PlateLocation(x_mm=None, y_mm=None, z_um=6000.0)
-    )
+    protocol = _at_no_xy(no_stage)
     assert protocol.step_row(step_index=0)['Well'] == ''
 
     labels = (plate.step_records[0].well_label, protocol.step_records[0].well_label)
@@ -125,17 +142,14 @@ def test_a_step_with_no_slice_group_or_slot_reads_none_where_the_table_holds_min
     )
 
 
-def test_every_value_of_a_record_is_a_python_value_not_a_numpy_one(session):
+def test_every_value_of_a_record_is_a_python_value_not_a_numpy_one(session, no_stage):
     # The steps table holds numpy scalars; a record handed one leaks it to
     # every caller that copies a value into a Kivy property or a JSON body.
-    protocol = _bf_and_blue(session)
-    session.add_step(
-        protocol, channels=('BF',), at=PlateLocation(x_mm=None, y_mm=None, z_um=6000.0)
-    )
+    steps = (*_bf_and_blue(session).step_records, *_at_no_xy(no_stage).step_records)
 
     numpy_values = [
         (step.name, field.name, type(value).__name__)
-        for step in protocol.step_records
+        for step in steps
         for field in dataclasses.fields(step)
         if isinstance(value := getattr(step, field.name), np.generic)
     ]
