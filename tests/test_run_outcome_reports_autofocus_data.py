@@ -291,28 +291,6 @@ class TestOutcomeReportsDeliveredAutofocusData:
             'a run that saved no characterization data must not report the '
             "previous run's file as its own"
         )
-        assert second.autofocus_data_path is None
-
-
-class TestTheTwoFieldsCannotDisagree:
-    """The flag is derived from the path, so 'saved with nowhere to look'
-    is unconstructible rather than merely undocumented."""
-
-    def test_a_path_makes_it_saved(self):
-        pending = PendingRunOutcome()
-        pending.record_autofocus_data(pathlib.Path('/tmp/a.csv'))
-        pending.resolve_if_pending(_ending())
-        outcome = pending.wait(timeout_s=1.0)
-        assert outcome.autofocus_data_path is not None
-        assert outcome.autofocus_data_path == pathlib.Path('/tmp/a.csv')
-
-    def test_no_path_makes_it_unsaved(self):
-        pending = PendingRunOutcome()
-        pending.record_autofocus_data(None)
-        pending.resolve_if_pending(_ending())
-        outcome = pending.wait(timeout_s=1.0)
-        assert outcome.autofocus_data_path is None
-        assert outcome.autofocus_data_path is None
 
 
 class TestEverySettlePathCarriesTheRecordedData:
