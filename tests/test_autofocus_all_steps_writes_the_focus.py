@@ -130,7 +130,7 @@ class TestTheScanWritesTheFocusIntoTheCallersProtocol:
         with _focusing_session(tmp_path) as (_session, runner):
             outcome = runner.start_autofocus_all_steps(_two_steps()).result(timeout=WAIT_S)
 
-        assert outcome.af_focus_z_um is None, outcome
+        assert outcome.autofocus_z_um is None, outcome
 
 
 class TestAProtocolThatChangedDuringTheScanIsLeftAlone:

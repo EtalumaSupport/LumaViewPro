@@ -480,9 +480,9 @@ class CaptureTally:
 
 
 @api_fields(
-    'af_data_path',
-    'af_focus_z_um',
     'artifact_path',
+    'autofocus_data_path',
+    'autofocus_z_um',
     'axes_without_position',
     'captures',
     'cleanup_failures',
@@ -512,7 +512,7 @@ class RunOutcome:
     run's end waited for its videos to save. A
     non-composite run carries no artifact_path and no merge_reason under
     whatever status it ended in, and a run that saved
-    no autofocus data carries no af_data_path, so a caller reads one
+    no autofocus data carries no autofocus_data_path, so a caller reads one
     shape for every run kind.
 
     Attributes:
@@ -534,14 +534,14 @@ class RunOutcome:
         merge_failure: The reason of the outcome the merge failed with
             (``'write_batch_timeout'``, ...), its own class's word, for
             ``MERGE_ERROR`` when it had one; None otherwise.
-        af_data_path: The autofocus characterization file, set only when
-            its data was WRITTEN. None covers every run that asked for none,
-            and every run that asked and got none -- a sweep that collected
-            nothing, or one whose queued save an abort discarded. Never the
-            folder: that is allocated before the sweep runs and exists even
-            when nothing was written, which is the answer a caller must not
-            be given.
-        af_focus_z_um: The Z a standalone autofocus run chose as focus,
+        autofocus_data_path: The autofocus characterization file, set
+            only when its data was WRITTEN. None covers every run that
+            asked for none, and every run that asked and got none -- a
+            sweep that collected nothing, or one whose queued save an abort
+            discarded. Never the folder: that is allocated before the sweep
+            runs and exists even when nothing was written, which is the
+            answer a caller must not be given.
+        autofocus_z_um: The Z a standalone autofocus run chose as focus,
             where it left the stage; None when it chose none (a degenerate
             curve, an abort, an error), in which case the stage is back
             where the run found it. A standalone autofocus run that chose
@@ -594,8 +594,8 @@ class RunOutcome:
     artifact_path: pathlib.Path | None
     merge_reason: MergeReason | None
     merge_failure: str | None
-    af_data_path: pathlib.Path | None
-    af_focus_z_um: float | None
+    autofocus_data_path: pathlib.Path | None
+    autofocus_z_um: float | None
     captures: CaptureTally | None
     cleanup_failures: tuple[str, ...] | None
     focus_written: bool | None
@@ -617,8 +617,8 @@ class PendingRunOutcome:
         self._token: str | None = None
         self._ending: RunEnding | None = None
         self._outcome: RunOutcome | None = None
-        self._af_data_path: pathlib.Path | None = None
-        self._af_focus_z_um: float | None = None
+        self._autofocus_data_path: pathlib.Path | None = None
+        self._autofocus_z_um: float | None = None
         self._captures: CaptureTally | None = None
         self._cleanup_failures: tuple[str, ...] | None = None
         self._focus_written: bool | None = None
@@ -650,7 +650,7 @@ class PendingRunOutcome:
         A run that saved nothing records None and reads as such.
         """
         with self._lock:
-            self._af_data_path = path
+            self._autofocus_data_path = path
 
     def record_autofocus_focus(self, z_um: float | None) -> None:
         """Record the focus a standalone autofocus run chose, if any.
@@ -660,7 +660,7 @@ class PendingRunOutcome:
         None records "chose none".
         """
         with self._lock:
-            self._af_focus_z_um = z_um
+            self._autofocus_z_um = z_um
 
     def record_captures(self, tally: CaptureTally) -> None:
         """Record what the run captured of what it was asked for.
@@ -835,8 +835,8 @@ class PendingRunOutcome:
             artifact_path=artifact_path,
             merge_reason=merge_reason,
             merge_failure=merge_failure,
-            af_data_path=self._af_data_path,
-            af_focus_z_um=self._af_focus_z_um,
+            autofocus_data_path=self._autofocus_data_path,
+            autofocus_z_um=self._autofocus_z_um,
             captures=self._captures,
             cleanup_failures=self._cleanup_failures,
             focus_written=self._focus_written,

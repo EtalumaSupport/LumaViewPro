@@ -253,15 +253,15 @@ class TestOutcomeReportsDeliveredAutofocusData:
         finally:
             rig.close()
 
-        assert outcome.af_data_path is not None, (
+        assert outcome.autofocus_data_path is not None, (
             'an AF run asked to save characterization data must report that it did'
         )
-        assert isinstance(outcome.af_data_path, pathlib.Path), outcome.af_data_path
-        written = outcome.af_data_path
+        assert isinstance(outcome.autofocus_data_path, pathlib.Path), outcome.autofocus_data_path
+        written = outcome.autofocus_data_path
         # Reading the file is the assertion: a path that merely exists as
         # a string, or one naming the eagerly-created folder, is the exact
         # answer this field exists to replace.
-        assert written.is_file(), f'af_data_path must name a file that exists: {written}'
+        assert written.is_file(), f'autofocus_data_path must name a file that exists: {written}'
         assert written.suffix == '.csv'
         assert written.read_text().strip(), 'the reported characterization file is empty'
         assert char_dir in written.parents
@@ -279,7 +279,7 @@ class TestOutcomeReportsDeliveredAutofocusData:
         char_dir = tmp_path / 'Autofocus Characterization'
         try:
             first = rig.run_autofocus(char_dir, save_data=True)
-            assert first.af_data_path is not None, 'precondition: run one delivers'
+            assert first.autofocus_data_path is not None, 'precondition: run one delivers'
             second = rig.run_autofocus(char_dir, save_data=False)
         finally:
             rig.close()
@@ -287,11 +287,11 @@ class TestOutcomeReportsDeliveredAutofocusData:
         assert list(char_dir.rglob('*.csv')), (
             "precondition: run one's data is still on disk when run two settles"
         )
-        assert second.af_data_path is None, (
+        assert second.autofocus_data_path is None, (
             'a run that saved no characterization data must not report the '
             "previous run's file as its own"
         )
-        assert second.af_data_path is None
+        assert second.autofocus_data_path is None
 
 
 class TestTheTwoFieldsCannotDisagree:
@@ -303,16 +303,16 @@ class TestTheTwoFieldsCannotDisagree:
         pending.record_autofocus_data(pathlib.Path('/tmp/a.csv'))
         pending.resolve_if_pending(_ending())
         outcome = pending.wait(timeout_s=1.0)
-        assert outcome.af_data_path is not None
-        assert outcome.af_data_path == pathlib.Path('/tmp/a.csv')
+        assert outcome.autofocus_data_path is not None
+        assert outcome.autofocus_data_path == pathlib.Path('/tmp/a.csv')
 
     def test_no_path_makes_it_unsaved(self):
         pending = PendingRunOutcome()
         pending.record_autofocus_data(None)
         pending.resolve_if_pending(_ending())
         outcome = pending.wait(timeout_s=1.0)
-        assert outcome.af_data_path is None
-        assert outcome.af_data_path is None
+        assert outcome.autofocus_data_path is None
+        assert outcome.autofocus_data_path is None
 
 
 class TestEverySettlePathCarriesTheRecordedData:
@@ -324,14 +324,14 @@ class TestEverySettlePathCarriesTheRecordedData:
         pending.record_autofocus_data(pathlib.Path('/tmp/af.csv'))
         assert pending.resolve_if_pending(_ending()) is True
         outcome = pending.wait(timeout_s=1.0)
-        assert outcome.af_data_path == pathlib.Path('/tmp/af.csv')
+        assert outcome.autofocus_data_path == pathlib.Path('/tmp/af.csv')
 
     def test_teardowns_force_resolve_carries_it(self):
         pending = PendingRunOutcome()
         pending.record_autofocus_data(pathlib.Path('/tmp/af.csv'))
         assert pending.force_resolve('cleanup_error', fallback=_ending('failed')) is True
         outcome = pending.wait(timeout_s=1.0)
-        assert outcome.af_data_path == pathlib.Path('/tmp/af.csv')
+        assert outcome.autofocus_data_path == pathlib.Path('/tmp/af.csv')
 
     def test_the_merge_threads_resolver_carries_it(self):
         pending = PendingRunOutcome()
@@ -340,14 +340,14 @@ class TestEverySettlePathCarriesTheRecordedData:
         assert token is not None
         assert pending.resolve(token, artifact_path='/tmp/merged.tiff', merge_reason=None) is True
         outcome = pending.wait(timeout_s=1.0)
-        assert outcome.af_data_path == pathlib.Path('/tmp/af.csv')
+        assert outcome.autofocus_data_path == pathlib.Path('/tmp/af.csv')
         assert outcome.artifact_path is not None
 
     def test_a_run_that_records_nothing_reports_nothing(self):
         pending = PendingRunOutcome()
         assert pending.resolve_if_pending(_ending()) is True
         outcome = pending.wait(timeout_s=1.0)
-        assert outcome.af_data_path is None
+        assert outcome.autofocus_data_path is None
 
 
 class TestTheSweepDoesNotReturnBeforeItsWriteLands:
@@ -576,8 +576,8 @@ class TestTheOutcomeSaysWhetherAutofocusFoundFocus:
         finally:
             rig.close()
         assert outcome.status == 'completed'
-        assert outcome.af_focus_z_um is not None, 'a sweep that focused reported no focus'
-        assert abs(outcome.af_focus_z_um - stage_z) < 1.0, (outcome.af_focus_z_um, stage_z)
+        assert outcome.autofocus_z_um is not None, 'a sweep that focused reported no focus'
+        assert abs(outcome.autofocus_z_um - stage_z) < 1.0, (outcome.autofocus_z_um, stage_z)
 
     def test_a_flat_curve_ends_the_run_failed_told_once_by_autofocus(self, tmp_path, monkeypatch):
         import _lumascope.modules.autofocus_functions as autofocus_functions
@@ -598,7 +598,7 @@ class TestTheOutcomeSaysWhetherAutofocusFoundFocus:
             'Autofocus Failed',
         ), outcome
         assert outcome.message == str(AutofocusFailedError('no_focus_scores'))
-        assert outcome.af_focus_z_um is None
+        assert outcome.autofocus_z_um is None
         assert [type(told) for told in reported] == [AutofocusFailedError], (
             'autofocus tells its failure once, and the run ending does not tell it again'
         )
@@ -662,25 +662,25 @@ class TestEverySettlePathCarriesTheRecordedFocus:
         pending = PendingRunOutcome()
         pending.record_autofocus_focus(4321.5)
         assert pending.resolve_if_pending(_ending()) is True
-        assert pending.wait(timeout_s=1.0).af_focus_z_um == 4321.5
+        assert pending.wait(timeout_s=1.0).autofocus_z_um == 4321.5
 
     def test_teardowns_force_resolve_carries_it(self):
         pending = PendingRunOutcome()
         pending.record_autofocus_focus(4321.5)
         assert pending.force_resolve('cleanup_error', fallback=_ending('failed')) is True
-        assert pending.wait(timeout_s=1.0).af_focus_z_um == 4321.5
+        assert pending.wait(timeout_s=1.0).autofocus_z_um == 4321.5
 
     def test_the_merge_threads_resolver_carries_it(self):
         pending = PendingRunOutcome()
         pending.record_autofocus_focus(4321.5)
         token = pending.arm(_ending())
         assert pending.resolve(token, artifact_path=None, merge_reason=None) is True
-        assert pending.wait(timeout_s=1.0).af_focus_z_um == 4321.5
+        assert pending.wait(timeout_s=1.0).autofocus_z_um == 4321.5
 
     def test_a_run_that_records_no_focus_reports_none(self):
         pending = PendingRunOutcome()
         assert pending.resolve_if_pending(_ending()) is True
-        assert pending.wait(timeout_s=1.0).af_focus_z_um is None
+        assert pending.wait(timeout_s=1.0).autofocus_z_um is None
 
 
 def test_the_reported_focus_is_a_plain_float(tmp_path):
@@ -692,8 +692,8 @@ def test_the_reported_focus_is_a_plain_float(tmp_path):
         outcome = rig.run_autofocus(tmp_path, save_data=False)
     finally:
         rig.close()
-    assert type(outcome.af_focus_z_um) is float, type(outcome.af_focus_z_um)
-    assert json.loads(json.dumps(outcome.af_focus_z_um)) == outcome.af_focus_z_um
+    assert type(outcome.autofocus_z_um) is float, type(outcome.autofocus_z_um)
+    assert json.loads(json.dumps(outcome.autofocus_z_um)) == outcome.autofocus_z_um
 
 
 def test_the_autofocus_data_is_not_counted_an_image(tmp_path):
@@ -705,5 +705,5 @@ def test_the_autofocus_data_is_not_counted_an_image(tmp_path):
         batch = rig.runner.write_batch()
     finally:
         rig.close()
-    assert outcome.af_data_path is not None, 'the data this test counts was never written'
+    assert outcome.autofocus_data_path is not None, 'the data this test counts was never written'
     assert (batch.written, batch.not_written) == (0, 0), (batch.written, batch.not_written)

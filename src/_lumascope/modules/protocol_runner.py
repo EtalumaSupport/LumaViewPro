@@ -265,7 +265,7 @@ class ProtocolRunner:
         ``focus_written`` says whether it was. A run that chose no Z leaves
         the focus as it was, however it ended. A run under a *claim* saves
         none: it acts inside the caller's activity, which decides what it
-        keeps from the outcome's ``af_focus_z_um``.
+        keeps from the outcome's ``autofocus_z_um``.
 
         The channel has no default: an autofocus on a channel nobody chose
         is not a useful answer. Everything else comes from the settings, so
@@ -283,7 +283,7 @@ class ProtocolRunner:
                 focus scores this sweep measured. Off by default: a caller
                 that does not ask for data gets no folder. When on, the
                 run's outcome names the file once it was written
-                (af_data_path), which is the only way a headless caller
+                (autofocus_data_path), which is the only way a headless caller
                 can tell a delivered file from a requested one.
             sequence_name: The name of the protocol file the run saves in
                 its folder ('.tsv' added): a name, not a path.

@@ -25,7 +25,7 @@ consumers read it across that gap:
   That reuse has since been removed (#324).
 
 The run now clears the result before producing one, and reports what it
-found in its outcome (``af_focus_z_um``). ``start_autofocus`` saves that Z as
+found in its outcome (``autofocus_z_um``). ``start_autofocus`` saves that Z as
 the focus of the channel it focused, through ``ScopeSession.set_channel_settings``,
 before the run lets go of the scope; the Autofocus button only displays.
 """
@@ -214,11 +214,11 @@ class TestStartAutofocusSavesTheFocusItChose:
 
             outcome = runner.start_autofocus(channel='BF').result(timeout=60)
 
-            assert outcome.af_focus_z_um is not None, (
+            assert outcome.autofocus_z_um is not None, (
                 f'precondition: the sweep chose a focus; got {outcome}'
             )
-            assert outcome.af_focus_z_um != stored, 'precondition: the chosen Z differs'
-            assert session.channel_settings('BF').focus_z_um == outcome.af_focus_z_um
+            assert outcome.autofocus_z_um != stored, 'precondition: the chosen Z differs'
+            assert session.channel_settings('BF').focus_z_um == outcome.autofocus_z_um
             assert outcome.focus_written is True, outcome
 
     def test_a_run_that_chose_no_z_leaves_the_focus_as_it_was(self, tmp_path):
@@ -229,7 +229,7 @@ class TestStartAutofocusSavesTheFocusItChose:
 
             outcome = runner.start_autofocus(channel='BF').result(timeout=60)
 
-            assert outcome.af_focus_z_um is None, f'precondition: no focus chosen; {outcome}'
+            assert outcome.autofocus_z_um is None, f'precondition: no focus chosen; {outcome}'
             assert session.settings['BF']['focus'] == stored
             assert outcome.focus_written is False, outcome
 
@@ -256,9 +256,9 @@ class TestStartAutofocusSavesTheFocusItChose:
             outcome = started[0].result(timeout=60)
 
             assert outcome.status == 'aborted', f'precondition: the stop ended it; {outcome}'
-            expected = stored if outcome.af_focus_z_um is None else outcome.af_focus_z_um
+            expected = stored if outcome.autofocus_z_um is None else outcome.autofocus_z_um
             assert session.settings['BF']['focus'] == expected
-            assert outcome.focus_written is (outcome.af_focus_z_um is not None), outcome
+            assert outcome.focus_written is (outcome.autofocus_z_um is not None), outcome
 
     def test_a_refused_save_is_reported_once_and_the_scope_is_released(self, tmp_path, monkeypatch):
         """A save the session refuses is told once, in its own words; the
@@ -281,7 +281,7 @@ class TestStartAutofocusSavesTheFocusItChose:
             with _reports_of(PositionOutOfRangeError) as reported:
                 outcome = runner.start_autofocus(channel='BF').result(timeout=60)
 
-            assert outcome.af_focus_z_um is not None, f'precondition: a Z was chosen; {outcome}'
+            assert outcome.autofocus_z_um is not None, f'precondition: a Z was chosen; {outcome}'
             assert len(reported) == 1, reported
             assert outcome.focus_written is False, outcome
             assert session.settings['BF']['focus'] == stored
@@ -297,7 +297,7 @@ class TestStartAutofocusSavesTheFocusItChose:
             with session.diagnostic_claim() as claim:
                 outcome = runner.start_autofocus(channel='BF', claim=claim).result(timeout=60)
 
-            assert outcome.af_focus_z_um is not None, (
+            assert outcome.autofocus_z_um is not None, (
                 f'precondition: the sweep chose a focus; got {outcome}'
             )
             assert session.settings['BF']['focus'] == stored

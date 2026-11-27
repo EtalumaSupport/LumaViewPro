@@ -47,9 +47,9 @@ def body(s):
     check(
         "start_autofocus saved the Z it chose as settings['BF']['focus']",
         focus_after is not None
-        and focus_after == outcome.af_focus_z_um
+        and focus_after == outcome.autofocus_z_um
         and outcome.focus_written is True,
-        f'settings BF focus={focus_after}, chosen Z={outcome.af_focus_z_um}, '
+        f'settings BF focus={focus_after}, chosen Z={outcome.autofocus_z_um}, '
         f'focus_written={outcome.focus_written}',
     )
 

@@ -253,8 +253,8 @@ def test_a_record_s_properties_say_its_fields_words(built):
     def words(cls: type, field: str) -> str:
         return markdown_of(field_descriptions(cls)[field])
 
-    answer = schemas['RunOutcome']['properties']['af_data_path']
-    assert answer.get('description') == words(RunOutcome, 'af_data_path'), answer
+    answer = schemas['RunOutcome']['properties']['autofocus_data_path']
+    assert answer.get('description') == words(RunOutcome, 'autofocus_data_path'), answer
     inbound = schemas['PlateLocation-Input']['properties']['x_mm']
     assert inbound.get('description') == words(PlateLocation, 'x_mm'), inbound
     read = described['paths']['/api/v1/scope/runtime_state/plate_to_stage']['get']

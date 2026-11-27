@@ -270,8 +270,8 @@ class TestTeardownResolver:
 # Each fact a run records: its setter, a value no "nothing recorded" default
 # equals, and the outcome field it reaches.
 _RECORDED_FACTS = (
-    ('record_autofocus_data', pathlib.Path('/runs/1/af.csv'), 'af_data_path'),
-    ('record_autofocus_focus', 1234.5, 'af_focus_z_um'),
+    ('record_autofocus_data', pathlib.Path('/runs/1/af.csv'), 'autofocus_data_path'),
+    ('record_autofocus_focus', 1234.5, 'autofocus_z_um'),
     (
         'record_captures',
         CaptureTally(

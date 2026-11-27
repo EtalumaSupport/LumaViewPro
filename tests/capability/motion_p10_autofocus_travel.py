@@ -51,7 +51,7 @@ def body(session, runner):
     for name, start in (('top', limits.max_um), ('bottom', limits.min_um)):
         outcome, refused, z_after = _autofocus_from(session, runner, start, heard)
         figure(f'{name}: status', outcome.status)
-        figure(f'{name}: focus', outcome.af_focus_z_um)
+        figure(f'{name}: focus', outcome.autofocus_z_um)
         figure(f'{name}: Z after', z_after)
         check(
             f'{name} of travel: the autofocus is refused as out_of_travel, reported once',
@@ -59,7 +59,7 @@ def body(session, runner):
             f'out_of_travel reports heard: {len(refused)}; all reasons: '
             f'{[getattr(n, "reason", None) for n in heard]}',
         )
-        check(f'{name} of travel: no focus is reported', outcome.af_focus_z_um is None)
+        check(f'{name} of travel: no focus is reported', outcome.autofocus_z_um is None)
         check(
             f'{name} of travel: Z is where the autofocus started',
             abs(z_after - start) < 1.0,
@@ -69,7 +69,7 @@ def body(session, runner):
     mid = (limits.min_um + limits.max_um) / 2.0
     outcome, refused, _ = _autofocus_from(session, runner, mid, heard)
     figure('mid: status', outcome.status)
-    figure('mid: focus', outcome.af_focus_z_um)
+    figure('mid: focus', outcome.autofocus_z_um)
     figure('mid: reasons heard', [getattr(n, 'reason', None) for n in heard])
     check('mid-travel: the autofocus is not refused for travel', not refused)
 
