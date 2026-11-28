@@ -200,8 +200,8 @@ names, OME's and LumaViewPro's, for the readers that parse it, so a view key
 and its Plane name can differ in one file (`camera_timestamp_tick_hz` and
 `TimestampCameraTickHz`). A fact the frame did not know is
 absent, never a stand-in. Three keys need their meaning. `channel_display` is
-the unit's name (`Green`) in a capture by a build before `fd8e0a2d4` (beta38
-as shipped, and earlier) and the channel's label (`488 nm`) since; a derived
+the unit's name (`Green`) in a capture by a build through 4.0.0-beta38 and the channel's label
+(`488 nm`) in one since; a derived
 file states its inputs' value, so a file's value is its capture's meaning,
 not its own build's. `datetime` is the capture's instant on a still, as
 `timestamp_iso` is, and when a derived file was built. `instrument.serial_number`
@@ -231,10 +231,11 @@ session.light_shown_channel(True)
 path = session.manual_capture.start_save_still().result(timeout=30)[0].file
 session.light_shown_channel(False)
 
-with tifffile.TiffFile(path) as tif:    # a plain TIFF's first description is the view
-    view = dict(
-        line.split(' = ', 1) for line in tif.pages[0].description.splitlines() if ' = ' in line
-    )
+with tifffile.TiffFile(path) as tif:
+    # A full-depth mono TIFF is an ImageJ TIFF, its view in Info; an 8-bit or
+    # color one is plain, its view the first description.
+    text = (tif.imagej_metadata or {}).get('Info') or tif.pages[0].description
+    view = dict(line.split(' = ', 1) for line in text.splitlines() if ' = ' in line)
 print(view['channel'], view['illumination_ma'], view['dark'])
 assert view['channel'] == 'BF' and view['dark'] == 'false'
 ```
@@ -270,13 +271,13 @@ below and has never marked one, so a manifest is told by its keys: a reader of
 older manifests reads each word below as the one beside it, and `timestamp_source`
 is the source a saved file names the same way. Each
 row is the word, the key it was a value of (or *key* for a key), the builds
-that wrote it and the commit that changed it, and the word that replaced it.
+that wrote it, and the word that replaced it.
 
 | Word | Of | Written | Now |
 |---|---|---|---|
-| `camera` | `timestamp_grade` | through 4.0.0-beta38, to `b7d925a45` | `camera_frame_start` |
-| `host` | `timestamp_grade` | through 4.0.0-beta38, to `b7d925a45` | `host_arrival` |
-| `user_stop` | `end_reason` | 4.0.0-beta29 through beta47, to `a1f4a6793` | `stopped` |
-| `disk_floor` | `end_reason` | 4.0.0-beta29 through beta47, to `33c0f3b77` | `disk_space_critical` |
-| `short_delivery` | *key* | 4.0.0-beta29 and beta30, to `d869046bc` | removed |
+| `camera` | `timestamp_grade` | through 4.0.0-beta38 | `camera_frame_start` |
+| `host` | `timestamp_grade` | through 4.0.0-beta38 | `host_arrival` |
+| `user_stop` | `end_reason` | 4.0.0-beta29 through beta47 | `stopped` |
+| `disk_floor` | `end_reason` | 4.0.0-beta29 through beta47 | `disk_space_critical` |
+| `short_delivery` | *key* | 4.0.0-beta29 and beta30 | removed |
 | `timestamp_grade` | *key* | 4.0.0-beta24 through beta48 | `timestamp_source` |
