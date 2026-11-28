@@ -153,7 +153,14 @@ closed set their reads answer. Auto-gain is armed with an `AutoGainSettings`,
 its target and the bounds it settles in, given with `CONTINUOUS` and only
 with it. `lock_auto_gain()` fixes the gain and exposure it reached. On a
 camera without the feature the reads answer `OFF`, and turning it on is
-refused `CameraSettingUnsupportedError`.
+refused `CameraSettingUnsupportedError`. A channel stored with `auto_gain`
+(`set_channel_settings(..., auto_gain=True)`) is armed from the settings:
+`protocol.autogain.target_brightness`, `min_gain_db` and `max_gain_db`, with its
+exposure capped by `ag_ae_max_exposure_ms.<transmitted|fluorescence|luminescence>`
+for its kind of light, each written by path with `update_settings`
+([Settings](../api-reference.md#settings)). While the shown channel is on
+auto-gain, the camera takes a write to them at once when no activity holds the
+scope; during a home the write is refused (`'exclusive_activity_running'`).
 
 ```python
 from lumascope import AutoGainSettings, CameraAutoMode
@@ -200,7 +207,9 @@ falsify its frames -- binning, frame size, image mode -- is refused
 **Streaming.** The camera streams from bring-up on. `scope.imaging.disable_streaming()`
 stops its feed and `enable_streaming()` starts it again. `read_streaming()`
 answers which, and raises `CameraReadFailedError` when the camera does not
-answer. The session's `status` then carries `camera_streaming` as `null`. While the feed is stopped, a still, a saved still, a run's start
-and a go-to are refused (`'camera_not_streaming'`). The camera's other members -- the conversion gain,
+answer. The session's `status` then carries `camera_streaming` as `null`. While the feed is stopped, a still
+(`session.capture_still`), a saved still (`manual_capture.start_save_still`) and
+every run's start, autofocus included, are refused (`'camera_not_streaming'`)
+until `enable_streaming()`; a move is not. The camera's other members -- the conversion gain,
 line-noise reduction, the longest exposure, the frame rate it reports -- are in
 the [reference](../api-reference.md#CameraAPI).
