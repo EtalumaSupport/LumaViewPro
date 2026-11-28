@@ -299,6 +299,18 @@ def test_a_protocol_schedule_no_protocol_can_run_is_refused(session):
     assert session.settings['protocol']['period'] == before
 
 
+def test_a_refusal_whose_judge_says_no_numbers_says_what_the_setting_takes(session):
+    # Another owner's judge, and a rule with logic of its own: neither row
+    # carries numbers, so each says what it takes, and its refusal says it.
+    with pytest.raises(SettingRefusedError) as judged:
+        session.update_settings('protocol.period', 0.001)
+    with pytest.raises(SettingRefusedError) as ruled:
+        session.update_settings('logging.default.level', 'LOUD')
+    assert judged.value.takes == '0 (one scan) or at least one second'
+    assert ruled.value.takes.startswith('a log level, in any case: ')
+    assert 'DEBUG' in ruled.value.takes.split(': ')[1].split(', ')
+
+
 def test_a_minimum_gain_left_above_the_maximum_is_refused_at_the_arm_and_not_stored(tmp_path):
     # Each bound is written alone, so the pair is judged where auto-gain is
     # armed with it: the shown layer's arm, here, before the store.
