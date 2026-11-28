@@ -250,7 +250,7 @@ SETTING_MEANINGS: typing.Final[dict[str, str]] = {
         'The level of the main, serial, camera and API logs; DEBUG instead while `debug_mode` '
         'is on.'
     ),
-    'logging.autofocus': "Each autofocus step's focus score written to the main log.",
+    'logging.autofocus': "Each autofocus step's focus score logged.",
     'focus_score_enabled': (
         "The GUI's live view computes and shows each frame's focus score; autofocus is not changed."
     ),
@@ -312,7 +312,7 @@ SETTING_MEANINGS: typing.Final[dict[str, str]] = {
         'The longest exposure auto-gain may set on a luminescence channel, in ms.'
     ),
     'tiling_overlap_percent': (
-        'How much neighbouring tiles overlap when a protocol is tiled, in percent of a field.'
+        'How much neighboring tiles overlap when a protocol is tiled, in percent of a field.'
     ),
     'show_step_locations': "The GUI's stage map marks the loaded protocol's step positions.",
     'protocol_led_on': (
