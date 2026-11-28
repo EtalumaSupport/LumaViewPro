@@ -114,6 +114,10 @@ A member's doors are named beside its marks (`enters:`):
 
 {_DOORS}
 
+"""
+
+# How a record crosses, after the preface and its type aliases.
+_RECORDS = f"""\
 <a id="to_dict"></a>A **record** crosses the wire as its data, unless its entry says it is in-process only. A field shown with `= value` takes that value when it is left out, by a Python maker and in a wire body alike, and one shown with `= ...` a value the record makes as it is built, as its description says; every other field is required. In the same process every record also answers `to_dict()`, *in-process*, for a caller that takes a dict and not a record, such as MATLAB's `struct()`:
 
 {markdown_of(inspect.getdoc(_to_dict))}
@@ -944,6 +948,8 @@ class Declared:
     modules: list[_Owner]
     outcome_owners: dict[str, _Owner]
     closed: list[type[enum.Enum]]
+    # Each public ``type`` alias, by name -> its value as a signature writes it.
+    aliases: dict[str, str]
 
 
 def declared(
@@ -954,7 +960,12 @@ def declared(
     marked = _without_engineering(marked, universe)
     index = _index(marked, universe, aliases)
     classes, modules, outcome_owners = _owners(marked, index)
-    return Declared(index, classes, modules, outcome_owners, _closed_sets(index))
+    public_aliases = {
+        name: annotation_text(alias.__value__)
+        for name, alias in wire_encoding.project_type_aliases().items()
+        if not name.startswith('_')
+    }
+    return Declared(index, classes, modules, outcome_owners, _closed_sets(index), public_aliases)
 
 
 def _without_engineering(marked: dict[str, Marked], universe: dict[str, type]) -> dict[str, Marked]:
@@ -1026,7 +1037,7 @@ def published(sections: Declared) -> dict[str, object]:
 def render(sections: Declared) -> str:
     """The reference's text for the declared API's *sections*."""
     index, classes, modules = sections.index, sections.classes, sections.modules
-    outcome_owners, closed = sections.outcome_owners, sections.closed
+    outcome_owners, closed, aliases = sections.outcome_owners, sections.closed, sections.aliases
     functions = sorted((item for o in modules for item in o.items), key=lambda i: i.member)
     # A record is listed with the records unless a caller holds it as an API object.
     held = index.reached.keys() | index.handed_out
@@ -1046,7 +1057,7 @@ def render(sections: Declared) -> str:
         '**Tables**\n\n- [Routes](#routes)\n- [Events](#events)\n- [Saved-file facts](#saved-file-facts)\n'
         '- [Settings](#settings)'
     ]
-    sections = [_PREFACE.rstrip('\n'), '\n\n'.join(contents)]
+    sections = [_PREFACE, '\n\n'.join(contents)]
     sections += [_class(o, index) for o in classes]
     sections += [_member(i, index) for i in functions]
     sections.append(
@@ -1076,4 +1087,14 @@ def render(sections: Declared) -> str:
         '(guide/captures-and-files.md#saved-files).\n\n' + _file_facts_table()
     )
     sections.append('## Settings\n\n' + _settings_table())
+    body = '\n\n'.join(sections[1:])
+    named = [n for n in sorted(aliases) if re.search(rf'\b{n}\b', body)]
+    if named:
+        sections[0] += (
+            'A name in a signature with no section of its own is a type alias: it stands for '
+            'the type beside it, and `lumascope` does not export it.\n\n'
+            + '\n'.join(f'- <a id="{n}"></a>`{n}`: `{aliases[n]}`' for n in named)
+            + '\n\n'
+        )
+    sections[0] += _RECORDS.rstrip('\n')
     return '\n\n'.join(sections) + '\n'

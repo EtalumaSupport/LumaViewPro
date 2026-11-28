@@ -116,6 +116,7 @@ from tests.api_reference import (
     REGENERATE,
     OUTCOME_FIELDS,
     WRITE,
+    annotation_text,
     declared,
     entry_key,
     member_function,
@@ -355,6 +356,20 @@ def test_the_reference_names_no_private_path(rendered: str) -> None:
         'the reference names a private path; name the home, `lumascope`, or say what '
         'the private code does:\n' + '\n'.join(named)
     )
+
+
+def test_every_type_alias_the_reference_names_says_what_it_stands_for(rendered: str) -> None:
+    """A signature's ``FilePath`` is a ``type`` alias that ``lumascope`` does
+    not export: the reference states, at an anchor of its own, the type each
+    alias it names stands for, so a reader knows what to pass."""
+    unsaid = []
+    for name, alias in sorted(wire_encoding.project_type_aliases().items()):
+        if name.startswith('_') or not re.search(rf'\b{name}\b', rendered):
+            continue
+        line = f'- <a id="{name}"></a>`{name}`: `{annotation_text(alias.__value__)}`'
+        if line not in rendered.splitlines():
+            unsaid.append(name)
+    assert not unsaid, f'the reference names a type alias without what it stands for: {unsaid}'
 
 
 def test_every_parameter_is_described(marked: dict[str, Marked]) -> None:

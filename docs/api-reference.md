@@ -18,6 +18,13 @@ A member's doors are named beside its marks (`enters:`):
 - `guarded_write`: a setting or a file written; refused while another client holds the control session, or once the session is closing.
 - `post_processing`: a build on the post-processing lane; refused while the scope's work needs the host, or with no room to write.
 
+A name in a signature with no section of its own is a type alias: it stands for the type beside it, and `lumascope` does not export it.
+
+- <a id="BoardConfigValue"></a>`BoardConfigValue`: `str | int | float | bool | list | dict | None`
+- <a id="FilePath"></a>`FilePath`: `str | PathLike[str]`
+- <a id="ProgressCallback"></a>`ProgressCallback`: `Callable[[float, str | None], None]`
+- <a id="SettingValue"></a>`SettingValue`: `str | int | float | bool | list | dict | None`
+
 <a id="to_dict"></a>A **record** crosses the wire as its data, unless its entry says it is in-process only. A field shown with `= value` takes that value when it is left out, by a Python maker and in a wire body alike, and one shown with `= ...` a value the record makes as it is built, as its description says; every other field is required. In the same process every record also answers `to_dict()`, *in-process*, for a caller that takes a dict and not a record, such as MATLAB's `struct()`:
 
 This record's fields as a dict of plain Python data: a nested record a dict, an enum its string, a sequence a list.
