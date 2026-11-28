@@ -34,6 +34,7 @@ from _lumascope.modules.api_surface import (
 from _lumascope.modules.coord_transformations import StageOffset
 from _lumascope.modules.exceptions import ConfigurationDefectError
 from _lumascope.modules.frame_validity import FrameRule, FrameValiditySource
+from _lumascope.modules.lumascope_api.camera import AutoGainSettings, CameraAutoMode
 from _lumascope.modules.lumascope_api.illumination import LedReading, LedState
 from _lumascope.modules.notification_center import UNTYPED_FAULT_TITLE
 from _lumascope.modules.operation import Operation
@@ -628,3 +629,32 @@ def test_a_wire_client_moves_to_a_channels_focus_as_the_button_does(client, sess
     assert ended['status'] == 'completed', ended
     assert session.scope.motion.get_current_position('Z') == pytest.approx(focus)
     assert focus != pytest.approx(away)
+
+
+def test_a_body_record_left_without_a_field_its_record_defaults_takes_the_records_default(
+    client, session
+):
+    # AutoGainSettings defaults both exposure bounds, as a Python maker leaves them out.
+    answer = client.post(
+        '/api/v1/scope/camera/set_auto_gain',
+        json={
+            'mode': 'Continuous',
+            'settings': {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 10.0},
+        },
+    )
+
+    assert answer.status_code == 200, answer.text
+    assert session.scope.camera.lock_auto_gain().settings == AutoGainSettings(
+        target_brightness=0.5, min_gain_db=0.0, max_gain_db=10.0
+    )
+
+
+def test_a_body_record_left_without_a_field_its_record_requires_is_refused(client, session):
+    answer = client.post(
+        '/api/v1/scope/camera/set_auto_gain',
+        json={'mode': 'Continuous', 'settings': {'min_gain_db': 0.0, 'max_gain_db': 10.0}},
+    )
+
+    assert answer.status_code == 422, answer.text
+    assert answer.json()['reason'] == 'invalid_request'
+    assert session.scope.camera.auto_gain is not CameraAutoMode.CONTINUOUS

@@ -67,7 +67,7 @@ _JSON_PARSERS = {
     ('src/_lumascope/drivers/sim_wire/mp/machine.py', '_the_board'): "the simulated board's file",
     ('src/_lumascope/drivers/sim_wire/mp/tmc5072.py', 'build'): "the simulated board's config",
     ('src/_lumascope/rest/events.py', 'EventStream.held'): "an event's own encoded data",
-    ('src/_lumascope/rest/routes.py', '_field'): "a default's own encoded form",
+    ('src/_lumascope/rest/routes.py', '_left_out_takes'): "a default's own encoded form",
     ('ui/walk_file.py', 'parse_walk'): 'a walk script',
     ('tools/profiling/compare.py', 'main'): 'two profile files',
     ('tools/profiling/ground_truth.py', '_profile_workload'): "a profiler's output",

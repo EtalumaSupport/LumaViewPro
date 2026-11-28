@@ -598,7 +598,7 @@ def _add_still_route(
         if closing.begun:
             raise problems.session_closing()
         jobs.admit(returns_job=False)
-        sent = asked.model_dump(include=asked.model_fields_set) if asked is not None else {}
+        sent = asked.model_dump(exclude_unset=True) if asked is not None else {}
         request_id = request.state.request_id
         control_id = request.headers.get(CONTROL_SESSION_HEADER)
         # The pixels travel beside the answer, which holds only the record.
@@ -1606,7 +1606,7 @@ def _add(
                         for err in e.errors()
                     ]
                 ) from e
-            sent = checked.model_dump(include=checked.model_fields_set)
+            sent = checked.model_dump(exclude_unset=True)
             return await answer(request, handle_id, invoker(sent))
 
         _sign(asked, on_handle, route, query=True)
@@ -1616,7 +1616,7 @@ def _add(
     async def call(
         request: fastapi.Request, body: pydantic.BaseModel | None, handle_id: str | None = None
     ) -> JSONResponse:
-        sent = body.model_dump(include=body.model_fields_set) if body is not None else {}
+        sent = body.model_dump(exclude_unset=True) if body is not None else {}
         if route.sets is None:
             return await answer(request, handle_id, invoker(sent), sent)
         write, read = invoker(sent), route.sets

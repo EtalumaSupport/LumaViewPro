@@ -412,7 +412,8 @@ def sent_of_query(query: pydantic.BaseModel) -> dict[str, object]:
 
     A record's ``<parameter>.<field>`` keys are put back together as the
     record's object; a record given in part is given so, and the member's
-    body model refuses it.
+    body model judges it as a body's: a field the record defaults may be
+    left out, any other is refused.
     """
     sent: dict[str, object] = {}
     for key, value in query.model_dump(by_alias=True, include=query.model_fields_set).items():
@@ -431,15 +432,24 @@ def _field(
     kind = _type(parameter.alternatives, records)
     if parameter.required:
         return kind, pydantic.Field(description=words)
-    # A parameter the client leaves out takes the member's own default: only
-    # what the client sent is passed. The default here only describes it.
+    return kind, _left_out_takes(parameter.default, words)
+
+
+def _left_out_takes(default: object, words: str) -> object:
+    """A property the client may leave out, which takes *default*: the member's or the record's own.
+
+    Only what the client set is passed on (``model_dump(exclude_unset=True)``),
+    so a property left out reaches the member, or the record, unsent, and
+    it takes its own default. The default here only describes it; one the
+    record makes as it is built has no value to describe.
+    """
+    if default is api_surface.MADE_WHEN_BUILT:
+        return pydantic.Field(default=None, description=words, json_schema_extra=_no_default)
     try:
-        described = json.loads(json.dumps(wire_form(parameter.default)))
+        described = json.loads(json.dumps(wire_form(default)))
     except (wire_encoding.NoWireFormError, TypeError, ValueError):
-        return kind, pydantic.Field(default=None, description=words, json_schema_extra=_no_default)
-    return kind, pydantic.Field(
-        default=None, description=words, json_schema_extra={'default': described}
-    )
+        return pydantic.Field(default=None, description=words, json_schema_extra=_no_default)
+    return pydantic.Field(default=None, description=words, json_schema_extra={'default': described})
 
 
 def wire_form(value: object) -> object:
@@ -494,12 +504,23 @@ def _one(a: wire_encoding.Inbound, records: dict[type, type[pydantic.BaseModel]]
     if a.form == wire_encoding.OBJECT:
         return dict[str, _type(a.items, records)] if a.items else dict
     if a.cls not in records:
-        fields = {
-            f: (_type(alts, records), pydantic.Field(description=field_words(a.cls, f)))
-            for f, alts in a.fields
-        }
+        fields = {f: _record_field(a.cls, f, _type(alts, records)) for f, alts in a.fields}
         records[a.cls] = pydantic.create_model(a.name, __config__=_MODEL_CONFIG, **fields)
     return records[a.cls]
+
+
+def _record_field(cls: type, name: str, kind: object) -> tuple[object, object]:
+    """Field *name* of record *cls*, of *kind*: required unless the record gives it a default.
+
+    One description whether the record is taken or answered, so its one
+    published schema (``_one_schema_per_record``) states both: an answer
+    carries every field, and a body may leave out one the record defaults.
+    """
+    default = api_surface.record_default(cls, name)
+    words = field_words(cls, name)
+    if default is inspect.Parameter.empty:
+        return kind, pydantic.Field(description=words)
+    return kind, _left_out_takes(default, words)
 
 
 def answer_type(alternatives: tuple[wire_encoding.Outbound, ...]) -> object:
@@ -530,10 +551,7 @@ def _answer(a: wire_encoding.Outbound) -> object:
     if a.form == wire_encoding.OBJECT:
         return dict[str, answer_type(a.items)] if a.items else dict
     if a.cls not in _ANSWER_RECORDS:
-        fields = {
-            f: (answer_type(alts), pydantic.Field(description=field_words(a.cls, f)))
-            for f, alts in a.fields
-        }
+        fields = {f: _record_field(a.cls, f, answer_type(alts)) for f, alts in a.fields}
         # Its description is published as Markdown by ANSWER_CONFIG.
         _ANSWER_RECORDS[a.cls] = pydantic.create_model(
             a.name, __config__=ANSWER_CONFIG, __doc__=api_surface.own_doc(a.cls), **fields

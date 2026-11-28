@@ -796,3 +796,36 @@ def is_record(cls: type) -> bool:
         or (issubclass(cls, tuple) and hasattr(cls, '_fields'))
         or vars(cls).get(RECORD_ATTRIBUTE, False)
     )
+
+
+class _MadeWhenBuilt:
+    def __repr__(self) -> str:
+        return 'MADE_WHEN_BUILT'
+
+
+# What ``record_default`` answers for a field its record makes as it is
+# built (a dataclass factory): a clock reading, a counter, a fresh table.
+# Its value exists only then, so nothing describes one.
+MADE_WHEN_BUILT = _MadeWhenBuilt()
+
+
+def record_default(cls: type, name: str) -> object:
+    """What record *cls* gives field *name* when its maker leaves it out.
+
+    Read from the record's own declaration, so a Python maker, a wire body
+    and the reference say one default: a dataclass field's default, or
+    ``MADE_WHEN_BUILT`` for one its factory makes; any other record's
+    constructor default. ``inspect.Parameter.empty`` when the field is
+    required, and for one no maker gives: a property the record publishes.
+    """
+    if dataclasses.is_dataclass(cls):
+        field = next((f for f in dataclasses.fields(cls) if f.name == name), None)
+        if field is None:
+            return inspect.Parameter.empty
+        if field.default is not dataclasses.MISSING:
+            return field.default
+        if field.default_factory is not dataclasses.MISSING:
+            return MADE_WHEN_BUILT
+        return inspect.Parameter.empty
+    parameter = inspect.signature(cls).parameters.get(name)
+    return inspect.Parameter.empty if parameter is None else parameter.default
