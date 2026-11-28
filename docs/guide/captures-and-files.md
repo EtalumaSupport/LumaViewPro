@@ -166,7 +166,8 @@ states the bits it can reach, 14 for four 12-bit frames, and 65124 is 12. Every 
 
 **The record in the file.** Each TIFF and OME-TIFF carries what the instrument
 was when the frame was taken. It records the instrument (model, serial,
-camera), the objective and pixel size, the plate and well, and the position (a
+camera), the objective and the pixel size (`pixel_size_um`, micrometers per
+pixel with the binning folded in), the plate and well, and the position (a
 recorded frame also whether the stage was moving). It records each lit
 channel's current and when it was read, the excitation, the exposure, gain,
 black level and binning, and whether the frame was dark or saturated. It also
@@ -214,7 +215,9 @@ ends the settle its arm recorded, so a frame after the off counts for the
 arm's change without its `skip` frames.
 
 The API has no reader of a saved file's record: read it with any TIFF reader,
-or keep the `SavedStill` or the run's record the capture answered. In Python:
+or keep the `SavedStill` or the run's record the capture answered. A
+`SavedStill` carries no scale: the file's `pixel_size_um` does, as
+`scope.runtime_state.pixel_size_um` did at the capture. In Python:
 
 ```python
 import tifffile
