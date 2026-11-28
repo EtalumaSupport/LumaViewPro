@@ -39,6 +39,7 @@ from _lumascope.modules.api_surface import (
     API,
     IN_PROCESS,
     RAISES_SECTION,
+    Admission,
     _to_dict,
     admitted_by_of,
     event_of,
@@ -85,6 +86,9 @@ OUTCOME_FIELDS: dict[type, tuple[str, ...]] = {
     Refusal: ('remedy',),
 }
 
+# Each door a member's marks can name, with its meaning, from ``Admission``.
+_DOORS = '\n'.join(f'- `{door.value}`: {door.meaning}.' for door in Admission)
+
 _PREFACE = f"""\
 # LumaViewPro API reference
 
@@ -95,6 +99,10 @@ Every member and field of the API, rendered from the source: a member is API whe
 Every name with a section of its own is imported from `lumascope`, as its heading says: `from lumascope import ScopeSession`.
 
 A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes; a member that raises nothing says so beside its marks. **Outcomes** lists those with the outcomes of the doors the member enters (a hardware lane, a guarded write, a post-processing build's admission), refusals and faults alike; for a member on the wire they are **Outcomes by REST status**, under the HTTP status each answers, which leaves out what no route can meet (a `BlockingCallRefusedError`: a REST call runs its member on a thread of its own). A request can also be refused by the server before its member runs, a [`ServerRefusedError`](#ServerRefusedError): `invalid_request` (422), arguments that do not fit the member, a NaN or an infinity among them, and the reasons under its entry; no route lists those. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
+
+A member's doors are named beside its marks (`enters:`):
+
+{_DOORS}
 
 <a id="to_dict"></a>A **record** crosses the wire as its data, unless its entry says it is in-process only. In the same process every record also answers `to_dict()`, *in-process*, for a caller that takes a dict and not a record, such as MATLAB's `struct()`:
 

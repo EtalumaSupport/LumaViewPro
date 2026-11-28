@@ -159,20 +159,51 @@ class Admission(enum.StrEnum):
     or the control session, and a member reaching only such a lane names
     no door. A post-processing build enters the post-processing API's own
     admission, which refuses it while the scope's work needs the host.
+
+    Each door carries ``meaning``, what a caller is told it does: the
+    reference's one statement of it.
     """
 
+    meaning: str
+
+    def __new__(cls, value: str, meaning: str) -> 'Admission':
+        member = str.__new__(cls, value)
+        member._value_ = value
+        member.meaning = meaning
+        return member
+
     # ``SequentialIOExecutor.call``: the blocking dispatch.
-    LANE_CALL = 'lane_call'
+    LANE_CALL = (
+        'lane_call',
+        'made on a hardware lane and waited for; refused while another activity holds '
+        'the scope or another client holds the control session, and after the '
+        "scope's shutdown",
+    )
     # ``SequentialIOExecutor.call_overriding``: the blocking dispatch,
     # admitted whatever holds the scope.
-    LANE_OVERRIDE = 'lane_override'
+    LANE_OVERRIDE = (
+        'lane_override',
+        'made on a hardware lane and waited for, whatever holds the scope; refused only '
+        "after the scope's shutdown",
+    )
     # ``SequentialIOExecutor.submit``: put on the lane without waiting.
-    LANE_SUBMIT = 'lane_submit'
+    LANE_SUBMIT = (
+        'lane_submit',
+        'put on a hardware lane without waiting; refused as `lane_call` is',
+    )
     # ``ActivityClaim.enter_guarded_write``: a setting or a file written.
-    GUARDED_WRITE = 'guarded_write'
+    GUARDED_WRITE = (
+        'guarded_write',
+        'a setting or a file written; refused while another client holds the control '
+        'session, or once the session is closing',
+    )
     # ``PostProcessingAPI._refuse_while_busy``: a build put on the
     # post-processing lane.
-    POST_PROCESSING = 'post_processing'
+    POST_PROCESSING = (
+        'post_processing',
+        "a build on the post-processing lane; refused while the scope's work needs the "
+        'host, or with no room to write',
+    )
 
 
 def _function_of(member: object) -> object:

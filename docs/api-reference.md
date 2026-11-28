@@ -8,6 +8,14 @@ Every name with a section of its own is imported from `lumascope`, as its headin
 
 A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes; a member that raises nothing says so beside its marks. **Outcomes** lists those with the outcomes of the doors the member enters (a hardware lane, a guarded write, a post-processing build's admission), refusals and faults alike; for a member on the wire they are **Outcomes by REST status**, under the HTTP status each answers, which leaves out what no route can meet (a `BlockingCallRefusedError`: a REST call runs its member on a thread of its own). A request can also be refused by the server before its member runs, a [`ServerRefusedError`](#ServerRefusedError): `invalid_request` (422), arguments that do not fit the member, a NaN or an infinity among them, and the reasons under its entry; no route lists those. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
 
+A member's doors are named beside its marks (`enters:`):
+
+- `lane_call`: made on a hardware lane and waited for; refused while another activity holds the scope or another client holds the control session, and after the scope's shutdown.
+- `lane_override`: made on a hardware lane and waited for, whatever holds the scope; refused only after the scope's shutdown.
+- `lane_submit`: put on a hardware lane without waiting; refused as `lane_call` is.
+- `guarded_write`: a setting or a file written; refused while another client holds the control session, or once the session is closing.
+- `post_processing`: a build on the post-processing lane; refused while the scope's work needs the host, or with no room to write.
+
 <a id="to_dict"></a>A **record** crosses the wire as its data, unless its entry says it is in-process only. In the same process every record also answers `to_dict()`, *in-process*, for a caller that takes a dict and not a record, such as MATLAB's `struct()`:
 
 This record's fields as a dict of plain Python data: a nested record a dict, an enum its string, a sequence a list.
