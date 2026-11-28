@@ -1131,6 +1131,9 @@ class ConfigurationDefectError(Fault, ConfigError):
             reference is none of top, center and bottom.
             ``'route_shadowed'`` -- a Session member has the name of one of
             the REST server's own routes, so a client could not reach it.
+            ``'record_schemas_differ'`` -- a record is described one way as
+            an argument and another as an answer, so its one published
+            schema would describe what the server does not do.
     """
 
     titles: ClassVar[dict[str, str]] = {
@@ -1144,6 +1147,7 @@ class ConfigurationDefectError(Fault, ConfigError):
         'scope_not_composed': 'Configuration Fault',
         'zstack_reference_unchecked': 'Configuration Fault',
         'route_shadowed': 'Configuration Fault',
+        'record_schemas_differ': 'Configuration Fault',
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles)
     _FOR_PERSON: ClassVar[frozenset[str]] = frozenset({'channels_unresolved'})

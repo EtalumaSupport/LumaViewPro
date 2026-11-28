@@ -30,7 +30,9 @@ import fastapi.routing
 import pytest
 
 from _lumascope.modules import wire_encoding
+from _lumascope.modules.exceptions import ConfigurationDefectError
 from _lumascope.modules.scope_session import ScopeSession
+import _lumascope.rest.app
 from _lumascope.rest import routes as rest_routes
 from _lumascope.rest.app import PREFIX, build_app, served
 from tests.settings_fixtures import complete_settings
@@ -77,6 +79,25 @@ def test_every_record_is_one_schema_and_every_title_its_own(built):
     twice = {title: names for title, names in titles.items() if len(names) > 1}
     assert 'PlateLocation' in schemas
     assert twice == {}
+
+
+def test_a_record_described_two_ways_fails_the_document_as_a_configuration_defect():
+    # The merge read alone: no record the release declares differs, so no
+    # document built from one can reach this.
+    side = {'properties': {'x': {'type': 'number'}}, 'required': ['x']}
+    described = {
+        'components': {
+            'schemas': {
+                'Point-Input': side,
+                'Point-Output': {**side, 'required': []},
+            }
+        }
+    }
+
+    with pytest.raises(ConfigurationDefectError) as refused:
+        _lumascope.rest.app._one_schema_per_record(described)
+
+    assert refused.value.reason == 'record_schemas_differ'
 
 
 def test_every_operation_is_named_by_the_server_once(built):
