@@ -1414,7 +1414,10 @@ def _add(
         # declared return type.
         'response_model': None,
         'status_code': 202 if member.returns_job else 200,
-        'responses': {**answered, **problems.declared(doc, classes, member.admitted_by)},
+        'responses': {
+            **answered,
+            **problems.declared(doc, classes, member.admitted_by, on_the_wire=True),
+        },
         'openapi_extra': {'parameters': [_CONTROL_SESSION]} if _writes(member) else None,
     }
 

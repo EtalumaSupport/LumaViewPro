@@ -37,7 +37,12 @@ from _lumascope.modules import notification_center, wall_time, wire_encoding
 from _lumascope.lib.lumascope_error import Fault, LumascopeError, defined_classes
 from _lumascope.modules.activity_claim import ActivityClaim
 from _lumascope.modules.api_surface import Admission, raises_of
-from _lumascope.modules.exceptions import RefusalCause, ServerRefusedError, UnfitArgument
+from _lumascope.modules.exceptions import (
+    BlockingCallRefusedError,
+    RefusalCause,
+    ServerRefusedError,
+    UnfitArgument,
+)
 from _lumascope.modules.notification_center import OutcomeKind, outcome_of
 from _lumascope.modules.post_processing_api import PostProcessingAPI
 from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
@@ -141,10 +146,19 @@ def outcome_classes() -> dict[str, type[LumascopeError]]:
     return found
 
 
+# The outcome classes no route answers. Every REST call runs its member on
+# a thread of its own (``JobRegistry.run``): never the UI thread, an
+# executor's worker or the GUI's inline boundary, the only threads a
+# blocking call is refused on.
+NOT_ON_THE_WIRE = frozenset({BlockingCallRefusedError.__name__})
+
+
 def declared(
     doc: str,
     classes: dict[str, type[LumascopeError]],
     admitted_by: tuple[Admission, ...] = (),
+    *,
+    on_the_wire: bool,
 ) -> dict[int, dict]:
     """The responses a member's ``Raises:`` section and the doors it enters declare, for its route's description.
 
@@ -153,7 +167,9 @@ def declared(
     under the status each of its reasons answers -- a refusal's cause per
     reason, a fault 500 -- with the reasons the entry quotes, or every
     reason the class can carry when it quotes none. Each status carries
-    ``x-outcomes``, class to reasons.
+    ``x-outcomes``, class to reasons. ``on_the_wire``: what a route answers,
+    which leaves out ``NOT_ON_THE_WIRE``; False is what an in-process
+    caller can meet.
 
     Raises:
         KeyError: An entry names a class that is not an outcome class.
@@ -163,6 +179,8 @@ def declared(
         entries += raises_of(inspect.getdoc(DOORS[door]) or '')
     by_status: dict[int, dict[str, list[str]]] = {}
     for name, quoted in entries:
+        if on_the_wire and name in NOT_ON_THE_WIRE:
+            continue
         cls = classes[name]
         for reason in quoted or _reasons_of(cls) or ('',):
             said = by_status.setdefault(_status_of(cls, reason), {}).setdefault(name, [])

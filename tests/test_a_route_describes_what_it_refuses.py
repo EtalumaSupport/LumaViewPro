@@ -151,12 +151,32 @@ def test_a_server_refusal_is_described_under_the_status_the_server_answers():
         "Forget a handle.\n\nRaises:\n    ServerRefusedError: ``'not_found'``; ``'overloaded'``.\n"
     )
 
-    described = problems.declared(doc, problems.outcome_classes())
+    described = problems.declared(doc, problems.outcome_classes(), on_the_wire=True)
 
     assert {status: d['x-outcomes'] for status, d in described.items()} == {
         404: {'ServerRefusedError': ['not_found']},
         503: {'ServerRefusedError': ['overloaded']},
     }
+
+
+def test_no_route_describes_a_blocking_call_refusal(described):
+    """A REST call runs its member on a thread of its own, where no blocking call is refused, so no route answers one.
+
+    The members keep it in their ``Raises:``: a Python caller on the UI
+    thread or a worker meets it.
+    """
+    named_by = sorted(
+        f'{method.upper()} {path}'
+        for path, methods in described['paths'].items()
+        for method, operation in methods.items()
+        for response in operation.get('responses', {}).values()
+        if 'BlockingCallRefusedError' in response.get('x-outcomes', {})
+    )
+
+    assert named_by == []
+    doc = "Wait.\n\nRaises:\n    BlockingCallRefusedError: ``'wait_on_ui_thread'``.\n"
+    in_process = problems.declared(doc, problems.outcome_classes(), on_the_wire=False)
+    assert in_process[422]['x-outcomes'] == {'BlockingCallRefusedError': ['wait_on_ui_thread']}
 
 
 def test_two_outcome_classes_of_one_name_fail_the_build():

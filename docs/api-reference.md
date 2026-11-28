@@ -6,7 +6,7 @@ Every member and field of the API, rendered from the source: a member is API whe
 
 Every name with a section of its own is imported from `lumascope`, as its heading says: `from lumascope import ScopeSession`.
 
-A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes; a member that raises nothing says so beside its marks. **Outcomes** lists those with the outcomes of the doors the member enters (a hardware lane, a guarded write, a post-processing build's admission), refusals and faults alike; for a member on the wire they are **Outcomes by REST status**, under the HTTP status each answers. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
+A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes; a member that raises nothing says so beside its marks. **Outcomes** lists those with the outcomes of the doors the member enters (a hardware lane, a guarded write, a post-processing build's admission), refusals and faults alike; for a member on the wire they are **Outcomes by REST status**, under the HTTP status each answers, which leaves out what no route can meet (a `BlockingCallRefusedError`: a REST call runs its member on a thread of its own). A request can also be refused by the server before its member runs, a [`ServerRefusedError`](#ServerRefusedError): `invalid_request` (422), arguments that do not fit the member, a NaN or an infinity among them, and the reasons under its entry; no route lists those. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
 
 <a id="to_dict"></a>A **record** crosses the wire as its data, unless its entry says it is in-process only. In the same process every record also answers `to_dict()`, *in-process*, for a caller that takes a dict and not a record, such as MATLAB's `struct()`:
 
@@ -1129,7 +1129,7 @@ active objective changed.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `slot_required`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`CatalogNameRefusedError`](#CatalogNameRefusedError): `objective_not_in_catalog`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `slot_required`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`CatalogNameRefusedError`](#CatalogNameRefusedError): `objective_not_in_catalog`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
@@ -1593,7 +1593,7 @@ raise goes on as it is.
 **Outcomes by REST status**
 
 - 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `turret_objectives_unassigned`, `turret_slot_reassigned`, `turret_slot_ambiguous`, `objective_not_mounted`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `lid_open_mid_move`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `step_position_missing`, `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
+- 422: [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `step_position_missing`, `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_read_failed`, `camera_rejected`, `camera_no_answer`; [`MoveFaultError`](#MoveFaultError): `driver_failed`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
@@ -1748,7 +1748,7 @@ The shown channel now.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -3012,7 +3012,7 @@ The channel's settings as stored once the write is done, the lock's values and t
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`; [`SettingRefusedError`](#SettingRefusedError): `not_offered`, `wrong_kind`, `out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `positions_unreachable`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`; [`SettingRefusedError`](#SettingRefusedError): `not_offered`, `wrong_kind`, `out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `positions_unreachable`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
@@ -3358,7 +3358,7 @@ The shown channel now.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -3586,7 +3586,7 @@ One `Operation` for the moves started, done once every one is.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
@@ -3627,7 +3627,7 @@ The started move, as `MotionAPI.start_move_z` returns it.
 **Outcomes by REST status**
 
 - 409: [`FocusNotSavedError`](#FocusNotSavedError): `focus_not_saved`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
@@ -3876,7 +3876,7 @@ effect as they are written.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`SettingRefusedError`](#SettingRefusedError): `has_member`, `host_only`, `installation_only`, `not_a_setting`, `block`, `wrong_kind`, `out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `gain_range_inverted`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`SettingRefusedError`](#SettingRefusedError): `has_member`, `host_only`, `installation_only`, `not_a_setting`, `block`, `wrong_kind`, `out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `gain_range_inverted`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
@@ -4123,7 +4123,7 @@ The recording's `Operation`: done once its frames, MP4 close and any hyperstack 
 **Outcomes by REST status**
 
 - 409: [`RecordingRefusedError`](#RecordingRefusedError): `recording_active`, `exclusive_activity_running`, `post_processing_running`, `falsifying_change_in_flight`, `other_led_lit`, `camera_holds_another_channel`, `changes_not_in_force`, `capture_location_unusable`, `names_exhausted`, `disk_space_insufficient`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalog`, `none_selected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -5022,7 +5022,7 @@ CameraSettingsInEffect | None: The gain and the exposure now in effect. `None` w
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`, `missing_key`, `not_read`, `not_a_number`, `wrong_kind`, `gain_range_inverted`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`, `missing_key`, `not_read`, `not_a_number`, `wrong_kind`, `gain_range_inverted`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_no_answer`, `camera_read_failed`, `camera_rejected`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -5244,7 +5244,7 @@ that is the answer.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
@@ -5310,7 +5310,6 @@ int: The factor, 1 or more.
 
 **Outcomes by REST status**
 
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -5348,7 +5347,6 @@ float | None: The black level; None when the camera reports none.
 
 **Outcomes by REST status**
 
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -5386,7 +5384,6 @@ tuple[float, float] | None: `(minimum, maximum)`; None when the camera has no bl
 
 **Outcomes by REST status**
 
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -5417,7 +5414,6 @@ float: The exposure.
 
 **Outcomes by REST status**
 
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -5454,7 +5450,6 @@ float | None: Frames per second; None when the camera reports none.
 
 **Outcomes by REST status**
 
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -5485,7 +5480,6 @@ FrameSize: The delivered size, in pixels after binning.
 
 **Outcomes by REST status**
 
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -5516,7 +5510,6 @@ float: The gain.
 
 **Outcomes by REST status**
 
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -5549,7 +5542,6 @@ str: The format.
 
 **Outcomes by REST status**
 
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -5585,7 +5577,7 @@ never had, with nothing written.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_exposure_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_exposure_unsupported`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -5631,7 +5623,7 @@ that channel uses, is `ScopeSession.set_channel_settings`' `auto_gain`.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`, `missing_key`, `not_read`, `not_a_number`, `wrong_kind`, `gain_range_inverted`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`, `missing_key`, `not_read`, `not_a_number`, `wrong_kind`, `gain_range_inverted`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -5673,7 +5665,7 @@ The frame the camera delivers.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `binning_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `binning_unsupported`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
@@ -5715,7 +5707,7 @@ float | None: The black level now in effect, which differs from the request when
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `black_level_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `wrong_kind`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `black_level_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `wrong_kind`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -5758,7 +5750,7 @@ float | None: The exposure in milliseconds now in effect, which differs from the
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `wrong_kind`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `wrong_kind`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -5804,7 +5796,7 @@ The frame the camera delivers: the request, held to the limits, floored to even 
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `wrong_kind`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `wrong_kind`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
@@ -5852,7 +5844,7 @@ float | None: The gain in dB now in effect, which differs from the request when 
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `wrong_kind`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `wrong_kind`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -5887,7 +5879,7 @@ without the mode is its state, and is saved.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `high_conversion_gain_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `high_conversion_gain_unsupported`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
@@ -5923,7 +5915,7 @@ nothing to apply; the mode is saved and bring-up applies it.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
@@ -5955,7 +5947,7 @@ the camera took it, as `set_high_conversion_gain` is.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `line_noise_reduction_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `line_noise_reduction_unsupported`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
@@ -6070,7 +6062,6 @@ CameraLink | None: The link, each field None where the camera does not report it
 
 **Outcomes by REST status**
 
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
@@ -6102,7 +6093,6 @@ dict[str, float] | None: Each sensor's temperature in degC, by the sensor's name
 
 **Outcomes by REST status**
 
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
@@ -6193,7 +6183,7 @@ channel believed lit asks for the controller.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`BoardPortFailedError`](#BoardPortFailedError): `board_port_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -6239,7 +6229,7 @@ The commanded current in mA.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `not_a_number`, `out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `not_a_number`, `out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`
 - 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`BoardPortFailedError`](#BoardPortFailedError): `board_port_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -6289,7 +6279,7 @@ when nothing is believed lit.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`BoardPortFailedError`](#BoardPortFailedError): `board_port_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -6341,7 +6331,7 @@ the addresses they have lit at a positive current.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`ArgumentRefusedError`](#ArgumentRefusedError): `led_address_unknown`, `not_a_number`, `out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`ArgumentRefusedError`](#ArgumentRefusedError): `led_address_unknown`, `not_a_number`, `out_of_range`
 - 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`BoardPortFailedError`](#BoardPortFailedError): `board_port_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -6483,7 +6473,7 @@ as `enable_streaming` is.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
@@ -6520,7 +6510,7 @@ near 11 s on a Pylon body.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraStreamStartFailedError`](#CameraStreamStartFailedError): `camera_stream_start_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -7027,7 +7017,7 @@ One `Operation` for the moves started, done once every one is; its `result()` ra
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `plate_frame_axis`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `plate_frame_axis`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
@@ -7110,7 +7100,7 @@ One `Operation` for the moves started, done once every one is; its `result()` is
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `plate_frame_axis`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `plate_frame_axis`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`
 - 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
@@ -7185,7 +7175,7 @@ Otherwise as `start_move_to_plate` for both axes.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `well_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `well_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
@@ -7356,7 +7346,7 @@ One `Operation` for the axes given, done once every one is; its `result()` raise
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
@@ -7439,7 +7429,7 @@ target is read and refused before either axis drives.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
@@ -7530,7 +7520,7 @@ The move's `Operation`. It is done once Z has been set at rest, or given up, and
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
@@ -7615,7 +7605,7 @@ The move's `Operation`, as `start_move_z`'s.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
@@ -7768,7 +7758,7 @@ other axes keep the threshold their controller gives them.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -7818,7 +7808,7 @@ One `Operation` for the moves started, as `start_move_xy_by`'s.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalog`, `none_selected`; [`PixelSizeUnknownError`](#PixelSizeUnknownError): `binning_unread`, `frame_size_unread`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PixelSizeUnknownError`](#PixelSizeUnknownError): `optics_undeclared`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PixelSizeUnknownError`](#PixelSizeUnknownError): `optics_undeclared`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
@@ -7865,7 +7855,7 @@ The move's `Operation`, as `start_move_z_by`'s.
 **Outcomes by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalog`, `none_selected`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
@@ -11580,7 +11570,7 @@ The run's operation, to wait on or to ignore; its result() is the run's outcome.
 **Outcomes by REST status**
 
 - 409: [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalog`, `none_selected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `no_channel_selected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalog`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `not_on_this_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `no_channel_selected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalog`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `not_on_this_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
@@ -11632,7 +11622,7 @@ The run's operation, to wait on or to ignore; its result() is the run's outcome.
 **Outcomes by REST status**
 
 - 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalog`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `not_on_this_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalog`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `not_on_this_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
@@ -11678,7 +11668,7 @@ The run's operation, to wait on or to ignore; its result() is the run's outcome.
 **Outcomes by REST status**
 
 - 409: [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalog`, `none_selected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalog`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `not_on_this_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalog`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `not_on_this_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
@@ -11721,7 +11711,7 @@ The run's operation. Its result() is the run's outcome -- the status, reason, ti
 **Outcomes by REST status**
 
 - 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalog`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `not_on_this_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalog`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `not_on_this_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
@@ -11767,7 +11757,7 @@ The run's operation. Its result() is the run's outcome -- the status, reason, ti
 **Outcomes by REST status**
 
 - 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalog`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `not_on_this_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalog`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `not_on_this_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
@@ -11834,7 +11824,7 @@ The run's operation, to wait on or to ignore; its result() is the run's outcome.
 **Outcomes by REST status**
 
 - 409: [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalog`, `none_selected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `no_channel_selected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalog`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `not_on_this_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `no_channel_selected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalog`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `not_on_this_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`SessionClosingError`](#SessionClosingError): `session_closing`
 
