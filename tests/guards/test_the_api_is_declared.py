@@ -109,13 +109,15 @@ import pytest
 
 from _lumascope.lib.lumascope_error import LumascopeError
 from _lumascope.modules import wire_encoding
-from _lumascope.modules.api_surface import API, api, entries_of
+from _lumascope.modules.api_surface import API, Admission, api, entries_of
+from _lumascope.modules.image_utils import FILE_FACTS, FactKind
 from tests.api_reference import (
     PRIVATE_PATH,
     REFERENCE,
     REGENERATE,
     OUTCOME_FIELDS,
     WRITE,
+    Declared,
     annotation_text,
     declared,
     entry_key,
@@ -123,7 +125,7 @@ from tests.api_reference import (
     outcome_classes,
     render,
 )
-from tests.ast_seams import RetiredNames, Words
+from tests.ast_seams import REPO_ROOT, RetiredNames, Words, tracked_files
 from tests.marked_set import (
     Marked,
     marked_classes_outside,
@@ -166,9 +168,17 @@ def marked(universe: dict[str, type]) -> dict[str, Marked]:
 
 
 @pytest.fixture(scope='module')
-def rendered(marked: dict[str, Marked], universe: dict[str, type], aliases: dict[str, str]) -> str:
+def sections(
+    marked: dict[str, Marked], universe: dict[str, type], aliases: dict[str, str]
+) -> Declared:
+    """The reference's sections, built now from the marks and the docstrings."""
+    return declared(marked, universe, aliases)
+
+
+@pytest.fixture(scope='module')
+def rendered(sections: Declared) -> str:
     """The reference's text, rendered now from the marks and the docstrings."""
-    return render(declared(marked, universe, aliases))
+    return render(sections)
 
 
 def test_no_marked_name_is_private(marked: dict[str, Marked]) -> None:
@@ -384,6 +394,81 @@ def test_a_closed_value_names_its_member_only_where_it_is_spelled_otherwise(rend
     ]
     assert not repeated, (
         f'closed values naming the member their upper-casing already is: {repeated}'
+    )
+
+
+def _names_the_source_defines() -> set[str]:
+    """Every name a module under ``src/`` defines at its top or in a class body."""
+    found: set[str] = set()
+
+    def walk(body: list[ast.stmt]) -> None:
+        for node in body:
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                found.add(node.name)
+            if isinstance(node, ast.ClassDef):
+                walk(node.body)
+            elif isinstance(node, ast.Assign):
+                found.update(t.id for t in node.targets if isinstance(t, ast.Name))
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                found.add(node.target.id)
+            elif isinstance(node, ast.TypeAlias):
+                found.add(node.name.id)
+            elif isinstance(node, (ast.If, ast.Try)):
+                walk(node.body)
+
+    for path in tracked_files(['src']):
+        walk(ast.parse((REPO_ROOT / path).read_text(encoding='utf-8')).body)
+    return found
+
+
+# The names the reference shows today with no anchor to send its reader to,
+# each a private name or a word from inside the code, which the published
+# docstring rewrites in its own words or the reference comes to anchor. The
+# set only shrinks: a name rewritten away must leave it, and a new one fails.
+_UNANCHORED_TODAY = Words({
+    'AccordionItem', 'CameraNodeHasNoValue', 'CatalogChannel', 'Color', 'ControllerTaking',
+    'FrameValidity', 'HANDLER_BUDGET_MS', 'HANDLER_DROP_K', 'HandOver', 'INTERLOCK_REASONS',
+    'NOT_DELIVERING', 'ORIGINAL_FIRMWARE', 'REFUSED_BEFORE_MOTION', 'SKIP_FRAMES', 'STOP',
+    'SUM_COUNT_RANGE', 'TIMING_MICROSCOPE', 'body', 'clamped', 'close', 'connect',
+    'create_protocol', 'delivered_counts', 'delivered_frame_record', 'encode', 'failed_writes',
+    'grab_record', 'has', 'invalidate', 'is_connected', 'job_ended', 'key', 'load_lvp_settings',
+    'longest_stop_s', 'lost', 'noun', 'objective_short_name', 'pending', 'query',
+    'read_cell_count_image', 'report_outcome', 'reset', 'save_image', 'seconds', 'serve_beside',
+    'set_exception', 'set_result', 'significant_bits_for_format', 'unregister', 'wait',
+})  # fmt: skip
+
+
+def test_every_project_name_the_reference_shows_is_anchored(
+    rendered: str, sections: Declared, marked: dict[str, Marked]
+) -> None:
+    """A backticked bare name the code defines sends a reader looking for it:
+    the reference anchors it, as an entry or a member, or it is a word the
+    entry itself defines, a parameter, a closed value, a reason or a saved
+    file's key. Any other is a name from inside the code the reader cannot
+    look up (``grab_record``, ``HANDLER_BUDGET_MS``)."""
+    anchors = set(_ANCHOR.findall(rendered))
+    words = anchors | {anchor.rsplit('.', 1)[-1] for anchor in anchors}
+    words |= {r for cls in outcome_classes().values() for r in getattr(cls, 'causes', None) or {}}
+    words |= set(FILE_FACTS)
+    words |= {
+        str(said)
+        for closed in (*sections.closed, Admission, FactKind)
+        for member in closed
+        for said in (member.value, member.name)
+    }
+    for item in marked.values():
+        function = None if item.field else member_function(item.value)
+        if function is not None:
+            words |= set(inspect.signature(function).parameters)
+    shown = set(re.findall(r'`([A-Za-z_]\w*)(?:\(\))?`', _FENCE.sub('', rendered)))
+    unanchored = (shown & _names_the_source_defines()) - words
+    assert not unanchored - _UNANCHORED_TODAY, (
+        'the reference shows a name from inside the code with no anchor; say in the published '
+        f'docstring what it is: {sorted(unanchored - _UNANCHORED_TODAY)}'
+    )
+    assert not _UNANCHORED_TODAY - unanchored, (
+        f'these names no longer go unanchored; take them off _UNANCHORED_TODAY: '
+        f'{sorted(_UNANCHORED_TODAY - unanchored)}'
     )
 
 
