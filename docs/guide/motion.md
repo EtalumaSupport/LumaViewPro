@@ -6,7 +6,8 @@ Homing, moves, moves on the plate, stops, interlocks, jogging and the turret.
 
 An axis's position is unknown until it is homed, and
 again after a fault loses it. While any axis of the scope has no position, a
-move of any axis and a run are refused `'position_unknown'`. A position to keep
+move of any axis (`AxisStateUnknownError`) and a run's start
+(`ProtocolRunRefusedError`) are refused `'position_unknown'`. A position to keep
 is refused the same way, but only while one of its own axes has none.
 `axes_without_position` names each axis that has none, and why (`unknown` or
 `homing`). A session starts unhomed; the
@@ -23,8 +24,8 @@ home holds the scope ([The holders](concepts.md#the-holders)), its `holder`
 board can stop a home. On every other, a stop while the home drives is refused (`'home_not_stoppable'`) and the home runs
 to its end.
 
-A home leaves Z at the bottom, the turret on slot 1 and the stage at the middle
-of its travel. With the setting `motion.restore_after_home` on (off as shipped;
+A home leaves each axis where the board's home ends it, and the turret on slot
+1: read `axis_positions` for where, never assume 0. With the setting `motion.restore_after_home` on (off as shipped;
 Advanced Settings' *Restore Focus and Objective After Home*), it then puts the
 turret back on its slot and Z back at its target. Each is put back only when
 its position was known before the home, and nothing is while any axis has none.
@@ -46,7 +47,9 @@ while one of them has no position: a number is never
 answered for a position the controller cannot vouch for.
 
 ```python
-kept = scope.motion.positions_to_keep(('X', 'Y', 'Z'), then='saving a step')
+kept = scope.motion.positions_to_keep(
+    ('X', 'Y', 'Z'), then='save the step'  # ends the refusal: "Home the scope, then save the step."
+)
 print(kept['Z'])
 ```
 
@@ -82,8 +85,8 @@ move X and Y on the selected plate, in plate millimeters
 ```python
 from lumascope import PlateLocation
 
-scope.motion.move_to_well('B2')
-scope.motion.move_to_plate(PlateLocation(x_mm=23.38, y_mm=20.24, z_um=None))
+scope.motion.move_to_well('B2')                # to the well's center
+scope.motion.move_to_plate(at=PlateLocation(x_mm=23.38, y_mm=20.24, z_um=None))
 print(session.plate_position)                 # X, Y in plate mm; Z in um
 ```
 
@@ -167,6 +170,7 @@ has it. `session.start_select_objective` starts that change without
 waiting, the form a REST client calls.
 
 ```python model=LS850T
+# A scope with a turret: the simulated LS850T, simulated=SimulatedScope(model='LS850T').
 session.assign_turret_objective(2, '10x Oly')
 scope.motion.move_turret(2)
 print(scope.motion.turret_status)
