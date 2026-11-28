@@ -13453,7 +13453,7 @@ What *exception* is, as its type says: the one reading of an outcome's kind and 
 
 ## Closed sets
 
-A closed set crosses the wire as its value, and in Python equals its value's string.
+A closed set crosses the wire as its value, and in Python equals its value's string. Each value is listed as it is sent; its Python member is the value upper-cased, or named in parentheses where it is spelled otherwise.
 
 <a id="AcquireMode"></a>
 ### `lumascope.AcquireMode`
@@ -13486,10 +13486,10 @@ FAILED: the camera reported no usable achieved value, so the capture
 The limit states are outcomes, not failures: the frame is saved with
 the achieved values and a run continues.
 
-- `CONVERGED` (`CONVERGED`)
-- `AT_MAXIMUM` (`AT_MAXIMUM`)
-- `AT_MINIMUM` (`AT_MINIMUM`)
-- `FAILED` (`FAILED`)
+- `CONVERGED`
+- `AT_MAXIMUM`
+- `AT_MINIMUM`
+- `FAILED`
 
 <a id="Axis"></a>
 ### `lumascope.Axis`
@@ -13503,10 +13503,10 @@ An axis a motion member names: a stage axis, or the turret, T.
 The turret has a slot, not a position (`TurretStatus`), so a member
 that answers a position takes a `StageAxis`.
 
-- `X` (`X`)
-- `Y` (`Y`)
-- `Z` (`Z`)
-- `T` (`T`)
+- `X`
+- `Y`
+- `Z`
+- `T`
 
 <a id="AxisState"></a>
 ### `lumascope.AxisState`
@@ -13572,9 +13572,9 @@ What one of the camera's auto loops is doing, as the camera reports it.
 ONCE: a one-shot the camera is still running; it turns itself Off when
     done, so it is the one mode that changes without a write.
 
-- `Off` (`OFF`)
-- `Once` (`ONCE`)
-- `Continuous` (`CONTINUOUS`)
+- `Off`
+- `Once`
+- `Continuous`
 
 <a id="CameraReadAnswer"></a>
 ### `lumascope.CameraReadAnswer`
@@ -13710,10 +13710,10 @@ Taken by: [`SimulationAPI.withhold_chunk`](#SimulationAPI.withhold_chunk).
 
 A chunk the simulated camera's frames carry, which a fault can withhold.
 
-- `FrameID` (`FRAMEID`)
-- `Timestamp` (`TIMESTAMP`)
-- `ExposureTime` (`EXPOSURETIME`)
-- `Gain` (`GAIN`)
+- `FrameID`
+- `Timestamp`
+- `ExposureTime`
+- `Gain`
 
 <a id="FrameValiditySource"></a>
 ### `lumascope.FrameValiditySource`
@@ -13791,9 +13791,9 @@ What a home takes: Z, the turret, or every axis the board has.
 
 X and Y home only with the rest.
 
-- `Z` (`Z`)
-- `T` (`T`)
-- `ALL` (`ALL`)
+- `Z`
+- `T`
+- `ALL`
 
 <a id="IdentitySource"></a>
 ### `lumascope.IdentitySource`
@@ -13967,9 +13967,9 @@ can be renamed without a settings migration; the selectors show their
 own labels. `HYPERSTACK` swaps per-step TIFF writes for a post-run
 per-well stack build.
 
-- `TIFF` (`TIFF`)
+- `TIFF`
 - `OME-TIFF` (`OME_TIFF`)
-- `JPG` (`JPG`)
+- `JPG`
 - `OME-TIFF Hyperstack` (`HYPERSTACK`)
 
 <a id="Part"></a>
@@ -14043,14 +14043,14 @@ A post-processing outcome's words lead with its operation, so the
 operations are a closed set: an operation outside it fails where its
 outcome is built.
 
-- `Composite` (`COMPOSITE`)
-- `Stitch` (`STITCH`)
+- `Composite`
+- `Stitch`
 - `Z-Projection` (`Z_PROJECTION`)
-- `Video` (`VIDEO`)
-- `Hyperstack` (`HYPERSTACK`)
+- `Video`
+- `Hyperstack`
 - `Cell Count` (`CELL_COUNT`)
-- `Graphing` (`GRAPHING`)
-- `Trendline` (`TRENDLINE`)
+- `Graphing`
+- `Trendline`
 - `Quick Enhance` (`QUICK_ENHANCE`)
 - `Post-Processing` (`POST_PROCESSING`)
 
@@ -14236,9 +14236,9 @@ name's spelling is exact: `'x'` is not `'X'`, so each axis has one
 spelling in every log and on every wire. Whether this scope has the
 axis is `ScopeCapabilities.axes`.
 
-- `X` (`X`)
-- `Y` (`Y`)
-- `Z` (`Z`)
+- `X`
+- `Y`
+- `Z`
 
 <a id="StitchAlgorithm"></a>
 ### `lumascope.StitchAlgorithm`
@@ -14317,11 +14317,11 @@ Taken by: [`PostProcessingAPI.graph`](#PostProcessingAPI.graph).
 
 The kind of curve a graph's trendline is fitted as.
 
-- `Linear` (`LINEAR`)
-- `Quadratic` (`QUADRATIC`)
-- `Exponential` (`EXPONENTIAL`)
-- `Power` (`POWER`)
-- `Logarithmic` (`LOGARITHMIC`)
+- `Linear`
+- `Quadratic`
+- `Exponential`
+- `Power`
+- `Logarithmic`
 
 <a id="UIMountPoint"></a>
 ### `lumascope.UIMountPoint`
@@ -14386,11 +14386,11 @@ UPPER_CASE spelling in Python (`ZProjectMethod.MAX`). A projection's
 file name and derivation record carry the value lower-cased
 (`zproj_max`).
 
-- `Min` (`MIN`)
-- `Max` (`MAX`)
-- `Average` (`AVERAGE`)
-- `Median` (`MEDIAN`)
-- `Sum` (`SUM`)
+- `Min`
+- `Max`
+- `Average`
+- `Median`
+- `Sum`
 - `StdDev` (`STD_DEV`)
 
 ## Outcomes

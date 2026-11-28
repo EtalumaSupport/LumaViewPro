@@ -372,6 +372,21 @@ def test_every_type_alias_the_reference_names_says_what_it_stands_for(rendered: 
     assert not unsaid, f'the reference names a type alias without what it stands for: {unsaid}'
 
 
+def test_a_closed_value_names_its_member_only_where_it_is_spelled_otherwise(rendered: str) -> None:
+    """The closed sets' preface says a value's Python member is the value
+    upper-cased unless it is named in parentheses: a member named there that
+    is the value upper-cased, `X` (`X`), says nothing."""
+    closed = rendered.split('\n## Closed sets\n', 1)[1].split('\n## Outcomes\n', 1)[0]
+    repeated = [
+        value
+        for value, member in re.findall(r'^- `([^`]+)` \(`([^`]+)`\)$', closed, re.M)
+        if member == value.upper()
+    ]
+    assert not repeated, (
+        f'closed values naming the member their upper-casing already is: {repeated}'
+    )
+
+
 def test_every_parameter_is_described(marked: dict[str, Marked]) -> None:
     undescribed = {}
     for key, item in sorted(marked.items()):

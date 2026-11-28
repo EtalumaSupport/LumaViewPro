@@ -690,7 +690,7 @@ def _closed_set(cls: type[enum.Enum], index: _Index) -> str:
         parts.append(markdown_of(doc))
     parts.append(
         '\n'.join(
-            f'- `{m.value}`' + ('' if m.value == m.name.lower() else f' (`{m.name}`)') for m in cls
+            f'- `{m.value}`' + ('' if m.name == m.value.upper() else f' (`{m.name}`)') for m in cls
         )
     )
     return '\n\n'.join(parts)
@@ -1061,7 +1061,9 @@ def render(sections: Declared) -> str:
     sections += [_class(o, index) for o in classes]
     sections += [_member(i, index) for i in functions]
     sections.append(
-        "## Closed sets\n\nA closed set crosses the wire as its value, and in Python equals its value's string."
+        "## Closed sets\n\nA closed set crosses the wire as its value, and in Python equals its value's string. "
+        'Each value is listed as it is sent; its Python member is the value upper-cased, or named in '
+        'parentheses where it is spelled otherwise.'
     )
     sections += [_closed_set(c, index) for c in closed]
     sections.append(
