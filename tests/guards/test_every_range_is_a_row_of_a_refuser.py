@@ -35,7 +35,7 @@ _LOGIC_RULES = frozenset({settings_paths._log_level, settings_paths._display_col
 
 def _why_not_a_row(rule: object) -> str | None:
     """Why ``rule`` is not a row of a refuser, or None when it is."""
-    if rule in _LOGIC_RULES:
+    if isinstance(rule, functools.partial) and rule.func in _LOGIC_RULES:
         return None
     if not isinstance(rule, functools.partial):
         return f'{getattr(rule, "__name__", rule)!r} is not a partial of a refuser'

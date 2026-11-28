@@ -315,17 +315,19 @@ def _judged(
     path: str,
     value: object,
     *,
+    takes: str,
     limits: tuple[float, float] | None = None,
 ) -> None:
     """Refuse what another owner's ``judge`` refuses, as this setting's refusal.
 
     The judge's own words are kept; ``refused`` is the one exception it
-    raises for a value it does not take.
+    raises for a value it does not take. ``takes`` says what the setting
+    takes, since the judge's row carries no numbers to say it from.
     """
     try:
         judge(value)
     except refused as e:
-        raise SettingRefusedError('out_of_range', path, str(e), limits=limits) from e
+        raise SettingRefusedError('out_of_range', path, str(e), limits=limits, takes=takes) from e
 
 
 def _or_none(rule: typing.Callable[[str, typing.Any], None], path: str, value: object) -> None:
@@ -334,16 +336,15 @@ def _or_none(rule: typing.Callable[[str, typing.Any], None], path: str, value: o
         rule(path, value)
 
 
-def _log_level(path: str, value: str) -> None:
+def _log_level(path: str, value: str, *, takes: str) -> None:
     # A level's name in any case: the reader upper-cases it (Eric, 2026-10-09).
-    levels = logging.getLevelNamesMapping()
-    if value.upper() not in levels:
+    if value.upper() not in logging.getLevelNamesMapping():
         raise SettingRefusedError(
-            'out_of_range', path, f'{value!r} is not a log level: {", ".join(sorted(levels))}'
+            'out_of_range', path, f'it must be {takes}, not {value!r}', takes=takes
         )
 
 
-def _display_color(path: str, value: str | None) -> None:
+def _display_color(path: str, value: str | None, *, takes: str) -> None:
     # None is no override: the channel is shown in its catalogue colour.
     if value is None:
         return
@@ -351,7 +352,7 @@ def _display_color(path: str, value: str | None) -> None:
         parse_display_color(value)
     except ValueError:
         raise SettingRefusedError(
-            'out_of_range', path, f"it must be None or a '#rrggbb' color, not {value!r}"
+            'out_of_range', path, f'it must be {takes}, not {value!r}', takes=takes
         ) from None
 
 
@@ -372,32 +373,51 @@ _COUNT = functools.partial(_refuse_non_count)
 # for any channel, as in ``SETTINGS_WITH_A_MEMBER``. Each rule takes the
 # concrete path and the value. A row is one of the refusers above with its
 # numbers, or another owner's judge through ``_judged``; a rule written for one
-# setting is refused by the guard over this table.
+# setting is refused by the guard over this table. A row whose numbers do not
+# say what it takes -- a judge's, a rule with logic of its own -- says it in
+# its ``takes``, the one statement of its range.
 _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     # A label is arithmetic (a positive square ``NxN``), judged here before
     # bring-up parses it: parsed there, one malformed label dropped the
     # whole file for the shipped template.
     'binning.size': functools.partial(
-        _judged, binning.binning_size_str_to_int, ArgumentRefusedError
+        _judged,
+        binning.binning_size_str_to_int,
+        ArgumentRefusedError,
+        takes="a square label 'NxN', N a whole number of at least 1",
     ),
     'simulator_tier': functools.partial(_refuse_unknown_format, formats=frozenset(SIMULATOR_TIERS)),
     'zstack.position': functools.partial(_refuse_unless_member, closed_set=ZStackReference),
     'image_mode': functools.partial(_refuse_unless_member, closed_set=ImageMode),
-    'logging.default.level': _log_level,
+    'logging.default.level': functools.partial(
+        _log_level,
+        takes=f'a log level, in any case: {", ".join(sorted(logging.getLevelNamesMapping()))}',
+    ),
     'motion.acceleration_max_pct': functools.partial(
         _judged,
         refuse_acceleration_pct,
         ArgumentRefusedError,
+        takes=f'a whole number between {ACCELERATION_PCT_MIN} and {ACCELERATION_PCT_MAX}',
         limits=(ACCELERATION_PCT_MIN, ACCELERATION_PCT_MAX),
     ),
     'protocol.period': functools.partial(
-        _judged, functools.partial(schedule_from_units, 'period'), ProtocolScheduleRefusedError
+        _judged,
+        functools.partial(schedule_from_units, 'period'),
+        ProtocolScheduleRefusedError,
+        takes='0 (one scan) or at least one second',
     ),
     'protocol.duration': functools.partial(
-        _judged, functools.partial(schedule_from_units, 'duration'), ProtocolScheduleRefusedError
+        _judged,
+        functools.partial(schedule_from_units, 'duration'),
+        ProtocolScheduleRefusedError,
+        takes='0 (one scan) or more',
     ),
     'tiling_overlap_percent': functools.partial(
-        _judged, TilingGrids.validate_overlap_percent, ValueError, limits=OVERLAP_PERCENT_RANGE
+        _judged,
+        TilingGrids.validate_overlap_percent,
+        ValueError,
+        takes=f'between {OVERLAP_PERCENT_RANGE[0]:g} and {OVERLAP_PERCENT_RANGE[1]:g}',
+        limits=OVERLAP_PERCENT_RANGE,
     ),
     'image_output_format.live': functools.partial(
         _refuse_unless_member, closed_set=OutputFormat, within=LIVE_OUTPUT_FORMATS
@@ -448,7 +468,7 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
         _refuse_outside, limits=STIM_PULSE_COUNT_RANGE, count=True
     ),
     '*.stim_config.illumination_ma': _NON_NEGATIVE,
-    '*.display_color': _display_color,
+    '*.display_color': functools.partial(_display_color, takes="None or a '#rrggbb' color"),
 }
 
 
