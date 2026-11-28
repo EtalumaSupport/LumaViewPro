@@ -165,6 +165,9 @@ Each outcome class is of one kind:
 | notice | Nothing failed and nothing was refused, but you should know: a value set at the hardware's limit, a move someone stopped. |
 | quiet | An expected answer that needs no report: a wait that ran out. |
 
+In Python each kind is a base class to catch (`Refusal`, `Fault`, `Notice`,
+`Quiet`); over REST it is the problem's `kind`.
+
 ### Reasons and causes
 
 Every outcome carries a `reason`, the code your
@@ -214,9 +217,9 @@ entered, so no member lists them:
 A number that is not finite -- NaN or an infinity -- is refused by the member
 that takes it, `ArgumentRefusedError` (`'not_a_number'`; a setting written by
 path, `SettingRefusedError` with the same reason), and its `Raises:` lists it.
-A number outside its fixed rule is `'out_of_range'` at either door, with
-`limits` when the rule has both ends. Over REST it is refused
-before the member runs (`'invalid_request'`).
+Over REST a number that is not finite is refused before the member runs
+(`'invalid_request'`). A number outside its fixed rule is `'out_of_range'` at
+either door, with `limits` when the rule has both ends.
 
 ```python raises=ArgumentTypeRefusedError:wrong_argument_type
 scope.motion.move_z('5000')                 # a str where a float is declared
@@ -390,7 +393,8 @@ session: in Python it is made outside the block, and over REST a stop or a
 read carrying an ended session's id is answered. The person at the scope
 can take it back without the id (`take_back_control`, in-process only).
 
-`take_control` itself is refused while anything of anyone else's is under way:
+`take_control` itself is refused, `ControlSessionRefusedError`, while anything
+of anyone else's is under way:
 another session (`'control_session_held'`), work holding the scope
 (`'exclusive_activity_running'`), a setting or file being written
 (`'write_in_flight'`), or work that has let the scope go still finishing, in
