@@ -150,7 +150,10 @@ capability has one route.
   [reference](../api-reference.md) entry and its route's body in `/docs`:
   `move_to_well(well)` is `{"well": "B2"}`.
 - **A body carries only the keys its record names.** A key it does not name,
-  in a nested record too, is refused `422` `invalid_request`. A record is one
+  in a nested record too, is refused `422` `invalid_request`. A key the
+  record defaults may be left out and takes that default, as its field's
+  `= value` in the [reference](../api-reference.md) shows; leaving out any
+  other is refused the same way. A record is one
   schema in the OpenAPI description, whether it is sent or answered, and an
   answer is open: a record may gain a key in a later release. So send a
   record back built from its schema, not as the answer it came in.

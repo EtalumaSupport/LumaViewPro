@@ -18,7 +18,7 @@ A member's doors are named beside its marks (`enters:`):
 - `guarded_write`: a setting or a file written; refused while another client holds the control session, or once the session is closing.
 - `post_processing`: a build on the post-processing lane; refused while the scope's work needs the host, or with no room to write.
 
-<a id="to_dict"></a>A **record** crosses the wire as its data, unless its entry says it is in-process only. In the same process every record also answers `to_dict()`, *in-process*, for a caller that takes a dict and not a record, such as MATLAB's `struct()`:
+<a id="to_dict"></a>A **record** crosses the wire as its data, unless its entry says it is in-process only. A field shown with `= value` takes that value when it is left out, by a Python maker and in a wire body alike, and one shown with `= ...` a value the record makes as it is built, as its description says; every other field is required. In the same process every record also answers `to_dict()`, *in-process*, for a caller that takes a dict and not a record, such as MATLAB's `struct()`:
 
 This record's fields as a dict of plain Python data: a nested record a dict, an enum its string, a sequence a list.
 
@@ -9397,12 +9397,12 @@ The result of locking an auto-gain arm.
 
 **Fields**
 
-- <a id="AutoGainLock.ceiling_ms"></a>`ceiling_ms`: `float | None` -- The exposure ceiling the camera was armed with, in ms, the arm's `max_exposure_ms` within the camera's range; None when the arm had none.
-- <a id="AutoGainLock.exposure_ms"></a>`exposure_ms`: `float | None` -- The exposure the auto loop reached, in ms, written back as the manual exposure; None when `state` is None or `FAILED`.
-- <a id="AutoGainLock.gain_db"></a>`gain_db`: `float | None` -- The gain the auto loop reached, in dB, written back as the manual gain; None exactly when `exposure_ms` is.
-- <a id="AutoGainLock.settings"></a>`settings`: `AutoGainSettings | None` -- The auto-gain settings the arm was armed with, used to re-arm it; None when no arm was recorded.
+- <a id="AutoGainLock.ceiling_ms"></a>`ceiling_ms`: `float | None = None` -- The exposure ceiling the camera was armed with, in ms, the arm's `max_exposure_ms` within the camera's range; None when the arm had none.
+- <a id="AutoGainLock.exposure_ms"></a>`exposure_ms`: `float | None = None` -- The exposure the auto loop reached, in ms, written back as the manual exposure; None when `state` is None or `FAILED`.
+- <a id="AutoGainLock.gain_db"></a>`gain_db`: `float | None = None` -- The gain the auto loop reached, in dB, written back as the manual gain; None exactly when `exposure_ms` is.
+- <a id="AutoGainLock.settings"></a>`settings`: `AutoGainSettings | None = None` -- The auto-gain settings the arm was armed with, used to re-arm it; None when no arm was recorded.
 - <a id="AutoGainLock.state"></a>`state`: `AutoGainConvergence | None` -- Where the arm landed; None when no arm was recorded, so nothing was locked and nothing was written to the camera.
-- <a id="AutoGainLock.stored_exposure_ms"></a>`stored_exposure_ms`: `float | None` -- The exposure a caller stores as the channel's manual setting after the lock: `exposure_ms` raised to the arm's `min_exposure_ms`. The loop can drive the camera below that floor on a bright scene, and a setting stored that low makes near-black captures of ordinary scenes, so the store keeps the floor while `exposure_ms` keeps what the camera reached. None when `exposure_ms` is.
+- <a id="AutoGainLock.stored_exposure_ms"></a>`stored_exposure_ms`: `float | None = None` -- The exposure a caller stores as the channel's manual setting after the lock: `exposure_ms` raised to the arm's `min_exposure_ms`. The loop can drive the camera below that floor on a bright scene, and a setting stored that low makes near-black captures of ordinary scenes, so the store keeps the floor while `exposure_ms` keeps what the camera reached. None when `exposure_ms` is.
 
 <a id="AutoGainSettings"></a>
 ## `lumascope.AutoGainSettings`
@@ -9419,9 +9419,9 @@ is a time above 0, None for no bound.
 
 **Fields**
 
-- <a id="AutoGainSettings.max_exposure_ms"></a>`max_exposure_ms`: `float | None` -- The longest exposure the loop may set, in ms; None for the camera's own longest.
+- <a id="AutoGainSettings.max_exposure_ms"></a>`max_exposure_ms`: `float | None = None` -- The longest exposure the loop may set, in ms; None for the camera's own longest.
 - <a id="AutoGainSettings.max_gain_db"></a>`max_gain_db`: `float` -- The highest gain the loop may set, in dB, at least `min_gain_db`.
-- <a id="AutoGainSettings.min_exposure_ms"></a>`min_exposure_ms`: `float | None` -- The exposure at or below which a lock is `AT_MINIMUM`, in ms; None for no floor.
+- <a id="AutoGainSettings.min_exposure_ms"></a>`min_exposure_ms`: `float | None = None` -- The exposure at or below which a lock is `AT_MINIMUM`, in ms; None for no floor.
 - <a id="AutoGainSettings.min_gain_db"></a>`min_gain_db`: `float` -- The lowest gain the loop may set, in dB.
 - <a id="AutoGainSettings.target_brightness"></a>`target_brightness`: `float` -- The brightness the loop drives the frame to, a fraction of full scale.
 
@@ -9470,8 +9470,8 @@ What bring-up found, substituted and set aside.
 **Fields**
 
 - <a id="BringUpRecord.parts"></a>`parts`: `tuple[PartStatus, ...]` -- Each part bring-up looked for, and whether it came up.
-- <a id="BringUpRecord.settings_set_aside"></a>`settings_set_aside`: `SettingsSetAside | None` -- The user's settings file that could not be used, and why; None when it was used.
-- <a id="BringUpRecord.substitutions"></a>`substitutions`: `tuple[Substitution, ...]` -- Each saved setting the camera could not take, with what ran in its place; empty when none was substituted.
+- <a id="BringUpRecord.settings_set_aside"></a>`settings_set_aside`: `SettingsSetAside | None = None` -- The user's settings file that could not be used, and why; None when it was used.
+- <a id="BringUpRecord.substitutions"></a>`substitutions`: `tuple[Substitution, ...] = ()` -- Each saved setting the camera could not take, with what ran in its place; empty when none was substituted.
 
 <a id="BringUpRecord.missing"></a>
 ### `BringUpRecord.missing`
@@ -9674,12 +9674,12 @@ Which regions a count keeps, each bound checked as the filters are built.
 
 **Fields**
 
-- <a id="CellCountFilters.area_um2"></a>`area_um2`: `FilterBounds` -- A region's area, in square microns.
-- <a id="CellCountFilters.intensity_max_pct"></a>`intensity_max_pct`: `FilterBounds` -- A region's brightest pixel, in percent of full scale.
-- <a id="CellCountFilters.intensity_mean_pct"></a>`intensity_mean_pct`: `FilterBounds` -- A region's mean pixel, in percent of full scale.
-- <a id="CellCountFilters.intensity_min_pct"></a>`intensity_min_pct`: `FilterBounds` -- A region's darkest pixel, in percent of full scale.
-- <a id="CellCountFilters.perimeter_um"></a>`perimeter_um`: `FilterBounds` -- A region's perimeter, in microns.
-- <a id="CellCountFilters.sphericity"></a>`sphericity`: `FilterBounds` -- From 0 to 1.
+- <a id="CellCountFilters.area_um2"></a>`area_um2`: `FilterBounds = FilterBounds()` -- A region's area, in square microns.
+- <a id="CellCountFilters.intensity_max_pct"></a>`intensity_max_pct`: `FilterBounds = FilterBounds(min=0, max=100)` -- A region's brightest pixel, in percent of full scale.
+- <a id="CellCountFilters.intensity_mean_pct"></a>`intensity_mean_pct`: `FilterBounds = FilterBounds(min=0, max=100)` -- A region's mean pixel, in percent of full scale.
+- <a id="CellCountFilters.intensity_min_pct"></a>`intensity_min_pct`: `FilterBounds = FilterBounds(min=0, max=100)` -- A region's darkest pixel, in percent of full scale.
+- <a id="CellCountFilters.perimeter_um"></a>`perimeter_um`: `FilterBounds = FilterBounds()` -- A region's perimeter, in microns.
+- <a id="CellCountFilters.sphericity"></a>`sphericity`: `FilterBounds = FilterBounds(min=0.0, max=1.0)` -- From 0 to 1.
 
 <a id="CellCountImage"></a>
 ## `lumascope.CellCountImage`
@@ -9715,10 +9715,10 @@ size filter, so an image that states none is counted in pixels.
 
 **Fields**
 
-- <a id="CellCountMethod.filters"></a>`filters`: `CellCountFilters` -- Which regions are kept.
-- <a id="CellCountMethod.fluorescent_mode"></a>`fluorescent_mode`: `bool` -- Bright cells on a dark field; False inverts the image first.
-- <a id="CellCountMethod.pixels_per_um"></a>`pixels_per_um`: `float | None` -- The scale every image is counted at, in camera pixels per micron; None counts each image at its own scale.
-- <a id="CellCountMethod.threshold_pct"></a>`threshold_pct`: `float` -- The brightness that separates a cell from the field, in percent of full scale.
+- <a id="CellCountMethod.filters"></a>`filters`: `CellCountFilters = CellCountFilters()` -- Which regions are kept.
+- <a id="CellCountMethod.fluorescent_mode"></a>`fluorescent_mode`: `bool = True` -- Bright cells on a dark field; False inverts the image first.
+- <a id="CellCountMethod.pixels_per_um"></a>`pixels_per_um`: `float | None = None` -- The scale every image is counted at, in camera pixels per micron; None counts each image at its own scale.
+- <a id="CellCountMethod.threshold_pct"></a>`threshold_pct`: `float = 20` -- The brightness that separates a cell from the field, in percent of full scale.
 
 <a id="CellCountPreview"></a>
 ## `lumascope.CellCountPreview`
@@ -9796,7 +9796,7 @@ long after the change its frame came.
 - <a id="Change.at_seq"></a>`at_seq`: `int` -- The last frame the camera's driver had been handed when the change was recorded, a frame still in a host queue included; for a move, once in force, when its stop was stamped. A frame already in the camera's pipeline when the register was written cannot show the new state, so crediting it would retire the skip count against frames that predate the change -- and the capture then returns a frame from before the write. An ordinal rather than a clock reading, because the comparison has to survive the clock moving: wall time runs backwards across a DST fall-back, an NTP correction or a host resume, and a settle count measured against a timestamp that jumped forward never completes. Frame numbers only go up.
 - <a id="Change.credits"></a>`credits`: `tuple[Credit, ...]` -- The frames counted toward it, in the order counted, until its rule's `skip` was met.
 - <a id="Change.earliest_ns"></a>`earliest_ns`: `int` -- The scope's steady clock (`ScopeSession.host_steady_ns`) of the earliest moment the change could have reached the hardware: a write's start, as its writer stamped it, since the register may change anywhere inside the write; for a move, once in force, the start of the last read that saw its axis still moving, else `written_ns`. A lag measured from here is never short.
-- <a id="Change.ended_seq"></a>`ended_seq`: `int | None` -- The last frame the camera's driver had been handed when what the change waits for ended before its count was met: turning the auto-gain loop off ends the settle its arm recorded, since there is no loop left to settle. None while it has not ended.
+- <a id="Change.ended_seq"></a>`ended_seq`: `int | None = None` -- The last frame the camera's driver had been handed when what the change waits for ended before its count was met: turning the auto-gain loop off ends the settle its arm recorded, since there is no loop left to settle. None while it has not ended.
 - <a id="Change.in_force_ns"></a>`in_force_ns`: `int | None` -- The scope's steady clock (`ScopeSession.host_steady_ns`) when the axis state the settle check reads became settled, stamped by the motion API; None until then, and for a change that does not wait on an axis.
 - <a id="Change.needs_in_force"></a>`needs_in_force`: `bool` -- A motion source the axis must also settle for: the frame count alone does not end its wait.
 - <a id="Change.rule"></a>`rule`: `FrameRule` -- Its source's count and where it came from, as they stood when the change was recorded.
@@ -9860,22 +9860,22 @@ step cannot supply it, and for every field the row has no column for
 **Fields**
 
 - <a id="ChannelSettings.acquire"></a>`acquire`: `AcquireMode | None` -- What the channel captures; None, nothing.
-- <a id="ChannelSettings.auto_gain"></a>`auto_gain`: `bool | None` -- The camera's auto-gain is on.
-- <a id="ChannelSettings.autofocus"></a>`autofocus`: `bool | None` -- A step of the channel autofocuses.
-- <a id="ChannelSettings.composite_brightness_threshold_pct"></a>`composite_brightness_threshold_pct`: `float | None` -- The brightness, as a percentage of full scale, below which the channel's pixels add nothing to a composite.
-- <a id="ChannelSettings.display_color"></a>`display_color`: `str | None` -- The user's override of the channel's color, as `'#rrggbb'`; None, no override, so the channel is shown in the unit's color, else the release's (`ScopeSession.channel_colors`).
-- <a id="ChannelSettings.exposure_ms"></a>`exposure_ms`: `float | None` -- The camera exposure, in ms.
-- <a id="ChannelSettings.false_color"></a>`false_color`: `bool | None` -- The channel's image is false-colored.
-- <a id="ChannelSettings.focus_z_um"></a>`focus_z_um`: `float | None` -- The Z saved as the channel's focus, in micrometers.
-- <a id="ChannelSettings.frames_summed"></a>`frames_summed`: `int | None` -- How many frames a capture sums.
-- <a id="ChannelSettings.gain_db"></a>`gain_db`: `float | None` -- The camera gain, in dB.
-- <a id="ChannelSettings.illumination_ma"></a>`illumination_ma`: `float | None` -- The LED current, in mA.
-- <a id="ChannelSettings.stim_enabled"></a>`stim_enabled`: `bool | None` -- The channel stimulates.
-- <a id="ChannelSettings.stim_frequency_hz"></a>`stim_frequency_hz`: `float | None` -- The stimulation's pulse rate, in Hz.
-- <a id="ChannelSettings.stim_illumination_ma"></a>`stim_illumination_ma`: `float | None` -- The stimulation's LED current, in mA.
-- <a id="ChannelSettings.stim_pulse_count"></a>`stim_pulse_count`: `int | None` -- How many pulses a stimulation gives.
-- <a id="ChannelSettings.stim_pulse_width_ms"></a>`stim_pulse_width_ms`: `float | None` -- Each stimulation pulse's length, in ms.
-- <a id="ChannelSettings.video_duration_s"></a>`video_duration_s`: `float | None` -- How long a video step of the channel records, in s.
+- <a id="ChannelSettings.auto_gain"></a>`auto_gain`: `bool | None = None` -- The camera's auto-gain is on.
+- <a id="ChannelSettings.autofocus"></a>`autofocus`: `bool | None = None` -- A step of the channel autofocuses.
+- <a id="ChannelSettings.composite_brightness_threshold_pct"></a>`composite_brightness_threshold_pct`: `float | None = None` -- The brightness, as a percentage of full scale, below which the channel's pixels add nothing to a composite.
+- <a id="ChannelSettings.display_color"></a>`display_color`: `str | None = None` -- The user's override of the channel's color, as `'#rrggbb'`; None, no override, so the channel is shown in the unit's color, else the release's (`ScopeSession.channel_colors`).
+- <a id="ChannelSettings.exposure_ms"></a>`exposure_ms`: `float | None = None` -- The camera exposure, in ms.
+- <a id="ChannelSettings.false_color"></a>`false_color`: `bool | None = None` -- The channel's image is false-colored.
+- <a id="ChannelSettings.focus_z_um"></a>`focus_z_um`: `float | None = None` -- The Z saved as the channel's focus, in micrometers.
+- <a id="ChannelSettings.frames_summed"></a>`frames_summed`: `int | None = None` -- How many frames a capture sums.
+- <a id="ChannelSettings.gain_db"></a>`gain_db`: `float | None = None` -- The camera gain, in dB.
+- <a id="ChannelSettings.illumination_ma"></a>`illumination_ma`: `float | None = None` -- The LED current, in mA.
+- <a id="ChannelSettings.stim_enabled"></a>`stim_enabled`: `bool | None = None` -- The channel stimulates.
+- <a id="ChannelSettings.stim_frequency_hz"></a>`stim_frequency_hz`: `float | None = None` -- The stimulation's pulse rate, in Hz.
+- <a id="ChannelSettings.stim_illumination_ma"></a>`stim_illumination_ma`: `float | None = None` -- The stimulation's LED current, in mA.
+- <a id="ChannelSettings.stim_pulse_count"></a>`stim_pulse_count`: `int | None = None` -- How many pulses a stimulation gives.
+- <a id="ChannelSettings.stim_pulse_width_ms"></a>`stim_pulse_width_ms`: `float | None = None` -- Each stimulation pulse's length, in ms.
+- <a id="ChannelSettings.video_duration_s"></a>`video_duration_s`: `float | None = None` -- How long a video step of the channel records, in s.
 
 <a id="ChannelSliderMaxima"></a>
 ## `lumascope.ChannelSliderMaxima`
@@ -10075,7 +10075,7 @@ raised is two failures.
 **Fields**
 
 - <a id="DisconnectFailure.board"></a>`board`: `Board` -- The board.
-- <a id="DisconnectFailure.reason"></a>`reason`: `str | None` -- The failed step's reason; None for an error that carries none.
+- <a id="DisconnectFailure.reason"></a>`reason`: `str | None = None` -- The failed step's reason; None for an error that carries none.
 - <a id="DisconnectFailure.step"></a>`step`: `DisconnectStep` -- What failed on it.
 
 <a id="DrawingGpu"></a>
@@ -10190,8 +10190,8 @@ One filter's bounds: a region outside them is not counted.
 
 **Fields**
 
-- <a id="FilterBounds.max"></a>`max`: `float | None` -- The highest value kept; None is no upper bound.
-- <a id="FilterBounds.min"></a>`min`: `float | None` -- The lowest value kept; None is no lower bound.
+- <a id="FilterBounds.max"></a>`max`: `float | None = None` -- The highest value kept; None is no upper bound.
+- <a id="FilterBounds.min"></a>`min`: `float | None = None` -- The lowest value kept; None is no lower bound.
 
 <a id="FocusFailure"></a>
 ## `lumascope.FocusFailure`
@@ -10765,9 +10765,9 @@ address its `address`; every other part carries none.
 
 **Fields**
 
-- <a id="MissingPart.address"></a>`address`: `int | None` -- The LED board address, as the command named it, for `Part.LED_ADDRESS`; None for every other part.
-- <a id="MissingPart.axis"></a>`axis`: `StageAxis | None` -- The stage axis, for `Part.AXIS`; None for every other part.
-- <a id="MissingPart.channel"></a>`channel`: `str | None` -- The channel, as the command named it, for `Part.CHANNEL` and `Part.CHANNEL_LED`; None for every other part.
+- <a id="MissingPart.address"></a>`address`: `int | None = None` -- The LED board address, as the command named it, for `Part.LED_ADDRESS`; None for every other part.
+- <a id="MissingPart.axis"></a>`axis`: `StageAxis | None = None` -- The stage axis, for `Part.AXIS`; None for every other part.
+- <a id="MissingPart.channel"></a>`channel`: `str | None = None` -- The channel, as the command named it, for `Part.CHANNEL` and `Part.CHANNEL_LED`; None for every other part.
 - <a id="MissingPart.part"></a>`part`: `Part` -- The part.
 
 <a id="MotorBoardInfo"></a>
@@ -10822,19 +10822,19 @@ them all.
 **Fields**
 
 - <a id="Notification.category"></a>`category`: `str` -- The part of the instrument it is about, such as `'Motor'`, `'Camera'`, `'FileIO'` or `'Protocol'`.
-- <a id="Notification.cause"></a>`cause`: `RefusalCause | None` -- Whether the same request could succeed later: the outcome type's cause for its reason, None where its type declares none (a fault among them), and None for a post made with no outcome behind it.
-- <a id="Notification.fatal"></a>`fatal`: `bool` -- True for a fault that ended its operation: it reaches a person even while an unattended run mutes the others.
-- <a id="Notification.kind"></a>`kind`: `OutcomeKind` -- What the outcome is, read from its type; `UNCLASSIFIED` for a post made with no outcome behind it.
+- <a id="Notification.cause"></a>`cause`: `RefusalCause | None = None` -- Whether the same request could succeed later: the outcome type's cause for its reason, None where its type declares none (a fault among them), and None for a post made with no outcome behind it.
+- <a id="Notification.fatal"></a>`fatal`: `bool = False` -- True for a fault that ended its operation: it reaches a person even while an unattended run mutes the others.
+- <a id="Notification.kind"></a>`kind`: `OutcomeKind = OutcomeKind.UNCLASSIFIED` -- What the outcome is, read from its type; `UNCLASSIFIED` for a post made with no outcome behind it.
 - <a id="Notification.message"></a>`message`: `str` -- The words a person reads.
-- <a id="Notification.monotonic_s"></a>`monotonic_s`: `float` -- When it was posted, on this process's monotonic clock, in seconds: the order of two notifications within one process.
-- <a id="Notification.operation_key"></a>`operation_key`: `str` -- The piece of work it is one of a sequence about, a starting notice and the notice that answers it, so a display can replace the earlier one; empty for a notification on its own.
-- <a id="Notification.outcome_id"></a>`outcome_id`: `int` -- The outcome's number: the same for both deliveries of one outcome (muted, then shown when a person asks for it), different for every other.
-- <a id="Notification.reason"></a>`reason`: `str` -- The outcome's machine-readable code, read from its type; empty for a post that declares none.
-- <a id="Notification.remedy"></a>`remedy`: `Remedy | None` -- The action that answers the outcome, offered to a person; None when it has none.
-- <a id="Notification.shown"></a>`shown`: `bool` -- Whether it is for display now; False when shutdown, an unattended run's mute, a run that already showed it, or the repeat window holds it back. The window never holds back a post a run tells once, such as its ending.
-- <a id="Notification.solicited"></a>`solicited`: `bool` -- True when it answers a request just made, a refused press or call, so neither the unattended mute nor the repeat window holds it back.
+- <a id="Notification.monotonic_s"></a>`monotonic_s`: `float = ...` -- When it was posted, on this process's monotonic clock, in seconds: the order of two notifications within one process.
+- <a id="Notification.operation_key"></a>`operation_key`: `str = ''` -- The piece of work it is one of a sequence about, a starting notice and the notice that answers it, so a display can replace the earlier one; empty for a notification on its own.
+- <a id="Notification.outcome_id"></a>`outcome_id`: `int = ...` -- The outcome's number: the same for both deliveries of one outcome (muted, then shown when a person asks for it), different for every other.
+- <a id="Notification.reason"></a>`reason`: `str = ''` -- The outcome's machine-readable code, read from its type; empty for a post that declares none.
+- <a id="Notification.remedy"></a>`remedy`: `Remedy | None = None` -- The action that answers the outcome, offered to a person; None when it has none.
+- <a id="Notification.shown"></a>`shown`: `bool = True` -- Whether it is for display now; False when shutdown, an unattended run's mute, a run that already showed it, or the repeat window holds it back. The window never holds back a post a run tells once, such as its ending.
+- <a id="Notification.solicited"></a>`solicited`: `bool = False` -- True when it answers a request just made, a refused press or call, so neither the unattended mute nor the repeat window holds it back.
 - <a id="Notification.title"></a>`title`: `str` -- The short heading a person reads.
-- <a id="Notification.wall_time_epoch_s"></a>`wall_time_epoch_s`: `float` -- When it was posted, in seconds since the epoch, for a client in another process.
+- <a id="Notification.wall_time_epoch_s"></a>`wall_time_epoch_s`: `float = ...` -- When it was posted, in seconds since the epoch, for a client in another process.
 
 <a id="Objective"></a>
 ## `lumascope.Objective`
@@ -10852,7 +10852,7 @@ One objective of the installation's catalog, read once at bring-up.
 - <a id="Objective.depth_of_field_um"></a>`depth_of_field_um`: `float` -- The objective's depth of field, in um; the simulated camera's focus falls off by it.
 - <a id="Objective.description"></a>`description`: `str` -- The objective's full name, for a person to read (`'1.25x Plan Apochromat Olympus'`).
 - <a id="Objective.focal_length_mm"></a>`focal_length_mm`: `float` -- The objective's focal length, in mm; with the tube lens's, it sets the size of an image's pixel.
-- <a id="Objective.focus_peak_fwhm_dense_um"></a>`focus_peak_fwhm_dense_um`: `float | None` -- The objective's measured focus-peak width (full width at half maximum), in um; None until it has been measured.
+- <a id="Objective.focus_peak_fwhm_dense_um"></a>`focus_peak_fwhm_dense_um`: `float | None = None` -- The objective's measured focus-peak width (full width at half maximum), in um; None until it has been measured.
 - <a id="Objective.id"></a>`id`: `str` -- The catalog key, the objective's one identity everywhere in the program.
 - <a id="Objective.jog_xy_coarse_um"></a>`jog_xy_coarse_um`: `float` -- The distance, in um, a coarse X or Y jog moves.
 - <a id="Objective.jog_xy_fine_um"></a>`jog_xy_fine_um`: `float` -- The distance, in um, a fine X or Y jog moves.
@@ -11066,7 +11066,7 @@ What an exception's type says it is, read once for every host that answers it.
 
 **Fields**
 
-- <a id="Outcome.cause"></a>`cause`: `RefusalCause | None` -- Whether the same request could succeed later, as a refusal's, a quiet outcome's or a raised notice's type declares (`RefusalCause`); None for a fault, a notice that is only reported, and a by-contract cancel, which declares none.
+- <a id="Outcome.cause"></a>`cause`: `RefusalCause | None = None` -- Whether the same request could succeed later, as a refusal's, a quiet outcome's or a raised notice's type declares (`RefusalCause`); None for a fault, a notice that is only reported, and a by-contract cancel, which declares none.
 - <a id="Outcome.fatal"></a>`fatal`: `bool` -- A fault that ends what was running.
 - <a id="Outcome.for_person"></a>`for_person`: `bool` -- Whether `words` are written for the person: a refusal's, a notice's, a quiet outcome's, and a fault's whose type writes them so. Any other fault's are a developer's.
 - <a id="Outcome.kind"></a>`kind`: `OutcomeKind` -- A refusal, a notice, a quiet outcome or a fault.
@@ -11087,11 +11087,11 @@ One part of the scope at bring-up.
 
 **Fields**
 
-- <a id="PartStatus.detail"></a>`detail`: `str` -- The driver's or the error's own words, for the log and the record, each problem's joined with "; "; empty when there are none.
-- <a id="PartStatus.expected"></a>`expected`: `bool` -- Whether this scope's model has one. A manual scope has no motor board, so its absence is not a failure; until the model is known every part is expected.
+- <a id="PartStatus.detail"></a>`detail`: `str = ''` -- The driver's or the error's own words, for the log and the record, each problem's joined with "; "; empty when there are none.
+- <a id="PartStatus.expected"></a>`expected`: `bool = True` -- Whether this scope's model has one. A manual scope has no motor board, so its absence is not a failure; until the model is known every part is expected.
 - <a id="PartStatus.part"></a>`part`: `Board` -- Which board.
-- <a id="PartStatus.reason"></a>`reason`: `PartReason | None` -- Why it is not up; or, on a part that is up, a problem it met coming up (the LED board's safety LEDs-off not confirmed; the camera's stream that did not start, which a later start that succeeds does not clear, a setting it did not take, or its leaving, the camera keeping the one of these a person acts on first; the motor controller's stored acceleration limit not taken). None when nothing is wrong.
-- <a id="PartStatus.remedy"></a>`remedy`: `Remedy | None` -- The action LumaViewPro can take for the part, the one the notice of its reason offered, taken through `ScopeSession.apply_remedy` by its `member`: Repair for a camera on `camera_driver_unusable` where this installation can run it. None when there is none.
+- <a id="PartStatus.reason"></a>`reason`: `PartReason | None = None` -- Why it is not up; or, on a part that is up, a problem it met coming up (the LED board's safety LEDs-off not confirmed; the camera's stream that did not start, which a later start that succeeds does not clear, a setting it did not take, or its leaving, the camera keeping the one of these a person acts on first; the motor controller's stored acceleration limit not taken). None when nothing is wrong.
+- <a id="PartStatus.remedy"></a>`remedy`: `Remedy | None = None` -- The action LumaViewPro can take for the part, the one the notice of its reason offered, taken through `ScopeSession.apply_remedy` by its `member`: Repair for a camera on `camera_driver_unusable` where this installation can run it. None when there is none.
 - <a id="PartStatus.up"></a>`up`: `bool` -- Whether a real driver came up for it.
 
 <a id="PlateLocation"></a>
@@ -11202,13 +11202,13 @@ Declarative metadata a plugin presents at registration time.
 
 **Fields**
 
-- <a id="PluginSpec.author"></a>`author`: `str` -- Its author.
-- <a id="PluginSpec.auto_run_on_protocol_complete"></a>`auto_run_on_protocol_complete`: `bool` -- For a post-processing plugin, True hands its processor the folder of every Full Protocol run, whoever started it, once its files are on disk and its hyperstack build has ended.
-- <a id="PluginSpec.capabilities"></a>`capabilities`: `tuple[str, ...]` -- The API surfaces it uses, as dotted paths (`'scope.imaging'`). A declaration, not a sandbox: the tech-support report and diagnostic probes record it.
+- <a id="PluginSpec.author"></a>`author`: `str = ''` -- Its author.
+- <a id="PluginSpec.auto_run_on_protocol_complete"></a>`auto_run_on_protocol_complete`: `bool = False` -- For a post-processing plugin, True hands its processor the folder of every Full Protocol run, whoever started it, once its files are on disk and its hyperstack build has ended.
+- <a id="PluginSpec.capabilities"></a>`capabilities`: `tuple[str, ...] = ()` -- The API surfaces it uses, as dotted paths (`'scope.imaging'`). A declaration, not a sandbox: the tech-support report and diagnostic probes record it.
 - <a id="PluginSpec.description"></a>`description`: `str` -- One sentence saying what the plugin does.
 - <a id="PluginSpec.name"></a>`name`: `str` -- The plugin's name, unique within a namespace.
 - <a id="PluginSpec.requires_lvp_version"></a>`requires_lvp_version`: `str` -- The LumaViewPro versions it runs on, as a PEP 440 version specifier: `'>=4.0.0'`, `'~=4.0.0'` (4.0.x), `'>=4.0,<5'`. The host is compared by its leading release, `X.Y.Z`, whatever follows it (`4.0.0-beta48` is 4.0.0). A value that is not a specifier, or is empty, is not met.
-- <a id="PluginSpec.url"></a>`url`: `str` -- Its web address.
+- <a id="PluginSpec.url"></a>`url`: `str = ''` -- Its web address.
 - <a id="PluginSpec.version"></a>`version`: `str` -- The plugin's version.
 
 <a id="PluginStatus"></a>
@@ -11333,8 +11333,8 @@ a failure to the person with its message.
 
 **Fields**
 
-- <a id="ProcessorResult.message"></a>`message`: `str` -- A one-line summary for the person using the microscope.
-- <a id="ProcessorResult.outputs"></a>`outputs`: `tuple[FilePath, ...]` -- The absolute paths of the files it wrote.
+- <a id="ProcessorResult.message"></a>`message`: `str = ''` -- A one-line summary for the person using the microscope.
+- <a id="ProcessorResult.outputs"></a>`outputs`: `tuple[FilePath, ...] = ()` -- The absolute paths of the files it wrote.
 - <a id="ProcessorResult.success"></a>`success`: `bool` -- Whether the processor completed.
 
 <a id="ProgramCpu"></a>
@@ -12305,14 +12305,14 @@ event elsewhere builds the record from them.
 
 **Fields**
 
-- <a id="RunEvents.files_written"></a>`files_written`: `Callable[[pathlib.Path | None, FilesOutcome], object] | None` -- `(run_dir, files)` once the run's last image write has landed: `files` is `FilesOutcome.WRITTEN`, or `INCOMPLETE` when some of its images are not on disk.
-- <a id="RunEvents.frame_captured"></a>`frame_captured`: `Callable[[np.ndarray, int, int, str], object] | None` -- `(image, frames_summed, frame_significant_bits, channel)` for each captured frame whose write was handed to the run's writer, once it was: the frame as the file gets it (a sum when summing), read-only, and the channel it was taken for. Delivered on the run's own thread, which waits for it, so it must not block; a GUI renders and shows it.
-- <a id="RunEvents.on_ui_thread"></a>`on_ui_thread`: `bool` -- Whether the handlers above but `frame_captured` run on the UI dispatcher's thread. A GUI sets it for handlers that draw; the default runs each on the sending thread.
-- <a id="RunEvents.run_ended"></a>`run_ended`: `Callable[[RunOutcome, pathlib.Path | None, Protocol], object] | None` -- `(outcome, run_dir, protocol)` once the run has let go of the scope and its outcome has settled: for every run at the release, for a composite once its merge settles, which may be before or after its `files_written`. `run_dir` is None for a run that saved nothing.
-- <a id="RunEvents.scan_ended"></a>`scan_ended`: `Callable[[int, int, float | None], object] | None` -- `(scan_index, scans_remaining, period_s)` as a scan ends, a stopped one included: how many remain after it.
-- <a id="RunEvents.scan_started"></a>`scan_started`: `Callable[[int, int, float | None], object] | None` -- `(scan_index, scans_remaining, period_s)` as a scan begins: the scan's index from 0, how many scans remain with this one, and the protocol's period in seconds.
-- <a id="RunEvents.step_started"></a>`step_started`: `Callable[[int], object] | None` -- `(step_index)` as each step begins, step 0 included, the index read at the step.
-- <a id="RunEvents.video_progress"></a>`video_progress`: `Callable[[VideoProgress], object] | None` -- `(progress)`, a `VideoProgress`, as a video step records and writes.
+- <a id="RunEvents.files_written"></a>`files_written`: `Callable[[pathlib.Path | None, FilesOutcome], object] | None = None` -- `(run_dir, files)` once the run's last image write has landed: `files` is `FilesOutcome.WRITTEN`, or `INCOMPLETE` when some of its images are not on disk.
+- <a id="RunEvents.frame_captured"></a>`frame_captured`: `Callable[[np.ndarray, int, int, str], object] | None = None` -- `(image, frames_summed, frame_significant_bits, channel)` for each captured frame whose write was handed to the run's writer, once it was: the frame as the file gets it (a sum when summing), read-only, and the channel it was taken for. Delivered on the run's own thread, which waits for it, so it must not block; a GUI renders and shows it.
+- <a id="RunEvents.on_ui_thread"></a>`on_ui_thread`: `bool = False` -- Whether the handlers above but `frame_captured` run on the UI dispatcher's thread. A GUI sets it for handlers that draw; the default runs each on the sending thread.
+- <a id="RunEvents.run_ended"></a>`run_ended`: `Callable[[RunOutcome, pathlib.Path | None, Protocol], object] | None = None` -- `(outcome, run_dir, protocol)` once the run has let go of the scope and its outcome has settled: for every run at the release, for a composite once its merge settles, which may be before or after its `files_written`. `run_dir` is None for a run that saved nothing.
+- <a id="RunEvents.scan_ended"></a>`scan_ended`: `Callable[[int, int, float | None], object] | None = None` -- `(scan_index, scans_remaining, period_s)` as a scan ends, a stopped one included: how many remain after it.
+- <a id="RunEvents.scan_started"></a>`scan_started`: `Callable[[int, int, float | None], object] | None = None` -- `(scan_index, scans_remaining, period_s)` as a scan begins: the scan's index from 0, how many scans remain with this one, and the protocol's period in seconds.
+- <a id="RunEvents.step_started"></a>`step_started`: `Callable[[int], object] | None = None` -- `(step_index)` as each step begins, step 0 included, the index read at the step.
+- <a id="RunEvents.video_progress"></a>`video_progress`: `Callable[[VideoProgress], object] | None = None` -- `(progress)`, a `VideoProgress`, as a video step records and writes.
 
 <a id="RunFiles"></a>
 ## `lumascope.RunFiles`
@@ -12467,10 +12467,10 @@ tuple.
 - <a id="ScopeCapabilities.camera_binning_sizes"></a>`camera_binning_sizes`: `tuple[int, ...]` -- The binning factors the camera offers; empty with no camera, or one that offers none.
 - <a id="ScopeCapabilities.camera_firmware_version"></a>`camera_firmware_version`: `str | None` -- The firmware version the camera reports at connect, or None (a Classic's camera reports none).
 - <a id="ScopeCapabilities.camera_gain_has_digital"></a>`camera_gain_has_digital`: `bool` -- True when the camera's profile documents a digital gain stage above its analog one; False with none, or with no camera.
-- <a id="ScopeCapabilities.camera_has_clock_latch"></a>`camera_has_clock_latch`: `bool | None` -- True when the host can latch the camera's timestamp clock and read it, which maps the camera's clock onto the host's: each capture's `FrameRecord.clock_mapping`. False on a camera without a latch (IDS, a Classic's), or whose tick rate is unknown, as it is for a camera whose frames do not carry their start on that clock; its frames carry no mapping. None when the latch probe failed as the camera came up; its frames then carry no mapping either.
-- <a id="ScopeCapabilities.camera_is_color"></a>`camera_is_color`: `bool` -- True when the camera delivers 3-channel color frames; False for a mono camera, as every shipped one is, and when the camera is unknown.
+- <a id="ScopeCapabilities.camera_has_clock_latch"></a>`camera_has_clock_latch`: `bool | None = False` -- True when the host can latch the camera's timestamp clock and read it, which maps the camera's clock onto the host's: each capture's `FrameRecord.clock_mapping`. False on a camera without a latch (IDS, a Classic's), or whose tick rate is unknown, as it is for a camera whose frames do not carry their start on that clock; its frames carry no mapping. None when the latch probe failed as the camera came up; its frames then carry no mapping either.
+- <a id="ScopeCapabilities.camera_is_color"></a>`camera_is_color`: `bool = False` -- True when the camera delivers 3-channel color frames; False for a mono camera, as every shipped one is, and when the camera is unknown.
 - <a id="ScopeCapabilities.camera_limits"></a>`camera_limits`: `CameraLimits | None` -- The frames the attached camera takes, read once at connect; None with no camera connected.
-- <a id="ScopeCapabilities.camera_max_significant_bits"></a>`camera_max_significant_bits`: `int | None` -- The deepest depth the camera delivers over its pixel formats: 12 for a camera that offers Mono12, 8 for one that streams only 8 bits. None with no camera, or one whose formats are unknown. The depth of the frames it delivers now, which follows `set_image_mode`, is `imaging.significant_bits`.
+- <a id="ScopeCapabilities.camera_max_significant_bits"></a>`camera_max_significant_bits`: `int | None = None` -- The deepest depth the camera delivers over its pixel formats: 12 for a camera that offers Mono12, 8 for one that streams only 8 bits. None with no camera, or one whose formats are unknown. The depth of the frames it delivers now, which follows `set_image_mode`, is `imaging.significant_bits`.
 - <a id="ScopeCapabilities.camera_model"></a>`camera_model`: `str | None` -- The model the camera reports at connect; None with no camera, or one that did not say.
 - <a id="ScopeCapabilities.camera_pixel_formats"></a>`camera_pixel_formats`: `tuple[str, ...]` -- The pixel formats the camera offers (`'Mono8'`, `'Mono12'`, ...); empty with no camera.
 - <a id="ScopeCapabilities.camera_reports_temperature"></a>`camera_reports_temperature`: `bool | None` -- True when the camera has a temperature sensor. Where it is False, `scope.diagnostics.read_camera_temperatures_degc` answers `{}`; where it is True an empty answer cannot happen, and a read that fails raises. None when the probe failed as the camera came up; the read is live, and answers as the camera does.
@@ -12480,12 +12480,12 @@ tuple.
 - <a id="ScopeCapabilities.camera_shutter"></a>`camera_shutter`: `CameraShutter | None` -- The sensor's shutter, from the same entry; None where `camera_sensor` is.
 - <a id="ScopeCapabilities.camera_supports_auto_exposure"></a>`camera_supports_auto_exposure`: `bool` -- True when the camera has hardware auto-exposure.
 - <a id="ScopeCapabilities.camera_supports_auto_gain"></a>`camera_supports_auto_gain`: `bool` -- True when the camera has hardware auto-gain.
-- <a id="ScopeCapabilities.camera_supports_black_level"></a>`camera_supports_black_level`: `bool | None` -- True when the camera's black level can be set (`scope.camera.set_black_level`). The black level is read with `scope.camera.read_black_level` on any camera that reports one, settable or not (a Classic's reports its fixed Row Black Target). None when the probe failed as the camera came up: whether the camera has it is not known; a write, and the camera-state snapshot, probe the camera live.
-- <a id="ScopeCapabilities.camera_supports_high_conversion_gain"></a>`camera_supports_high_conversion_gain`: `bool | None` -- True when the camera has a switchable sensor conversion gain (High: low read noise, narrow range; Low: wide range). None when the probe failed as the camera came up: whether the camera has it is not known, the saved setting is kept unapplied, and a write probes the camera live.
-- <a id="ScopeCapabilities.camera_supports_line_noise_reduction"></a>`camera_supports_line_noise_reduction`: `bool | None` -- True when the camera has the line-noise-reduction filter, which smooths horizontal stripes. None when the probe failed as the camera came up: whether the camera has it is not known, the saved setting is kept unapplied, and a write probes the camera live.
+- <a id="ScopeCapabilities.camera_supports_black_level"></a>`camera_supports_black_level`: `bool | None = False` -- True when the camera's black level can be set (`scope.camera.set_black_level`). The black level is read with `scope.camera.read_black_level` on any camera that reports one, settable or not (a Classic's reports its fixed Row Black Target). None when the probe failed as the camera came up: whether the camera has it is not known; a write, and the camera-state snapshot, probe the camera live.
+- <a id="ScopeCapabilities.camera_supports_high_conversion_gain"></a>`camera_supports_high_conversion_gain`: `bool | None = False` -- True when the camera has a switchable sensor conversion gain (High: low read noise, narrow range; Low: wide range). None when the probe failed as the camera came up: whether the camera has it is not known, the saved setting is kept unapplied, and a write probes the camera live.
+- <a id="ScopeCapabilities.camera_supports_line_noise_reduction"></a>`camera_supports_line_noise_reduction`: `bool | None = False` -- True when the camera has the line-noise-reduction filter, which smooths horizontal stripes. None when the probe failed as the camera came up: whether the camera has it is not known, the saved setting is kept unapplied, and a write probes the camera live.
 - <a id="ScopeCapabilities.camera_timestamp_tick_hz"></a>`camera_timestamp_tick_hz`: `int | None` -- The rate of the camera's frame timestamp clock in Hz, or None for a camera whose frames carry no timestamp.
-- <a id="ScopeCapabilities.frame_rules"></a>`frame_rules`: `Mapping[FrameValiditySource, FrameRule]` -- For each frame-validity source, the frames a change of it waits before a frame counts, on every camera: the largest count the record measured for the source over the microscopes the camera was measured on, with the run and microscope in its `provenance`, else the shipped count with none. Read once at bring-up from the camera's timing record.
-- <a id="ScopeCapabilities.has_firmware_stim"></a>`has_firmware_stim`: `bool` -- True when the LED firmware runs a stimulation pulse train itself (LED firmware 3.0.8 and later). Paced from the host, a pulse under about 20 ms is unreliable, since the USB bridge batches back-to-back writes; the firmware's train keeps its edges to under a microsecond.
+- <a id="ScopeCapabilities.frame_rules"></a>`frame_rules`: `Mapping[FrameValiditySource, FrameRule] = ...` -- For each frame-validity source, the frames a change of it waits before a frame counts, on every camera: the largest count the record measured for the source over the microscopes the camera was measured on, with the run and microscope in its `provenance`, else the shipped count with none. Read once at bring-up from the camera's timing record.
+- <a id="ScopeCapabilities.has_firmware_stim"></a>`has_firmware_stim`: `bool = False` -- True when the LED firmware runs a stimulation pulse train itself (LED firmware 3.0.8 and later). Paced from the host, a pulse under about 20 ms is unreliable, since the USB bridge batches back-to-back writes; the firmware's train keeps its edges to under a microsecond.
 - <a id="ScopeCapabilities.has_focus"></a>`has_focus`: `bool` -- True when `axes` holds Z.
 - <a id="ScopeCapabilities.has_turret"></a>`has_turret`: `bool` -- Whether this scope has a turret: T in `axes` when the motor board came up, else the declared model's. A turret scope whose board did not come up has a turret in an unknown slot.
 - <a id="ScopeCapabilities.has_xy_stage"></a>`has_xy_stage`: `bool` -- True when `axes` holds X and Y.
@@ -12601,7 +12601,7 @@ Camera reads of one setting that a simulated camera fails (`refuse_camera_read`)
 **Fields**
 
 - <a id="SimulatedCameraReadRefusal.answer"></a>`answer`: `CameraReadAnswer` -- How each failed read fails.
-- <a id="SimulatedCameraReadRefusal.count"></a>`count`: `int` -- How many reads in a row meet it, 1 or more.
+- <a id="SimulatedCameraReadRefusal.count"></a>`count`: `int = 1` -- How many reads in a row meet it, 1 or more.
 - <a id="SimulatedCameraReadRefusal.node"></a>`node`: `CameraReadNode` -- The setting read.
 
 <a id="SimulatedCameraWriteRefusal"></a>
@@ -12615,7 +12615,7 @@ Camera writes of one setting that a simulated camera refuses (`refuse_camera_wri
 **Fields**
 
 - <a id="SimulatedCameraWriteRefusal.answer"></a>`answer`: `CameraWriteAnswer` -- What each refused write answers.
-- <a id="SimulatedCameraWriteRefusal.count"></a>`count`: `int` -- How many writes in a row meet it, 1 or more.
+- <a id="SimulatedCameraWriteRefusal.count"></a>`count`: `int = 1` -- How many writes in a row meet it, 1 or more.
 - <a id="SimulatedCameraWriteRefusal.node"></a>`node`: `CameraWriteNode` -- The setting written.
 
 <a id="SimulatedModelAnswer"></a>
@@ -12649,23 +12649,23 @@ is the declared scope with no fault. A fault is refused where the
 
 **Fields**
 
-- <a id="SimulatedScope.camera_present"></a>`camera_present`: `bool` -- Whether the camera is on the bus at bring-up. False is a camera unplugged for the session: bring-up finds none, as it finds none on a real scope, and every camera command is refused `not_connected`. On a model simulated with an FX2 the camera is the FX2, so its LED board is missing with it. True is the camera there.
-- <a id="SimulatedScope.camera_stall"></a>`camera_stall`: `SimulatedStall | None` -- A stall for the simulated camera's stream, so the scope shows a stream that stops delivering; the simulated camera's alone. None stalls nothing.
-- <a id="SimulatedScope.camera_supports_high_conversion_gain"></a>`camera_supports_high_conversion_gain`: `bool` -- Whether the scope's camera has a switchable conversion gain, as an IDS on firmware 3.95 does, so the Advanced Settings toggle and a run in each mode are shown without one; the simulated camera's alone. False is the stock dart, which has none.
-- <a id="SimulatedScope.camera_usb_bindings"></a>`camera_usb_bindings`: `tuple[SimulatedUsbBinding, ...]` -- The drivers Windows has the simulated FX2's USB identities on at bring-up (`bind_camera_usb_driver`), so bring-up meets a Classic on no driver, on another package, or on LumaViewPro's and not started; a model simulated with an FX2 alone. Empty is LumaViewPro's driver, started, on both.
-- <a id="SimulatedScope.drift"></a>`drift`: `bool` -- Whether the slide drifts a pixel around a circle, a step a frame, so a running stream looks alive on a display. Both simulated cameras take it. False is a still slide, as a bench holds one: two frames made under the same settings at the same stage position are the same picture, which a measurement of what a change does to the frames needs. The GUI simulator asks for it; nothing else does.
-- <a id="SimulatedScope.file_stall"></a>`file_stall`: `SimulatedStall | None` -- A stall for the session's file lane, so the scope shows a save drive that stops answering: `after_s` seconds after bring-up the lane's worker is held for `for_s` seconds. None stalls nothing.
-- <a id="SimulatedScope.focal_spread_um"></a>`focal_spread_um`: `float` -- How far the simulated sample's focus may lie from where bring-up places the stage, drawn once per session, so every session needs a real autofocus; the simulated camera's alone. 0 puts the sample in focus there. Not a finite number of 0 or more, the record is not built: `ArgumentRefusedError` `'not_a_number'` or `'fault_bound'`, naming `focal_spread_um`.
-- <a id="SimulatedScope.model"></a>`model`: `str | None` -- The model the simulated scope is, when it is not the one the settings declare: a stored file that disagrees with the scope attached, which bring-up settles by the scope's answer. None is the declared model. With a `unit_config` it picks the LED board and the camera only; the motor board is the unit's.
-- <a id="SimulatedScope.model_answer"></a>`model_answer`: `SimulatedModelAnswer | None` -- The model the simulated motor board names as its own at bring-up, whatever it was built as (`answer_model`), until the scope's faults are cleared; the fast motor board's alone. None arms no answer.
-- <a id="SimulatedScope.refused_camera_reads"></a>`refused_camera_reads`: `tuple[SimulatedCameraReadRefusal, ...]` -- Camera reads the simulated camera fails from bring-up on (`refuse_camera_read`, each in turn), so bring-up's own reads meet them; not on the FX2. Empty fails none.
-- <a id="SimulatedScope.refused_camera_writes"></a>`refused_camera_writes`: `tuple[SimulatedCameraWriteRefusal, ...]` -- Camera writes the simulated camera refuses from bring-up on (`refuse_camera_write`, each in turn), so bring-up's own writes meet them; not on the FX2. Empty refuses none.
-- <a id="SimulatedScope.refused_stream_starts"></a>`refused_stream_starts`: `int` -- How many of the camera's stream starts it refuses from bring-up on (`refuse_stream_start`), so bring-up's own start is refused. 0 refuses none.
-- <a id="SimulatedScope.ronchi_lines_per_mm"></a>`ronchi_lines_per_mm`: `float | None` -- The Ronchi ruling's pitch, in lines per mm, given only with `slide` `Slide.RONCHI`. None is the bench's 40. A pitch the objective cannot resolve is drawn, not refused: its bars blur together, as on the bench. Given with the cells, or not a positive finite number, the record is not built: `ArgumentRefusedError` `'fault_bound'` or `'not_a_number'`, naming `ronchi_lines_per_mm`.
-- <a id="SimulatedScope.slide"></a>`slide`: `Slide` -- The slide on the stage, which the scope's camera images for the session: the cell specimen; a Ronchi ruling, the target the bench measures a camera's move count on; or a set of pictures, one per channel, which the manual's walks show in the live view. Either simulated camera takes it. The cell specimen is the default.
-- <a id="SimulatedScope.slide_images"></a>`slide_images`: `str | None` -- The folder of pictures, given only with `slide` `Slide.IMAGES`, and required with it: every file in it a picture (a JPG) named for its channel's key (`BF.jpg`, `Ex488.jpg`); a hidden file is passed over. A lit channel shows its own picture filling the frame, wherever the stage stands and whatever the objective, at its own levels at the channel's shipped settings on the 20x on the simulated camera (the simulated FX2 shows it brighter, as it shows the cells brighter at the same settings); a lit channel with no picture shows black. The pictures are read as the record is built, and it is not built when the folder is not one, holds no picture, or holds a file that does not decode (`ArgumentRefusedError` `'fault_bound'`, naming `slide_images`), or one named for no channel of the release (`'channel_unknown'`, naming the file).
-- <a id="SimulatedScope.unidentified_usb_devices"></a>`unidentified_usb_devices`: `int` -- How many devices whose descriptor Windows could not read are on the simulated bus (Device Manager's "Unknown USB Device", problem code 43), so the USB census meets them. A whole number, 0 or more; any other is refused `ArgumentRefusedError` `'not_a_number'` or `'fault_bound'` as the record is built. 0 is none.
-- <a id="SimulatedScope.unit_config"></a>`unit_config`: `Mapping[str, BoardConfigValue] | None` -- A unit's own motorconfig.json, as its board's CONFIG answers it, which the simulated motor firmware boots: the scope comes up as that unit does, under the name its board reports, on the axes the config marks present, with its optics, scale and turret positions, and the channels bring-up resolves for it (an OEM unit's own name has the stock optics module's, unless the config carries a `Channels` block). Only the simulated motor firmware runs it: the `firmware` and `realistic` simulator tiers, on a model with an EL-0940 motor board. None boots the model's own board.
+- <a id="SimulatedScope.camera_present"></a>`camera_present`: `bool = True` -- Whether the camera is on the bus at bring-up. False is a camera unplugged for the session: bring-up finds none, as it finds none on a real scope, and every camera command is refused `not_connected`. On a model simulated with an FX2 the camera is the FX2, so its LED board is missing with it. True is the camera there.
+- <a id="SimulatedScope.camera_stall"></a>`camera_stall`: `SimulatedStall | None = None` -- A stall for the simulated camera's stream, so the scope shows a stream that stops delivering; the simulated camera's alone. None stalls nothing.
+- <a id="SimulatedScope.camera_supports_high_conversion_gain"></a>`camera_supports_high_conversion_gain`: `bool = False` -- Whether the scope's camera has a switchable conversion gain, as an IDS on firmware 3.95 does, so the Advanced Settings toggle and a run in each mode are shown without one; the simulated camera's alone. False is the stock dart, which has none.
+- <a id="SimulatedScope.camera_usb_bindings"></a>`camera_usb_bindings`: `tuple[SimulatedUsbBinding, ...] = ()` -- The drivers Windows has the simulated FX2's USB identities on at bring-up (`bind_camera_usb_driver`), so bring-up meets a Classic on no driver, on another package, or on LumaViewPro's and not started; a model simulated with an FX2 alone. Empty is LumaViewPro's driver, started, on both.
+- <a id="SimulatedScope.drift"></a>`drift`: `bool = False` -- Whether the slide drifts a pixel around a circle, a step a frame, so a running stream looks alive on a display. Both simulated cameras take it. False is a still slide, as a bench holds one: two frames made under the same settings at the same stage position are the same picture, which a measurement of what a change does to the frames needs. The GUI simulator asks for it; nothing else does.
+- <a id="SimulatedScope.file_stall"></a>`file_stall`: `SimulatedStall | None = None` -- A stall for the session's file lane, so the scope shows a save drive that stops answering: `after_s` seconds after bring-up the lane's worker is held for `for_s` seconds. None stalls nothing.
+- <a id="SimulatedScope.focal_spread_um"></a>`focal_spread_um`: `float = 0.0` -- How far the simulated sample's focus may lie from where bring-up places the stage, drawn once per session, so every session needs a real autofocus; the simulated camera's alone. 0 puts the sample in focus there. Not a finite number of 0 or more, the record is not built: `ArgumentRefusedError` `'not_a_number'` or `'fault_bound'`, naming `focal_spread_um`.
+- <a id="SimulatedScope.model"></a>`model`: `str | None = None` -- The model the simulated scope is, when it is not the one the settings declare: a stored file that disagrees with the scope attached, which bring-up settles by the scope's answer. None is the declared model. With a `unit_config` it picks the LED board and the camera only; the motor board is the unit's.
+- <a id="SimulatedScope.model_answer"></a>`model_answer`: `SimulatedModelAnswer | None = None` -- The model the simulated motor board names as its own at bring-up, whatever it was built as (`answer_model`), until the scope's faults are cleared; the fast motor board's alone. None arms no answer.
+- <a id="SimulatedScope.refused_camera_reads"></a>`refused_camera_reads`: `tuple[SimulatedCameraReadRefusal, ...] = ()` -- Camera reads the simulated camera fails from bring-up on (`refuse_camera_read`, each in turn), so bring-up's own reads meet them; not on the FX2. Empty fails none.
+- <a id="SimulatedScope.refused_camera_writes"></a>`refused_camera_writes`: `tuple[SimulatedCameraWriteRefusal, ...] = ()` -- Camera writes the simulated camera refuses from bring-up on (`refuse_camera_write`, each in turn), so bring-up's own writes meet them; not on the FX2. Empty refuses none.
+- <a id="SimulatedScope.refused_stream_starts"></a>`refused_stream_starts`: `int = 0` -- How many of the camera's stream starts it refuses from bring-up on (`refuse_stream_start`), so bring-up's own start is refused. 0 refuses none.
+- <a id="SimulatedScope.ronchi_lines_per_mm"></a>`ronchi_lines_per_mm`: `float | None = None` -- The Ronchi ruling's pitch, in lines per mm, given only with `slide` `Slide.RONCHI`. None is the bench's 40. A pitch the objective cannot resolve is drawn, not refused: its bars blur together, as on the bench. Given with the cells, or not a positive finite number, the record is not built: `ArgumentRefusedError` `'fault_bound'` or `'not_a_number'`, naming `ronchi_lines_per_mm`.
+- <a id="SimulatedScope.slide"></a>`slide`: `Slide = Slide.CELLS` -- The slide on the stage, which the scope's camera images for the session: the cell specimen; a Ronchi ruling, the target the bench measures a camera's move count on; or a set of pictures, one per channel, which the manual's walks show in the live view. Either simulated camera takes it. The cell specimen is the default.
+- <a id="SimulatedScope.slide_images"></a>`slide_images`: `str | None = None` -- The folder of pictures, given only with `slide` `Slide.IMAGES`, and required with it: every file in it a picture (a JPG) named for its channel's key (`BF.jpg`, `Ex488.jpg`); a hidden file is passed over. A lit channel shows its own picture filling the frame, wherever the stage stands and whatever the objective, at its own levels at the channel's shipped settings on the 20x on the simulated camera (the simulated FX2 shows it brighter, as it shows the cells brighter at the same settings); a lit channel with no picture shows black. The pictures are read as the record is built, and it is not built when the folder is not one, holds no picture, or holds a file that does not decode (`ArgumentRefusedError` `'fault_bound'`, naming `slide_images`), or one named for no channel of the release (`'channel_unknown'`, naming the file).
+- <a id="SimulatedScope.unidentified_usb_devices"></a>`unidentified_usb_devices`: `int = 0` -- How many devices whose descriptor Windows could not read are on the simulated bus (Device Manager's "Unknown USB Device", problem code 43), so the USB census meets them. A whole number, 0 or more; any other is refused `ArgumentRefusedError` `'not_a_number'` or `'fault_bound'` as the record is built. 0 is none.
+- <a id="SimulatedScope.unit_config"></a>`unit_config`: `Mapping[str, BoardConfigValue] | None = None` -- A unit's own motorconfig.json, as its board's CONFIG answers it, which the simulated motor firmware boots: the scope comes up as that unit does, under the name its board reports, on the axes the config marks present, with its optics, scale and turret positions, and the channels bring-up resolves for it (an OEM unit's own name has the stock optics module's, unless the config carries a `Channels` block). Only the simulated motor firmware runs it: the `firmware` and `realistic` simulator tiers, on a model with an EL-0940 motor board. None boots the model's own board.
 
 <a id="SimulatedStall"></a>
 ## `lumascope.SimulatedStall`
@@ -12939,7 +12939,7 @@ A stitch, as `build` takes it: each tiled scan to one mosaic.
 
 **Fields**
 
-- <a id="Stitch.mode"></a>`mode`: `StitchMode` -- How the tiles are registered.
+- <a id="Stitch.mode"></a>`mode`: `StitchMode = StitchMode.QUALITY` -- How the tiles are registered.
 
 <a id="Substitution"></a>
 ## `lumascope.Substitution`
@@ -13258,8 +13258,8 @@ A video, as `build` takes it: each position's time series to one video.
 
 **Fields**
 
-- <a id="Video.frame_rate_fps"></a>`frame_rate_fps`: `float | str | None` -- The playback rate, a finite number of at least 1 or its text; None plays a recording as it was recorded: each frame at the time it was taken, so a lost frame is a gap, or evenly at its measured rate when its first frame states no time; a protocol's stills then play at 5 frames a second.
-- <a id="Video.timestamp_overlay"></a>`timestamp_overlay`: `bool` -- Whether each frame shows its time.
+- <a id="Video.frame_rate_fps"></a>`frame_rate_fps`: `float | str | None = None` -- The playback rate, a finite number of at least 1 or its text; None plays a recording as it was recorded: each frame at the time it was taken, so a lost frame is a gap, or evenly at its measured rate when its first frame states no time; a protocol's stills then play at 5 frames a second.
+- <a id="Video.timestamp_overlay"></a>`timestamp_overlay`: `bool = False` -- Whether each frame shows its time.
 
 <a id="VideoConfig"></a>
 ## `lumascope.VideoConfig`
@@ -13289,10 +13289,10 @@ A step that ends before it records sends no phase and no `ENDED`.
 
 **Fields**
 
-- <a id="VideoProgress.elapsed_s"></a>`elapsed_s`: `float | None` -- Seconds recorded so far, never past `total_s`; None outside `RECORDING`.
+- <a id="VideoProgress.elapsed_s"></a>`elapsed_s`: `float | None = None` -- Seconds recorded so far, never past `total_s`; None outside `RECORDING`.
 - <a id="VideoProgress.phase"></a>`phase`: `VideoPhase` -- `RECORDING`, `WRITING` or `ENDED`. `ENDED` follows once any recording or writing phase, on every path that had one.
-- <a id="VideoProgress.progress_pct"></a>`progress_pct`: `float | None` -- The percentage of the recorded frames written so far; None outside `WRITING`.
-- <a id="VideoProgress.total_s"></a>`total_s`: `float | None` -- The step's recording duration in seconds; None outside `RECORDING`.
+- <a id="VideoProgress.progress_pct"></a>`progress_pct`: `float | None = None` -- The percentage of the recorded frames written so far; None outside `WRITING`.
+- <a id="VideoProgress.total_s"></a>`total_s`: `float | None = None` -- The step's recording duration in seconds; None outside `RECORDING`.
 
 <a id="WorkItem"></a>
 ## `lumascope.WorkItem`
@@ -13304,14 +13304,14 @@ One piece of work the session is still doing.
 
 **Fields**
 
-- <a id="WorkItem.discardable"></a>`discardable`: `bool` -- True when `ScopeSession.discard_pending_video` drops what this work has left; a host offers that discard only while some item says so.
-- <a id="WorkItem.elapsed_s"></a>`elapsed_s`: `float | None` -- Seconds a recording has recorded so far, a manual one's or a run's video step's; None for all other work.
+- <a id="WorkItem.discardable"></a>`discardable`: `bool = False` -- True when `ScopeSession.discard_pending_video` drops what this work has left; a host offers that discard only while some item says so.
+- <a id="WorkItem.elapsed_s"></a>`elapsed_s`: `float | None = None` -- Seconds a recording has recorded so far, a manual one's or a run's video step's; None for all other work.
 - <a id="WorkItem.kind"></a>`kind`: `WorkKind` -- Where the work runs.
-- <a id="WorkItem.left"></a>`left`: `int | None` -- How many frames, images or builds it still has to finish, when it counts them; None when it does not.
+- <a id="WorkItem.left"></a>`left`: `int | None = None` -- How many frames, images or builds it still has to finish, when it counts them; None when it does not.
 - <a id="WorkItem.name"></a>`name`: `str` -- What it is, in words a person reads.
-- <a id="WorkItem.progress_pct"></a>`progress_pct`: `float | None` -- How far a build has got, as its own progress last said; None before it has said, or for work that reports none.
-- <a id="WorkItem.stuck_write"></a>`stuck_write`: `str | None` -- The write in flight once it has run past the stall threshold a new run's refusal uses, named for a person: stuck, not slow. Only a run's images (`RUN_FILES`) are ever stuck; None while their writes make progress, and for all other work.
-- <a id="WorkItem.total_s"></a>`total_s`: `float | None` -- How long that recording records, when it has a length (a run's video step); None otherwise.
+- <a id="WorkItem.progress_pct"></a>`progress_pct`: `float | None = None` -- How far a build has got, as its own progress last said; None before it has said, or for work that reports none.
+- <a id="WorkItem.stuck_write"></a>`stuck_write`: `str | None = None` -- The write in flight once it has run past the stall threshold a new run's refusal uses, named for a person: stuck, not slow. Only a run's images (`RUN_FILES`) are ever stuck; None while their writes make progress, and for all other work.
+- <a id="WorkItem.total_s"></a>`total_s`: `float | None = None` -- How long that recording records, when it has a length (a run's video step); None otherwise.
 
 <a id="ZProject"></a>
 ## `lumascope.ZProject`
@@ -13323,7 +13323,7 @@ A z-projection, as `build` takes it: each Z-stack to one image.
 
 **Fields**
 
-- <a id="ZProject.method"></a>`method`: `ZProjectMethod` -- How each stack's slices are reduced.
+- <a id="ZProject.method"></a>`method`: `ZProjectMethod = ZProjectMethod.MAX` -- How each stack's slices are reduced.
 
 <a id="build_app"></a>
 ## `lumascope.build_app`

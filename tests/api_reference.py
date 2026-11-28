@@ -40,6 +40,7 @@ from _lumascope.modules import common_utils, settings_paths, wire_encoding
 from _lumascope.modules.api_surface import (
     API,
     IN_PROCESS,
+    MADE_WHEN_BUILT,
     RAISES_SECTION,
     Admission,
     _to_dict,
@@ -52,6 +53,7 @@ from _lumascope.modules.api_surface import (
     is_record,
     mark_of,
     markdown_of,
+    record_default,
     own_doc,
     raises_of,
     reads_of,
@@ -112,7 +114,7 @@ A member's doors are named beside its marks (`enters:`):
 
 {_DOORS}
 
-<a id="to_dict"></a>A **record** crosses the wire as its data, unless its entry says it is in-process only. In the same process every record also answers `to_dict()`, *in-process*, for a caller that takes a dict and not a record, such as MATLAB's `struct()`:
+<a id="to_dict"></a>A **record** crosses the wire as its data, unless its entry says it is in-process only. A field shown with `= value` takes that value when it is left out, by a Python maker and in a wire body alike, and one shown with `= ...` a value the record makes as it is built, as its description says; every other field is required. In the same process every record also answers `to_dict()`, *in-process*, for a caller that takes a dict and not a record, such as MATLAB's `struct()`:
 
 {markdown_of(inspect.getdoc(_to_dict))}
 """
@@ -164,6 +166,18 @@ def _value_text(value: object) -> str:
     """A default or a literal as source text: an enum member by its class and name."""
     if isinstance(value, enum.Enum):
         return f'{type(value).__qualname__}.{value.name}'
+    # A record made with no arguments is named so: its fields' own defaults
+    # are under its entry, not spelled out again here.
+    cls = type(value)
+    if (
+        is_record(cls)
+        and all(
+            p.default is not inspect.Parameter.empty
+            for p in inspect.signature(cls).parameters.values()
+        )
+        and cls() == value
+    ):
+        return f'{cls.__qualname__}()'
     text = repr(value)
     if ' at 0x' in text:
         raise TypeError(f'no source text for the value {text}, which names an address')
@@ -518,10 +532,16 @@ def _fields(owner: _Owner) -> str:
     if not fields:
         return ''
     described = field_descriptions(owner.owner)
+    record = is_record(owner.owner)
     lines = []
     for item in fields:
         key = f'{owner.name}.{item.member}'
         text = _field_annotation(owner.owner, item.member)
+        default = record_default(owner.owner, item.member) if record else inspect.Parameter.empty
+        if text is not None and default is MADE_WHEN_BUILT:
+            text += ' = ...'
+        elif text is not None and default is not inspect.Parameter.empty:
+            text += f' = {_value_text(default)}'
         typed = f': `{text}`' if text is not None else ''
         words = (
             markdown_of(described[item.member]) if item.member in described else '(no description)'
