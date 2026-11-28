@@ -544,16 +544,34 @@ def _root() -> str:
 
 
 def _reasons(cls: type, index: _Index) -> str:
-    """Each reason's row: its cause, and its REST status -- none for a notice no member's ``Raises:`` names, which is only reported."""
+    """Each reason's cause, and its REST status -- none for a notice no member's ``Raises:`` names, which is only reported.
+
+    One line when every reason shares its cause and status, as a fault's
+    and most classes' do; a table only where they differ.
+    """
     # A subclass carries its parent's reasons; a kind and a subject carry none.
     causes = getattr(cls, 'causes', None)
     if not causes:
         return ''
     reported = issubclass(cls, Notice) and cls.__name__ not in index.answers
-    rows = [
-        f'| `{reason}` | {cause.value if cause is not None else "--"} | '
-        f'{"reported, never an answer" if reported else problems._status_of(cls, reason)} |'
+    # Each reason -> (its cause's value, or None; its REST status, or None when only reported).
+    answers = {
+        reason: (
+            None if cause is None else cause.value,
+            None if reported else problems._status_of(cls, reason),
+        )
         for reason, cause in sorted(causes.items())
+    }
+    if len(set(answers.values())) == 1:
+        cause, status = next(iter(answers.values()))
+        named = ', '.join(f'`{reason}`' for reason in answers)
+        label = 'Reason' if len(answers) == 1 else 'Reasons'
+        said_cause = 'no cause' if cause is None else f'cause {cause}'
+        said_status = 'reported, never an answer' if status is None else f'REST {status}'
+        return f'{label} {named}: {said_cause}, {said_status}.'
+    rows = [
+        f'| `{reason}` | {cause or "--"} | {status or "reported, never an answer"} |'
+        for reason, (cause, status) in answers.items()
     ]
     return '| Reason | Cause | REST status |\n|---|---|---|\n' + '\n'.join(rows)
 

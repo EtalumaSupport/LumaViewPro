@@ -14158,9 +14158,7 @@ membership and a dictionary's contents stay their member's.
 - <a id="ArgumentTypeRefusedError.declared"></a>`declared`: `str` -- The type the member takes, as its annotation reads.
 - <a id="ArgumentTypeRefusedError.member"></a>`member`: `str` -- The member called, as `Class.member`.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `wrong_argument_type` | request | 422 |
+Reason `wrong_argument_type`: cause request, REST 422.
 
 <a id="AutoGainNotSettledError"></a>
 ### `lumascope.AutoGainNotSettledError`
@@ -14172,9 +14170,7 @@ Auto-gain locked with no usable exposure or gain from the camera.
 The previous settings were kept, so a capture taken with it had no
 exposure check.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `auto_gain_not_settled` | -- | 500 |
+Reason `auto_gain_not_settled`: no cause, REST 500.
 
 <a id="AutofocusAborted"></a>
 ### `lumascope.AutofocusAborted`
@@ -14197,11 +14193,7 @@ An autofocus sweep chose no focus; the stage goes back to where it started.
 
 - `reason`: `'no_focus_scores'` -- the sweep got no usable focus score (one finite and above zero): none at the end of a pass so far, so nothing aims the next one, or none in the final pass, whose points alone place the focus. A curve's shape is never refused. `'travel_exhausted'` -- a window the sweep reached after it moved the stage reaches past Z's travel; refused before the stage moves there. `'unexpected_error'` -- the sweep raised; its cause is chained.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `no_focus_scores` | -- | 500 |
-| `travel_exhausted` | -- | 500 |
-| `unexpected_error` | -- | 500 |
+Reasons `no_focus_scores`, `travel_exhausted`, `unexpected_error`: no cause, REST 500.
 
 <a id="AutofocusLedsHeldError"></a>
 ### `lumascope.AutofocusLedsHeldError`
@@ -14218,9 +14210,7 @@ so it does not start. The run goes on and captures at its fallback Z.
 - `reason`: `'leds_held'`.
 - `holder`: The purpose of the lease that holds the LEDs.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `leds_held` | state | 409 |
+Reason `leds_held`: cause state, REST 409.
 
 <a id="AutofocusOutOfTravelError"></a>
 ### `lumascope.AutofocusOutOfTravelError`
@@ -14237,9 +14227,7 @@ after the stage has moved, is `AutofocusFailedError('travel_exhausted')`.
 
 - `reason`: `'out_of_travel'`.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `out_of_travel` | state | 409 |
+Reason `out_of_travel`: cause state, REST 409.
 
 <a id="AutofocusRunEnded"></a>
 ### `lumascope.AutofocusRunEnded`
@@ -14255,9 +14243,7 @@ the run's own end is the report.
 
 - `reason`: `'sweep_run_ended'`.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `sweep_run_ended` | state | 409 |
+Reason `sweep_run_ended`: cause state, REST 409.
 
 <a id="AutofocusStopped"></a>
 ### `lumascope.AutofocusStopped`
@@ -14272,9 +14258,7 @@ Recorded, never shown: the run's own end is the report.
 
 - `reason`: `'sweep_stopped'`.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `sweep_stopped` | state | 409 |
+Reason `sweep_stopped`: cause state, REST 409.
 
 <a id="AutofocusZNotRestoredError"></a>
 ### `lumascope.AutofocusZNotRestoredError`
@@ -14291,9 +14275,7 @@ where it was found, and the run ends on the lost position.
 
 - `reason`: `'z_left_at_search_position'`.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `z_left_at_search_position` | -- | 500 |
+Reason `z_left_at_search_position`: no cause, REST 500.
 
 <a id="AxisMovingError"></a>
 ### `lumascope.AxisMovingError`
@@ -14318,9 +14300,7 @@ never homes.
 - `axes`: Every moving axis asked for, in the order asked.
 - `axis`: The first of them, for callers that map a refusal to a response by a single axis (REST status codes, SDK branches).
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `axis_moving` | state | 409 |
+Reason `axis_moving`: cause state, REST 409.
 
 <a id="AxisStateUnknownError"></a>
 ### `lumascope.AxisStateUnknownError`
@@ -14360,9 +14340,7 @@ axes beside the words, as a run's `ProtocolRunRefusedError` does.
 
 - <a id="AxisStateUnknownError.axes_without_position"></a>`axes_without_position`: `dict[Axis, AxisState]` -- Every refused axis, mapped to its `AxisState`, in the scope's axis order; never empty.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `position_unknown` | state | 409 |
+Reason `position_unknown`: cause state, REST 409.
 
 <a id="BinningSubstitutedNotice"></a>
 ### `lumascope.BinningSubstitutedNotice`
@@ -14375,9 +14353,7 @@ The camera's binning is stored in the saved value's place: the binning
 is half of the frame's geometry, and the store holds the pair the
 camera delivered.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `binning_substituted` | -- | reported, never an answer |
+Reason `binning_substituted`: no cause, reported, never an answer.
 
 <a id="BlockingCallRefusedError"></a>
 ### `lumascope.BlockingCallRefusedError`
@@ -14395,12 +14371,7 @@ as it was documented.
 - `reason`: `'blocking_on_worker'` -- made on an executor's worker, whose own work it may queue behind. `'wait_on_ui_thread'` -- a wait on the UI thread for an operation not yet done, which would hold the window until the operation ends; a done-callback is the UI thread's form. `'blocking_inline'` -- made inside the GUI's inline boundary, whose thread draws the window; `submit_reported` is that call's form. `'swap_in_delivery'` -- a UI dispatcher swap from a callback that dispatcher is delivering, which the swap would wait on.
 - `member`: The member that was called.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `blocking_inline` | request | 422 |
-| `blocking_on_worker` | request | 422 |
-| `swap_in_delivery` | request | 422 |
-| `wait_on_ui_thread` | request | 422 |
+Reasons `blocking_inline`, `blocking_on_worker`, `swap_in_delivery`, `wait_on_ui_thread`: cause request, REST 422.
 
 <a id="BoardNoReplyError"></a>
 ### `lumascope.BoardNoReplyError`
@@ -14413,9 +14384,7 @@ The board may be busy, unpowered or unplugged; the same command may be
 answered when asked again. A motion command that got no answer may or
 may not have been taken, and the raise site's words say which.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `board_no_reply` | -- | 500 |
+Reason `board_no_reply`: no cause, REST 500.
 
 <a id="BoardPortFailedError"></a>
 ### `lumascope.BoardPortFailedError`
@@ -14426,9 +14395,7 @@ The serial port to a controller board failed, or is not open.
 
 A cable or power state: nothing reached the board.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `board_port_failed` | -- | 500 |
+Reason `board_port_failed`: no cause, REST 500.
 
 <a id="BoardReplyUnreadableError"></a>
 ### `lumascope.BoardReplyUnreadableError`
@@ -14440,9 +14407,7 @@ A controller board answered, and the answer could not be read.
 A reply that is not the number or record asked for, or that answers
 another command: the board is talking, and what it said cannot be used.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `board_reply_unreadable` | -- | 500 |
+Reason `board_reply_unreadable`: no cause, REST 500.
 
 <a id="BoardReportedError"></a>
 ### `lumascope.BoardReportedError`
@@ -14454,9 +14419,7 @@ A controller board answered that it could not do what it was asked.
 The firmware's own error, a refused status, or a handshake it did not
 complete: the board heard the command and said no.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `board_reported_error` | -- | 500 |
+Reason `board_reported_error`: no cause, REST 500.
 
 <a id="BringUpError"></a>
 ### `lumascope.BringUpError`
@@ -14490,9 +14453,7 @@ named, the image orientation among them when it is one.
 
 - `not_applied`: The configuration steps the camera did not take, by name.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `camera_config_not_applied` | -- | reported, never an answer |
+Reason `camera_config_not_applied`: no cause, reported, never an answer.
 
 <a id="CameraDriverRepairFailedError"></a>
 ### `lumascope.CameraDriverRepairFailedError`
@@ -14504,9 +14465,7 @@ The driver step Repair ran as an administrator did not bind the camera.
 The step logs every action and every Windows answer, so the words name
 its log folder.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `camera_driver_repair_failed` | -- | 500 |
+Reason `camera_driver_repair_failed`: no cause, REST 500.
 
 <a id="CameraDriverRepairRefusedError"></a>
 ### `lumascope.CameraDriverRepairRefusedError`
@@ -14541,9 +14500,7 @@ A notice; bases `Notice`, `Exception`.
 
 Repair bound the Lumascope Classic to LumaViewPro's driver; the camera connects at the next start.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `camera_driver_repaired` | -- | reported, never an answer |
+Reason `camera_driver_repaired`: no cause, reported, never an answer.
 
 <a id="CameraFeatureAbsentNotice"></a>
 ### `lumascope.CameraFeatureAbsentNotice`
@@ -14560,9 +14517,7 @@ value's place, as a substituted binning is.
 
 - `feature`: The feature, in words (`'high conversion gain'`).
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `camera_feature_absent` | -- | reported, never an answer |
+Reason `camera_feature_absent`: no cause, reported, never an answer.
 
 <a id="CameraFirmwareMissingError"></a>
 ### `lumascope.CameraFirmwareMissingError`
@@ -14574,9 +14529,7 @@ The firmware file the camera's driver uploads is not in the installation.
 The installation is at fault, not the hardware or its cable, so this is
 not a `HardwareError`. The words name each place the driver looked.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `camera_firmware_missing` | -- | 500 |
+Reason `camera_firmware_missing`: no cause, REST 500.
 
 <a id="CameraNoAnswerError"></a>
 ### `lumascope.CameraNoAnswerError`
@@ -14589,9 +14542,7 @@ An SDK or USB timeout on the access that decides whether the write
 happened. The camera is still on the bus and may answer the same write
 sent again; whether this one was applied is not known.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `camera_no_answer` | -- | 500 |
+Reason `camera_no_answer`: no cause, REST 500.
 
 <a id="CameraNodeNotReadableError"></a>
 ### `lumascope.CameraNodeNotReadableError`
@@ -14630,16 +14581,7 @@ The camera did not come up; the heading and the advice follow the cause.
 
 - `reason`: `'port_in_use'` -- the part was found and its port could not be opened, most often because another program holds it. `'not_detected'` -- no driver found the part on USB. These two are the hardware registry's own causes, the LED board's too. `'camera_driver_unavailable'` -- no camera was found, and a camera driver this scope could be using did not load on this installation. `'camera_firmware_missing'` -- the firmware file a Classic's driver uploads to the camera is not installed. `'camera_driver_unusable'` -- Windows has a Classic on no driver, on a package not LumaViewPro's, or on LumaViewPro's and did not start it (a problem code). `'camera_not_initialized'` -- the camera was found and could not be opened, one another application holds included, or did not come up for any other hardware cause before its open. `'camera_setup_failed'` -- the camera was found and opened, and setting it up failed; no cable or other program explains that. `'camera_bring_up_failed'` -- LumaViewPro's own code failed while bringing the camera up; nothing says the camera is at fault.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `camera_bring_up_failed` | -- | 500 |
-| `camera_driver_unavailable` | -- | 500 |
-| `camera_driver_unusable` | -- | 500 |
-| `camera_firmware_missing` | -- | 500 |
-| `camera_not_initialized` | -- | 500 |
-| `camera_setup_failed` | -- | 500 |
-| `not_detected` | -- | 500 |
-| `port_in_use` | -- | 500 |
+Reasons `camera_bring_up_failed`, `camera_driver_unavailable`, `camera_driver_unusable`, `camera_firmware_missing`, `camera_not_initialized`, `camera_setup_failed`, `not_detected`, `port_in_use`: no cause, REST 500.
 
 <a id="CameraReadFailedError"></a>
 ### `lumascope.CameraReadFailedError`
@@ -14651,9 +14593,7 @@ The camera did not answer a read of one of its values, or a probe of one.
 The words carry the SDK's own text, for the log; the person reads its
 type's sentence of what failed and what to do.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `camera_read_failed` | -- | 500 |
+Reason `camera_read_failed`: no cause, REST 500.
 
 <a id="CameraSettingRejected"></a>
 ### `lumascope.CameraSettingRejected`
@@ -14692,11 +14632,7 @@ flag.
 - <a id="CameraSettingRejected.requested"></a>`requested`: `float | int | str | bool | dict[str, int] | tuple[float | int | str | bool | dict[str, int] | None, ...] | None` -- The value the caller asked for.
 - <a id="CameraSettingRejected.setting"></a>`setting`: `str` -- Machine-readable setting name (e.g. 'frame_size').
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `camera_no_answer` | -- | 500 |
-| `camera_read_failed` | -- | 500 |
-| `camera_rejected` | -- | 500 |
+Reasons `camera_no_answer`, `camera_read_failed`, `camera_rejected`: no cause, REST 500.
 
 <a id="CameraSettingUnsupportedError"></a>
 ### `lumascope.CameraSettingUnsupportedError`
@@ -14717,15 +14653,7 @@ for a caller that treats it as the bad argument it is.
 - `requested`: The value asked for.
 - `offered`: The values the camera reports it supports.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `auto_exposure_unsupported` | request | 422 |
-| `auto_gain_unsupported` | request | 422 |
-| `binning_unsupported` | request | 422 |
-| `black_level_unsupported` | request | 422 |
-| `camera_node_unsupported` | request | 422 |
-| `high_conversion_gain_unsupported` | request | 422 |
-| `line_noise_reduction_unsupported` | request | 422 |
+Reasons `auto_exposure_unsupported`, `auto_gain_unsupported`, `binning_unsupported`, `black_level_unsupported`, `camera_node_unsupported`, `high_conversion_gain_unsupported`, `line_noise_reduction_unsupported`: cause request, REST 422.
 
 <a id="CameraSetupFailedError"></a>
 ### `lumascope.CameraSetupFailedError`
@@ -14735,9 +14663,7 @@ A fault; bases `Fault`, `HardwareError`.
 The camera was found and opened, and setting it up failed. The words
 name the step and the library's error.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `camera_setup_failed` | -- | 500 |
+Reason `camera_setup_failed`: no cause, REST 500.
 
 <a id="CameraStopStalledNotice"></a>
 ### `lumascope.CameraStopStalledNotice`
@@ -14759,9 +14685,7 @@ long the stop took.
 
 - `stop`: The stop told (`SlowCameraStop`): how long it took, and whether the camera is reset when LumaViewPro connects to it, which decides what the words say clears it.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `camera_stop_stalled` | -- | reported, never an answer |
+Reason `camera_stop_stalled`: no cause, reported, never an answer.
 
 <a id="CameraStreamStalledError"></a>
 ### `lumascope.CameraStreamStalledError`
@@ -14784,9 +14708,7 @@ is still connected.
 
 - `seconds`: How long no new frame had arrived when the stall was seen.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `camera_stream_stalled` | -- | 500 |
+Reason `camera_stream_stalled`: no cause, REST 500.
 
 <a id="CameraStreamStartFailedError"></a>
 ### `lumascope.CameraStreamStartFailedError`
@@ -14796,9 +14718,7 @@ A fault; bases `Fault`, `HardwareError`.
 The stream's own set-up on an opened camera failed. The words carry
 the library's text.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `camera_stream_start_failed` | -- | 500 |
+Reason `camera_stream_start_failed`: no cause, REST 500.
 
 <a id="CameraUsbDriverUnusableError"></a>
 ### `lumascope.CameraUsbDriverUnusableError`
@@ -14814,9 +14734,7 @@ package installed later that takes an identity is caught here and taken
 back by Repair. The words name the device, the driver it is bound to,
 and Windows' problem code.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `camera_usb_driver_unusable` | -- | 500 |
+Reason `camera_usb_driver_unusable`: no cause, REST 500.
 
 <a id="CameraUsbLookupFailedError"></a>
 ### `lumascope.CameraUsbLookupFailedError`
@@ -14828,9 +14746,7 @@ The system's lookup of the camera's USB device itself failed.
 Not an absence: the lookup did not complete, so whether the device is
 there is not known. The words name the call and its error code.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `camera_usb_lookup_failed` | -- | 500 |
+Reason `camera_usb_lookup_failed`: no cause, REST 500.
 
 <a id="CameraUsbNotFoundError"></a>
 ### `lumascope.CameraUsbNotFoundError`
@@ -14842,9 +14758,7 @@ No USB device the camera driver can stream from answers to its identity.
 On Windows: none bound to WinUSB, which is what the stream opens.
 The words carry the identity and the system's own text.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `camera_usb_not_found` | -- | 500 |
+Reason `camera_usb_not_found`: no cause, REST 500.
 
 <a id="CameraUsbOpenFailedError"></a>
 ### `lumascope.CameraUsbOpenFailedError`
@@ -14854,9 +14768,7 @@ A fault; bases `Fault`, `HardwareError`.
 The camera's USB device was found and could not be opened or set up
 for streaming. The words name the call and its error code.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `camera_usb_open_failed` | -- | 500 |
+Reason `camera_usb_open_failed`: no cause, REST 500.
 
 <a id="CameraWriteFailedError"></a>
 ### `lumascope.CameraWriteFailedError`
@@ -14868,9 +14780,7 @@ The camera refused or did not take a write of one of its settings.
 The words carry the SDK's own text, for the log; the person reads its
 type's sentence of what failed and what to do.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `camera_write_failed` | -- | 500 |
+Reason `camera_write_failed`: no cause, REST 500.
 
 <a id="CaptureError"></a>
 ### `lumascope.CaptureError`
@@ -14917,14 +14827,7 @@ not be read; a camera that is not there is refused instead
 
 - <a id="CaptureFailedError.source"></a>`source`: `FrameValiditySource | None` -- The source the capture failed for: for `'chunk_rejected'` the setting no frame matched, `EXPOSURE` or `GAIN`; for `'no_fresh_frame'` the change no frame came after (`Z_MOVE`, `LED`); None otherwise.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `chunk_rejected` | -- | 500 |
-| `deadline_expired` | -- | 500 |
-| `no_frame` | -- | 500 |
-| `no_fresh_frame` | -- | 500 |
-| `record_read_failed` | -- | 500 |
-| `unknown_save_encoding` | -- | 500 |
+Reasons `chunk_rejected`, `deadline_expired`, `no_frame`, `no_fresh_frame`, `record_read_failed`, `unknown_save_encoding`: no cause, REST 500.
 
 <a id="CaptureLocationError"></a>
 ### `lumascope.CaptureLocationError`
@@ -14941,10 +14844,7 @@ may then succeed.
 
 - `reason`: `'capture_location_unusable'` -- the location is missing, is not a folder, or refused the new directory; `'names_exhausted'` -- the name and every numbered variant are taken.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `capture_location_unusable` | state | 409 |
-| `names_exhausted` | state | 409 |
+Reasons `capture_location_unusable`, `names_exhausted`: cause state, REST 409.
 
 <a id="CapturePositionNotRecordedNotice"></a>
 ### `lumascope.CapturePositionNotRecordedNotice`
@@ -14953,9 +14853,7 @@ A notice; bases `Notice`, `Exception`.
 
 A still was saved, without its well or position, because X or Y is unknown.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `position_not_recorded` | -- | reported, never an answer |
+Reason `position_not_recorded`: no cause, reported, never an answer.
 
 <a id="CatalogNameRefusedError"></a>
 ### `lumascope.CatalogNameRefusedError`
@@ -14990,11 +14888,7 @@ same fact for a protocol's steps; `argument` is on this type only.
 - <a id="CatalogNameRefusedError.argument"></a>`argument`: `str` -- Where the name came from, so the person who gave it can find it: the owner's parameter (`labware_id`, `objective_id`, `model`), or, for a model met at bring-up, the stored setting `microscope` or the `simulated` scope `ScopeSession.create` was handed.
 - <a id="CatalogNameRefusedError.offered"></a>`offered`: `tuple[str, ...]` -- The catalog's keys, in the catalog's order.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `labware_unknown` | request | 422 |
-| `model_unknown` | request | 422 |
-| `objective_not_in_catalog` | request | 422 |
+Reasons `labware_unknown`, `model_unknown`, `objective_not_in_catalog`: cause request, REST 422.
 
 <a id="CellCountScaleDroppedNotice"></a>
 ### `lumascope.CellCountScaleDroppedNotice`
@@ -15007,9 +14901,7 @@ Every such file carries the old default of 1.0 pixels per micron, which
 described no image, so the load drops it and the count measures each
 image at its own scale. A person who meant 1.0 types it again.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `cell_count_scale_dropped` | -- | reported, never an answer |
+Reason `cell_count_scale_dropped`: no cause, reported, never an answer.
 
 <a id="ChannelBlockSupersededNotice"></a>
 ### `lumascope.ChannelBlockSupersededNotice`
@@ -15021,9 +14913,7 @@ The motor board carries the old Layers block, which is no longer read.
 The unit's channels and filterset are its model's. A board's own channels
 are its `Channels` block, beside its `Filterset`.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `channel_block_superseded` | -- | reported, never an answer |
+Reason `channel_block_superseded`: no cause, reported, never an answer.
 
 <a id="ChannelBlockUnusableNotice"></a>
 ### `lumascope.ChannelBlockUnusableNotice`
@@ -15035,9 +14925,7 @@ The motor board's Channels block cannot be used, so the scope has no channels.
 The block describes one filter assembly, so a block that contradicts
 itself is not read in part: no row can be trusted over another.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `channel_block_unusable` | -- | reported, never an answer |
+Reason `channel_block_unusable`: no cause, reported, never an answer.
 
 <a id="ChannelRowsSkippedNotice"></a>
 ### `lumascope.ChannelRowsSkippedNotice`
@@ -15053,9 +14941,7 @@ one notice.
 
 - `skipped`: Each skipped row's key and why it was not read.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `channel_rows_skipped` | -- | reported, never an answer |
+Reason `channel_rows_skipped`: no cause, reported, never an answer.
 
 <a id="ChannelSettingCappedNotice"></a>
 ### `lumascope.ChannelSettingCappedNotice`
@@ -15074,9 +14960,7 @@ at a time.
 
 - `capped`: `(channel, setting, stored, applied)` for each capped value: the channel, `'gain_db'`, `'exposure_ms'` or `'illumination_ma'`, the saved value and the limit it runs at, the camera's or the LED board's.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `channel_setting_capped` | -- | reported, never an answer |
+Reason `channel_setting_capped`: no cause, reported, never an answer.
 
 <a id="ClaimStillLentError"></a>
 ### `lumascope.ClaimStillLentError`
@@ -15096,9 +14980,7 @@ it was documented.
 
 - `timeout_s`: How long the end waited for the run.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `claim_still_lent` | -- | 500 |
+Reason `claim_still_lent`: no cause, REST 500.
 
 <a id="CompositeFailedError"></a>
 ### `lumascope.CompositeFailedError`
@@ -15119,15 +15001,7 @@ raised, is a field, since each is another vocabulary's string.
 - <a id="CompositeFailedError.merge_failure"></a>`merge_failure`: `str | None` -- The reason of the outcome the merge failed with, for `'merge_error'` when it had one; otherwise None.
 - <a id="CompositeFailedError.run_ending"></a>`run_ending`: `str | None` -- The run's ending reason, for `'run_not_completed'`; otherwise None.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `cleanup_error` | -- | 500 |
-| `merge_error` | -- | 500 |
-| `merge_failed` | -- | 500 |
-| `merge_not_started` | -- | 500 |
-| `no_composite_config` | -- | 500 |
-| `no_run_dir` | -- | 500 |
-| `run_not_completed` | -- | 500 |
+Reasons `cleanup_error`, `merge_error`, `merge_failed`, `merge_not_started`, `no_composite_config`, `no_run_dir`, `run_not_completed`: no cause, REST 500.
 
 <a id="ConfigError"></a>
 ### `lumascope.ConfigError`
@@ -15154,9 +15028,7 @@ are unavailable, so consumers that would trust "no per-unit value
 present" need to know the difference or they silently serve another
 source's answer for a unit that has its own.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `config_unread` | -- | 500 |
+Reason `config_unread`: no cause, REST 500.
 
 <a id="ConfigurationDefectError"></a>
 ### `lumascope.ConfigurationDefectError`
@@ -15176,18 +15048,7 @@ the reason's are written for the person.
 
 - `reason`: `'settings_not_prepared'` -- a capture configuration names an output format this build does not write, so the stored image output format was never judged by the settings' preparation. `'composite_thresholds_missing'` -- a composite was asked for without a brightness threshold for every fluorescence channel it blends. `'composite_threshold_out_of_range'` -- a composite's brightness threshold is not a number from 0 to 100 percent. `'capture_config_inconsistent'` -- a capture configuration's capture depth and save encoding do not match its image mode. `'tail_id_mode_unknown'` -- a file name was asked for with a tail id mode the namer does not implement. `'labware_not_given'` -- an image's record was written with no labware to state. `'channels_unresolved'` -- this scope's channels could not be resolved from its model, so no channel can be acted on. `'scope_not_composed'` -- a scope that no session has bound was used for work that reads or saves settings. `'zstack_reference_unchecked'` -- a Z-stack's position reference is none of top, center and bottom. `'route_shadowed'` -- a Session member has the name of one of the REST server's own routes, so a client could not reach it.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `capture_config_inconsistent` | -- | 500 |
-| `channels_unresolved` | -- | 500 |
-| `composite_threshold_out_of_range` | -- | 500 |
-| `composite_thresholds_missing` | -- | 500 |
-| `labware_not_given` | -- | 500 |
-| `route_shadowed` | -- | 500 |
-| `scope_not_composed` | -- | 500 |
-| `settings_not_prepared` | -- | 500 |
-| `tail_id_mode_unknown` | -- | 500 |
-| `zstack_reference_unchecked` | -- | 500 |
+Reasons `capture_config_inconsistent`, `channels_unresolved`, `composite_threshold_out_of_range`, `composite_thresholds_missing`, `labware_not_given`, `route_shadowed`, `scope_not_composed`, `settings_not_prepared`, `tail_id_mode_unknown`, `zstack_reference_unchecked`: no cause, REST 500.
 
 <a id="ControlSessionRefusedError"></a>
 ### `lumascope.ControlSessionRefusedError`
@@ -15258,9 +15119,7 @@ holder or stop it. Nothing was committed.
 - <a id="DiagnosticRefusedError.holder"></a>`holder`: `Holder | None` -- The activity kind holding the claim at refusal time.
 - <a id="DiagnosticRefusedError.holder_trigger"></a>`holder_trigger`: `Caller | None` -- Who started the holding run (`'gui'`, `'rest'`, `'api'`) when the holder is a run; None otherwise.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `exclusive_activity_running` | state | 409 |
+Reason `exclusive_activity_running`: cause state, REST 409.
 
 <a id="DriverNotLiveError"></a>
 ### `lumascope.DriverNotLiveError`
@@ -15269,9 +15128,7 @@ A fault; bases `Fault`, `RuntimeError`.
 
 A driver selected by name constructed, but its hardware is not live.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `driver_not_live` | -- | 500 |
+Reason `driver_not_live`: no cause, REST 500.
 
 <a id="DuplicateCaptureFilenamesNotice"></a>
 ### `lumascope.DuplicateCaptureFilenamesNotice`
@@ -15283,9 +15140,7 @@ A loaded protocol has steps that would save to the same file name.
 The file still loads, so the steps can be renamed in the app; the run is
 refused at start until each step's file name is unique.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `duplicate_capture_filenames` | -- | reported, never an answer |
+Reason `duplicate_capture_filenames`: no cause, reported, never an answer.
 
 <a id="ExposureAtMaximumNotice"></a>
 ### `lumascope.ExposureAtMaximumNotice`
@@ -15296,9 +15151,7 @@ Auto-gain reached its exposure ceiling and the scene was still too dark.
 
 The setting keeps the ceiling; the person can add light or raise it.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `exposure_at_maximum` | -- | reported, never an answer |
+Reason `exposure_at_maximum`: no cause, reported, never an answer.
 
 <a id="ExposureAtMinimumNotice"></a>
 ### `lumascope.ExposureAtMinimumNotice`
@@ -15309,9 +15162,7 @@ Auto-gain settled at or below the channel's usable exposure floor.
 
 The setting keeps the floor, since it cannot hold the raw value.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `exposure_at_minimum` | -- | reported, never an answer |
+Reason `exposure_at_minimum`: no cause, reported, never an answer.
 
 <a id="FalsifyingChangeInFlightError"></a>
 ### `lumascope.FalsifyingChangeInFlightError`
@@ -15330,9 +15181,7 @@ change ends, and the same start may then succeed.
 
 - `reason`: `'falsifying_change_in_flight'`.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `falsifying_change_in_flight` | state | 409 |
+Reason `falsifying_change_in_flight`: cause state, REST 409.
 
 <a id="Fault"></a>
 ### `lumascope.Fault`
@@ -15364,9 +15213,7 @@ would be data loss for nothing.
 - `reason`: `'file_writer_not_stuck'`.
 - `pending`: The writes still outstanding when asked.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `file_writer_not_stuck` | state | 409 |
+Reason `file_writer_not_stuck`: cause state, REST 409.
 
 <a id="FileWriterReplacedError"></a>
 ### `lumascope.FileWriterReplacedError`
@@ -15379,9 +15226,7 @@ Given to whoever waited on the write that held the file writer when its
 recovery replaced it. The stuck write may still finish and leave its
 file; nothing will say when.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `file_writer_replaced` | -- | 500 |
+Reason `file_writer_replaced`: no cause, REST 500.
 
 <a id="FileWriterStalledError"></a>
 ### `lumascope.FileWriterStalledError`
@@ -15399,9 +15244,7 @@ and the remedy below are the one wording of both.
 
 - `remedy`: Recovering the file writer, which gives up on the unsaved images.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `file_writer_stalled` | -- | 500 |
+Reason `file_writer_stalled`: no cause, REST 500.
 
 <a id="FocusKeptNotice"></a>
 ### `lumascope.FocusKeptNotice`
@@ -15421,9 +15264,7 @@ refusal instead ('Focus Not Saved').
 - `focused`: The steps that keep a focus the scan found, a z-stack's slices each counted.
 - `steps`: The protocol's steps.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `focus_kept` | -- | reported, never an answer |
+Reason `focus_kept`: no cause, reported, never an answer.
 
 <a id="FocusNotSavedError"></a>
 ### `lumascope.FocusNotSavedError`
@@ -15441,9 +15282,7 @@ stored placeholder is what sent every such channel to one fixed height.
 - `reason`: `'focus_not_saved'`.
 - `channel`: The channel asked about.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `focus_not_saved` | state | 409 |
+Reason `focus_not_saved`: cause state, REST 409.
 
 <a id="FocusNotWrittenError"></a>
 ### `lumascope.FocusNotWrittenError`
@@ -15465,9 +15304,7 @@ again focuses the steps it has now.
 - `reason`: `'focus_not_written'`.
 - `difference`: What no longer matches, in the words the person reads.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `focus_not_written` | state | 409 |
+Reason `focus_not_written`: cause state, REST 409.
 
 <a id="FrameDepthError"></a>
 ### `lumascope.FrameDepthError`
@@ -15489,9 +15326,7 @@ over-range frame to white instead.
 - `value`: The offending pixel value.
 - `significant_bits`: The declared depth it exceeded.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `frame_depth_exceeded` | -- | 500 |
+Reason `frame_depth_exceeded`: no cause, REST 500.
 
 <a id="FrameHandlerRemovedError"></a>
 ### `lumascope.FrameHandlerRemovedError`
@@ -15510,10 +15345,7 @@ declining to go on calling the handler, which the plugin's author can fix
 - `name`: The handler's display name.
 - `reason`: `'over_budget'` -- it ran past the per-frame budget for the drop count of frames in a row; `'raised'` -- it raised for the drop count of frames in a row, the first of them named in the words.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `over_budget` | state | 409 |
-| `raised` | state | 409 |
+Reasons `over_budget`, `raised`: cause state, REST 409.
 
 <a id="FrameRefittedNotice"></a>
 ### `lumascope.FrameRefittedNotice`
@@ -15527,9 +15359,7 @@ its minimum and capped at the scope's maximum, as a binning change
 derives one. It is stored in the saved frame's place, as the
 substituted binning is, so the next bring-up has nothing to refit.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `frame_refitted` | -- | reported, never an answer |
+Reason `frame_refitted`: no cause, reported, never an answer.
 
 <a id="HardwareCommandRefusedError"></a>
 ### `lumascope.HardwareCommandRefusedError`
@@ -15643,12 +15473,7 @@ over, and a REST caller is answered 409.
 - `axis`: The axis the hold was on.
 - `reason`: `'stopped'` -- a STOP ended the move, or came before it. `'superseded'` -- a new target on the axis ended the held move. `'homed'` -- a home of the axis ended it. `'released'` -- the hold was cleared (`clear`) before the move reached it.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `homed` | state | 409 |
-| `released` | state | 409 |
-| `stopped` | state | 409 |
-| `superseded` | state | 409 |
+Reasons `homed`, `released`, `stopped`, `superseded`: cause state, REST 409.
 
 <a id="HomingFailedError"></a>
 ### `lumascope.HomingFailedError`
@@ -15685,12 +15510,7 @@ branching on one reads it the same from a home and from a move.
 
 - `reason`: `'driver_failed'` -- the home raised; `'board_lost'` -- the home raised and the motor board is no longer connected; `'position_unread_after_move'` -- homed, but `axes` could not be read; `'lid_open'` -- the lid was opened while the home was moving. The stage's power is read before a home, never during one, so a home without it is refused, never failed.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `board_lost` | -- | 500 |
-| `driver_failed` | -- | 500 |
-| `lid_open` | -- | 500 |
-| `position_unread_after_move` | -- | 500 |
+Reasons `board_lost`, `driver_failed`, `lid_open`, `position_unread_after_move`: no cause, REST 500.
 
 <a id="HomingStoppedError"></a>
 ### `lumascope.HomingStoppedError`
@@ -15709,9 +15529,7 @@ had moved.
 - `reason`: `'stopped'` -- a Stop ended the home.
 - `axes`: The axes left without a known position; empty for a home a Stop ended before it was driven.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `stopped` | state | 409 |
+Reason `stopped`: cause state, REST 409.
 
 <a id="HyperstackNotBuiltError"></a>
 ### `lumascope.HyperstackNotBuiltError`
@@ -15737,13 +15555,7 @@ failing to get its stack.
 - `message`: The builder's one-paragraph reason, user-facing.
 - `reason`: `'builder_declined'` -- the builder answered status=False; `'unreadable_input_frame'` -- a frame could not be read; `'input_frames_not_one_size'` -- the frames are not all one size; `'mixed_input_pixel_types'` -- frames of different pixel types cannot share one stack; `'hyperstack_not_written'` -- the disk refused the stack's file.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `builder_declined` | -- | 500 |
-| `hyperstack_not_written` | -- | 500 |
-| `input_frames_not_one_size` | -- | 500 |
-| `mixed_input_pixel_types` | -- | 500 |
-| `unreadable_input_frame` | -- | 500 |
+Reasons `builder_declined`, `hyperstack_not_written`, `input_frames_not_one_size`, `mixed_input_pixel_types`, `unreadable_input_frame`: no cause, REST 500.
 
 <a id="HyperstacksSavedNotice"></a>
 ### `lumascope.HyperstacksSavedNotice`
@@ -15752,9 +15564,7 @@ A notice; bases `Notice`, `Exception`.
 
 A run's hyperstacks were built: how many and where, or what was degraded.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `hyperstacks_saved` | -- | reported, never an answer |
+Reason `hyperstacks_saved`: no cause, reported, never an answer.
 
 <a id="HyperstacksSavingNotice"></a>
 ### `lumascope.HyperstacksSavingNotice`
@@ -15763,9 +15573,7 @@ A notice; bases `Notice`, `Exception`.
 
 A run's hyperstacks are being built, which can take minutes.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `hyperstacks_saving` | -- | reported, never an answer |
+Reason `hyperstacks_saving`: no cause, reported, never an answer.
 
 <a id="ImageSaveError"></a>
 ### `lumascope.ImageSaveError`
@@ -15783,9 +15591,7 @@ is not this and propagates as itself.
 
 - `file_loc`: The path the image was to be written to.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `image_save_failed` | -- | 500 |
+Reason `image_save_failed`: no cause, REST 500.
 
 <a id="InputFramesUnusableError"></a>
 ### `lumascope.InputFramesUnusableError`
@@ -15807,11 +15613,7 @@ cannot read keeps doing so.
 - `reason`: `'unreadable'` -- a frame is missing or will not decode; `'geometry'` -- the frames are not all one size; `'mixed_pixel_types'` -- the frames' pixel types cannot share one output.
 - `detail`: What is wrong with the one frame, without naming it ("Permission denied"), for a build that names its frames itself; None when the message alone says it.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `geometry` | request | 422 |
-| `mixed_pixel_types` | request | 422 |
-| `unreadable` | request | 422 |
+Reasons `geometry`, `mixed_pixel_types`, `unreadable`: cause request, REST 422.
 
 <a id="InstallationFileError"></a>
 ### `lumascope.InstallationFileError`
@@ -15838,9 +15640,7 @@ is reinstalled or restored.
 
 - `file_path`: The file that could not be used.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `installation_file_unusable` | -- | 500 |
+Reason `installation_file_unusable`: no cause, REST 500.
 
 <a id="KeepAwakeNotHeldNotice"></a>
 ### `lumascope.KeepAwakeNotHeldNotice`
@@ -15860,10 +15660,7 @@ cannot start. Told at most once per session and reason.
 - `reason`: `'keep_awake_unsupported'` -- this host has no way to take the request (a platform LVP has no backend for, a Linux without `systemd-inhibit`); `'keep_awake_refused'` -- the operating system declined it, or a hold it had granted ended by itself.
 - `detail`: The operating system's own words.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `keep_awake_refused` | -- | reported, never an answer |
-| `keep_awake_unsupported` | -- | reported, never an answer |
+Reasons `keep_awake_refused`, `keep_awake_unsupported`: no cause, reported, never an answer.
 
 <a id="LaneCallStillRunningError"></a>
 ### `lumascope.LaneCallStillRunningError`
@@ -15882,10 +15679,7 @@ means only that the caller's own wait ran out.
 - `member`: The API member whose call is still running.
 - `timeout_s`: The bound that ran out, for `'call_overran'`; None otherwise.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `call_overran` | -- | 500 |
-| `lane_closed` | -- | 500 |
+Reasons `call_overran`, `lane_closed`: no cause, REST 500.
 
 <a id="LedBoardUnavailableError"></a>
 ### `lumascope.LedBoardUnavailableError`
@@ -15902,14 +15696,7 @@ controls that appear to do nothing. The advice follows the cause.
 
 - `reason`: The hardware registry's cause, `'not_detected'` and `'port_in_use'` as `CameraNotAvailableError` explains them, or: `'not_responding'` -- the board's port opened and the board answered nothing. `'connect_failed'` -- the board's driver raised while connecting. `'no_driver'` -- no real LED board driver is registered on this installation. Or, not the registry's: `'led_driver_unavailable'` -- no LED board was found, and an LED driver this scope could be using did not load on this installation.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `connect_failed` | -- | 500 |
-| `led_driver_unavailable` | -- | 500 |
-| `no_driver` | -- | 500 |
-| `not_detected` | -- | 500 |
-| `not_responding` | -- | 500 |
-| `port_in_use` | -- | 500 |
+Reasons `connect_failed`, `led_driver_unavailable`, `no_driver`, `not_detected`, `not_responding`, `port_in_use`: no cause, REST 500.
 
 <a id="LedFirmwareWedgedError"></a>
 ### `lumascope.LedFirmwareWedgedError`
@@ -15920,9 +15707,7 @@ The LED controller's firmware is stuck and did not recover on a soft reset.
 
 Only a power cycle brings it back, and its words say so.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `led_firmware_wedged` | -- | 500 |
+Reason `led_firmware_wedged`: no cause, REST 500.
 
 <a id="LedSafetyOffNotTakenError"></a>
 ### `lumascope.LedSafetyOffNotTakenError`
@@ -15938,9 +15723,7 @@ on, photobleaching whatever is on the stage.
 
 - `reason`: `'safety_off_failed'`.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `safety_off_failed` | -- | 500 |
+Reason `safety_off_failed`: no cause, REST 500.
 
 <a id="LiveFolderFileNotWrittenError"></a>
 ### `lumascope.LiveFolderFileNotWrittenError`
@@ -15958,9 +15741,7 @@ Nothing is left at the name.
 
 - `name`: The name under the live folder the file was to be written at.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `live_folder_file_not_written` | -- | 500 |
+Reason `live_folder_file_not_written`: no cause, REST 500.
 
 <a id="LiveFolderPathRefusedError"></a>
 ### `lumascope.LiveFolderPathRefusedError`
@@ -16011,9 +15792,7 @@ already has is no refusal.
 - `has`: How this process's logging is configured: `'declined'`, `'lumascope'` or `'root'`.
 - `asked`: What the refused call asked for, in the same words.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `logging_configured_otherwise` | restart | 503 |
+Reason `logging_configured_otherwise`: cause restart, REST 503.
 
 <a id="LowSystemResourcesNotice"></a>
 ### `lumascope.LowSystemResourcesNotice`
@@ -16039,9 +15818,7 @@ what is past; the memory and disk figures lead only when one of them is.
 - `busy`: Each other program over the CPU line (`ProgramCpu`), largest share first.
 - `preferred_gpu`: The discrete GPU of a hybrid PC, the one Windows' Graphics setting names High performance, when LumaViewPro is drawing on its integrated one (`GpuAdapter`); None otherwise.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `low_system_resources` | -- | reported, never an answer |
+Reason `low_system_resources`: no cause, reported, never an answer.
 
 <a id="MotionInterlockError"></a>
 ### `lumascope.MotionInterlockError`
@@ -16063,10 +15840,7 @@ to stop the motors in refusing it.
 - `moved`: Whether anything of the refused command had moved.
 - `stopped`: Whether the driver sent every motor a stop in refusing it, settled or not; False when no stop was sent, as for a stage without power. The API counts a sent stop as a Stop.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `lid_open` | -- | 500 |
-| `stage_unpowered` | -- | 500 |
+Reasons `lid_open`, `stage_unpowered`: no cause, REST 500.
 
 <a id="MotionNotCompletedError"></a>
 ### `lumascope.MotionNotCompletedError`
@@ -16079,9 +15853,7 @@ An axis that did not home, arrive or settle in the time it is given, or
 a home that ended before its phases did. Whether a Stop ended it is the
 API's stop generation to say, never this type.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `motion_not_completed` | -- | 500 |
+Reason `motion_not_completed`: no cause, REST 500.
 
 <a id="MotorBoardUnavailableError"></a>
 ### `lumascope.MotorBoardUnavailableError`
@@ -16097,13 +15869,7 @@ first symptom is a stage that does not move and a home refused.
 
 - `reason`: The hardware registry's cause, one of the five `DriverFallback.cause` names, as `LedBoardUnavailableError` explains them.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `connect_failed` | -- | 500 |
-| `no_driver` | -- | 500 |
-| `not_detected` | -- | 500 |
-| `not_responding` | -- | 500 |
-| `port_in_use` | -- | 500 |
+Reasons `connect_failed`, `no_driver`, `not_detected`, `not_responding`, `port_in_use`: no cause, REST 500.
 
 <a id="MotorStopFailedError"></a>
 ### `lumascope.MotorStopFailedError`
@@ -16117,9 +15883,7 @@ from the driver's error. A failure, not a refusal: the STOP was sent
 and nothing vouches that it landed. The stop generation has already
 moved, so no waited move reads itself as arrived.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `motor_stop_failed` | -- | 500 |
+Reason `motor_stop_failed`: no cause, REST 500.
 
 <a id="MoveFaultError"></a>
 ### `lumascope.MoveFaultError`
@@ -16132,15 +15896,7 @@ A move failed: the motor may have traveled any part of the way.
 
 - `reason`: `'driver_failed'` -- the motor board did not take the command (chained from the driver's error). `'stalled'` -- the motion monitor gave the axis up: its position stopped changing short of its target, and the stage was halted. `'monitor_ended_mid_move'` -- the motion monitor ended while the axis moved, so nothing could judge the move. `'board_lost'` -- the motor board was lost while the axis moved: found by the drive's own command or by the motion monitor. `'faulted'` -- something else set the axis UNKNOWN during the move, carrying no fault of its own, with no stop before it. `'position_unread_after_move'` -- the board did not report where the axis is: within the stall window after it reported the axis arrived, or when a home read every axis's position. `'status_unread'` -- the board did not report whether the axis arrived, within the stall window. Each leaves the axis UNKNOWN.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `board_lost` | -- | 500 |
-| `driver_failed` | -- | 500 |
-| `faulted` | -- | 500 |
-| `monitor_ended_mid_move` | -- | 500 |
-| `position_unread_after_move` | -- | 500 |
-| `stalled` | -- | 500 |
-| `status_unread` | -- | 500 |
+Reasons `board_lost`, `driver_failed`, `faulted`, `monitor_ended_mid_move`, `position_unread_after_move`, `stalled`, `status_unread`: no cause, REST 500.
 
 <a id="MoveNotCompletedError"></a>
 ### `lumascope.MoveNotCompletedError`
@@ -16177,11 +15933,7 @@ the scope is closed its position is unknown.
 
 - `reason`: `'stopped'` -- a stop sent while it moved ended it: `stop_motion`, or the close's, even one the board did not take (that failure is reported once, as itself); a turret is then in no known slot. `'lid_open_mid_move'` -- the lid was opened while it moved, and the stage stopped every axis: no one's Stop, and a run that meets it ends naming the lid. `'superseded'` -- another move or a home took the axis before this one arrived; that command's own outcome says where the axis went.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `lid_open_mid_move` | state | 409 |
-| `stopped` | state | 409 |
-| `superseded` | state | 409 |
+Reasons `lid_open_mid_move`, `stopped`, `superseded`: cause state, REST 409.
 
 <a id="MoveWaitExpiredError"></a>
 ### `lumascope.MoveWaitExpiredError`
@@ -16199,9 +15951,7 @@ reads the axis and reason as an errno.
 
 - `reason`: `'still_moving'`.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `still_moving` | state | 409 |
+Reason `still_moving`: cause state, REST 409.
 
 <a id="NoHardwareDetectedNotice"></a>
 ### `lumascope.NoHardwareDetectedNotice`
@@ -16217,10 +15967,7 @@ with no instrument attached needs to be told once, not three times.
 
 - `reason`: `'no_hardware'` -- nothing was found on USB. `'no_hardware_driver_unavailable'` -- nothing was found, and a driver this scope could be using did not load on this installation.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `no_hardware` | -- | reported, never an answer |
-| `no_hardware_driver_unavailable` | -- | reported, never an answer |
+Reasons `no_hardware`, `no_hardware_driver_unavailable`: no cause, reported, never an answer.
 
 <a id="NoWireFormError"></a>
 ### `lumascope.NoWireFormError`
@@ -16229,9 +15976,7 @@ A fault; bases `Fault`, `TypeError`.
 
 A value whose type has no wire form reached `encode`.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `no_wire_form` | -- | 500 |
+Reason `no_wire_form`: no cause, REST 500.
 
 <a id="Notice"></a>
 ### `lumascope.Notice`
@@ -16279,12 +16024,7 @@ a stored one the catalog does not hold, is not known to be mounted.
 - `reason`: `'slot_unknown'` -- the turret is in no known slot: it has not been homed or moved since its slot was last lost, or a turret command is still under way. The sentence names the two remedies that work in both: wait for the turret, or home the scope. A turret home or move is not one of them, since the motion gate refuses both while any axis has no known position. `'slot_unassigned'` -- the slot in the light path has no objective assigned. `'not_in_catalog'` -- the slot in the light path is assigned an objective that is not in the objective catalog. `'none_selected'` -- no objective has been confirmed, as on a scope with no turret before a person says which objective is installed.
 - `slot`: The slot in the light path, or None when that is what is unknown.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `none_selected` | state | 409 |
-| `not_in_catalog` | state | 409 |
-| `slot_unassigned` | state | 409 |
-| `slot_unknown` | state | 409 |
+Reasons `none_selected`, `not_in_catalog`, `slot_unassigned`, `slot_unknown`: cause state, REST 409.
 
 <a id="OperationSettleRefusedError"></a>
 ### `lumascope.OperationSettleRefusedError`
@@ -16306,9 +16046,7 @@ refusal of a second settle is.
 - `reason`: `'settled_by_its_producer'`.
 - `member`: The member that was called.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `settled_by_its_producer` | request | 422 |
+Reason `settled_by_its_producer`: cause request, REST 422.
 
 <a id="OperationWaitExpiredError"></a>
 ### `lumascope.OperationWaitExpiredError`
@@ -16330,9 +16068,7 @@ reads the words as an errno.
 - `operation`: The `Operation` waited on, still running when this was raised.
 - `timeout_s`: The wait that ran out, in seconds.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `still_running` | state | 409 |
+Reason `still_running`: cause state, REST 409.
 
 <a id="PackagesNotAsPinnedError"></a>
 ### `lumascope.PackagesNotAsPinnedError`
@@ -16365,10 +16101,7 @@ acts on it.
 - `install_args`: The arguments the install script is started with.
 - `pip_line`: The pip command that installs the pins into the Python that ran, or None when it cannot install into itself or nothing can be judged.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `packages_not_as_pinned` | -- | 500 |
-| `pins_unread` | -- | 500 |
+Reasons `packages_not_as_pinned`, `pins_unread`: no cause, REST 500.
 
 <a id="PixelSizeUnknownError"></a>
 ### `lumascope.PixelSizeUnknownError`
@@ -16425,9 +16158,7 @@ A loaded plugin failed while the host was calling it.
 - `hook`: What the host was calling the plugin for.
 - `detail`: The plugin's own account of the failure, when it gave one.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `plugin_failed` | -- | 500 |
+Reason `plugin_failed`: no cause, REST 500.
 
 <a id="PluginNotLoadedError"></a>
 ### `lumascope.PluginNotLoadedError`
@@ -16446,9 +16177,7 @@ carries each traceback.
 
 - `failures`: What did not load, each with its name and why, in the order discovery found them.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `plugin_not_loaded` | -- | 500 |
+Reason `plugin_not_loaded`: no cause, REST 500.
 
 <a id="PluginProcessorSkippedError"></a>
 ### `lumascope.PluginProcessorSkippedError`
@@ -16470,9 +16199,7 @@ to process again.
 - `folder`: The run's folder.
 - `plugin_name`: The plugin whose processing did not run.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `processor_skipped` | -- | 500 |
+Reason `processor_skipped`: no cause, REST 500.
 
 <a id="PluginRegistrationError"></a>
 ### `lumascope.PluginRegistrationError`
@@ -16490,10 +16217,7 @@ is the request.
 
 - `reason`: `'name_taken'` -- the namespace already holds a plugin of that name; `'rest_namespace_reserved'` -- a plugin cannot add REST routes in this release.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `name_taken` | request | 422 |
-| `rest_namespace_reserved` | request | 422 |
+Reasons `name_taken`, `rest_namespace_reserved`: cause request, REST 422.
 
 <a id="PositionOutOfRangeError"></a>
 ### `lumascope.PositionOutOfRangeError`
@@ -16542,9 +16266,7 @@ without reading the words.
 - <a id="PositionOutOfRangeError.axis"></a>`axis`: `Axis` -- The axis whose position or distance was refused.
 - <a id="PositionOutOfRangeError.limits"></a>`limits`: `tuple[float, float]` -- The lowest and highest value `bound` allows, in the quantity's own unit.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `position_out_of_range` | request | 422 |
+Reason `position_out_of_range`: cause request, REST 422.
 
 <a id="PostProcessingFailedError"></a>
 ### `lumascope.PostProcessingFailedError`
@@ -16571,10 +16293,7 @@ incomplete build as a complete one.
 
 - <a id="PostProcessingFailedError.excluded_inputs"></a>`excluded_inputs`: `tuple[ExcludedInput, ...]` -- The files of each kind the build did not take, as a complete build's result names them; empty for an operation that reads no protocol folder (Quick Enhance, a cell count).
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `post_processing_failed` | -- | 500 |
-| `post_processing_incomplete` | -- | 500 |
+Reasons `post_processing_failed`, `post_processing_incomplete`: no cause, REST 500.
 
 <a id="PostProcessingRefusedError"></a>
 ### `lumascope.PostProcessingRefusedError`
@@ -16657,9 +16376,7 @@ asks, as the file spells it, and how to put the file right.
 
 - `reason`: `'stimulation_not_performed'`.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `stimulation_not_performed` | request | 422 |
+Reason `stimulation_not_performed`: cause request, REST 422.
 
 <a id="ProtocolError"></a>
 ### `lumascope.ProtocolError`
@@ -16688,9 +16405,7 @@ one log line -- needs no log line of its own beside each check.
 - `reason`: `'protocol_invalid'`.
 - `file`: The file refused, or None for a protocol built in memory.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `protocol_invalid` | request | 422 |
+Reason `protocol_invalid`: cause request, REST 422.
 
 <a id="ProtocolNotLoadedError"></a>
 ### `lumascope.ProtocolNotLoadedError`
@@ -16709,9 +16424,7 @@ that was read but is not a protocol LumaViewPro can take is
 
 - `file`: The path that could not be read.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `protocol_not_loaded` | -- | 500 |
+Reason `protocol_not_loaded`: no cause, REST 500.
 
 <a id="ProtocolNotSavedError"></a>
 ### `lumascope.ProtocolNotSavedError`
@@ -16730,9 +16443,7 @@ first, so a file already there is unchanged.
 
 - `file`: The path the protocol was to be written to.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `protocol_not_saved` | -- | 500 |
+Reason `protocol_not_saved`: no cause, REST 500.
 
 <a id="ProtocolRunRefusedError"></a>
 ### `lumascope.ProtocolRunRefusedError`
@@ -16834,9 +16545,7 @@ A period or duration the scope cannot run, refused rather than changed.
 - `key`: `'period'` or `'duration'`.
 - `value`: What was given, as given.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `schedule_not_runnable` | request | 422 |
+Reason `schedule_not_runnable`: cause request, REST 422.
 
 <a id="ProtocolStepsInvalidNotice"></a>
 ### `lumascope.ProtocolStepsInvalidNotice`
@@ -16849,9 +16558,7 @@ The load and the edit still succeed, so the step can be fixed in the
 app; the run is refused at start until every step is valid. The words
 are the validator's own lines, one per field.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `protocol_steps_invalid` | -- | reported, never an answer |
+Reason `protocol_steps_invalid`: no cause, reported, never an answer.
 
 <a id="Quiet"></a>
 ### `lumascope.Quiet`
@@ -16886,9 +16593,7 @@ with no row is skipped by stitching and video builds.
 - `attempted`: Captures the run attempted.
 - `lost`: Each row the record knows it lost, as (step name, why): a row whose own write failed. A shortfall with none lost is the captures that never reached a row, such as images not written.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `record_incomplete` | -- | 500 |
+Reason `record_incomplete`: no cause, REST 500.
 
 <a id="RecordingDetailsNotSavedError"></a>
 ### `lumascope.RecordingDetailsNotSavedError`
@@ -16906,9 +16611,7 @@ One recording's (a manual recording, a protocol video step) says so of
 itself; a protocol run's end says it once for every video step that lost
 its file, naming the first.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `recording_details_not_saved` | -- | 500 |
+Reason `recording_details_not_saved`: no cause, REST 500.
 
 <a id="RecordingFinalizeError"></a>
 ### `lumascope.RecordingFinalizeError`
@@ -16926,9 +16629,7 @@ MP4 is finished at its close alone.
 
 - `protocol_step`: True for a protocol video step, False for a manual recording; each is named in its own words.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `recording_finalize_failed` | -- | 500 |
+Reason `recording_finalize_failed`: no cause, REST 500.
 
 <a id="RecordingFramesUnstampedError"></a>
 ### `lumascope.RecordingFramesUnstampedError`
@@ -16947,9 +16648,7 @@ this is not a stalled camera and not an empty feed.
 - `frames_unstamped`: Frames the camera sent without their timestamps.
 - `protocol_step`: True for a protocol video step, False for a manual recording.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `frames_unstamped` | -- | 500 |
+Reason `frames_unstamped`: no cause, REST 500.
 
 <a id="RecordingPositionNotRecordedNotice"></a>
 ### `lumascope.RecordingPositionNotRecordedNotice`
@@ -16966,9 +16665,7 @@ labware or stage offset there is no plate frame to record X and Y in.
 - `unknown_axes`: The axes whose position is unknown at the start.
 - `has_plate`: Whether a plate frame exists to record X and Y in.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `position_not_recorded` | -- | reported, never an answer |
+Reason `position_not_recorded`: no cause, reported, never an answer.
 
 <a id="RecordingRefusedError"></a>
 ### `lumascope.RecordingRefusedError`
@@ -16998,18 +16695,7 @@ asked for the recording reports it where its flight ends.
 - <a id="RecordingRefusedError.holder"></a>`holder`: `Holder | None` -- The kind of activity holding the scope, or None when the refusal is not about a holder.
 - <a id="RecordingRefusedError.holder_trigger"></a>`holder_trigger`: `Caller | None` -- Who started the holding run (`'gui'`, `'rest'`, `'api'`) when the holder is 'protocol'; None for a recording holder.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `camera_holds_another_channel` | state | 409 |
-| `capture_location_unusable` | state | 409 |
-| `changes_not_in_force` | state | 409 |
-| `disk_space_insufficient` | state | 409 |
-| `exclusive_activity_running` | state | 409 |
-| `falsifying_change_in_flight` | state | 409 |
-| `names_exhausted` | state | 409 |
-| `other_led_lit` | state | 409 |
-| `post_processing_running` | state | 409 |
-| `recording_active` | state | 409 |
+Reasons `camera_holds_another_channel`, `capture_location_unusable`, `changes_not_in_force`, `disk_space_insufficient`, `exclusive_activity_running`, `falsifying_change_in_flight`, `names_exhausted`, `other_led_lit`, `post_processing_running`, `recording_active`: cause state, REST 409.
 
 <a id="RecordingSavedLateNotice"></a>
 ### `lumascope.RecordingSavedLateNotice`
@@ -17022,9 +16708,7 @@ Told once saving has finished, never during a recording: the notice is a
 pop-up, which would take the person's next tap, Stop included. The
 raiser passes the facts; the words are the type's.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `recording_saved_late` | -- | reported, never an answer |
+Reason `recording_saved_late`: no cause, reported, never an answer.
 
 <a id="RecordingStoppedError"></a>
 ### `lumascope.RecordingStoppedError`
@@ -17045,12 +16729,7 @@ MP4's close is still to run, and tells itself if it fails
 
 - `reason`: `'camera_disconnected'` -- the camera is no longer active. `'camera_stalled'` -- the camera stopped delivering frames for longer than the recording's exposure allows. `'disk_space_critical'`, as `RunFailedError` explains it: a recording stops as a run ends. `'write_failed'`, as `RunFailedError` explains it: two frames in a row could not be saved, and the words say why in the system's.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `camera_disconnected` | -- | 500 |
-| `camera_stalled` | -- | 500 |
-| `disk_space_critical` | -- | 500 |
-| `write_failed` | -- | 500 |
+Reasons `camera_disconnected`, `camera_stalled`, `disk_space_critical`, `write_failed`: no cause, REST 500.
 
 <a id="Refusal"></a>
 ### `lumascope.Refusal`
@@ -17094,9 +16773,7 @@ without a server; the headless server exits.
 
 - `brief`: Why, in a few words: the operating system's reason, or the settings that cannot be used.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `rest_server_not_started` | -- | 500 |
+Reason `rest_server_not_started`: no cause, REST 500.
 
 <a id="RunCheckFailedError"></a>
 ### `lumascope.RunCheckFailedError`
@@ -17119,9 +16796,7 @@ the stage raises reaches the caller as itself, in that part's own words.
 - `reason`: Machine-readable cause. `'validation_crashed'` -- the protocol's pre-run validation raised before it produced an answer.
 - `message`: The sentence a user reads; the same text as the exception's message.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `validation_crashed` | -- | 500 |
+Reason `validation_crashed`: no cause, REST 500.
 
 <a id="RunCleanupFailedError"></a>
 ### `lumascope.RunCleanupFailedError`
@@ -17138,9 +16813,7 @@ the person expects. The run's outcome names the steps too.
 
 - `steps`: Each failed step's name, in the order they failed.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `cleanup_failed` | -- | 500 |
+Reason `cleanup_failed`: no cause, REST 500.
 
 <a id="RunEndedByStopNotice"></a>
 ### `lumascope.RunEndedByStopNotice`
@@ -17159,9 +16832,7 @@ yet. The words say what was pressed, which is true whether or not the
 board took the STOP; a STOP it did not take is reported as that failure,
 where it was pressed.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `stage_stopped` | -- | reported, never an answer |
+Reason `stage_stopped`: no cause, reported, never an answer.
 
 <a id="RunFailedError"></a>
 ### `lumascope.RunFailedError`
@@ -17179,28 +16850,7 @@ read the same.
 
 - `reason`: The ending's machine-readable cause, a run ending's reason. `'captures_failed'` -- the run reached its end without every capture it was asked for. `'start_failed'` -- the run's setup raised a fault of no other reason after the run was committed. `'dispatch_refused'` -- the run loop was refused when it was dispatched, so it never ran. `'capture_location_failed'` -- the run's folder could not be made at the capture location. `'run_dir_init_failed'` -- the run's folder was made and could not be initialized. `'camera_lane_stalled'` -- a camera command did not finish, so the run could not take the camera. `'camera_read_failed'` -- the camera's settings could not be read when the run took its snapshot of them. `'run_loop_crashed'` -- the run loop raised, or stopped without saying how the run ended. `'camera_disconnected'` -- the camera was found disconnected, as a recording's is. `'hardware_disconnected'` -- another part the run needs, or several, was found disconnected. `'consecutive_scan_failures'` -- the scan failed too many times in a row with the hardware still present. `'interlock'` -- the stage's interlock refused a move during a scan. `'position_lost'` -- an axis lost its position during a scan, and nothing in a run homes it again. `'disk_space_critical'` -- free disk at the save location fell below what the run needs, so the run stopped to save what it has. `'file_writer_stalled'` -- saving stopped making progress, so the run stopped before it lost more captures. `'write_failed'` -- the save location refused two frames in a row of a video step, so the run stopped, since its later steps write there too. `'video_writer_died'` -- the writer of a video step failed. `'camera_failure'` -- the camera failed too many steps in a row. `'autofocus_failed'` -- a single-autofocus run's autofocus did not find focus. `'autofocus_not_started'` -- a single-autofocus run's autofocus was refused before the stage moved, its first window reaching past Z's travel.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `autofocus_failed` | -- | 500 |
-| `autofocus_not_started` | -- | 500 |
-| `camera_disconnected` | -- | 500 |
-| `camera_failure` | -- | 500 |
-| `camera_lane_stalled` | -- | 500 |
-| `camera_read_failed` | -- | 500 |
-| `capture_location_failed` | -- | 500 |
-| `captures_failed` | -- | 500 |
-| `consecutive_scan_failures` | -- | 500 |
-| `disk_space_critical` | -- | 500 |
-| `dispatch_refused` | -- | 500 |
-| `file_writer_stalled` | -- | 500 |
-| `hardware_disconnected` | -- | 500 |
-| `interlock` | -- | 500 |
-| `position_lost` | -- | 500 |
-| `run_dir_init_failed` | -- | 500 |
-| `run_loop_crashed` | -- | 500 |
-| `start_failed` | -- | 500 |
-| `video_writer_died` | -- | 500 |
-| `write_failed` | -- | 500 |
+Reasons `autofocus_failed`, `autofocus_not_started`, `camera_disconnected`, `camera_failure`, `camera_lane_stalled`, `camera_read_failed`, `capture_location_failed`, `captures_failed`, `consecutive_scan_failures`, `disk_space_critical`, `dispatch_refused`, `file_writer_stalled`, `hardware_disconnected`, `interlock`, `position_lost`, `run_dir_init_failed`, `run_loop_crashed`, `start_failed`, `video_writer_died`, `write_failed`: no cause, REST 500.
 
 <a id="RunFailedToStartError"></a>
 ### `lumascope.RunFailedToStartError`
@@ -17216,28 +16866,7 @@ unattended mute, so the person who started it sees it.
 
 - `reason`: The ending's machine-readable cause, as `RunFailedError` explains it.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `autofocus_failed` | -- | 500 |
-| `autofocus_not_started` | -- | 500 |
-| `camera_disconnected` | -- | 500 |
-| `camera_failure` | -- | 500 |
-| `camera_lane_stalled` | -- | 500 |
-| `camera_read_failed` | -- | 500 |
-| `capture_location_failed` | -- | 500 |
-| `captures_failed` | -- | 500 |
-| `consecutive_scan_failures` | -- | 500 |
-| `disk_space_critical` | -- | 500 |
-| `dispatch_refused` | -- | 500 |
-| `file_writer_stalled` | -- | 500 |
-| `hardware_disconnected` | -- | 500 |
-| `interlock` | -- | 500 |
-| `position_lost` | -- | 500 |
-| `run_dir_init_failed` | -- | 500 |
-| `run_loop_crashed` | -- | 500 |
-| `start_failed` | -- | 500 |
-| `video_writer_died` | -- | 500 |
-| `write_failed` | -- | 500 |
+Reasons `autofocus_failed`, `autofocus_not_started`, `camera_disconnected`, `camera_failure`, `camera_lane_stalled`, `camera_read_failed`, `capture_location_failed`, `captures_failed`, `consecutive_scan_failures`, `disk_space_critical`, `dispatch_refused`, `file_writer_stalled`, `hardware_disconnected`, `interlock`, `position_lost`, `run_dir_init_failed`, `run_loop_crashed`, `start_failed`, `video_writer_died`, `write_failed`: no cause, REST 500.
 
 <a id="RunFilesNotWrittenError"></a>
 ### `lumascope.RunFilesNotWrittenError`
@@ -17256,14 +16885,7 @@ silently incomplete. Nothing is built.
 - `reason`: `'write_batch_timeout'` -- the run's writes did not finish within the build's bound. `'write_batch_abandoned'` -- some of the run's writes never ran: the file writer was recovered, or the app shut down, while they were outstanding. `'write_batch_not_taken'` -- some of the run's images never reached the file writer: it was stuck, or had stopped taking work, when they were handed over. `'write_batch_save_failed'` -- saving some of the run's images failed on disk. `'write_batch_disk_full'` -- some of the run's images were refused because the save drive was nearly full. `'write_batch_video_unfinished'` -- a video step's file did not finish. `RunImagesNotSavedError` carries all but the first as the same facts.
 - `unfinished_video`: For `'write_batch_video_unfinished'`, the first video that did not finish and why, as (the video, the cause), which the words state.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `write_batch_abandoned` | -- | 500 |
-| `write_batch_disk_full` | -- | 500 |
-| `write_batch_not_taken` | -- | 500 |
-| `write_batch_save_failed` | -- | 500 |
-| `write_batch_timeout` | -- | 500 |
-| `write_batch_video_unfinished` | -- | 500 |
+Reasons `write_batch_abandoned`, `write_batch_disk_full`, `write_batch_not_taken`, `write_batch_save_failed`, `write_batch_timeout`, `write_batch_video_unfinished`: no cause, REST 500.
 
 <a id="RunImagesNotSavedError"></a>
 ### `lumascope.RunImagesNotSavedError`
@@ -17281,13 +16903,7 @@ count is known, since a run's images keep landing after it ends.
 - `not_written`: Images the run captured that are not on disk.
 - `written`: Images that landed.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `write_batch_abandoned` | -- | 500 |
-| `write_batch_disk_full` | -- | 500 |
-| `write_batch_not_taken` | -- | 500 |
-| `write_batch_save_failed` | -- | 500 |
-| `write_batch_video_unfinished` | -- | 500 |
+Reasons `write_batch_abandoned`, `write_batch_disk_full`, `write_batch_not_taken`, `write_batch_save_failed`, `write_batch_video_unfinished`: no cause, REST 500.
 
 <a id="RunIncompleteError"></a>
 ### `lumascope.RunIncompleteError`
@@ -17306,9 +16922,7 @@ run ends. The images that were captured are saved.
 - `captured`: Captures that produced an image.
 - `failed_steps`: The name of each step whose capture failed, in the order they failed.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `captures_failed` | -- | 500 |
+Reason `captures_failed`: no cause, REST 500.
 
 <a id="RunWaitExpiredError"></a>
 ### `lumascope.RunWaitExpiredError`
@@ -17329,9 +16943,7 @@ as an errno.
 - `member`: The waiting form that was called.
 - `operation`: The run's `Operation`, still running when this was raised.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `still_running` | state | 409 |
+Reason `still_running`: cause state, REST 409.
 
 <a id="RunWriteRefusedError"></a>
 ### `lumascope.RunWriteRefusedError`
@@ -17351,11 +16963,7 @@ write into a live run is taken, so its cause is the state.
 
 - `reason`: `'run_writes_ended'` -- the run's cleanup closed its writes. `'writes_abandoned'` -- a writer recovery or a shutdown abandoned the run's remaining writes. `'writer_shut_down'` -- the file lane itself no longer takes work.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `run_writes_ended` | state | 409 |
-| `writer_shut_down` | state | 409 |
-| `writes_abandoned` | state | 409 |
+Reasons `run_writes_ended`, `writer_shut_down`, `writes_abandoned`: cause state, REST 409.
 
 <a id="ScopeDisconnectError"></a>
 ### `lumascope.ScopeDisconnectError`
@@ -17380,9 +16988,7 @@ a refusal.
 
 - <a id="ScopeDisconnectError.failures"></a>`failures`: `tuple[DisconnectFailure, ...]` -- The steps that failed, in teardown order.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `disconnect_failed` | -- | 500 |
+Reason `disconnect_failed`: no cause, REST 500.
 
 <a id="ScopeInUseError"></a>
 ### `lumascope.ScopeInUseError`
@@ -17401,9 +17007,7 @@ opened: the whole scope is refused.
 
 - `reason`: `'scope_in_use'`.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `scope_in_use` | state | 409 |
+Reason `scope_in_use`: cause state, REST 409.
 
 <a id="ScopeModelDeferredNotice"></a>
 ### `lumascope.ScopeModelDeferredNotice`
@@ -17415,9 +17019,7 @@ A scope model saved that is not the one running.
 The scope takes its model from the selection, so the selection applies
 when it is next brought up and changes nothing yet.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `scope_model_deferred` | -- | reported, never an answer |
+Reason `scope_model_deferred`: no cause, reported, never an answer.
 
 <a id="ServerRefusedError"></a>
 ### `lumascope.ServerRefusedError`
@@ -17488,9 +17090,7 @@ once the session has closed, which would be read back and never saved.
 - `activity`: The kind of activity that was refused; None for work an executor did not do.
 - `work`: The work an executor did not do, for the log; None for an activity.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `session_closing` | restart | 503 |
+Reason `session_closing`: cause restart, REST 503.
 
 <a id="SettingRefusedError"></a>
 ### `lumascope.SettingRefusedError`
@@ -17522,18 +17122,7 @@ the in-process one only the host calls.
 - <a id="SettingRefusedError.member"></a>`member`: `str | None` -- The member that changes the setting, for `'has_member'`, and for `'host_only'` when that member is published (in-process); otherwise None.
 - <a id="SettingRefusedError.path"></a>`path`: `str` -- The dotted path that was written.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `block` | request | 422 |
-| `has_member` | request | 422 |
-| `host_only` | request | 422 |
-| `installation_only` | request | 422 |
-| `model_named_by_board` | request | 422 |
-| `not_a_number` | request | 422 |
-| `not_a_setting` | request | 422 |
-| `not_offered` | request | 422 |
-| `out_of_range` | request | 422 |
-| `wrong_kind` | request | 422 |
+Reasons `block`, `has_member`, `host_only`, `installation_only`, `model_named_by_board`, `not_a_number`, `not_a_setting`, `not_offered`, `out_of_range`, `wrong_kind`: cause request, REST 422.
 
 <a id="SettingsFileError"></a>
 ### `lumascope.SettingsFileError`
@@ -17548,9 +17137,7 @@ Subclasses ValueError deliberately: `load_lvp_settings` routes a bad
 escape the catch and turn every recoverable failure into a startup
 crash.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `settings_file_unreadable` | -- | 500 |
+Reason `settings_file_unreadable`: no cause, REST 500.
 
 <a id="SettingsFileNotReplacedError"></a>
 ### `lumascope.SettingsFileNotReplacedError`
@@ -17570,9 +17157,7 @@ answered again.
 
 - `file`: The settings file that is still in place.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `settings_file_not_replaced` | -- | 500 |
+Reason `settings_file_not_replaced`: no cause, REST 500.
 
 <a id="SettingsFileNotWrittenError"></a>
 ### `lumascope.SettingsFileNotWrittenError`
@@ -17590,9 +17175,7 @@ unchanged; the next accepted write, and the close, save again.
 
 - `file`: The settings file that was to be written.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `settings_file_not_written` | -- | 500 |
+Reason `settings_file_not_written`: no cause, REST 500.
 
 <a id="SettingsNotSavedNotice"></a>
 ### `lumascope.SettingsNotSavedNotice`
@@ -17611,10 +17194,7 @@ that it will not be there.
 - `reason`: `'settings_provisional'` -- the app is running on the shipped template because the user's file could not be used, and that file is left as it is until they decide. `'settings_unmeasured'` -- no hardware came up this session, so the per-channel values are defaults, not values measured on this scope.
 - `file`: The file the writes would have been saved to.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `settings_provisional` | -- | reported, never an answer |
-| `settings_unmeasured` | -- | reported, never an answer |
+Reasons `settings_provisional`, `settings_unmeasured`: no cause, reported, never an answer.
 
 <a id="SingleScanNotice"></a>
 ### `lumascope.SingleScanNotice`
@@ -17623,9 +17203,7 @@ A notice; bases `Notice`, `Exception`.
 
 A timed run will perform one scan, because of its period and duration.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `single_scan` | -- | reported, never an answer |
+Reason `single_scan`: no cause, reported, never an answer.
 
 <a id="SlowFileWritesNotice"></a>
 ### `lumascope.SlowFileWritesNotice`
@@ -17634,9 +17212,7 @@ A notice; bases `Notice`, `Exception`.
 
 A run spent long enough waiting on the save disk to say so at its end.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `slow_file_writes` | -- | reported, never an answer |
+Reason `slow_file_writes`: no cause, reported, never an answer.
 
 <a id="StepEditRefusedError"></a>
 ### `lumascope.StepEditRefusedError`
@@ -17649,9 +17225,7 @@ A name with nothing left once cleaned, a value not of its column's type,
 an insert that names no place or two, or another channel for a slice of
 a z-stack. A refusal, as a missing step is.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `step_value_refused` | request | 422 |
+Reason `step_value_refused`: cause request, REST 422.
 
 <a id="StepNotFoundError"></a>
 ### `lumascope.StepNotFoundError`
@@ -17674,9 +17248,7 @@ that wants it reads it here.
 - `index`: The index refused, as the caller gave it.
 - `num_steps`: How many steps the protocol has.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `no_such_step` | request | 422 |
+Reason `no_such_step`: cause request, REST 422.
 
 <a id="StoredSettingReplacedNotice"></a>
 ### `lumascope.StoredSettingReplacedNotice`
@@ -17694,9 +17266,7 @@ settings the app runs on and so in the file at its next save.
 
 - `replacements`: `(path, saved, used)` for each replaced setting: its dotted path, the value the settings file held, and the shipped value now in its place.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `stored_setting_replaced` | -- | reported, never an answer |
+Reason `stored_setting_replaced`: no cause, reported, never an answer.
 
 <a id="SupportReportNotSavedError"></a>
 ### `lumascope.SupportReportNotSavedError`
@@ -17714,9 +17284,7 @@ report.
 
 - `report`: Which ZIP was not saved.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `support_report_not_saved` | -- | 500 |
+Reason `support_report_not_saved`: no cause, REST 500.
 
 <a id="ValueClampedNotice"></a>
 ### `lumascope.ValueClampedNotice`
@@ -17740,9 +17308,7 @@ value the writer was not handed: a stored value applied at bring-up is
 two differ (a channel's `sum` is its `frames_summed`): the words use
 that name, and `clamped` keeps the setting.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `value_clamped` | -- | reported, never an answer |
+Reason `value_clamped`: no cause, reported, never an answer.
 
 <a id="VideoFramesDroppedError"></a>
 ### `lumascope.VideoFramesDroppedError`
@@ -17775,9 +17341,7 @@ words.
 - <a id="VideoFramesDroppedError.frames_unstamped"></a>`frames_unstamped`: `int` -- Frames that came without the camera's timestamp and were left out.
 - <a id="VideoFramesDroppedError.write_failures"></a>`write_failures`: `int` -- Selected frames that could not be written.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `video_frames_dropped` | -- | 500 |
+Reason `video_frames_dropped`: no cause, REST 500.
 
 <a id="VideoNotFinishedError"></a>
 ### `lumascope.VideoNotFinishedError`
@@ -17797,9 +17361,7 @@ remain.
 
 - `output_path`: The video file that was not finished.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `video_not_finished` | -- | 500 |
+Reason `video_not_finished`: no cause, REST 500.
 
 <a id="VideoWriterFailedError"></a>
 ### `lumascope.VideoWriterFailedError`
@@ -17818,9 +17380,7 @@ reading the run's outcome reads what the person was shown.
 
 - `protocol_step`: True for a protocol video step, False for a manual recording; each is named in its own words.
 
-| Reason | Cause | REST status |
-|---|---|---|
-| `video_writer_died` | -- | 500 |
+Reason `video_writer_died`: no cause, REST 500.
 
 ## Routes
 
