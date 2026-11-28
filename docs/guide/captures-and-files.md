@@ -5,7 +5,7 @@ A still, frame validity, which channel a still is, saved stills, and what a save
 ## A still
 
 `session.capture_still(channel)` takes one frame and returns a
-`CapturedStill`: the read-only `image` and its `record`, a `FrameRecord` of
+`CapturedStill`: the read-only NumPy `image` and its `record`, a `FrameRecord` of
 what the instrument was when the frame was taken. `channel` is the shown
 channel (another is refused `'channel_not_shown'`), and another LED lit is
 refused `'other_led_lit'`. `capture_still()` with no channel takes the frame
@@ -13,11 +13,11 @@ with the camera and the LEDs as they are. The image is 8-bit unless
 `force_to_8bit=False` keeps the depth the image mode captures. `frames_summed`
 sums 1 to 100 frames (one above 100 sums 100 and reports `'value_clamped'`).
 `still.significant_bits` is the image's depth. The record's
-`illumination_ma` is keyed by LED board address; `scope.channel_identity` maps
+`illumination_by_address_ma` is keyed by LED board address; `scope.channel_identity` maps
 a channel to its addresses.
 
 ```python
-scope.motion.move_to_well('B2')             # over the simulator's specimen
+scope.motion.move_to_well('B2')
 session.show_channel('BF')
 session.light_shown_channel(True)           # at BF's stored current, 5 mA
 still = session.capture_still('BF', all_ones_check=True)
@@ -38,13 +38,14 @@ still's record and then its pixels when the still is taken, never as a job
 moved -- the camera keeps delivering frames that were exposed before the change
 took effect. A capture waits by counting frames. Each source of a change has a
 count, and a frame counts for a change once that many frames have arrived
-since the change (for a move, since its stop). The count is the largest the
-camera's timing record measured for that source on any model the camera ships
-in, else the shipped count. A Z or turret move takes the largest measured over
-both, and an XY move keeps its shipped count. A capture waits until a frame
-counts for every recorded change. A frame is counted as the camera hands it
-over, the same with a window or without one. `scope.capabilities.frame_rules` answers each source's count, and
-`scope.imaging.changes_in_force()` whether a frame arriving now would count. A
+since the change (for a move, since its stop):
+`scope.capabilities.frame_rules` answers each source's `skip`. A capture waits
+until a frame counts for every recorded change, so a capture needs no sleep
+before it. A frame is counted as the camera hands it over, the same with a
+window or without one, and `scope.imaging.changes_in_force()` answers whether a
+frame arriving now would count. A change made outside LumaViewPro (your own
+light or shutter) is not recorded: `capture_still(..., exposed_after_call=True)`
+keeps only a frame exposed after the call. A
 capture never infers validity from pixel content, though a gain or exposure
 frame whose own chunk data disagrees with the change is not counted. When the
 scope keeps changing past the capture's deadline it raises
@@ -80,7 +81,9 @@ come from the settings. It returns an `Operation` of a `SavedStill` per file
 written, each its `file` and the record of it, `record` (a `FrameRecord`, as
 `capture_still` answers it). The file is
 `<live folder>/Manual/live_<well>_<channel>_<number>.<ext>`, the well left out
-where the position has none and the number counting up from `000001`. With
+where the position has none and the number counting up from `000001`. In
+engineering mode (`session.engineering_mode`, off unless set) on a scope with a
+turret, `_Turret<slot>` comes before the number. With
 `separate_folder_per_channel` set, it is in a folder per channel under
 `Manual/`. The live folder is `live_folder` in the settings, set by
 `session.set_live_folder(folder)`, which creates it. The channel's stored
@@ -91,7 +94,7 @@ it is gray. A manual recording follows the same setting. It changes how the
 file is shown, never what it records.
 
 ```python
-scope.motion.move_to_well('B2')             # over the simulator's specimen
+scope.motion.move_to_well('B2')
 session.show_channel('BF')
 session.light_shown_channel(True)
 saving = session.manual_capture.start_save_still()
@@ -137,8 +140,9 @@ never by your program from the array ([Saved files](#saved-files)).
 ## Saved files
 
 **What a still holds.** A still is saved under the live folder in the format
-the settings name (`OutputFormat`: TIFF, OME-TIFF or JPG; a run may instead
-build an OME-TIFF hyperstack per well). A TIFF or OME-TIFF keeps mono pixels.
+`image_output_format.live` names (TIFF, shipped; OME-TIFF; JPG); a run's is
+`image_output_format.sequenced`, which may also be OME-TIFF Hyperstack, an
+OME-TIFF hyperstack per well. A TIFF or OME-TIFF keeps mono pixels.
 With false color off they are gray and carry no color. With it on, the
 channel's color (gray for BF, PC and DF, so they stay gray) is carried beside
 them for display: an 8-bit file as a palette, a full-depth one as an ImageJ
