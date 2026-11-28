@@ -55,7 +55,8 @@ mkdir -p /tmp/lvp-sim && cp -R data /tmp/lvp-sim/    # from the source folder
 python -m lumascope.rest --simulate --source-path /tmp/lvp-sim
 ```
 
-To serve a session your own program has brought up, build its server, the one
+To serve a session your own program has brought up, its startup motion
+included (`build_server` and `build_app` run none), build its server, the one
 every host serves through:
 
 ```python norun
@@ -71,20 +72,13 @@ elif server.close_failed is not None:    # what the session's shutdown raised
 
 To mount the API in an ASGI application of your own, take it from
 `build_app(session)`. Its `allowed_clients` and its body deadline apply
-whoever serves it. The header deadline and the address check below are
-`build_server`'s, so your program sets its own server's. Mounted, its
+whoever serves it. The header deadline is `build_server`'s, so your program
+sets its own server's. The address check below is on with
+`build_app(session, bound=True)`, for a server on `rest_api`'s address and
+port. Mounted, its
 startup is not run for you: run it inside your own application's lifespan,
 `async with api.router.lifespan_context(api):` where `api` is what
 `build_app` returned, or it has no event stream.
-
-To test a client with no server, no port and no instance lock, send its
-requests through FastAPI's `TestClient`:
-`with fastapi.testclient.TestClient(build_app(session)) as client:`. The
-`with` runs the application's startup, which the event stream needs. A job
-is read ended once its work ends, by any client of the application, inside a
-`with` or not. Make every client, a second one included, with its own
-`with`, each after the one before it has ended.
-`TestClient` needs the HTTP client package that `requirements-dev.txt` pins.
 
 **Addressed to it.** The server answers only a request addressed to its own
 address and port. The `Host` a client sends names them, in any spelling of the
@@ -97,15 +91,18 @@ no `Origin`, and `/docs` sends the server's own.
 
 **The settings.** The server reads `rest_api` from the session's settings. It
 is installation-only: no call changes it, from any caller
-(`'installation_only'`). So it is edited in the installation's
-`data/current.json` ([Settings](python.md#settings)),
+(`'installation_only'`). So it is edited in the
+[installation](concepts.md#words-this-guide-uses)'s `data/current.json`
+([Settings](python.md#settings)),
 with LumaViewPro and the server closed. Each of them writes the whole settings
 file back as it runs and when it closes, over an edit made meanwhile. A source
 folder neither has run in has no `current.json`, and serves from the template's
 `rest_api`. To change it there, copy `data/settings.json` to
 `data/current.json` and edit the copy. The port is
 `rest_api.port`, 1024 to 65535, and the command takes no port of its own: to
-serve on another, change the setting. A `rest_api` the server cannot use, or
+serve on another, change the setting.
+
+A `rest_api` the server cannot use, or
 an address and port it cannot take, is refused `RestServerNotStartedError`
 before anything is served, from every host: LumaViewPro shows it and runs on
 without a server, and `python -m lumascope.rest` prints it and exits `1`. A
@@ -115,10 +112,24 @@ way, naming the file and what is wrong. The file is not changed. So is a
 `microscope` setting naming a model this version does not know, on a scope
 whose motor board reports no model: `CatalogNameRefusedError` (reason
 `model_unknown`), naming the setting and the models it does know. (A board that
-reports a model, an OEM name included, says what the scope is.)
-While it
+reports a model, an OEM name included, says what the scope is.) While it
 serves, `server.reach` says where and to whom (`python -m lumascope.rest`
 prints it, and LumaViewPro shows it in Advanced Settings).
+
+### Testing a client without a server
+
+To test a client with no server, no port and no instance lock, send its
+requests through FastAPI's `TestClient`:
+`with fastapi.testclient.TestClient(build_app(session)) as client:`, the
+session a simulated one on a copy of `data/`, so the test writes nothing into
+your own. The `with` runs the application's startup, which the event stream
+needs. A job is read ended once its work ends, by any client of the
+application, inside a `with` or not. Make every client, a second one
+included, with its own `with`, each after the one before it has ended.
+`TestClient` returns a response only when its body ends, so it never returns
+from `GET /api/v1/events` or `/live`: read the events from `/events/held` and
+a frame from `/live.jpg`. `TestClient` needs `httpx2`, at the version
+`requirements-dev.txt` pins.
 
 ## Routes
 
@@ -126,8 +137,7 @@ The session is the root: its member `<member>` is `/api/v1/<member>`, and each s
 a path segment, so `session.scope.motion.start_move_xy` is
 `POST /api/v1/scope/motion/start_move_xy`. As in Python, what is the session's
 is a session route (`POST /api/v1/show_channel`) and the hardware is under
-`/api/v1/scope/` ([Where a call starts](concepts.md#where-a-call-starts)). Each
-capability has one route.
+`/api/v1/scope/`. Each capability has one route.
 
 - **A read is `GET`**: a property, a published field, or a method that changes
   nothing. A read method's arguments are its query string
@@ -141,7 +151,9 @@ capability has one route.
   then `GET /api/v1/channel_settings?channel=BF`). There a key left out is a
   setting not written, and `null` is the value. Such a setter has no route
   of its own. Not every setter is one: `set_auto_gain` keeps its own `POST`
-  beside its read. Each member's [reference](../api-reference.md) entry names
+  beside its read. Nor is every one named `set_`: `select_labware` is
+  `PUT /api/v1/labware_id`, and `select_model` and `assign_turret_objective`
+  likewise. Each member's [reference](../api-reference.md) entry names
   its route.
 - **Every other call is `POST`**, its arguments a JSON object by parameter
   name; `null` is None, and a parameter left out takes its default. A member
@@ -166,10 +178,13 @@ capability has one route.
 - **Paths are names in the live folder**, `/`-separated
   (`"ProtocolData/run1"`). A name that leaves it is refused
   (`'outside_live_folder'`); `"."` is the live folder itself. An answered path is
-  `{"name": ..., "host_path": ...}`, `name` null for a path outside it.
+  `{"name": ..., "host_path": ...}`, `name` null for a path outside it;
+  `host_path` is the path on the scope PC in its own form, for a program
+  running there.
 - **Units are the API's**: an axis position crosses as
   `{"position_um": ..., "state": ...}`, a duration as a number of seconds, and
-  a time as ISO 8601 with its offset.
+  a `datetime` as ISO 8601 with its offset. A field whose name ends in
+  `_epoch_s` is a number, seconds since the epoch.
 
 In-process members -- those taking a callback, returning a live object, or
 waiting on the caller's thread -- have no route. Each has a wire form beside
@@ -255,9 +270,16 @@ is held is [Limits](#limits).
   carry a new one is refused `503` (`'overloaded'`, `Retry-After: 5`) before
   it runs.
 - **Bodies.** A call's JSON body is at most 64 KiB, an upload's 64 MiB, refused
-  `413` (`'body_too_large'`) past it; four uploads are read at once.
+  `413` (`'body_too_large'`) past it: on its `Content-Length` before a byte is
+  read, a chunked one at the first byte past it. The server still reads a
+  refused body to its end.
+- **Uploads.** Four are read at once, each counted among the calls while its
+  body arrives: a fifth, or one past the 256 calls, is refused `503`
+  (`'overloaded'`, `Retry-After`) before its body is read, whichever clients
+  hold the four.
 - **Time.** A body arrives within 20 s plus its length at 64 KiB a second,
-  else it is refused `408` (`'body_too_slow'`) and its connection closed. A
+  else it is refused `408` (`'body_too_slow'`), its connection closed and its
+  place given back: an upload whose client's link dropped is refused so. A
   connection has 20 s for each request's headers, from its opening and from
   each answer, or is closed. A request that has arrived is never ended by it,
   however long its answer takes.
@@ -272,8 +294,9 @@ client alone. `GET /api/v1/control` reads who holds it, and since when. While
 it is held, every write carries its id in the `Control-Session` header. Any
 other write is refused `409` (`'control_session_held'`), and a write naming
 an ended session `422` (`'control_session_ended'`). Reads, stops and the
-display preferences pass without it, and a read or a stop naming an ended
-session is answered as one with no header: a client stops what it started
+display preferences (the settings the reference's
+[Settings](../api-reference.md#settings) marks a preference) pass without it,
+and a read or a stop naming an ended session is answered as one with no header: a client stops what it started
 whatever became of its session. `POST /api/v1/end_control` with
 `{"session_id": ...}` ends it, stopping a run or recording taken in it.
 Every request carrying the header renews the session, a read or a job poll
@@ -295,7 +318,9 @@ Every answer that is not a result is an RFC 9457 problem,
 ```
 
 `title` and `detail` are the words a person is shown. `reason` is the code to
-branch on, and `kind` is the outcome's. `cause` is whether the same request
+branch on, and `kind` is the outcome's. A problem names no class: a reason
+means one thing whichever class carries it, and the Outcomes by REST status
+in its member's reference entry name the class. `cause` is whether the same request
 could succeed later, the [cause](concepts.md#reasons-and-causes) a Python
 caller reads (`state`, `request` or `restart`; null for a fault). `remedy` is
 taken by sending its `member` back as `POST /api/v1/apply_remedy` with
@@ -325,10 +350,20 @@ refusal's. Every reason and its status is in the reference's
 `GET /api/v1/events` is a server-sent event stream. Its first event is
 `status`, the scope as `GET /api/v1/status` reads it. After that every change
 is an event, named as in the [events table](../api-reference.md#events), its data
-the event's record -- but the frame events, which are the live view's. A
+the event's record -- but `frame`, the camera's frames, which are the live
+view's, and `frame_captured`, which is not sent. A
 quiet stream sends a keep-alive comment every 15 s and asks a client to
-reconnect after 1 s (`retry: 1000`). A run's events carry `run`,
-`{"job": "<id>"}`, the job of the run that sent them. Every job's end is a
+reconnect after 1 s (`retry: 1000`).
+
+A run's events carry `run`, `{"job": "<id>"}`, the job of the run that sent
+them. Only a run started over REST sends them: a run started in the window or
+by Python in the same process shows on the stream as the scope's own events
+alone (`status`, `position`, `led` and the like). They come as
+`scan_started`, a `step_started` per step (and `video_progress` while a video
+step records), `scan_ended`, scan after scan; then `run_ended`,
+`files_written` and the two jobs' `job_ended`, in no fixed order. No event
+marks a step's end: it has ended at the next `step_started` or `scan_ended`.
+Every job's end is a
 `job_ended` event, its data the job. A run's `files` job ends with its own, so
 match a `job_ended` by its `id`. Every notice, and every outcome nobody asked
 for, is an `outcome` event (a model set for the next start among them). A
@@ -336,7 +371,8 @@ refusal or fault that answered a call is not, its asker having had it.
 
 A client that reconnects with `Last-Event-ID` is sent what it missed. When the
 server no longer holds it (more than 1024 events ago, or a restarted server),
-it is sent `reset` and then `status`, where it starts again. A client that
+it is sent `reset` and then `status`, where it starts again. So is a
+connected reader that falls 1024 events behind. A client that
 cannot hold a stream open polls `GET /api/v1/events/held?after=<id>`. It gets
 the events a stream resumed from `after` is sent, as
 `{"events": [{"id", "event", "data"}, ...], "next": <id>}`. Send `next` as the
@@ -348,11 +384,16 @@ next `after`. With no `after`, it gets `status` and its id. The last event is
 Every frame below -- `/live`, `/live.jpg`, `/still`'s pixels -- has row 0 at
 the top of the picture, as LumaViewPro's window and its saved files have it.
 
-- `GET /api/v1/live` -- the camera's frames as MJPEG, for a browser's `<img>`,
-  each part carrying `X-Frame-Ordinal` and `X-Frame-Timestamp`; `max_width`
-  bounds a frame's width, half the camera's frame when not given.
-- `GET /api/v1/live.jpg` -- one frame, `max_width` as for `/live`; `503`
-  (`'no_frame_yet'`, with `Retry-After`) when the camera sends none in time.
+- `GET /api/v1/live` -- the camera's frames as MJPEG, for a browser's `<img>`;
+  `max_width` bounds a frame's width, half the camera's frame when not given.
+  Each part carries `X-Frame-Ordinal`, a count of the camera's frames received
+  while anyone watched (a gap is frames this client skipped; it is not
+  `Frame.seq`), and `X-Frame-Timestamp`, the host's clock when the frame
+  arrived, ISO 8601. The camera's delivered frame rate is
+  `GET /api/v1/scope/imaging/delivered_rate`.
+- `GET /api/v1/live.jpg` -- one frame, with the same two headers, `max_width`
+  as for `/live`; `503` (`'no_frame_yet'`, with `Retry-After`) when the camera
+  sends none in time.
 - `GET /api/v1/live_folder_listing?name=<folder>` -- what a folder in the live
   folder holds, one level, each entry by its full name. A download sends that
   name percent-encoded, its `/` kept as `/`: a run's `sequence_name` can put a
@@ -364,24 +405,20 @@ the top of the picture, as LumaViewPro's window and its saved files have it.
 - `PUT /api/v1/files/<name>` -- a new file in the live folder, answered `201`
   with its path; a file already at the name is refused (`'file_exists'`), so
   an upload never replaces a capture. It is a write, carrying
-  `Control-Session` under a held session. It takes at most 64 MiB, refused
-  `413` (`'body_too_large'`) on its `Content-Length` before a byte is read,
-  a chunked one at the first byte past it. The server still reads a refused
-  body to its end. Four uploads are read at once, each counted among the 256
-  calls while its body arrives: a fifth, or one past the 256, is refused `503`
-  (`'overloaded'`, `Retry-After`) before its body is read, whichever clients
-  hold the four. A body that stops arriving -- its client's link dropped -- is
-  refused `408` (`'body_too_slow'`) at the body's deadline
-  ([Limits](#limits)), and its place given back.
+  `Control-Session` under a held session. Its size, how many are read at once
+  and its deadline are [Limits](#limits).
 - `GET /api/v1/previews/<name>` -- a saved image downscaled to a JPEG for
   display (`max_width` as for `/live`).
 - `POST /api/v1/still` -- a still at the camera's own depth, saved nowhere
   (`ScopeSession.capture_still`): the body is the still's record as JSON,
   `X-Record-Length` bytes, then its pixels, row by row, little-endian, shaped
-  by `X-Image-Shape`, `X-Image-Dtype` and `X-Significant-Bits`. Its JSON body
+  by `X-Image-Shape` (`rows,columns`), `X-Image-Dtype` (a NumPy dtype name,
+  such as `uint16`) and `X-Significant-Bits`. Its JSON body
   takes the member's arguments, each its own default when left out. With
   `{"channel": "BF"}` the camera holds the shown channel's stored settings for
-  the frame; with no body it takes the camera as set.
+  the frame, unless a raw camera write came after the channel was shown: the
+  written values stand, and the record's `held_channel` is null. With no body
+  it takes the camera as set.
   `{"frames_summed": 4, "sum_delay_s": 0.1}` sums four frames. `accept_dark`,
   `all_ones_check` and `timeout_s` are the member's.
   `{"exposed_after_call": true}` keeps only a frame exposed after the call, for
@@ -399,8 +436,11 @@ A session over REST with `curl`: the status, a move and a light, a one-step run 
 
 Against a simulated server on a copy of `data/`, the `--source-path` form in
 [Serving it](#serving-it): the walkthrough confirms an objective and writes a
-channel's settings, which a server on your own `data/` would keep. It reads
-the answers with `jq`, as the sections above describe them. Each line's
+channel's settings, which a server on your own `data/` would keep. It runs in
+`bash` (on Windows, Git Bash or WSL:
+[the examples' README](../api_examples/README.md#running-a-rest-example)),
+with `curl` 7.82 or newer, and reads the answers with `jq`, as the sections
+above describe them. Each line's
 comment is the status it answers; a handle's or a job's id is read from the
 answer that made it. Every line here is run, in this order, in LumaViewPro's
 test suite.
@@ -419,12 +459,12 @@ curl -s --json '{}' $API/scope/illumination/leds_off        # 200
 Build a one-step protocol and run it. A run is answered `202` at once with its
 job. Poll the job at once with `Prefer: respond-async`, or read it with
 `Prefer: wait` until it has ended, then its `files` job until the run's images
-are on disk. A new install does not yet know which objective is mounted, and a
-protocol is refused until it does (`GET $API/objective_question` asks), so the
-first lines say which it is. `GET $API/current_slot_objective_question` always
-answers: on a new install it proposes the catalog's default, and on a scope
-that already knows, the objective stored or the turret slot's, so the answer changes
-nothing there. Its `turret_slot` is `null` without a turret.
+are on disk. A run is refused until the session knows which objective is
+mounted ([The plate, the objective and the
+model](concepts.md#the-plate-the-objective-and-the-model)), so the first lines
+say which it is. `GET $API/current_slot_objective_question` always answers,
+proposing the objective a scope already knows, so the lines change nothing
+there. Its `turret_slot` is `null` without a turret.
 
 ```bash
 OBJECTIVE=$(curl -s $API/current_slot_objective_question | jq -r .proposed)   # 200
