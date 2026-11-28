@@ -581,7 +581,7 @@ def _kind(cls: type) -> str:
     ):
         if issubclass(cls, kind):
             return f'the {words} kind' if cls is kind else f'a {words}'
-    return 'a subject: never raised, its children are'
+    return 'a subject: never raised itself'
 
 
 def _with_kind_fields(owner: _Owner) -> _Owner:

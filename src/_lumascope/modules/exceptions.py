@@ -1006,7 +1006,7 @@ class KeepAwakeNotHeldNotice(Notice, Exception):  # noqa: N818 -- a notice, not 
 
 
 class ProtocolError(_Umbrella, Exception):
-    """A protocol's file, steps or run: the subject, never raised itself.
+    """A protocol's file, steps or run.
 
     Its children's words are written for the person unless a child says
     otherwise.
@@ -1091,7 +1091,7 @@ class FocusNotWrittenError(Refusal, ProtocolError):
 
 
 class ConfigError(_Umbrella, Exception):
-    """The application's configuration or settings: the subject, never raised itself.
+    """The application's configuration or settings.
 
     Its children's words are written for the person unless a child says
     otherwise.
@@ -2196,7 +2196,7 @@ class SettingsFileNotWrittenError(Fault, ConfigError):
 
 
 class CaptureError(_Umbrella, Exception):
-    """Image capture, save or processing: the subject, never raised itself.
+    """Image capture, save or processing.
 
     Attributes:
         reason: Machine-readable failure code for callers that map
@@ -4236,7 +4236,7 @@ class FrameHandlerRemovedError(Refusal, Exception):
 
 
 class PluginError(_Umbrella, Exception):
-    """A plugin failed: it did not load, or it failed after loading. The subject, never raised itself.
+    """A plugin failed: it did not load, or it failed after loading.
 
     Nothing raises these: the plugin host catches the plugin's own failure
     and has no caller to raise to, so each is built to be reported, chained
@@ -5478,7 +5478,7 @@ class AxisMovingError(Refusal, Exception):
 
 
 class MoveNotCompletedError(_Umbrella, Exception):
-    """A move ended without its axis arriving at the target: the subject, never raised itself.
+    """A move ended without its axis arriving at the target.
 
     A waited move that returns means the axis arrived; this move could not
     say that, so it raises instead of reporting a position nobody reached.
@@ -5822,7 +5822,7 @@ class ScopeDisconnectError(Fault, Exception):
 
 
 class HomingFailedError(_Umbrella, Exception):
-    """A home ended without establishing a reference position: the subject, never raised itself.
+    """A home ended without establishing a reference position.
 
     ``except HomingFailedError`` catches every way a home ends short; the
     child raised says which, and its kind with it: ``HomingFaultError``
@@ -5921,7 +5921,7 @@ class HomingStoppedError(Notice, HomingFailedError):
 
 
 class AutofocusAborted(_Umbrella, Exception):  # noqa: N818 -- cancellation/abort signal, not an error; non-Error suffix is intentional
-    """An autofocus sweep cut short before it chose a focus: the subject, never raised itself.
+    """An autofocus sweep cut short before it chose a focus.
 
     ``except AutofocusAborted`` catches every way a sweep is cut short; the
     child raised says which, and its kind with it.

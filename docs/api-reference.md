@@ -14569,9 +14569,9 @@ Reason `auto_gain_not_settled`: no cause, REST 500.
 <a id="AutofocusAborted"></a>
 ### `lumascope.AutofocusAborted`
 
-A subject: never raised, its children are; bases `Exception`.
+A subject: never raised itself; bases `Exception`.
 
-An autofocus sweep cut short before it chose a focus: the subject, never raised itself.
+An autofocus sweep cut short before it chose a focus.
 
 `except AutofocusAborted` catches every way a sweep is cut short; the
 child raised says which, and its kind with it.
@@ -14818,7 +14818,7 @@ Reason `board_reported_error`: no cause, REST 500.
 <a id="BringUpError"></a>
 ### `lumascope.BringUpError`
 
-A subject: never raised, its children are; bases `Exception`.
+A subject: never raised itself; bases `Exception`.
 
 A part of the scope did not come up as it should have; the rest of the scope runs.
 
@@ -15179,9 +15179,9 @@ Reason `camera_write_failed`: no cause, REST 500.
 <a id="CaptureError"></a>
 ### `lumascope.CaptureError`
 
-A subject: never raised, its children are; bases `Exception`.
+A subject: never raised itself; bases `Exception`.
 
-Image capture, save or processing: the subject, never raised itself.
+Image capture, save or processing.
 
 **Attributes**
 
@@ -15400,9 +15400,9 @@ Reasons `cleanup_error`, `merge_error`, `merge_failed`, `merge_not_started`, `no
 <a id="ConfigError"></a>
 ### `lumascope.ConfigError`
 
-A subject: never raised, its children are; bases `Exception`.
+A subject: never raised itself; bases `Exception`.
 
-The application's configuration or settings: the subject, never raised itself.
+The application's configuration or settings.
 
 Its children's words are written for the person unless a child says
 otherwise.
@@ -15843,9 +15843,9 @@ log.
 <a id="HardwareError"></a>
 ### `lumascope.HardwareError`
 
-A subject: never raised, its children are; bases `Exception`.
+A subject: never raised itself; bases `Exception`.
 
-A fault in the hardware (motor, LED, camera): the subject, never raised itself.
+A fault in the hardware (motor, LED, camera).
 
 `except HardwareError` catches every one; the child raised says which
 fault it was, with its own reason and title.
@@ -15872,9 +15872,9 @@ Reasons `homed`, `released`, `stopped`, `superseded`: cause state, REST 409.
 <a id="HomingFailedError"></a>
 ### `lumascope.HomingFailedError`
 
-A subject: never raised, its children are; bases `Exception`.
+A subject: never raised itself; bases `Exception`.
 
-A home ended without establishing a reference position: the subject, never raised itself.
+A home ended without establishing a reference position.
 
 `except HomingFailedError` catches every way a home ends short; the
 child raised says which, and its kind with it: `HomingFaultError`
@@ -16295,9 +16295,9 @@ Reasons `board_lost`, `driver_failed`, `faulted`, `monitor_ended_mid_move`, `pos
 <a id="MoveNotCompletedError"></a>
 ### `lumascope.MoveNotCompletedError`
 
-A subject: never raised, its children are; bases `Exception`.
+A subject: never raised itself; bases `Exception`.
 
-A move ended without its axis arriving at the target: the subject, never raised itself.
+A move ended without its axis arriving at the target.
 
 A waited move that returns means the axis arrived; this move could not
 say that, so it raises instead of reporting a position nobody reached.
@@ -16526,9 +16526,9 @@ no camera the camera's `'not_connected'`; this is what is left.
 <a id="PluginError"></a>
 ### `lumascope.PluginError`
 
-A subject: never raised, its children are; bases `Exception`.
+A subject: never raised itself; bases `Exception`.
 
-A plugin failed: it did not load, or it failed after loading. The subject, never raised itself.
+A plugin failed: it did not load, or it failed after loading.
 
 Nothing raises these: the plugin host catches the plugin's own failure
 and has no caller to raise to, so each is built to be reported, chained
@@ -16775,9 +16775,9 @@ Reason `stimulation_not_performed`: cause request, REST 422.
 <a id="ProtocolError"></a>
 ### `lumascope.ProtocolError`
 
-A subject: never raised, its children are; bases `Exception`.
+A subject: never raised itself; bases `Exception`.
 
-A protocol's file, steps or run: the subject, never raised itself.
+A protocol's file, steps or run.
 
 Its children's words are written for the person unless a child says
 otherwise.

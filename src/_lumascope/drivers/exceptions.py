@@ -10,7 +10,7 @@ from _lumascope.lib.stage_interlock import INTERLOCK_TITLES
 
 
 class HardwareError(_Umbrella, Exception):
-    """A fault in the hardware (motor, LED, camera): the subject, never raised itself.
+    """A fault in the hardware (motor, LED, camera).
 
     ``except HardwareError`` catches every one; the child raised says which
     fault it was, with its own reason and title.
