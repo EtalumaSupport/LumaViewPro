@@ -12,7 +12,9 @@ and `session.create_empty_protocol()` starts one with no steps.
 is a write, refused under another's control session and when the scope cannot
 be on that plate. `new_protocol` and `add_step` capture each channel whose
 acquire setting is on (`set_channel_settings`' `acquire`). `add_step(channels=...)`
-names the channels instead, one acquiring nothing added as an image step. A step captures
+names the channels instead, one acquiring nothing added as an image step, and
+`add_step(protocol, at=PlateLocation(...))` adds the step at a place you name
+without moving the stage: give `z_um` a number on a scope that moves Z. A step captures
 an image or a video, as its channel's acquire mode says
 ([`AcquireMode`](../api-reference.md#AcquireMode)). A protocol carries no
 stimulation: a file saved by an earlier release that asks for it is refused at
@@ -45,7 +47,9 @@ Every z-stack is the stored one. `new_protocol` and `add_step` with
 the runner's `start_zstack` all read the same settings: `zstack.range` and
 `zstack.step_size`, both in micrometers, and `zstack.position` (top, center or
 bottom: where each step's Z sits in its stack). So a different stack is those
-settings written first.
+settings written first. A stack is `floor(range / step_size) + 1` slices,
+`step_size` apart; a range that is not a whole number of steps covers the steps
+that fit (9 um at 2 um: 5 slices over 8 um).
 
 A z-stack whose channel autofocuses is focused once: a sweep fired at its
 first slice and centered on its reference slice, and the found focus lands on
@@ -73,9 +77,9 @@ A protocol is edited only through the session (`add_step`, `update_step`,
 `set_step_autofocus`, `apply_focus_to_channel_steps`,
 `point_steps_at_turret_slot`, ...), and each edit is a write, refused under
 another's control session. Its records (`step_records`) are read-only, and a
-run works on its own copy. `protocol_size_advisory(protocol)` says, before a
-run, whether it is large enough to warn about, with one scan's size and a full
-run's. A run whose whole size does not fit its save folder's free space is
+run works on its own copy. `protocol_size_advisory(protocol)` answers, before a
+run, a `ProtocolSizeAdvisory` for a protocol of more than 10,000 steps, with one
+scan's size and a full run's, and None for any other. A run whose whole size does not fit its save folder's free space is
 refused at its start, `disk_space_insufficient`, as a recording and a build
 are below 2 GB free. A start whose drive's free space cannot be read is
 refused `capture_location_unusable`.
@@ -137,10 +141,10 @@ A run is started by the session's protocol runner and returns an
 |---|---|
 | `start_single_scan(protocol)` | every step once |
 | `start_protocol(protocol)` | every scan of the schedule |
-| `start_autofocus(channel)` | an autofocus where the stage is, the Z it chose saved as the channel's focus (`RunOutcome.focus_written`); under a diagnostic's claim, saved nowhere |
+| `start_autofocus(channel)` | an autofocus where the stage is, leaving the stage at the Z it chose (`RunOutcome.autofocus_z_um`) and saving it as the channel's focus (`RunOutcome.focus_written`); under a diagnostic's claim, saved nowhere |
 | `start_autofocus_all_steps(protocol)` | an autofocus at each step (once per z-stack), each focus found written into the protocol, however the scan ended, when its steps did not change (`RunOutcome.focus_written`); a scan stopped or failed partway reports how many steps it focused (`FocusKeptNotice`) |
 | `start_zstack(channel)` | a stack of the stored range where the stage is |
-| `start_composite(...)` | one capture per acquiring channel, merged |
+| `start_composite(...)` | one capture per acquiring channel (two or more, at most one of BF, PC and DF), merged |
 
 ```python
 from lumascope import RunStatus
@@ -168,8 +172,8 @@ it `aborted`, `'stopped'`. A STOP ends it as [Stopping](motion.md#stopping) says
 A run lets go of the scope before its images are on disk:
 its operation ends with the run, and `files`, its own operation, once they are
 written ([Operations](python.md#operations); over REST, the run's job and its
-`files` job, [Jobs](rest.md#jobs)). Read the run's folder, or start the next
-run, after `files`. Its result, a
+`files` job, [Jobs](rest.md#jobs)). Read the run's folder
+(`progress().run_dir`), or start the next run, after `files`. Its result, a
 [`RunFiles`](../api-reference.md#RunFiles), counts the run's images:
 `outcome` is `written` when every image captured is on disk, else
 `incomplete`, with `not_written` and `not_written_reason`. `written` is the
@@ -186,9 +190,9 @@ another:
 | Run | Folder |
 |---|---|
 | a scan or a protocol | `ProtocolData/<date>_<time>`: an image per step and channel, the protocol it ran, a record of each capture |
-| a z-stack | `Manual/Z-Stacks` |
-| a composite | `Manual/Composites` |
-| an autofocus | nothing, unless `save_characterization_data` asks: `Autofocus Characterization` |
+| a z-stack | `Manual/Z-Stacks/<date>_<time>` |
+| a composite | `Manual/Composites/<date>_<time>`; the merged image is `RunOutcome.artifact_path` |
+| an autofocus | nothing, unless `save_characterization_data` asks: `Autofocus Characterization/<date>_<time>`, the file `RunOutcome.autofocus_data_path` |
 
 A run's video steps record as a manual recording does
 ([Saved files](captures-and-files.md#saved-files)), and its hyperstacks are built once the run ends.
@@ -197,7 +201,8 @@ A run's video steps record as a manual recording does
 
 A scan's folder holds, for each step and channel, its image
 `<step name>_<scan>.<ext>` (`custom0000_BF_0000.tiff`: step `custom0000_BF`,
-scan 0). It holds the protocol it ran, `<sequence_name>.tsv`, named by the
+scan 0). An `add_step` step is a custom step (`custom<n>_<channel>`), even at a
+well's center; a `new_protocol` step is named for its well (`A1_BF`). It holds the protocol it ran, `<sequence_name>.tsv`, named by the
 start's `sequence_name`; given none, a single scan's is scan.tsv and a
 protocol's protocol.tsv. And it holds `protocol_record.tsv`, one row per
 capture after a short header naming that protocol file.
@@ -235,8 +240,7 @@ Post-processing builds derived files from a run's folder:
 video=...)` builds the projections first, then the stitches, the composites
 and the videos, each group of a run from every frame it recorded or not at all.
 Each step of the answer's `built` names the files it made, in its result's
-`artifact_paths`. A stitch writes them in a `Stitched` folder inside the run's.
-Each build takes only what the one before it in the call carried forward, so
+`artifact_paths`. Each build takes only what the one before it in the call carried forward, so
 `zproject` and `stitch` together stitch the projections. The same call made
 again rebuilds nothing already made, and resumes where it stopped. A build does
 not start while a run, a recording, a home or a diagnostic holds the scope
