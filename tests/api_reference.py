@@ -27,14 +27,16 @@ import ast
 import collections
 import dataclasses
 import enum
+import functools
 import inspect
+import json
 import re
 import sys
 import types
 import typing
 
 from _lumascope.lib.lumascope_error import Fault, LumascopeError, defined_classes
-from _lumascope.modules import wire_encoding
+from _lumascope.modules import common_utils, settings_paths, wire_encoding
 from _lumascope.modules.api_surface import (
     API,
     IN_PROCESS,
@@ -48,6 +50,7 @@ from _lumascope.modules.api_surface import (
     in_process_arguments_of,
     is_engineering,
     is_record,
+    mark_of,
     markdown_of,
     own_doc,
     raises_of,
@@ -56,7 +59,9 @@ from _lumascope.modules.api_surface import (
     stop_of,
 )
 from _lumascope.modules.exceptions import Notice, Quiet, Refusal
+from _lumascope.modules.lumascope_api.camera import CameraAPI
 from _lumascope.modules.image_utils import _FORMER_KEYS_READ_BACK, FILE_FACTS
+from _lumascope.modules.protocol import CHANNEL_SETTING_KEYS
 from _lumascope.modules.run_events import RunEvents
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest import problems
@@ -65,6 +70,7 @@ from _lumascope.rest.events import _LIVE_VIEW, STREAM_EVENTS, _event_name
 from _lumascope.rest.routes import routes
 from tests.ast_seams import REPO_ROOT
 from tests.marked_set import Marked
+from tests.settings_fixtures import shipped_template
 
 REFERENCE = REPO_ROOT / 'docs' / 'api-reference.md'
 # Set, the guard writes the render to REFERENCE instead of comparing it.
@@ -749,6 +755,129 @@ def _file_facts_table() -> str:
     )
 
 
+def _number(value: float) -> str:
+    return f'{value:g}'
+
+
+def _takes(rule: typing.Callable) -> str:
+    """What a setting's range rule takes, from the row's own numbers or its ``takes``.
+
+    Raises:
+        ValueError: a row neither its numbers nor a ``takes`` says, so the
+            reference cannot render without one.
+    """
+    if isinstance(rule, functools.partial):
+        found, func = rule.keywords, rule.func
+        if 'takes' in found:
+            return found['takes']
+        if func is settings_paths._or_none:
+            return 'None, or ' + _takes(rule.args[0])
+        if func is settings_paths._refuse_below:
+            return ('at least ' if found['inclusive'] else 'above ') + _number(found['floor'])
+        if func is settings_paths._refuse_non_count:
+            return 'a whole number of at least 1'
+        if func is settings_paths._refuse_outside:
+            low, high = (_number(n) for n in found['limits'])
+            span = (
+                f'above {low} and at most {high}'
+                if found.get('low_open')
+                else f'between {low} and {high}'
+            )
+            whole = found.get('whole') or found.get('count')
+            return f'a whole number {span}' if whole else span
+        if func is settings_paths._refuse_unknown_format:
+            return 'one of ' + ', '.join(f'`{f}`' for f in sorted(found['formats']))
+        if func is settings_paths._refuse_unless_member:
+            offered = found.get('within') or tuple(found['closed_set'])
+            return 'one of ' + ', '.join(f'`{m.value}`' for m in offered)
+    raise ValueError(f'a range row with no words: {rule!r}; give it a takes')
+
+
+def _setting_kind(path: str, shipped: object) -> str:
+    kind = settings_paths._kind(shipped)
+    if kind != 'null':
+        return kind
+    return ' or '.join([*(settings_paths.nullable_kinds_for(path) or ()), 'null'])
+
+
+def _setting_takes(path: str) -> str:
+    rule = settings_paths._range_for(path)
+    if rule is not None:
+        return _takes(rule)
+    if settings_paths._pattern_for(settings_paths.KIND_IS_THE_RANGE, path):
+        return 'true or false'
+    if path in settings_paths.BOUND_AT_USE:
+        return 'any finite number; a move past travel is refused ([`MotionAPI.axis_limits`](#MotionAPI.axis_limits))'
+    return '--'
+
+
+def _written_by(path: str) -> str:
+    member = settings_paths.member_for(path)
+    if member is not None:
+        # As update_settings refuses it: a member no wire carries is the host's.
+        owner = {'ScopeSession': ScopeSession, 'CameraAPI': CameraAPI}[member.owner]
+        mark = mark_of(getattr(owner, member.name))
+        key = f'{member.owner}.{member.name}'
+        if mark == API:
+            return f'[`{key}`](#{key})'
+        if mark == IN_PROCESS:
+            return f'[`{key}`](#{key}), in-process: the application hosting the scope only'
+        return 'the application hosting the scope only'
+    if settings_paths.is_installation_only(path):
+        return "the installation's settings file only"
+    written = '[`update_settings`](#ScopeSession.update_settings)'
+    return written + ', a preference' if path in settings_paths.PREFERENCES else written
+
+
+def _json(value: object) -> str:
+    return f'`{json.dumps(value)}`'
+
+
+def _settings_table() -> str:
+    """Every setting a new install holds: one row a path, and one a channel key for every channel's."""
+    channels = common_utils.get_channels()
+    field_of = {key: field for field, key in CHANNEL_SETTING_KEYS}
+    rows, by_channel_key = [], collections.defaultdict(list)
+    for path, shipped in settings_paths._leaf_paths(shipped_template()):
+        channel, _, key = path.partition('.')
+        if channel in channels:
+            by_channel_key[key].append((channel, shipped))
+            continue
+        meaning = settings_paths.SETTING_MEANINGS.get(path, '--')
+        rows.append(
+            f'| <a id="setting.{path}"></a>`{path}` | {_json(shipped)} | {_setting_kind(path, shipped)} | '
+            f'{_setting_takes(path)} | {_written_by(path)} | {meaning} |'
+        )
+    for key, held in by_channel_key.items():
+        shipped_values = collections.defaultdict(list)
+        for channel, shipped in held:
+            shipped_values[json.dumps(shipped)].append(channel)
+        new_install = '; '.join(
+            f'{", ".join(names)} `{value}`' for value, names in shipped_values.items()
+        )
+        field = f'ChannelSettings.{field_of[key]}'
+        rows.append(
+            f'| <a id="setting.channel.{key}"></a>`<channel>.{key}` | {new_install} | '
+            f'{_setting_kind(f"{held[0][0]}.{key}", held[0][1])} | '
+            f'{_setting_takes(f"{held[0][0]}.{key}")} | '
+            f'{_written_by(f"{held[0][0]}.{key}")} as [`{field}`](#{field}) | -- |'
+        )
+    return (
+        'Every setting a new install holds, by its path: its value on a new install, its kind, '
+        'what a write of it takes, and how it is written. A setting a member writes means what '
+        "its member's entry says; the others' meanings are in the last column. "
+        '[`update_settings`](#ScopeSession.update_settings) writes the rest, a preference by '
+        'any client even while another holds the control session; one the installation sets '
+        'is refused to every write. A camera or LED limit is not a range here: a value past '
+        "the attached hardware's is clamped at the write and told. `<channel>` is any of "
+        f"{', '.join(f'`{c}`' for c in channels)}; a channel's settings are written together "
+        'by [`ScopeSession.set_channel_settings`](#ScopeSession.set_channel_settings), each as '
+        'the field named.\n\n'
+        '| Path | New install | Kind | Takes | Written by | Meaning |\n'
+        '|---|---|---|---|---|---|\n' + '\n'.join(rows)
+    )
+
+
 def _beside_its_wait(key: str, marked: dict[str, Marked]) -> tuple[str, str, bool]:
     """*key*'s place in its owner: by name, a ``start_<x>`` right after the ``<x>`` that waits on it.
 
@@ -894,7 +1023,8 @@ def render(sections: Declared) -> str:
         f'{label}\n\n' + '\n'.join(f'- [`{n}`](#{n})' for n in names) for label, names in groups
     ]
     contents += [
-        '**Tables**\n\n- [Routes](#routes)\n- [Events](#events)\n- [Saved-file facts](#saved-file-facts)'
+        '**Tables**\n\n- [Routes](#routes)\n- [Events](#events)\n- [Saved-file facts](#saved-file-facts)\n'
+        '- [Settings](#settings)'
     ]
     sections = [_PREFACE.rstrip('\n'), '\n\n'.join(contents)]
     sections += [_class(o, index) for o in classes]
@@ -925,4 +1055,5 @@ def render(sections: Declared) -> str:
         '## Saved-file facts\n\nWhat a saved file holds is in [Saved files]'
         '(guide/captures-and-files.md#saved-files).\n\n' + _file_facts_table()
     )
+    sections.append('## Settings\n\n' + _settings_table())
     return '\n\n'.join(sections) + '\n'

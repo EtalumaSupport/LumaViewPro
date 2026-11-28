@@ -16,7 +16,8 @@ it rather than repeating it. The guide is this page and the files under
 > 4.x release changes the API only as the [Changelog](#changelog)'s rules
 > allow: an addition or a behavior change at a minor version, never a rename
 > or removal without a deprecation cycle. Each change is recorded there. What freezes is what the
-> [API reference](api-reference.md) lists, and the plugin contract
+> [API reference](api-reference.md) lists, the [setting paths](api-reference.md#settings)
+> among them, and the plugin contract
 > ([Plugins](#plugins)), with one exception: the simulator's surface,
 > [`SimulationAPI`](api-reference.md#SimulationAPI), may change in any 4.x
 > release ([The simulator](guide/simulator.md#the-simulator)). Etaluma's bench and support

@@ -187,6 +187,193 @@ KIND_IS_THE_RANGE: typing.Final[frozenset[str]] = frozenset(
 # refusal at the move.
 BOUND_AT_USE: typing.Final[frozenset[str]] = frozenset({'stage_offset.x', 'stage_offset.y'})
 
+# What a setting no member writes means, in one line with its unit, for the
+# reference's settings table: a member's setting means what its member says.
+# The one place these meanings are written.
+SETTING_MEANINGS: typing.Final[dict[str, str]] = {
+    'simulator_tier': (
+        'How a simulated scope is built: `fast`, Python stand-ins for the boards with no '
+        "timing; `firmware`, the production driver on the motor board's own firmware, its "
+        'motors moving at once; `realistic`, the same with moves and the camera taking real '
+        'time. Read when the session is created; `fast` where this computer has no MicroPython '
+        'runtime for the others.'
+    ),
+    'image_output_format.live': (
+        'The format a still is saved in, and each frame of a manual recording saved as frames.'
+    ),
+    'image_output_format.sequenced': (
+        "The format a run saves its images in, and each frame of a run's recording saved as "
+        'frames; a composite run whose format cannot be merged saves OME-TIFF and logs it.'
+    ),
+    'jpg_quality': (
+        'The JPEG quality a still or run image saved as JPG is encoded at; higher keeps more '
+        'detail in a larger file.'
+    ),
+    'separate_folder_per_channel': (
+        "Stills and a run's images saved in a folder per channel, named for it; off for an "
+        'autofocus scan.'
+    ),
+    'stage_offset.x': (
+        'Where the plate is mounted on the stage along X, in um: the offset between plate and '
+        'stage coordinates.'
+    ),
+    'stage_offset.y': (
+        'Where the plate is mounted on the stage along Y, in um: the offset between plate and '
+        'stage coordinates.'
+    ),
+    'zstack.step_size': (
+        'The spacing between the slices of a z-stack, in um; 0, the new-install value, is no '
+        'stack, and stacking is refused.'
+    ),
+    'zstack.range': (
+        'The Z extent a z-stack covers, in um; 0, the new-install value, is no stack, and '
+        'stacking is refused.'
+    ),
+    'zstack.position': "Where a step's Z sits in its z-stack: at the stack's top, center or bottom.",
+    'protocol.period': (
+        "The time between a new protocol's scans, in minutes; a protocol loaded keeps its own."
+    ),
+    'protocol.duration': (
+        "How long a new protocol's run lasts, in hours; a protocol loaded keeps its own."
+    ),
+    'protocol.autogain.target_brightness': (
+        'The brightness auto-gain drives a frame to, as a fraction of full scale, in the live '
+        'view and in a run alike.'
+    ),
+    'protocol.autogain.min_gain_db': (
+        'The lowest gain auto-gain may set, in dB, in the live view and in a run alike.'
+    ),
+    'protocol.autogain.max_gain_db': (
+        'The highest gain auto-gain may set, in dB, in the live view and in a run alike.'
+    ),
+    'logging.default.level': (
+        'The level of the main, serial, camera and API logs; DEBUG instead while `debug_mode` '
+        'is on.'
+    ),
+    'logging.autofocus': "Each autofocus step's focus score written to the main log.",
+    'focus_score_enabled': (
+        "The GUI's live view computes and shows each frame's focus score; autofocus is not changed."
+    ),
+    'preview_host_downscale': (
+        "The GUI's live view shrinks each frame on the CPU before it is drawn, in place of the "
+        'GPU scaling the whole frame, for a computer whose full-size upload stutters.'
+    ),
+    'quick_enhance.auto_levels_enabled': (
+        "Quick Enhance stretches an image's 1st to 99th percentile of brightness to the full range."
+    ),
+    'quick_enhance.gamma_enabled': (
+        'Quick Enhance applies a gamma of 0.9 after the stretch, lifting the midtones; skipped '
+        'for a flat image.'
+    ),
+    'quick_enhance.illumination_correction_enabled': (
+        'Quick Enhance divides out a brightness plane fitted across the field, flattening '
+        'uneven illumination.'
+    ),
+    'quick_enhance.denoise_enabled': 'Quick Enhance applies a 3-pixel median filter.',
+    'quick_enhance.sharpen_enabled': (
+        'Quick Enhance sharpens the signal with an unsharp mask, leaving the background as it is.'
+    ),
+    'video_recording_format': (
+        "How a recording, manual or a run's, is saved: `mp4` one video; `frames` a folder of "
+        'frame files and their manifest; `hyperstack` the frames and an OME-TIFF hyperstack '
+        'built from them.'
+    ),
+    'motion.restore_after_home': (
+        'A home puts the turret back on its slot and Z at its target, each when its position '
+        'was known before the home; X and Y are never put back. Read when a home names no '
+        '`put_back`.'
+    ),
+    'video.max_fps': (
+        "The highest rate a recording, manual or a run's, samples at, in frames per second; 0 "
+        'keeps every frame the camera delivers.'
+    ),
+    'video.max_duration_s': (
+        "How long a manual recording runs before it stops, in seconds; a run's recording "
+        "takes its step's own."
+    ),
+    'video.timestamp_overlay': (
+        "Each frame's time burned into a recording saved as MP4, manual or a run's; frames "
+        'saved as files carry none.'
+    ),
+    'show_tooltips': "The GUI shows a control's tooltip while the pointer rests on it.",
+    'live_view_fps': "The most frames per second the GUI's live view draws; 0 draws every frame.",
+    'capture_shown_s': (
+        "How long the GUI shows a still or a run's composite just taken before the live view "
+        'returns, in seconds.'
+    ),
+    'ag_ae_max_exposure_ms.transmitted': (
+        'The longest exposure auto-gain may set on a transmitted-light channel, in ms.'
+    ),
+    'ag_ae_max_exposure_ms.fluorescence': (
+        'The longest exposure auto-gain may set on a fluorescence channel, and on any channel '
+        'neither transmitted nor luminescence, in ms.'
+    ),
+    'ag_ae_max_exposure_ms.luminescence': (
+        'The longest exposure auto-gain may set on a luminescence channel, in ms.'
+    ),
+    'tiling_overlap_percent': (
+        'How much neighbouring tiles overlap when a protocol is tiled, in percent of a field.'
+    ),
+    'show_step_locations': "The GUI's stage map marks the loaded protocol's step positions.",
+    'protocol_led_on': (
+        "Going to a protocol step lights the step's channel at its current, on the step's first "
+        'visit; off leaves every channel dark. A run is not changed.'
+    ),
+    'keep_led_between_steps': (
+        'A run keeps the LED lit across a move when the next capture uses the same channel; off '
+        'for an autofocus scan.'
+    ),
+    'stimulation_enabled': (
+        'The GUI shows the stimulation controls on the fluorescence channels, on a board '
+        'whose firmware stimulates.'
+    ),
+    'mode': (
+        '`engineering` starts the GUI in engineering mode: a still or run image on a turret '
+        'scope names its slot, and system metrics are logged each minute. Read by the GUI '
+        'alone.'
+    ),
+    'debug_mode': (
+        'Every log at DEBUG from its first line, in place of `logging.default.level`; read '
+        'before the settings are prepared.'
+    ),
+    'profile_trace_enabled': (
+        'Timing traces (serial commands, motion polls, frame readiness, camera callbacks, lock '
+        'waits) written as CSV; read when the session is created, and never turned off in the '
+        'process.'
+    ),
+    'profile_trace_output_dir': (
+        "The folder the timing traces are written to; null, the installation's `logs/profile`."
+    ),
+    'memory_profile_enabled': (
+        'Resident memory logged on a cadence, and the top allocators at fixed points; read when '
+        'the session is created.'
+    ),
+    'memory_profile_interval_s': 'How often the memory profiler samples, in seconds.',
+    'profiling.handle_trace_enabled': (
+        "The growth in the process's open handles logged around saves and camera calls; read "
+        'when the session is created.'
+    ),
+    'profiling.open_files_enabled': "The process's open-file count in each system-metrics line.",
+    'profiling.metrics_interval_s': (
+        'How often system metrics are logged, in seconds; null, hourly, or each minute in '
+        'engineering mode.'
+    ),
+    'lvp_lock_port': (
+        'The local port the single-instance lock holds, so one program at a time drives a '
+        'scope from this installation; read before the settings are prepared.'
+    ),
+    'rest_api.enabled': 'Whether the GUI serves the REST API beside its window.',
+    'rest_api.port': 'The TCP port the REST server listens on.',
+    'rest_api.address': (
+        'The one IP address of this computer the REST server listens on; a loopback address '
+        'serves this computer alone.'
+    ),
+    'rest_api.allowed_clients': (
+        'The addresses and networks whose requests the REST server answers, any other refused '
+        '`client_not_allowed`; empty answers every client that reaches the address.'
+    ),
+}
+
 # The kinds a setting shipped as null holds when it is not null. ``*`` stands
 # for any channel as a first segment, and for any key as a last one.
 _NULLABLE_KINDS: typing.Final[dict[str, tuple[str, ...]]] = {
