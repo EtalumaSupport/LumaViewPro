@@ -17,6 +17,7 @@ import re
 import pytest
 
 from _lumascope.modules.autofocus_thread import AutofocusThread
+from _lumascope.modules.frame_validity import FrameValiditySource
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.modules.run_outcome import EndingLatch
 from tests.af_drives import park_z
@@ -74,30 +75,37 @@ def test_the_sweep_finds_the_focus_with_a_frame_in_flight_at_every_move():
     assert focus == pytest.approx(FOCAL_Z_UM, abs=50.0)
 
 
-def test_the_scored_frame_is_drained_past_the_step_s_z_move():
-    """Every autofocus grab waits out every pending write, its own Z step
-    included: the frame a score is taken on was made after the move.
+def test_every_scored_frame_counts_for_its_step_s_z_move(monkeypatch):
+    """Every autofocus capture waits out every pending write, its own Z step
+    included: each frame a score is taken on counts for the step's Z move
+    (its record's ``z_move`` judgment), so it was made after the move.
 
-    The last capture of a sweep follows that step's Z move, which leaves
-    'z_move' pending for its skip count, so the frame the step scored is
-    one the capture drained past it. A sweep that grabbed without the
-    drain (a bare capture_image), or that excluded Z motion from it, records
-    no drained frame here.
+    Whoever counted the move's frames -- the capture's drain, or the
+    frames' delivery -- the judgment is the frame's own. A sweep whose
+    captures excluded Z motion keeps the frame in flight at each move,
+    which does not count for it.
     """
+    stills = []
     with _session_over_the_focus_target() as session:
-        # BF's shipped exposure at its shipped current shows the field at
-        # its own grey levels: no frame is dark, so the sweep makes no
-        # same-Z dark retry and its last capture is a step's, and none is
-        # saturated flat.
-        session.scope.camera.set_exposure_ms(2.0)
-        _autofocus(session)
-        info = session.scope.imaging.last_capture_info
-        z_skip = session.scope.imaging._frame_validity.SKIP_FRAMES['z_move']
+        capture_still = session.scope.imaging.capture_still
 
-    assert info is not None, 'the sweep never captured through capture_still'
-    assert info['drained'] >= z_skip, (
-        f'the last scored frame was not drained past its Z move: {info}'
-    )
+        def recorded_capture(**kwargs):
+            still = capture_still(**kwargs)
+            stills.append(still)
+            return still
+
+        monkeypatch.setattr(session.scope.imaging, 'capture_still', recorded_capture)
+        _autofocus(session)
+
+    z_moves = [
+        judgment
+        for still in stills
+        for judgment in still.record.judgments
+        if judgment.change.source == FrameValiditySource.Z_MOVE
+    ]
+    assert len(z_moves) == len(stills) > 0, 'a scored frame was judged against no Z move'
+    uncounted = [judgment for judgment in z_moves if not judgment.counts]
+    assert not uncounted, f'frames scored before their Z move was met: {uncounted[:3]}'
 
 
 def test_every_scored_point_states_its_frame_s_saturated_and_masked_shares(caplog):
