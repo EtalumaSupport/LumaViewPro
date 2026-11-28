@@ -8,7 +8,8 @@ with their record (``@api(event=Record)``), each named for its member
 ``events`` itself. An event's ``data`` is its record, wire-encoded, keys its
 field names; a run event adds ``run``, ``{"job": <id>}``, the job of the run
 that sent it.
-The frame events are the live view's, not the stream's.
+The frame events are not the stream's: the camera's frames are the live
+view's, and a run's captured frames are not sent.
 
 Each event's data is described in the OpenAPI description by a component
 of its own (``published``), since what is sent is not quite its record:
@@ -53,8 +54,10 @@ BUFFER = 1024
 KEEPALIVE_S = 15.0
 # How soon a client whose stream dropped should reconnect, sent as ``retry:``.
 RECONNECT_MS = 1000
-# The events the live view carries, not the stream: one per frame.
-_LIVE_VIEW = frozenset({'frame', 'frame_captured'})
+# The events the stream does not send, one per frame, and what carries each
+# to a REST client instead: the camera's frames are the live view's; a run's
+# captured frames reach it only as the run's files.
+_OFF_THE_STREAM = {'frame': 'live view', 'frame_captured': 'files'}
 # The outcome ids already sent, kept so a muted outcome shown later is not sent twice.
 _OUTCOMES_KEPT = 4096
 
@@ -336,7 +339,7 @@ class RunTag:
         self._run: object = None
 
     def events(self) -> RunEvents:
-        """The ``RunEvents`` that send each event but the live view's."""
+        """The ``RunEvents`` that send each event but the frame events."""
         handlers = {name: self._handler(name, record) for name, record in _run_events().items()}
         return RunEvents(**handlers)
 
@@ -404,7 +407,7 @@ def _run_events() -> dict[str, type]:
     found = {}
     for field in dataclasses.fields(RunEvents):
         record = api_surface.field_event(RunEvents, field.name)
-        if record is not None and field.name not in _LIVE_VIEW:
+        if record is not None and field.name not in _OFF_THE_STREAM:
             found[field.name] = record
     return found
 
@@ -415,7 +418,7 @@ def _listened(session: ScopeSession) -> list[tuple[object, str, str, type]]:
         (owner, member_name, _event_name(member_name), record)
         for owner in _owners(session)
         for member_name, record in _listeners(type(owner))
-        if _event_name(member_name) not in _LIVE_VIEW
+        if _event_name(member_name) not in _OFF_THE_STREAM
     ]
 
 

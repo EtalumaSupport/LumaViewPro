@@ -70,7 +70,7 @@ from _lumascope.modules.run_events import RunEvents
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest import problems
 from _lumascope.rest.app import PREFIX, served
-from _lumascope.rest.events import _LIVE_VIEW, STREAM_EVENTS, _event_name
+from _lumascope.rest.events import _OFF_THE_STREAM, STREAM_EVENTS, _event_name
 from _lumascope.rest.routes import routes
 from tests.ast_seams import REPO_ROOT
 from tests.marked_set import Marked
@@ -710,13 +710,24 @@ def _routes_table(index: _Index) -> str:
     return '| Method | Path | Member |\n|---|---|---|\n' + '\n'.join(lines)
 
 
+# What carries an event to a REST client, as the Events table's last cell says it.
+_CARRIED_BY = {
+    'event stream': 'event stream',
+    'live view': 'live view ([The live view and files](guide/rest.md#the-live-view-and-files))',
+    'files': (
+        "not sent; a run's images are its files "
+        '([The live view and files](guide/rest.md#the-live-view-and-files))'
+    ),
+}
+
+
 def _events_table(index: _Index) -> str:
     rows = []
     for record, keys in index.delivers.items():
         for key in keys:
             member = key.rsplit('.', 1)[1]
             name = _event_name(member)
-            stream = 'live view' if name in _LIVE_VIEW else 'event stream'
+            stream = _CARRIED_BY[_OFF_THE_STREAM.get(name, 'event stream')]
             rows.append((name, key, record, stream))
     lines = [
         f'| `{name}` | [`{key}`](#{key}) | [`{record}`](#{record}) | {stream} |'

@@ -18011,8 +18011,8 @@ Each event, the member or `RunEvents` field that delivers it, its record (whose 
 | Event | Delivered by | Record | Over REST |
 |---|---|---|---|
 | `files_written` | [`RunEvents.files_written`](#RunEvents.files_written) | [`FilesWritten`](#FilesWritten) | event stream |
-| `frame` | [`ImagingAPI.add_frame_listener`](#ImagingAPI.add_frame_listener) | [`FrameDelivered`](#FrameDelivered) | live view |
-| `frame_captured` | [`RunEvents.frame_captured`](#RunEvents.frame_captured) | [`FrameCaptured`](#FrameCaptured) | live view |
+| `frame` | [`ImagingAPI.add_frame_listener`](#ImagingAPI.add_frame_listener) | [`FrameDelivered`](#FrameDelivered) | live view ([The live view and files](guide/rest.md#the-live-view-and-files)) |
+| `frame_captured` | [`RunEvents.frame_captured`](#RunEvents.frame_captured) | [`FrameCaptured`](#FrameCaptured) | not sent; a run's images are its files ([The live view and files](guide/rest.md#the-live-view-and-files)) |
 | `led` | [`IlluminationAPI.add_led_listener`](#IlluminationAPI.add_led_listener) | [`LedReading`](#LedReading) | event stream |
 | `outcome` | [`ScopeSession.add_outcome_listener`](#ScopeSession.add_outcome_listener) | [`Notification`](#Notification) | event stream |
 | `position` | [`MotionAPI.add_position_listener`](#MotionAPI.add_position_listener) | [`PositionChanged`](#PositionChanged) | event stream |
