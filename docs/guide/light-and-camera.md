@@ -16,10 +16,14 @@ for channel in scope.channel_identity.channels:
     print(channel.key_name, channel.label, channel.led_addresses)
 ```
 
-A file written before fluorescence channels were named for their excitation
-(`Blue`, `Green`, `Red`) is read by the LED each old name lit. A caller's old
-name is refused, as any unknown one is (`'channel_unknown'`, or `'not_a_setting'`
-in a settings path).
+Before fluorescence channels were named for their excitation they were named
+for an LED: `Blue`, `Green` and `Red` are the LEDs at addresses 0, 1 and 2,
+which a stock unit names `Ex405`, `Ex488` and `Ex589`. The names are not
+colors: `Blue` is not `Ex488`. A file written under an old name is read as this
+unit's fluorescence channel on that LED, or as the stock channel where no unit
+is known. A caller's old name is refused, as any unknown one is
+(`'channel_unknown'`, or `'not_a_setting'` in a settings path): name the channel
+by its key, from `scope.channel_identity`.
 
 **LEDs.** `led_on(channel, illumination_ma)` lights a channel's LEDs and
 answers the current commanded ([Intent and what was delivered](concepts.md#intent-and-what-was-delivered)).
