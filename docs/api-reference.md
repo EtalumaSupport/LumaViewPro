@@ -2,9 +2,11 @@
 
 <!-- Generated from the code; do not edit. Regenerate: LVP_WRITE_API_REFERENCE=1 python3 -m pytest tests/guards/test_the_api_is_declared.py -k reference -->
 
-Every member and field of the API, rendered from the source: a member is API when it carries `@api`, a field when its class names it in `@api_fields`. Anything else is not API, whatever its name, and can change in any release. A member marked *in-process* is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire. How the API fits together, and how to use it, is the guide: `api-guide.md`, and the files its map names under `guide/`.
+Every member and field of the API, rendered from the source: a member is API when it carries `@api`, a field when its class names it in `@api_fields`. Anything else is not API, whatever its name, and can change in any release. A member marked *in-process* is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire. How the API fits together, and how to use it, is the guide: [`api-guide.md`](api-guide.md), and the files its map names under `guide/`.
 
 Every name with a section of its own is imported from `lumascope`, as its heading says: `from lumascope import ScopeSession`.
+
+Every entry has an anchor: `<a id="ScopeSession">` for a class, a function or an outcome, `<a id="ScopeSession.create">` for a member or a field. Read the one entry a task needs by its anchor, not the whole file; a class's section opens with a table of its members.
 
 A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes; a member that raises nothing says so beside its marks. **Outcomes** lists those with the outcomes of the doors the member enters (a hardware lane, a guarded write, a post-processing build's admission), refusals and faults alike; for a member on the wire they are **Outcomes by REST status**, under the HTTP status each answers, which leaves out what no route can meet (a `BlockingCallRefusedError`: a REST call runs its member on a thread of its own). A request can also be refused by the server before its member runs, a [`ServerRefusedError`](#ServerRefusedError): `invalid_request` (422), arguments that do not fit the member, a NaN or an infinity among them, and the reasons under its entry; no route lists those. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
 
@@ -441,6 +443,118 @@ Made by [`ScopeSession.create`](#ScopeSession.create); every member below is on 
 Taken by: [`build_app`](#build_app), [`build_server`](#build_server).
 
 Owns the shared, GUI-independent state for one microscope session.
+
+| Member | Summary |
+|---|---|
+| [`acting_in_control`](#ScopeSession.acting_in_control) | Act in the control session named by its id for the length of a `with` block. |
+| [`add_outcome_listener`](#ScopeSession.add_outcome_listener) | Hear every outcome the scope reports from now on. |
+| [`add_settings_listener`](#ScopeSession.add_settings_listener) | Tell `listener` `(paths)` each time a write stores settings, once it has let go of the store. |
+| [`add_shown_channel_listener`](#ScopeSession.add_shown_channel_listener) | Tell `listener` `(channel, lit)` each time the shown channel moves, or the session lights or darkens it. |
+| [`add_status_listener`](#ScopeSession.add_status_listener) | Register a listener told at each run-state edge, the edges `status` changes at, and level-sync it. |
+| [`add_step`](#ScopeSession.add_step) | Add a step to `protocol` from this session's settings and live position. |
+| [`app_version`](#ScopeSession.app_version) | The application's version, `4.0.0-beta36`; None where the build has none. |
+| [`apply_focus_to_channel_steps`](#ScopeSession.apply_focus_to_channel_steps) | Save the live Z as `channel`'s focus and as the Z of its every step. |
+| [`apply_remedy`](#ScopeSession.apply_remedy) | Take the action a refusal named as its remedy, and return its answer. |
+| [`apply_tiling`](#ScopeSession.apply_tiling) | Expand each step of `protocol` not yet tiled into the tile grid `tiling`, as Apply does. |
+| [`apply_zstacking`](#ScopeSession.apply_zstacking) | Expand every step of `protocol` not already in a stack into the stored z-stack. |
+| [`assign_turret_objective`](#ScopeSession.assign_turret_objective) | Bind `objective_id` to the turret's `slot`: a person saying which glass the slot holds. |
+| [`bookmark`](#ScopeSession.bookmark) | The bookmark: X and Y in plate millimeters on the selected plate, Z in micrometers. |
+| [`bring_up_record`](#ScopeSession.bring_up_record) | What bring-up found, substituted and set aside, for a client that asks later. |
+| [`capped_channels`](#ScopeSession.capped_channels) | This scope's channels whose stored gain, exposure or current the attached hardware cannot reach. |
+| [`capture_still`](#ScopeSession.capture_still) | Capture a frame-valid image and hand it back with its record. |
+| [`channel_auto_gain_lock`](#ScopeSession.channel_auto_gain_lock) | What the camera reached the last time `channel`'s auto-gain was turned off. |
+| [`channel_colors`](#ScopeSession.channel_colors) | Every channel of the release and the color it is shown and written in, as red, green and blue weights, each 0 to 1. |
+| [`channel_settings`](#ScopeSession.channel_settings) | `channel`'s settings, every one, as `set_channel_settings` writes them. |
+| [`channel_slider_maxima`](#ScopeSession.channel_slider_maxima) | Where `channel`'s manual exposure and illumination sliders stop. |
+| [`clear_turret_objective`](#ScopeSession.clear_turret_objective) | Leave the turret's `slot` unassigned. |
+| [`confirm_objective`](#ScopeSession.confirm_objective) | Answer the objective question: this objective is in the light path. |
+| [`control`](#ScopeSession.control) | The control session held now, None when none is. |
+| [`controls_lock`](#ScopeSession.controls_lock) | Which of a person's controls the Session locks now, and why: its editing policy, not a refusal. |
+| [`create`](#ScopeSession.create) | Create a session, constructing defaults for any missing components. |
+| [`create_empty_protocol`](#ScopeSession.create_empty_protocol) | A protocol with no steps, on this session's labware and timing. |
+| [`current_slot_objective_question`](#ScopeSession.current_slot_objective_question) | The objective question for the turret slot in the light path, owed or not. |
+| [`delete_step`](#ScopeSession.delete_step) | Remove step `step_index` from `protocol`, as the Delete button does. |
+| [`diagnostic_claim`](#ScopeSession.diagnostic_claim) | Hold the scope for a diagnostic for the length of a `with` block. |
+| [`discard_pending_video`](#ScopeSession.discard_pending_video) | Drop every video frame still queued in either drain, loudly. |
+| [`end_control`](#ScopeSession.end_control) | End the control session named by its id: its taker ends it, or the person at the scope. |
+| [`engineering_mode`](#ScopeSession.engineering_mode) | Whether the session runs in engineering mode, as `create` began it or `set_engineering_mode` last set it. |
+| [`go_to_step`](#ScopeSession.go_to_step) | Go to step `step_index` of `protocol`; return once the camera holds the step's channel and the stage has arrived. |
+| [`start_go_to_step`](#ScopeSession.start_go_to_step) | Start going to step `step_index` of `protocol`, as a click on a step does. |
+| [`held_by_other`](#ScopeSession.held_by_other) | Whether the scope is held by anything but *run*, the operation a run member returned. |
+| [`host_reading`](#ScopeSession.host_reading) | This PC's resources as read over the session's startup; None until its startup motion has ended. |
+| [`host_steady_ns`](#ScopeSession.host_steady_ns) | The host's steady time now, in nanoseconds. |
+| [`labware_id`](#ScopeSession.labware_id) | The current plate's catalog key, the one `select_labware` selected. |
+| [`last_run`](#ScopeSession.last_run) | The last run's operation, live or ended, whoever started it; None before any run. |
+| [`last_save_folder`](#ScopeSession.last_save_folder) | The folder of the last file saved, whoever asked for the save. |
+| [`light_shown_channel`](#ScopeSession.light_shown_channel) | Light the shown channel's LED at its stored current, or darken it, then put its stored camera settings on the camera. |
+| [`live_folder_listing`](#ScopeSession.live_folder_listing) | What the folder `name` under the live folder holds, one level, sorted by name. |
+| [`live_folder_path`](#ScopeSession.live_folder_path) | The absolute path that `name`, a name under the live folder, names. |
+| [`live_work`](#ScopeSession.live_work) | Everything the session is still doing, each piece from its owner. |
+| [`load_plugins`](#ScopeSession.load_plugins) | Load the installed plugins and the built-ins into this session. |
+| [`load_protocol`](#ScopeSession.load_protocol) | Load the protocol at `file_path` and put the scope on its plate. |
+| [`load_user_settings`](#ScopeSession.load_user_settings) | The user's configuration, as the GUI would configure a scope from it. |
+| [`make_logs_zip`](#ScopeSession.make_logs_zip) | Zip the logs, the data folder, the settings the session runs on, the recent protocols and the video receipts. |
+| [`start_make_logs_zip`](#ScopeSession.start_make_logs_zip) | Start `make_logs_zip` without waiting for it; returns its `Operation`. |
+| [`make_support_report`](#ScopeSession.make_support_report) | Make the full Tech Support Report: the boards, the motors, the camera and the files. |
+| [`start_make_support_report`](#ScopeSession.start_make_support_report) | Start `make_support_report` without waiting for it; returns its `Operation`. |
+| [`model_at_next_start`](#ScopeSession.model_at_next_start) | The model this scope's next start runs as, when it is not the one running, else None. |
+| [`new_protocol`](#ScopeSession.new_protocol) | Build a protocol from this session's settings, as the GUI's New does. |
+| [`objective_id`](#ScopeSession.objective_id) | The active objective's catalog key. |
+| [`objective_question`](#ScopeSession.objective_question) | Does the objective need confirming? The question, or None. |
+| [`plate_position`](#ScopeSession.plate_position) | The stage's position in plate coordinates, on the session's labware. |
+| [`plugin_api_level`](#ScopeSession.plugin_api_level) | What this LumaViewPro does that a plugin may rely on. |
+| [`plugin_health`](#ScopeSession.plugin_health) | The loaded plugins, the ones that did not load, and their runtime errors. |
+| [`plugin_run_in_flight`](#ScopeSession.plugin_run_in_flight) | Count a plugin's run as live work from entry to exit, entered and left on any threads. |
+| [`plugins`](#ScopeSession.plugins) | The plugin contract: the namespaces a plugin registers into, as `ctx.plugins`. |
+| [`point_steps_at_turret_slot`](#ScopeSession.point_steps_at_turret_slot) | Answer `objective_id`'s turret slot question: its steps now record `slot`. |
+| [`protocol_runner`](#ScopeSession.protocol_runner) | The session's one ProtocolRunner (memoized). |
+| [`protocol_size_advisory`](#ScopeSession.protocol_size_advisory) | Ask a protocol whether it is large enough to warn the user about. |
+| [`put_live_folder_file`](#ScopeSession.put_live_folder_file) | Write `data` as a new file under the live folder: a wire client's upload. |
+| [`remove_outcome_listener`](#ScopeSession.remove_outcome_listener) | Stop `listener` hearing outcomes; a listener never added is a no-op. |
+| [`remove_settings_listener`](#ScopeSession.remove_settings_listener) | Stop telling `listener`; a listener never added is a no-op. |
+| [`remove_shown_channel_listener`](#ScopeSession.remove_shown_channel_listener) | Stop telling `listener`; a listener never added is a no-op. |
+| [`remove_status_listener`](#ScopeSession.remove_status_listener) | Stop telling `listener` of run-state transitions; a listener never added is a no-op. |
+| [`rename_step`](#ScopeSession.rename_step) | Give step `step_index` of `protocol` the label `name`; returns its new name. |
+| [`renew_control`](#ScopeSession.renew_control) | Renew the control session named by its id, so it does not go silent (`take_control`). |
+| [`retire_set_aside_settings`](#ScopeSession.retire_set_aside_settings) | Resolve the provisional-settings state: retire the file set aside. |
+| [`run_application_session`](#ScopeSession.run_application_session) | Run the standard startup motion, and wait for it. |
+| [`save_bookmark`](#ScopeSession.save_bookmark) | Save where the stage is on `axes` as the bookmark, as the bookmark buttons do. |
+| [`save_protocol`](#ScopeSession.save_protocol) | Write a protocol to a file, with this session's Layer Settings. |
+| [`scale_bar_enabled`](#ScopeSession.scale_bar_enabled) | Whether captured images are drawn with the scale bar, as `set_scale_bar_enabled` set it. |
+| [`select_labware`](#ScopeSession.select_labware) | Make `labware_id` the current plate. Returns whether it changed. |
+| [`select_model`](#ScopeSession.select_model) | Save the operator's scope model, for a scope that does not report its own. |
+| [`select_objective`](#ScopeSession.select_objective) | Make `objective_id` the active objective. Returns whether it changed. |
+| [`start_select_objective`](#ScopeSession.start_select_objective) | Start the pick `select_objective` makes, without waiting for the turret; returns its `Operation`. |
+| [`selected_model`](#ScopeSession.selected_model) | The saved scope model: the one `select_model` saved. |
+| [`set_channel_settings`](#ScopeSession.set_channel_settings) | Write any of `channel`'s settings, judged whole: all of them are stored, or none. |
+| [`set_engineering_mode`](#ScopeSession.set_engineering_mode) | Turn engineering mode on or off; the one writer of `engineering_mode`. |
+| [`set_live_folder`](#ScopeSession.set_live_folder) | Make `folder` the live folder, where captures and runs are saved. |
+| [`set_protocol_capture_root`](#ScopeSession.set_protocol_capture_root) | Give `protocol` the capture root that prefixes its runs' file names. |
+| [`set_protocol_labware`](#ScopeSession.set_protocol_labware) | Put `protocol` on the plate `labware_id`; returns the key it took. |
+| [`set_protocol_schedule`](#ScopeSession.set_protocol_schedule) | Give `protocol` a new period and duration in seconds, as its two fields do. |
+| [`set_scale_bar_enabled`](#ScopeSession.set_scale_bar_enabled) | Draw the scale bar on captured images, or stop, and store it. |
+| [`set_step_autofocus`](#ScopeSession.set_step_autofocus) | Turn autofocus on or off for step `step_index` of `protocol`, or for every step. |
+| [`set_ui_dispatcher`](#ScopeSession.set_ui_dispatcher) | Set how the process hands a callback to its UI thread. |
+| [`setting`](#ScopeSession.setting) | A copy of one setting, named by its dotted path: `'jpg_quality'`, `'video.max_fps'`. |
+| [`settings_snapshot`](#ScopeSession.settings_snapshot) | A deep copy of the settings dict, taken under the lock. |
+| [`show_channel`](#ScopeSession.show_channel) | Show `channel`: every other LED dark, `channel` lit at its stored current if the shown channel was lit, then its camera settings, or none with no camera connected. |
+| [`shown_channel`](#ScopeSession.shown_channel) | The channel the scope shows: its channel, and whether its LED is lit. |
+| [`shutdown`](#ScopeSession.shutdown) | Finish what the session is doing, then tear down everything it constructed. |
+| [`something_to_stop`](#ScopeSession.something_to_stop) | Whether a press of STOP (`MotionAPI.stop_motion`) has anything to stop now: what lights the GUI's STOP. |
+| [`source_path`](#ScopeSession.source_path) | The data folder this session runs on: its scope's, never a copy. |
+| [`start_application_session`](#ScopeSession.start_application_session) | Start the standard startup motion without waiting for it; returns its `Operation`. |
+| [`start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark) | Start `axes` moving to the bookmark, as the go-to-bookmark buttons do; return the started moves. |
+| [`start_go_to_channel_focus`](#ScopeSession.start_go_to_channel_focus) | Start Z moving to `channel`'s saved focus, as the Go To Focus button does; return the started move. |
+| [`status`](#ScopeSession.status) | What the scope is doing: its work, its axes and its camera, in one read. |
+| [`take_back_control`](#ScopeSession.take_back_control) | End whatever control session is held, and stop the run or recording taken in it, as `end_control`. |
+| [`take_control`](#ScopeSession.take_control) | Take the one control session: from now on only work in it writes to the scope. |
+| [`tiling_config`](#ScopeSession.tiling_config) | The tiling grids this installation offers: the scope's copy, read at bring-up. |
+| [`turret_objective`](#ScopeSession.turret_objective) | The objective bound to the turret's `slot`, or None while it holds none. |
+| [`turret_slot_questions`](#ScopeSession.turret_slot_questions) | What to ask about `protocol`'s turret slots: one question per objective, or none. |
+| [`unload_plugins`](#ScopeSession.unload_plugins) | Unload each loaded plugin, last loaded first. |
+| [`update_settings`](#ScopeSession.update_settings) | Write one setting, named by its dotted path: `'video.max_fps'`, `'zstack.range'`. |
+| [`update_step`](#ScopeSession.update_step) | Rewrite a step of `protocol` from this session's settings and live position. |
+| [`user_settings_file`](#ScopeSession.user_settings_file) | The file the installation at `source_path` keeps its user configuration in. |
 
 **Fields**
 
@@ -3970,6 +4084,10 @@ Held in: [`ScopeSession.manual_capture`](#ScopeSession.manual_capture).
 
 One still at a time, captured on the camera lane and saved.
 
+| Member | Summary |
+|---|---|
+| [`start_save_still`](#ManualCaptureController.start_save_still) | Capture one still and save it; returns at once. |
+
 <a id="ManualCaptureController.start_save_still"></a>
 ### `ManualCaptureController.start_save_still`
 
@@ -4027,6 +4145,16 @@ Reached through `session.manual_recording`; on the wire, `/api/v1/manual_recordi
 Held in: [`ScopeSession.manual_recording`](#ScopeSession.manual_recording).
 
 One manual-recording flow: snapshot, record, drain, finish.
+
+| Member | Summary |
+|---|---|
+| [`elapsed_s`](#ManualRecordingController.elapsed_s) | Seconds since the recording started; 0.0 when idle. |
+| [`is_draining`](#ManualRecordingController.is_draining) | True while queued frames are still being written. |
+| [`is_recording`](#ManualRecordingController.is_recording) | True while cadence selection is open. |
+| [`pending_writes`](#ManualRecordingController.pending_writes) | Frames enqueued but not yet on disk. |
+| [`recording_dir`](#ManualRecordingController.recording_dir) | The active (or last) recording's output folder. |
+| [`start`](#ManualRecordingController.start) | Snapshot configuration and open a recording; returns its operation. |
+| [`stop`](#ManualRecordingController.stop) | Close selection; the drain and finish continue on their own. |
 
 <a id="ManualRecordingController.elapsed_s"></a>
 ### `ManualRecordingController.elapsed_s`
@@ -4161,6 +4289,22 @@ Reached through `session.post_processing`; on the wire, `/api/v1/post_processing
 Held in: [`ScopeSession.post_processing`](#ScopeSession.post_processing).
 
 The post-processing builds, each run on the post-processing lane.
+
+| Member | Summary |
+|---|---|
+| [`build`](#PostProcessingAPI.build) | Run the chosen builds over *folder* in one call, in the order that keeps the data honest: z-project, stitch, composite, video. |
+| [`start_build`](#PostProcessingAPI.start_build) | Start `build` without waiting for it; returns its `Operation`. |
+| [`cell_count_size_scale`](#PostProcessingAPI.cell_count_size_scale) | The scale an image of *shape* is counted at by *method*, and what its size sliders stand for. |
+| [`count_cells`](#PostProcessingAPI.count_cells) | Count the cells in the images directly in *folder* by *method*, writing `results.csv` into the folder and *method* beside it as `results_method.json`. |
+| [`start_count_cells`](#PostProcessingAPI.start_count_cells) | Start `count_cells` without waiting for it; returns its `Operation`. |
+| [`default_cell_count_method`](#PostProcessingAPI.default_cell_count_method) | The cell-count method LumaViewPro's panel starts from, for `count_cells(method=)`: `CellCountMethod()`. |
+| [`enhance`](#PostProcessingAPI.enhance) | Quick Enhance *target* -- one image, or every image in a folder -- each to its own derived file beside its source. |
+| [`start_enhance`](#PostProcessingAPI.start_enhance) | Start `enhance` without waiting for it; returns its `Operation`. |
+| [`graph`](#PostProcessingAPI.graph) | Save the graph of column *y* against column *x* of the cell-count *results* file to *path* as a PNG. |
+| [`graph_options`](#PostProcessingAPI.graph_options) | The columns of the cell-count *results* file a graph can take, and the trendlines the axes given so far take. |
+| [`load_cell_count_method`](#PostProcessingAPI.load_cell_count_method) | The cell-count method saved in the file at *path*. |
+| [`preview_cell_count`](#PostProcessingAPI.preview_cell_count) | Count the cells in *image* by *method*, as `count_cells` counts each image of a folder, and answer the outlines and the counts. |
+| [`save_cell_count_method`](#PostProcessingAPI.save_cell_count_method) | Write *method* to *path* as a cell-count method file, which `load_cell_count_method` reads back. |
 
 <a id="PostProcessingAPI.build"></a>
 ### `PostProcessingAPI.build`
@@ -4712,6 +4856,17 @@ Held in: [`ScopeSession.scope`](#ScopeSession.scope).
 
 The microscope: its boards and camera, reached through its sub-APIs.
 
+| Member | Summary |
+|---|---|
+| [`all_labware`](#Lumascope.all_labware) | Every plate of the installation, read once at bring-up, in the catalog's order. |
+| [`all_objectives`](#Lumascope.all_objectives) | Every objective of the installation, read once at bring-up, in the order they are offered. |
+| [`all_scope_models`](#Lumascope.all_scope_models) | Every scope model of the installation, read once at bring-up, in the catalog's order. |
+| [`labware`](#Lumascope.labware) | The installation's plate `labware_id` names, by its catalog key or a retired one. |
+| [`motion_expected`](#Lumascope.motion_expected) | Whether this scope's model has a motor board at all. |
+| [`objective`](#Lumascope.objective) | The installation's objective `objective_id` names, by its catalog key. |
+| [`simulation`](#Lumascope.simulation) | The faults a simulated scope presents, switched on by name. |
+| [`unconnected_parts`](#Lumascope.unconnected_parts) | The parts this scope needs that are not connected. |
+
 **Fields**
 
 - <a id="Lumascope.camera"></a>`camera`: `CameraAPI` -- The camera's settings, reads and holds (`CameraAPI`).
@@ -4894,6 +5049,46 @@ Held in: [`Lumascope.camera`](#Lumascope.camera).
 Camera sub-API. Owns the camera's setters, reads, holds and applies,
 the camera's state (cache, held channel, auto-gain arm, listeners) and the
 saving of the stored camera settings.
+
+| Member | Summary |
+|---|---|
+| [`applied_auto_gain_for`](#CameraAPI.applied_auto_gain_for) | What a stored auto-gain preference becomes on the attached camera. |
+| [`applied_exposure_ms_for`](#CameraAPI.applied_exposure_ms_for) | What a stored exposure becomes on the attached camera. |
+| [`applied_gain_db_for`](#CameraAPI.applied_gain_db_for) | What a stored gain becomes on the attached camera. |
+| [`apply`](#CameraAPI.apply) | Apply a gain, an exposure and an auto-gain mode in one batched call, and wait. |
+| [`auto_exposure`](#CameraAPI.auto_exposure) | The camera's auto-exposure mode, as the camera last reported or took it; None when unknown. Its writers: `set_auto_exposure`; auto-gain, whose arm, lock and one-shot switch exposure with the gain; and a fresh read of the camera's mode. |
+| [`auto_gain`](#CameraAPI.auto_gain) | The camera's auto-gain mode, as the camera last reported or took it; None when unknown. Its writers: an arm, the lock that ends it, a one-shot (`ONCE` until a read finds it ended), and a fresh read of the camera's mode. |
+| [`binning`](#CameraAPI.binning) | The binning factor the camera last reported or took; None when unknown. |
+| [`black_level`](#CameraAPI.black_level) | The black level the camera last reported or took (see `read_black_level`); None when unknown or the camera reports none. |
+| [`exposure_ms`](#CameraAPI.exposure_ms) | The exposure in ms the camera last reported or took; None when unknown. |
+| [`frame_at_binning`](#CameraAPI.frame_at_binning) | The frame `set_binning(size)` will ask the camera for; nothing is applied. |
+| [`frame_size`](#CameraAPI.frame_size) | The size of the frames the camera delivers, as it last reported or took it, in pixels after binning; None when unknown. |
+| [`gain_db`](#CameraAPI.gain_db) | The gain in dB the camera last reported or took; None when unknown. |
+| [`high_conversion_gain`](#CameraAPI.high_conversion_gain) | Whether the camera's high conversion gain is on, as the camera last took it; None when unknown, as after a value the camera refused. No driver reads it back. A camera without the mode is at its standard conversion gain: False. |
+| [`image_mode`](#CameraAPI.image_mode) | The image mode captures are taken in: the saved one, which `set_image_mode` writes. The camera holds no copy of a mode, only the pixel format the mode chose (`pixel_format`). |
+| [`line_noise_reduction`](#CameraAPI.line_noise_reduction) | Whether the camera's line-noise filter is on, as the camera last took it; None when unknown. No driver reads it back. A camera without the filter reads unfiltered: False. |
+| [`lock_auto_gain`](#CameraAPI.lock_auto_gain) | Lock a standing continuous auto-gain arm and return the result. |
+| [`pixel_alignment`](#CameraAPI.pixel_alignment) | Return the camera's deliverable frame-size granularity. |
+| [`pixel_format`](#CameraAPI.pixel_format) | The pixel format the camera last reported or took (e.g. `'Mono12'`), chosen by `set_image_mode`; None when unknown. |
+| [`read_binning`](#CameraAPI.read_binning) | Read the camera's binning factor from the camera. |
+| [`read_black_level`](#CameraAPI.read_black_level) | Read the camera's black level from the camera. |
+| [`read_black_level_range`](#CameraAPI.read_black_level_range) | Read the range `set_black_level` accepts, live, in the units of `read_black_level`. |
+| [`read_exposure_ms`](#CameraAPI.read_exposure_ms) | Read the camera's exposure time from the camera, in milliseconds. |
+| [`read_frame_rate_fps`](#CameraAPI.read_frame_rate_fps) | Read from the camera the frame rate its current settings allow, in frames per second. |
+| [`read_frame_size`](#CameraAPI.read_frame_size) | Read the size of the frames the camera delivers, from the camera. |
+| [`read_gain_db`](#CameraAPI.read_gain_db) | Read the camera's gain from the camera, in dB. |
+| [`read_pixel_format`](#CameraAPI.read_pixel_format) | Read the camera's pixel format from the camera (e.g. `'Mono12'`). |
+| [`set_auto_exposure`](#CameraAPI.set_auto_exposure) | Put the camera's auto-exposure in `mode`, and wait for it. |
+| [`set_auto_gain`](#CameraAPI.set_auto_gain) | Put the camera's auto-gain in `mode`, and wait for it. |
+| [`set_binning`](#CameraAPI.set_binning) | Bin the camera by `size`, keep the framed region, and save both. |
+| [`set_black_level`](#CameraAPI.set_black_level) | Set the camera's black level, wait for it, and answer with the value in effect. |
+| [`set_exposure_ms`](#CameraAPI.set_exposure_ms) | Set the camera exposure time, wait for it, and answer with the exposure in effect. |
+| [`set_frame_size`](#CameraAPI.set_frame_size) | Frame the camera at `width` x `height` at the binning it holds, and save it. |
+| [`set_gain_db`](#CameraAPI.set_gain_db) | Set the camera gain, wait for it, and answer with the gain in effect. |
+| [`set_high_conversion_gain`](#CameraAPI.set_high_conversion_gain) | Turn the camera's high conversion gain on or off, then save it. |
+| [`set_image_mode`](#CameraAPI.set_image_mode) | Capture in `mode`: apply the camera format it needs, then save it. |
+| [`set_line_noise_reduction`](#CameraAPI.set_line_noise_reduction) | Turn the camera's line-noise filter on or off, then save it. |
+| [`setting_limits`](#CameraAPI.setting_limits) | The gain and exposure the camera takes now; no camera read. |
 
 <a id="CameraAPI.applied_auto_gain_for"></a>
 ### `CameraAPI.applied_auto_gain_for`
@@ -6004,6 +6199,14 @@ depends on, and the temperature log keeps running through a run. The
 board commands go on the IO lane through the motion API's dispatcher,
 the lane's one blocking dispatch with a wait bound.
 
+| Member | Summary |
+|---|---|
+| [`led_info`](#DiagnosticsAPI.led_info) | The LED board's firmware and command set. |
+| [`motor_info`](#DiagnosticsAPI.motor_info) | The motor board's identity. |
+| [`read_camera_link`](#DiagnosticsAPI.read_camera_link) | Read the camera's link, live. |
+| [`read_camera_temperatures_degc`](#DiagnosticsAPI.read_camera_temperatures_degc) | Get all camera temperature sensor readings. |
+| [`read_usb_census`](#DiagnosticsAPI.read_usb_census) | Every device of each vendor a Lumascope is built from, on this host's USB bus, read now. |
+
 <a id="DiagnosticsAPI.led_info"></a>
 ### `DiagnosticsAPI.led_info`
 
@@ -6134,6 +6337,16 @@ Held in: [`Lumascope.illumination`](#Lumascope.illumination).
 
 Illumination sub-API. Owns LED state, ownership tracking, and
 listener registry.
+
+| Member | Summary |
+|---|---|
+| [`add_led_listener`](#IlluminationAPI.add_led_listener) | Register a callback for LED state changes. |
+| [`led_off`](#IlluminationAPI.led_off) | Turn off a channel's LED, and wait for it. |
+| [`led_on`](#IlluminationAPI.led_on) | Turn on a channel's LED at the specified current, and wait for it. |
+| [`led_states`](#IlluminationAPI.led_states) | Every LED address of the attached board, as the API holds it: no board is asked. |
+| [`leds_off`](#IlluminationAPI.leds_off) | Turn off all LEDs, and wait for it. |
+| [`remove_led_listener`](#IlluminationAPI.remove_led_listener) | Unregister an LED listener. |
+| [`restore_led_state`](#IlluminationAPI.restore_led_state) | Restore LEDs to readings saved earlier, as one task on the IO lane, and wait. |
 
 <a id="IlluminationAPI.add_led_listener"></a>
 ### `IlluminationAPI.add_led_listener`
@@ -6353,6 +6566,19 @@ Imaging sub-API: the capture. Owns the grab, the capture's record,
 the frame listeners, the stream check, the scale bar and the
 capture/focus events. The camera's settings and state are
 `CameraAPI`'s, which this holds and calls.
+
+| Member | Summary |
+|---|---|
+| [`add_frame_listener`](#ImagingAPI.add_frame_listener) | Register a per-frame listener fired on every successful grab. |
+| [`changes_in_force`](#ImagingAPI.changes_in_force) | Whether every change recorded is in force, so a frame arriving now counts. |
+| [`delivered_rate`](#ImagingAPI.delivered_rate) | Read the rate the camera delivered frames, and their bytes on the link. |
+| [`disable_streaming`](#ImagingAPI.disable_streaming) | Stop camera streaming, and wait. |
+| [`enable_streaming`](#ImagingAPI.enable_streaming) | Begin camera streaming -- the public way to start the live feed, and wait. |
+| [`judge_frame`](#ImagingAPI.judge_frame) | Whether `frame` counts for each source's last change, as a capture waits on it. |
+| [`read_streaming`](#ImagingAPI.read_streaming) | Whether the camera is currently acquiring frames. |
+| [`recorded_changes`](#ImagingAPI.recorded_changes) | Each source's last recorded change, settled or not, by source. |
+| [`remove_frame_listener`](#ImagingAPI.remove_frame_listener) | Remove a listener registered via `add_frame_listener`. |
+| [`significant_bits`](#ImagingAPI.significant_bits) | Meaningful payload bits of frames the current camera delivers. |
 
 <a id="ImagingAPI.add_frame_listener"></a>
 ### `ImagingAPI.add_frame_listener`
@@ -6655,6 +6881,44 @@ Reached through `session.scope.motion`; on the wire, `/api/v1/scope/motion/`.
 Held in: [`Lumascope.motion`](#Lumascope.motion).
 
 Motion sub-API. Owns the motion state and every stage, focus and turret body.
+
+| Member | Summary |
+|---|---|
+| [`add_position_listener`](#MotionAPI.add_position_listener) | Register a callback for position/state changes on a stage axis: X, Y or Z. |
+| [`add_turret_listener`](#MotionAPI.add_turret_listener) | Register a callback for each change of the turret's state or slot. |
+| [`axes_without_position`](#MotionAPI.axes_without_position) | Which of this scope's axes do not know their position, and why. |
+| [`axis_limits`](#MotionAPI.axis_limits) | Get the travel limits for an axis, in um. |
+| [`axis_positions`](#MotionAPI.axis_positions) | Every stage axis's state and its position, or None where the position is not known. |
+| [`home`](#MotionAPI.home) | Home the given axis set, and wait for it. |
+| [`start_home`](#MotionAPI.start_home) | Start the home `home` runs, without waiting for it; returns its `Operation`. |
+| [`jog_step_um`](#MotionAPI.jog_step_um) | The jog step for `axis` under the active objective. |
+| [`move_to_plate`](#MotionAPI.move_to_plate) | Move X and Y to `at` on the selected plate, and return once they have arrived. |
+| [`start_move_to_plate`](#MotionAPI.start_move_to_plate) | Start X and Y moving to `at` on the selected plate; return the started moves. |
+| [`move_to_plate_nearest`](#MotionAPI.move_to_plate_nearest) | Move X and Y to `at` on the selected plate, or as near it as the stage reaches; return where they went, once arrived. |
+| [`start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest) | Start X and Y moving to `at` on the selected plate, or as near it as the stage reaches; return the started moves. |
+| [`move_to_well`](#MotionAPI.move_to_well) | Move X and Y to the center of `well` on the selected plate, and return once they have arrived. |
+| [`start_move_to_well`](#MotionAPI.start_move_to_well) | Start X and Y moving to the center of `well` on the selected plate; return the started moves. |
+| [`move_turret`](#MotionAPI.move_turret) | Move the turret to a slot, and wait for it; a turret already there is not moved. |
+| [`start_move_turret`](#MotionAPI.start_move_turret) | Start the turret change `move_turret` makes, without waiting for it; returns its `Operation`. |
+| [`move_xy`](#MotionAPI.move_xy) | Move X and Y to a place, in um, each that is given, and return once they have arrived. |
+| [`start_move_xy`](#MotionAPI.start_move_xy) | Start X and Y moving to a place, in um, each that is given; return the started moves. |
+| [`move_xy_by`](#MotionAPI.move_xy_by) | Move X and Y by a distance, in um, each that is given, and return once they have arrived. |
+| [`start_move_xy_by`](#MotionAPI.start_move_xy_by) | Start X and Y moving by a distance, in um, each that is given; return the started moves. |
+| [`move_z`](#MotionAPI.move_z) | Move Z to a place, in um, and return once it has arrived. |
+| [`start_move_z`](#MotionAPI.start_move_z) | Start Z moving to a place, in um; return the started move. |
+| [`move_z_by`](#MotionAPI.move_z_by) | Move Z by a distance, in um, and return once it has arrived. |
+| [`start_move_z_by`](#MotionAPI.start_move_z_by) | Start Z moving by a distance, in um; return the started move. |
+| [`positions_to_keep`](#MotionAPI.positions_to_keep) | The positions of `axes`, each one an axis at rest whose reference is known. |
+| [`read_interlocks`](#MotionAPI.read_interlocks) | The stage's hardware interlocks open now (`'lid_open'`, `'stage_unpowered'`). |
+| [`remove_position_listener`](#MotionAPI.remove_position_listener) | Unregister a position listener. |
+| [`remove_turret_listener`](#MotionAPI.remove_turret_listener) | Unregister a turret listener. |
+| [`set_precision_mode`](#MotionAPI.set_precision_mode) | Set Z's precision mode: how tightly the focus motor stops. |
+| [`start_center_on`](#MotionAPI.start_center_on) | Start X and Y moving so a point of the camera's frame comes to its center; return the started moves. |
+| [`start_jog`](#MotionAPI.start_jog) | Start `axis` moving by `steps` of the active objective's jog step; return the started move. |
+| [`stop_motion`](#MotionAPI.stop_motion) | Stop all in-flight motor moves. |
+| [`target_positions`](#MotionAPI.target_positions) | The target of every stage axis the scope has a position for (where it is commanded to go), by axis name, in um. |
+| [`turret_status`](#MotionAPI.turret_status) | The turret's state and the slot in the light path, read together; None on a scope with no turret. |
+| [`wait_until_finished_moving`](#MotionAPI.wait_until_finished_moving) | Block until every axis moving now has stopped; raise if one did not stop well. |
 
 <a id="MotionAPI.add_position_listener"></a>
 ### `MotionAPI.add_position_listener`
@@ -8016,6 +8280,16 @@ Held in: [`Lumascope.runtime_state`](#Lumascope.runtime_state).
 The answers for the user configuration a Lumascope acts on
 (labware / objective / turret / stage), read from the session's settings.
 
+| Member | Summary |
+|---|---|
+| [`frame_point_distance`](#RuntimeState.frame_point_distance) | The stage distance from the center of the camera's frame to a point of it. |
+| [`frame_point_plate`](#RuntimeState.frame_point_plate) | The plate position of a point of the camera's frame, or why it is unknown. |
+| [`optics_status`](#RuntimeState.optics_status) | The objective in the light path and the frame's extent on the sample, each its value or why it is unknown. |
+| [`pixel_size_um`](#RuntimeState.pixel_size_um) | The effective pixel size: micrometers per pixel at the current objective and the camera's binning, the scale a saved image carries. |
+| [`plate_to_stage`](#RuntimeState.plate_to_stage) | Convert a plate position (mm) to a stage position (um), as `stage_to_plate` inverted. |
+| [`stage_offset`](#RuntimeState.stage_offset) | The stage offset for coordinate transformations, from the settings. |
+| [`stage_to_plate`](#RuntimeState.stage_to_plate) | Convert a stage position (um) to a plate position (mm). |
+
 <a id="RuntimeState.frame_point_distance"></a>
 ### `RuntimeState.frame_point_distance`
 
@@ -8284,6 +8558,34 @@ on the firmware tiers, and the devices behind them on a Classic model.
 The simulator's own surface, outside what 4.0 freezes: its members may
 change in any 4.x release, and it carries no version of its own, since
 it ships with the release.
+
+| Member | Summary |
+|---|---|
+| [`answer_model`](#SimulationAPI.answer_model) | The motor board names `model` as its own, until `clear`. |
+| [`bind_camera_usb_driver`](#SimulationAPI.bind_camera_usb_driver) | Windows binds a USB identity of the simulated FX2 to `service`, with `problem_code`. |
+| [`clear`](#SimulationAPI.clear) | Every injected fault taken back, newest first: drops, holds, refused writes and stalls lifted, boards plugged back in and answering, faults out of the hardware. A board that found its cable pulled is plugged in but stays disconnected until it is reconnected, as a real one does. A removed camera, an FX2 unplugged or silenced, and a reboot under way are not undone, as on a real scope. |
+| [`delay_delivery`](#SimulationAPI.delay_delivery) | The camera's frames are stored `frames` behind their hand-over from now on, as through a driver queue that has fallen behind. |
+| [`delay_reply`](#SimulationAPI.delay_reply) | The board's next reply comes `delay_s` seconds late. |
+| [`drop_replies`](#SimulationAPI.drop_replies) | The board answers nothing to its next `count` commands. |
+| [`exposed_under`](#SimulationAPI.exposed_under) | What a frame the simulated camera delivered was exposed under: the settings its sensor applied when its exposure started, and Z when it ended. |
+| [`fail_home`](#SimulationAPI.fail_home) | `axis`'s home fails in the simulated hardware, until `clear`. |
+| [`hold_axis`](#SimulationAPI.hold_axis) | `axis`'s next move halts part of the way and never arrives, until `clear`. |
+| [`injected`](#SimulationAPI.injected) | The faults injected since the last `clear`, oldest first, as asked. |
+| [`interlock`](#SimulationAPI.interlock) | The stage's interlock inputs read as given, until `clear`. |
+| [`light_outside`](#SimulationAPI.light_outside) | The sample is lit from outside the scope from now on, and the scope records no change. |
+| [`reboot`](#SimulationAPI.reboot) | The board's firmware restarts and forgets everything it knew. |
+| [`refuse_camera_read`](#SimulationAPI.refuse_camera_read) | The camera's next `count` reads of `node` fail as the real driver that reads the node fails (`SimulatedCamera.FAILED_READS`): each raises `CameraReadFailedError`. |
+| [`refuse_camera_write`](#SimulationAPI.refuse_camera_write) | The camera's next `count` writes of `node` answer `answer`. |
+| [`refuse_led_write`](#SimulationAPI.refuse_led_write) | The LED board refuses its next `count` writes and stays on the bus. |
+| [`refuse_stream_start`](#SimulationAPI.refuse_stream_start) | The camera refuses its next `count` stream starts and stays on the bus. |
+| [`remove_camera`](#SimulationAPI.remove_camera) | The camera leaves the bus, as a real one does when removed. |
+| [`replug`](#SimulationAPI.replug) | The board's cable goes back in: it is found again. |
+| [`silence`](#SimulationAPI.silence) | The board answers no command from now on, until `unsilence`. |
+| [`slow_next_stop`](#SimulationAPI.slow_next_stop) | The camera's next stream stop takes `stop_s` to return, as a stalled 1.1.0 daA3840's does. |
+| [`stall_stream`](#SimulationAPI.stall_stream) | The camera's stream delivers no frame for a while, staying connected and grabbing. |
+| [`unplug`](#SimulationAPI.unplug) | The board's cable is pulled: its port fails from the next command. |
+| [`unsilence`](#SimulationAPI.unsilence) | The board answers again after `silence`. |
+| [`withhold_chunk`](#SimulationAPI.withhold_chunk) | The camera's next `frames` frames arrive without their `chunk`. |
 
 <a id="SimulationAPI.answer_model"></a>
 ### `SimulationAPI.answer_model`
@@ -9160,6 +9462,10 @@ Returned by: [`ScopeSession.bring_up_record`](#ScopeSession.bring_up_record).
 
 What bring-up found, substituted and set aside.
 
+| Member | Summary |
+|---|---|
+| [`missing`](#BringUpRecord.missing) | The parts this scope should have and lacks. |
+
 **Fields**
 
 - <a id="BringUpRecord.parts"></a>`parts`: `tuple[PartStatus, ...]` -- Each part bring-up looked for, and whether it came up.
@@ -9325,6 +9631,10 @@ One captured still: its pixels and the instrument's record of them, together.
 Handed back by the grab that took them, so no caller reads a frame's
 record from a slot the next capture replaces. Equality is identity: a
 frozen dataclass's own would compare the arrays elementwise and raise.
+
+| Member | Summary |
+|---|---|
+| [`significant_bits`](#CapturedStill.significant_bits) | The depth of `image`: 8 for an 8-bit array, else the bits its sum can reach; a single frame is its own depth. |
 
 **Fields**
 
@@ -9643,6 +9953,12 @@ Which of a person's controls the Session locks now, and why.
 The Session's editing policy for the controls a person works, not an
 API refusal: a REST client may still make any call the API accepts,
 and what the API refuses it refuses whatever this says.
+
+| Member | Summary |
+|---|---|
+| [`controls_locked`](#ControlsLock.controls_locked) | True while the whole control surface locks: the run surface is held, or a recording is live. |
+| [`named`](#ControlsLock.named) | The sentence for what locks the controls now, None while nothing does. |
+| [`run_lockout`](#ControlsLock.run_lockout) | True while something holds the run surface: `run_named` or `control_named`. |
 
 **Fields**
 
@@ -10089,6 +10405,10 @@ holder description is equal. Only it releases the claim. Nothing
 else hands it out -- a refusal's `holder` describes the holder, it
 does not return this.
 
+| Member | Summary |
+|---|---|
+| [`holds`](#HeldClaim.holds) | Whether this taking still holds the claim. |
+
 <a id="HeldClaim.holds"></a>
 ### `HeldClaim.holds`
 
@@ -10192,6 +10512,12 @@ Returned by: [`Lumascope.all_labware`](#Lumascope.all_labware), [`Lumascope.labw
 One multi-well plate of the installation's catalog, read once at bring-up.
 
 Plate positions are in mm from the plate's top-left corner.
+
+| Member | Summary |
+|---|---|
+| [`well_index`](#Labware.well_index) | The (column, row) of the well center nearest a plate position, each counted from 0. |
+| [`well_position`](#Labware.well_position) | The center of the well in column `i` and row `j`, in mm from the plate's top-left. |
+| [`well_size_mm`](#Labware.well_size_mm) | A well's width and height in mm. |
 
 **Fields**
 
@@ -10366,6 +10692,10 @@ the plugin's register() raises.
 Handler signature is cb(frame), the camera's `Frame` record. It runs
 on the camera SDK thread; see the imaging.add_frame_listener docstring
 for the budget and the read-only frame contract.
+
+| Member | Summary |
+|---|---|
+| [`register`](#LiveProcessingRegistry.register) | Add a listener on every frame the camera delivers. |
 
 <a id="LiveProcessingRegistry.register"></a>
 ### `LiveProcessingRegistry.register`
@@ -10569,6 +10899,15 @@ One operation in flight: its outcome, its done-callbacks, its stop and its progr
 `T` is what `result()` returns once it is done: each member that
 starts one says it (`Operation[RunOutcome]` for a run,
 `Operation[None]` for a move).
+
+| Member | Summary |
+|---|---|
+| [`add_done_callback`](#Operation.add_done_callback) | Run `fn(self)` on the callback thread once this operation is done. |
+| [`done`](#Operation.done) | Whether this operation is done: its outcome is set and every observer may read it. |
+| [`exception`](#Operation.exception) | What the operation raised, waiting up to `timeout` for it; None when it ended with a result. |
+| [`progress`](#Operation.progress) | Where this operation has got, read now; None for one that keeps no progress record. |
+| [`result`](#Operation.result) | What the operation ended with, waiting up to `timeout` for it; the Future's `result`. |
+| [`stop`](#Operation.stop) | Stop this operation's work; only asks, and the operation ends on its own. |
 
 **Fields**
 
@@ -10913,6 +11252,12 @@ register(spec, processor):
     the plugin's own folder inside it.
     Ad-hoc invocation: callers fetch via .get(name) and call directly.
 
+| Member | Summary |
+|---|---|
+| [`get`](#PostProcessingRegistry.get) | The processor a plugin registered, to call it directly. |
+| [`names`](#PostProcessingRegistry.names) | The names of the plugins registered here. |
+| [`register`](#PostProcessingRegistry.register) | Register a processor of saved files. |
+
 <a id="PostProcessingRegistry.get"></a>
 ### `PostProcessingRegistry.get`
 
@@ -11014,6 +11359,20 @@ Held in: [`RunEnded.protocol`](#RunEnded.protocol), [`RunEvents.run_ended`](#Run
 Taken by: [`ProtocolRunner.run_autofocus_all_steps`](#ProtocolRunner.run_autofocus_all_steps), [`ProtocolRunner.run_protocol`](#ProtocolRunner.run_protocol), [`ProtocolRunner.run_single_scan`](#ProtocolRunner.run_single_scan), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ScopeSession.add_step`](#ScopeSession.add_step), [`ScopeSession.apply_focus_to_channel_steps`](#ScopeSession.apply_focus_to_channel_steps), [`ScopeSession.apply_tiling`](#ScopeSession.apply_tiling), [`ScopeSession.apply_zstacking`](#ScopeSession.apply_zstacking), [`ScopeSession.delete_step`](#ScopeSession.delete_step), [`ScopeSession.go_to_step`](#ScopeSession.go_to_step), [`ScopeSession.point_steps_at_turret_slot`](#ScopeSession.point_steps_at_turret_slot), [`ScopeSession.protocol_size_advisory`](#ScopeSession.protocol_size_advisory), [`ScopeSession.rename_step`](#ScopeSession.rename_step), [`ScopeSession.save_protocol`](#ScopeSession.save_protocol), [`ScopeSession.set_protocol_capture_root`](#ScopeSession.set_protocol_capture_root), [`ScopeSession.set_protocol_labware`](#ScopeSession.set_protocol_labware), [`ScopeSession.set_protocol_schedule`](#ScopeSession.set_protocol_schedule), [`ScopeSession.set_step_autofocus`](#ScopeSession.set_step_autofocus), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step), [`ScopeSession.turret_slot_questions`](#ScopeSession.turret_slot_questions), [`ScopeSession.update_step`](#ScopeSession.update_step).
 
 A protocol: its steps, its plate and its schedule, and the file it is read from and written to.
+
+| Member | Summary |
+|---|---|
+| [`capture_root`](#Protocol.capture_root) | The capture root as it was typed or loaded. |
+| [`channel_settings`](#Protocol.channel_settings) | Each channel's Layer Settings row as its record, keyed by channel. |
+| [`duration_s`](#Protocol.duration_s) | How long the protocol runs its scans, in seconds; 0 or None for one scan. |
+| [`file_path`](#Protocol.file_path) | The file this protocol was last loaded from or saved to; None when it has none. |
+| [`has_unsaved_changes`](#Protocol.has_unsaved_changes) | Whether the protocol has changed since it was last built, loaded or saved. |
+| [`labware_id`](#Protocol.labware_id) | The catalog key of the plate the protocol's steps are placed on. |
+| [`num_scans`](#Protocol.num_scans) | How many scans a full run of the protocol takes: its duration over its period, whole. |
+| [`num_steps`](#Protocol.num_steps) | How many steps the protocol holds. |
+| [`period_s`](#Protocol.period_s) | How often the protocol scans, in seconds; 0 or None for one scan. |
+| [`step_records`](#Protocol.step_records) | Every step, in order, as its record: the step table in one read. |
+| [`tiling`](#Protocol.tiling) | The tile grid this protocol's steps carry. |
 
 <a id="Protocol.capture_root"></a>
 ### `Protocol.capture_root`
@@ -11205,6 +11564,21 @@ One engine per session: the runner wraps the session-composed
 instance rather than constructing a second one, so the GUI, L2, and
 REST all drive (and observe) the same run state behind the same
 claim.
+
+| Member | Summary |
+|---|---|
+| [`run_autofocus`](#ProtocolRunner.run_autofocus) | `start_autofocus`, waited for: returns the run's outcome once it has let go of the scope. |
+| [`run_autofocus_all_steps`](#ProtocolRunner.run_autofocus_all_steps) | `start_autofocus_all_steps`, waited for: returns the run's outcome once it has let go of the scope. |
+| [`run_composite`](#ProtocolRunner.run_composite) | Capture one frame per acquiring channel and merge them. |
+| [`run_protocol`](#ProtocolRunner.run_protocol) | `start_protocol`, waited for: returns the run's outcome once it has let go of the scope. |
+| [`run_single_scan`](#ProtocolRunner.run_single_scan) | `start_single_scan`, waited for: returns the run's outcome once it has let go of the scope. |
+| [`run_zstack`](#ProtocolRunner.run_zstack) | `start_zstack`, waited for: returns the run's outcome once it has let go of the scope. |
+| [`start_autofocus`](#ProtocolRunner.start_autofocus) | Autofocus once on *channel*, at the current stage position. |
+| [`start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps) | Autofocus at every step of *protocol*, and write the focus into it. |
+| [`start_composite`](#ProtocolRunner.start_composite) | Assemble a composite run and launch it, returning once committed. |
+| [`start_protocol`](#ProtocolRunner.start_protocol) | Run a full protocol (multiple scans over time). |
+| [`start_single_scan`](#ProtocolRunner.start_single_scan) | Run a single scan through the protocol steps. |
+| [`start_zstack`](#ProtocolRunner.start_zstack) | Capture a z-stack on *channel*, around the current stage position. |
 
 <a id="ProtocolRunner.run_autofocus"></a>
 ### `ProtocolRunner.run_autofocus`
@@ -12336,6 +12710,11 @@ Held in: [`CellCountSizeScale.area`](#CellCountSizeScale.area), [`CellCountSizeS
 
 What a size slider's positions stand for: between two stops, a size in proportion.
 
+| Member | Summary |
+|---|---|
+| [`positions_of`](#SizeSliderStops.positions_of) | The slider positions that show two sizes. |
+| [`size_at`](#SizeSliderStops.size_at) | The sizes a slider's two positions stand for. |
+
 **Fields**
 
 - <a id="SizeSliderStops.positions"></a>`positions`: `tuple[float, ...]` -- The slider positions of the stops, ascending.
@@ -12602,6 +12981,11 @@ Returned by: [`ScopeSession.make_logs_zip`](#ScopeSession.make_logs_zip), [`Scop
 
 A support report or logs zip that was saved, and the words that say where.
 
+| Member | Summary |
+|---|---|
+| [`message`](#SupportReportSaved.message) | Where the ZIP is and where to send it; the folder is the one it was written to. |
+| [`title`](#SupportReportSaved.title) | The title the saved report's notice is shown under. |
+
 **Fields**
 
 - <a id="SupportReportSaved.path"></a>`path`: `Path` -- The ZIP.
@@ -12700,6 +13084,10 @@ The turret's state and the slot in the light path, read together.
 Held in: [`PluginRegistry.ui`](#PluginRegistry.ui).
 
 UI-extending plugins. Adds widgets at named mount points.
+
+| Member | Summary |
+|---|---|
+| [`register`](#UIRegistry.register) | Add a widget at a mount point. |
 
 <a id="UIRegistry.register"></a>
 ### `UIRegistry.register`
@@ -17382,6 +17770,8 @@ Reason `video_writer_died`: no cause, REST 500.
 
 ## Routes
 
+Each member's route. The server's own (jobs, handles, events, the live view, files, `/still`, `openapi.json`) are in [REST](guide/rest.md).
+
 | Method | Path | Member |
 |---|---|---|
 | `POST` | `/api/v1/add_step` | [`ScopeSession.add_step`](#ScopeSession.add_step) |
@@ -17606,6 +17996,8 @@ Reason `video_writer_died`: no cause, REST 500.
 
 ## Events
 
+How a listener is registered is in [Events and listeners](guide/python.md#events-and-listeners), and how REST carries an event in [The event stream](guide/rest.md#the-event-stream).
+
 Each event, the member or `RunEvents` field that delivers it, its record (whose fields are the callback's arguments, in order), and what carries it to a REST client.
 
 | Event | Delivered by | Record | Over REST |
@@ -17635,6 +18027,8 @@ The events the event stream sends of its own, which no member delivers.
 | `reset` | The buffer has moved past a reconnecting reader's `Last-Event-ID`; `status` follows. |
 
 ## Saved-file facts
+
+What a saved file holds is in [Saved files](guide/captures-and-files.md#saved-files).
 
 Every fact a saved file's record can state, by its key, in the order the writer writes them: what it describes (a derived file states a `capture` fact never, a `channel` fact only on its inputs' channel, a `shared` fact as all its inputs state it), its key in the file's Plane block, the unit written beside it, whether a sum of frames drops it, the fields of a structured fact, and every other key a shipped file states it under. A file states a field only when it has a value, and shows a person each field as its own `key.field` pair (`labware.well_label`; an entry of a keyed fact `key.<key>.field`). A former key is either read back, from a recorded frame or an OME file's annotation an older build wrote, into the record under today's key and fields, or appears only in the file's view, the pairs a person reads, and is read by a person's own reader as the same fact.
 

@@ -94,9 +94,11 @@ _PREFACE = f"""\
 
 <!-- Generated from the code; do not edit. Regenerate: {REGENERATE} -->
 
-Every member and field of the API, rendered from the source: a member is API when it carries `@api`, a field when its class names it in `@api_fields`. Anything else is not API, whatever its name, and can change in any release. A member marked *in-process* is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire. How the API fits together, and how to use it, is the guide: `api-guide.md`, and the files its map names under `guide/`.
+Every member and field of the API, rendered from the source: a member is API when it carries `@api`, a field when its class names it in `@api_fields`. Anything else is not API, whatever its name, and can change in any release. A member marked *in-process* is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire. How the API fits together, and how to use it, is the guide: [`api-guide.md`](api-guide.md), and the files its map names under `guide/`.
 
 Every name with a section of its own is imported from `lumascope`, as its heading says: `from lumascope import ScopeSession`.
+
+Every entry has an anchor: `<a id="ScopeSession">` for a class, a function or an outcome, `<a id="ScopeSession.create">` for a member or a field. Read the one entry a task needs by its anchor, not the whole file; a class's section opens with a table of its members.
 
 A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes; a member that raises nothing says so beside its marks. **Outcomes** lists those with the outcomes of the doors the member enters (a hardware lane, a guarded write, a post-processing build's admission), refusals and faults alike; for a member on the wire they are **Outcomes by REST status**, under the HTTP status each answers, which leaves out what no route can meet (a `BlockingCallRefusedError`: a REST call runs its member on a thread of its own). A request can also be refused by the server before its member runs, a [`ServerRefusedError`](#ServerRefusedError): `invalid_request` (422), arguments that do not fit the member, a NaN or an infinity among them, and the reasons under its entry; no route lists those. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
 
@@ -522,6 +524,24 @@ def _fields(owner: _Owner) -> str:
     return '**Fields**\n\n' + '\n'.join(lines)
 
 
+def _members_table(owner: _Owner) -> str:
+    """A table of *owner*'s members, each linked to its entry beside its docstring's first paragraph.
+
+    The first paragraph, not the first line: a summary that wraps would
+    otherwise end mid-sentence.
+    """
+    members = [i for i in owner.items if not i.field]
+    if not members:
+        return ''
+    rows = []
+    for item in members:
+        key = entry_key(item)
+        summary = (inspect.getdoc(member_function(item.value)) or '').split('\n\n')[0]
+        cell = markdown_of(summary).replace('\n', ' ').replace('|', '\\|')
+        rows.append(f'| [`{item.member}`](#{key}) | {cell} |')
+    return '| Member | Summary |\n|---|---|\n' + '\n'.join(rows)
+
+
 def _kind(cls: type) -> str:
     for kind, words in (
         (Quiet, 'quiet outcome'),
@@ -615,7 +635,7 @@ def _class(owner: _Owner, index: _Index, *, outcome: bool = False) -> str:
         published = {i.member for i in owner.items if i.field}
         leave_out = () if outcome else ('Attributes',)
         parts.append(markdown_of(doc, leave_out=leave_out, leave_out_attributes=published))
-    for text in (_fields(owner), _reasons(cls, index) if outcome else ''):
+    for text in (_members_table(owner), _fields(owner), _reasons(cls, index) if outcome else ''):
         if text:
             parts.append(text)
     for item in owner.items:
@@ -892,7 +912,17 @@ def render(sections: Declared) -> str:
     for name, cls in sorted(index.outcomes.items()):
         owner = outcome_owners.get(name, _Owner(cls, name, ()))
         sections.append(_class(_with_kind_fields(owner), index, outcome=True))
-    sections.append('## Routes\n\n' + _routes_table(index))
-    sections.append('## Events\n\n' + _events_table(index))
-    sections.append('## Saved-file facts\n\n' + _file_facts_table())
+    sections.append(
+        "## Routes\n\nEach member's route. The server's own (jobs, handles, events, the live view, "
+        'files, `/still`, `openapi.json`) are in [REST](guide/rest.md).\n\n' + _routes_table(index)
+    )
+    sections.append(
+        '## Events\n\nHow a listener is registered is in [Events and listeners]'
+        '(guide/python.md#events-and-listeners), and how REST carries an event in '
+        '[The event stream](guide/rest.md#the-event-stream).\n\n' + _events_table(index)
+    )
+    sections.append(
+        '## Saved-file facts\n\nWhat a saved file holds is in [Saved files]'
+        '(guide/captures-and-files.md#saved-files).\n\n' + _file_facts_table()
+    )
     return '\n\n'.join(sections) + '\n'
