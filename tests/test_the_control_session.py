@@ -441,6 +441,11 @@ class TestTheSessionsWrites:
         sim_session.update_settings('capture_shown_s', wanted)
         assert sim_session.settings['capture_shown_s'] == wanted
 
+    def test_how_the_live_view_scales_its_frames_is_written_by_anyone(self, sim_session, held):
+        wanted = not sim_session.settings['preview_host_downscale']
+        sim_session.update_settings('preview_host_downscale', wanted)
+        assert sim_session.settings['preview_host_downscale'] == wanted
+
     def test_a_member_that_skips_its_admission_is_refused_where_it_stores(self, sim_session, held):
         before = sim_session.settings['jpg_quality']
         with pytest.raises(ControlSessionRefusedError), sim_session.settings_lock:

@@ -155,6 +155,7 @@ PREFERENCES: typing.Final[frozenset[str]] = frozenset(
         'capture_shown_s',
         'stimulation_enabled',
         'focus_score_enabled',
+        'preview_host_downscale',
     }
 )
 
