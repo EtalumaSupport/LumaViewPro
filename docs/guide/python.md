@@ -33,7 +33,8 @@ a new key's value comes from. `ScopeSession.load_user_settings` reads the user's
 configuration as LumaViewPro does: the live file, checked against the template,
 repaired, and completed with keys newer releases added. Where LumaViewPro would
 fall back to the template and ask, it refuses: a `current.json` it cannot use is
-`SettingsFileError`, and a folder that is no installation `'not_an_installation'`.
+`SettingsFileError`, and a folder that is no installation `ArgumentRefusedError`
+(`'not_an_installation'`).
 A source folder that LumaViewPro has never run in has no `current.json`: the
 template is read instead, and the first saved write creates the file.
 Each call reads the files afresh, so the dict it answers is yours. A plugin
@@ -53,6 +54,7 @@ session = ScopeSession.create(
 )
 session.run_application_session()           # the startup motion: home, then the turret
 scope = session.scope
+assert not scope.motion.axes_without_position  # a failed home is reported, not raised
 question = session.objective_question      # a new install: which objective is mounted?
 if question is not None:                     # until answered, a saved still and a run are refused
     # On a real scope, name the objective mounted: one of question.choices.
@@ -134,7 +136,7 @@ assert record.missing == ()                # the simulator has every part
 ### A record as a dict
 
 Every record the API answers -- the bring-up record,
-`session.status`, a still's record -- has `to_dict()`: its fields as plain Python, a
+`session.status`, a still's record -- has [`to_dict()`](../api-reference.md#to_dict): its fields as plain Python, a
 nested record a dict, an enum its string, a sequence a list. It is for a caller
 that takes a dict and not a record, such as MATLAB's `struct()`:
 
@@ -275,8 +277,7 @@ records and writes. `run_ended` comes once the run has let go of the scope, and
 merge settles, which may be after its `files_written`. A handler's raise is
 reported under its event's name. A `frame_captured` handler takes four
 arguments, `(image, frames_summed, frame_significant_bits, channel)`, the last
-the channel the frame was taken for. A handler written for the three before it
-raises on every frame. A still (`manual_capture.start_save_still`) takes
+the channel the frame was taken for. A still (`manual_capture.start_save_still`) takes
 `events` as well and sends `frame_captured` alone, once its file is written.
 
 **Levels and edges.** The run-state listener is a level: it is called once at
@@ -295,7 +296,8 @@ for the run to let go of the scope and answers its outcome. `done()` says
 whether it has, and `progress()` answers where it has got. `stop()` asks it to
 stop and returns at once: the run unwinds, puts the scope back, and ends
 `aborted`. A run's images keep writing after it lets go: `files` is their own
-operation ([A run's files](runs.md#a-runs-files)). `result()` and `exception()` take a timeout. On the UI thread of
+operation ([A run's files](runs.md#a-runs-files)). `result()` and `exception()` take a timeout; one that runs out raises
+`OperationWaitExpiredError` (a `TimeoutError`), and the operation goes on. On the UI thread of
 a host with a window, they are refused (`'wait_on_ui_thread'`) until the
 operation is done, as every waiting member is. A still's `stop()` does nothing, and a move's or a
 home's stop can be refused or fail as `stop_motion()` can. In-process each run
@@ -307,9 +309,9 @@ import threading
 from lumascope import RunEvents, RunStatus
 
 session.set_channel_settings('BF', acquire='image')
-protocol = session.create_empty_protocol()          # one step, at B2
+protocol = session.create_empty_protocol()
 scope.motion.move_to_well('B2')
-session.add_step(protocol, channels=('BF',))
+session.add_step(protocol, channels=('BF',))         # one step, at B2
 session.set_protocol_schedule(protocol, period_s=600.0, duration_s=3600.0)
 runner = session.protocol_runner()
 
