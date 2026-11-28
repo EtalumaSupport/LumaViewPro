@@ -2082,3 +2082,20 @@ def test_the_facts_table_names_every_field_a_save_states(sim_scope, tmp_path):
     rows = {line.split(' | ')[0]: line for line in _file_facts_table().splitlines()}
     assert '`well_label`' in rows['| `labware`']
     assert 'keyed by channel name' in rows['| `illumination_by_channel_ma`']
+
+
+def test_the_facts_table_says_what_every_fact_means():
+    """The published facts table gave each key's kind, Plane key and unit but
+    not what it is, so `fallback_focus` or `stage_moving` told a reader
+    nothing. Each row says it once: the ``FrameRecord`` field of its key,
+    linked, or the fact's own ``means`` where that record has none."""
+    from tests.api_reference import _file_facts_table
+
+    lines = _file_facts_table().splitlines()
+    header = next(line for line in lines if line.startswith('| Key |')).split(' | ')
+    assert 'Means' in header, f'the facts table has no Means column: {header}'
+    column = header.index('Means')
+    rows = [line.split(' | ') for line in lines if line.startswith('| `')]
+    assert len(rows) == len(image_utils.FILE_FACTS)
+    unsaid = [row[0] for row in rows if row[column].strip() in ('', '--')]
+    assert not unsaid, f'facts the table does not say the meaning of: {unsaid}'

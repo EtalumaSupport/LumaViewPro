@@ -518,19 +518,34 @@ _TIFF_DATETIME = '%Y:%m:%d %H:%M:%S'
 
 class FactKind(enum.Enum):
     """What a fact of a saved file's record describes, which decides whether a
-    file derived from it states it."""
+    file derived from it states it.
 
-    # The one frame: its time, its id, how it was judged. A derived file was
-    # not captured, so it states none of them.
-    CAPTURE = 'capture'
-    # A channel's settings and light: stated only by a derived file on the
-    # channel of its inputs.
-    CHANNEL = 'channel'
-    # The scope, the objective, the plate and the place: stated by a derived
-    # file as its inputs state them.
-    SHARED = 'shared'
-    # The file itself: set by whoever writes it, never read from an input.
-    FILE = 'file'
+    Each kind carries ``meaning``, what a reader is told it is: the
+    published facts table's one statement of it.
+    """
+
+    meaning: str
+
+    def __new__(cls, value: str, meaning: str) -> 'FactKind':
+        member = object.__new__(cls)
+        member._value_ = value
+        member.meaning = meaning
+        return member
+
+    CAPTURE = (
+        'capture',
+        'the one frame: its time, its id, how it was judged; a derived file states none',
+    )
+    CHANNEL = (
+        'channel',
+        "a channel's settings and light; a derived file states it only on its inputs' channel",
+    )
+    SHARED = (
+        'shared',
+        'the scope, the objective, the plate and the place; a derived file states it as all '
+        'its inputs state it',
+    )
+    FILE = ('file', 'the file itself, set by whoever writes it, never read from an input')
 
 
 @dataclasses.dataclass(frozen=True)
@@ -564,6 +579,9 @@ class FileFact:
     than its own, with the fields it renamed, so a file any build wrote
     reads into today's record and the published table names each word a
     person's own reader meets.
+    ``means``: what the fact is, for the published table, on a fact
+    ``FrameRecord`` has no field of the same key to describe; the table
+    links that field for every other fact.
     """
 
     kind: FactKind
@@ -573,6 +591,7 @@ class FileFact:
     fields: tuple[str, ...] = ()
     keyed_by: str | None = None
     formerly: tuple[FormerKey, ...] = ()
+    means: str | None = None
 
 
 # Every fact a saved file's record can state, by its key in the record: the
@@ -580,21 +599,40 @@ class FileFact:
 # added here is written, read back and carried, and a fact with no row is
 # none of them. Plane facts in the order the writer writes them.
 FILE_FACTS: dict[str, FileFact] = {
-    # The objective as the catalogue publishes it.
     'objective': FileFact(
-        FactKind.SHARED, 'Objective', fields=fields_of(objectives_loader.Objective)
+        FactKind.SHARED,
+        'Objective',
+        fields=fields_of(objectives_loader.Objective),
+        means='The objective the frame was taken through, as the objective catalog publishes it.',
     ),
     # PositionX and PositionY, in mm: a pair, because half a plate coordinate
     # is not one.
-    'plate_pos_mm': FileFact(FactKind.SHARED, fields=('x', 'y')),
-    'z_um': FileFact(
-        FactKind.SHARED, 'PositionZ', 'um', formerly=(FormerKey('z_pos_um', '4.0.0-beta48'),)
+    'plate_pos_mm': FileFact(
+        FactKind.SHARED,
+        fields=('x', 'y'),
+        means="The stage's position in plate coordinates when the frame was taken, in mm.",
     ),
-    'illumination_ma': FileFact(FactKind.CHANNEL, 'Illumination', 'mA'),
+    'z_um': FileFact(
+        FactKind.SHARED,
+        'PositionZ',
+        'um',
+        formerly=(FormerKey('z_pos_um', '4.0.0-beta48'),),
+        means="The Z axis's position when the frame was taken.",
+    ),
+    'illumination_ma': FileFact(
+        FactKind.CHANNEL,
+        'Illumination',
+        'mA',
+        means="The current the named channel's LED was driven at for the grab; absent when it was off.",
+    ),
     # Every LED lit for the grab, by channel; Illumination is the named
     # channel's alone, and the one older files carry.
     'illumination_by_channel_ma': FileFact(
-        FactKind.CHANNEL, 'IlluminationByChannel', 'mA', keyed_by='channel name'
+        FactKind.CHANNEL,
+        'IlluminationByChannel',
+        'mA',
+        keyed_by='channel name',
+        means='Every LED lit for the grab, its current by the channel it lights; a lit LED no channel names is left out.',
     ),
     # When those currents were read (frame_record.LightTiming).
     'illumination_timing': FileFact(FactKind.CHANNEL, 'IlluminationTiming'),
@@ -619,8 +657,16 @@ FILE_FACTS: dict[str, FileFact] = {
     # a time is written only with its source, which the producer states -- a
     # still and a recorded frame take their time from different clocks, and a
     # defaulted source would name the wrong one.
-    'timestamp_iso': FileFact(FactKind.CAPTURE, 'Timestamp'),
-    'timestamp_source': FileFact(FactKind.CAPTURE, 'TimestampSource'),
+    'timestamp_iso': FileFact(
+        FactKind.CAPTURE,
+        'Timestamp',
+        means='When the frame was taken, an ISO 8601 time to the microsecond, on the clock `timestamp_source` names.',
+    ),
+    'timestamp_source': FileFact(
+        FactKind.CAPTURE,
+        'TimestampSource',
+        means='The clock `timestamp_iso` was read from, a `TimestampSource` value.',
+    ),
     # The camera-side ChunkTimestamp, and its tick frequency for converting
     # ticks to seconds (1 GHz on Basler USB3, GevTimestampTickFrequency on
     # GigE); the ChunkFrameID / Framecounter integer. Their keys are the
@@ -673,6 +719,7 @@ FILE_FACTS: dict[str, FileFact] = {
         FactKind.CAPTURE,
         'CameraHeldAChannel',
         formerly=(FormerKey('camera_held_a_channel', '4.0.0-beta48'),),
+        means="Whether the camera held a channel's stored settings for the frame: false after a raw gain or exposure write; which channel is `held_channel`.",
     ),
     'held_channel': FileFact(
         FactKind.CAPTURE,
@@ -680,7 +727,11 @@ FILE_FACTS: dict[str, FileFact] = {
         formerly=(FormerKey('camera_held_channel', '4.0.0-beta48'),),
     ),
     # Taken where a failed autofocus left the stage, and why it failed.
-    'fallback_focus': FileFact(FactKind.CAPTURE, 'FallbackFocus'),
+    'fallback_focus': FileFact(
+        FactKind.CAPTURE,
+        'FallbackFocus',
+        means="Why the step's autofocus did not focus, in its failure's words, on a frame taken where the failed autofocus left the stage; absent on a focused frame.",
+    ),
     # A recorded frame's number in its recording, and whether an axis was
     # moving or homing as it arrived: delivery follows the exposure, so this
     # is the state at delivery.
@@ -688,22 +739,44 @@ FILE_FACTS: dict[str, FileFact] = {
         FactKind.CAPTURE,
         'RecordingFrame',
         formerly=(FormerKey('frame_num', '4.0.0-beta38 (beae9fcdb)'),),
+        means="A recorded frame's number in its recording.",
     ),
-    'stage_moving': FileFact(FactKind.CAPTURE, 'StageMoving'),
-    'channel': FileFact(FactKind.FILE),
+    'stage_moving': FileFact(
+        FactKind.CAPTURE,
+        'StageMoving',
+        means='Whether an axis was moving or homing as a recorded frame arrived, after its exposure.',
+    ),
+    'channel': FileFact(
+        FactKind.FILE,
+        means='The channel the frame was taken on, by its name; on a derived file the channel it was built for, or `Composite`.',
+    ),
     # The channel as a person reads it: a capture by a build before fd8e0a2d4
     # (beta38 as shipped, and earlier) wrote the unit's name ('Green'), every
     # capture since the channel's label ('488 nm'). A derived file states its
     # inputs' value, so one built today from such captures states the name:
     # a file's value is its capture's meaning, not its own build's.
-    'channel_display': FileFact(FactKind.CHANNEL),
-    'excitation_nm': FileFact(FactKind.CHANNEL),
-    'filterset': FileFact(FactKind.SHARED),
-    'pixel_size_um': FileFact(FactKind.SHARED),
+    'channel_display': FileFact(
+        FactKind.CHANNEL,
+        means="The channel as a person reads it: a fluorescence channel's excitation (`488 nm`), any other channel's name on the unit.",
+    ),
+    'excitation_nm': FileFact(
+        FactKind.CHANNEL,
+        means="The channel's excitation wavelength, in nm; absent for a channel with none.",
+    ),
+    'filterset': FileFact(
+        FactKind.SHARED,
+        means="The unit's filter set, `ChannelIdentity.filterset`.",
+    ),
+    'pixel_size_um': FileFact(
+        FactKind.SHARED,
+        means="The size of one pixel at the sample, in um, with the binning folded in; None when a derived file's inputs agree on no scale.",
+    ),
     # serial_number is the motor board's, as the board reports it; the
     # camera's serial is a recording manifest's camera.serial.
     'instrument': FileFact(
-        FactKind.SHARED, fields=('manufacturer', 'model', 'serial_number', 'camera_model')
+        FactKind.SHARED,
+        fields=('manufacturer', 'model', 'serial_number', 'camera_model'),
+        means="The scope: its manufacturer, its model, its motor board's serial number and its camera's model.",
     ),
     # The labware, by its catalogue id, and the well on it when the frame was
     # taken over one: a well is a place on the labware, so a record cannot
@@ -713,13 +786,23 @@ FILE_FACTS: dict[str, FileFact] = {
         FactKind.SHARED,
         fields=('id', 'rows', 'columns', 'standard', 'well_label'),
         formerly=(FormerKey('plate', '4.0.0-beta48', fields=(('name', 'id'),)),),
+        means='The labware the frame was taken on, by its catalog id, with the well it was taken over when there was one; labware with no wells states none.',
     ),
     # The TIFF DateTime tag's fact, for the tag's readers: on a still the
     # capture's instant, the same as timestamp_iso; on a derived file, which
     # states no timestamp_iso, when it was built.
-    'datetime': FileFact(FactKind.FILE),
-    'significant_bits': FileFact(FactKind.FILE),
-    'algorithm': FileFact(FactKind.FILE),
+    'datetime': FileFact(
+        FactKind.FILE,
+        means="The TIFF DateTime tag's time: a capture's instant, as `timestamp_iso`; a derived file's build time.",
+    ),
+    'significant_bits': FileFact(
+        FactKind.FILE,
+        means="How many of each pixel's bits carry data, in a container that may hold more; a derived file states its inputs'.",
+    ),
+    'algorithm': FileFact(
+        FactKind.FILE,
+        means='The algorithm a derived file was made by, so a reader can tell a fallback montage from a registered stitch.',
+    ),
 }
 
 _PLANE_FACTS = {key: fact for key, fact in FILE_FACTS.items() if fact.plane is not None}

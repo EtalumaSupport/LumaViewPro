@@ -18038,44 +18038,51 @@ The events the event stream sends of its own, which no member delivers.
 
 What a saved file holds is in [Saved files](guide/captures-and-files.md#saved-files).
 
-Every fact a saved file's record can state, by its key, in the order the writer writes them: what it describes (a derived file states a `capture` fact never, a `channel` fact only on its inputs' channel, a `shared` fact as all its inputs state it), its key in the file's Plane block, the unit written beside it, whether a sum of frames drops it, the fields of a structured fact, and every other key a shipped file states it under. A file states a field only when it has a value, and shows a person each field as its own `key.field` pair (`labware.well_label`; an entry of a keyed fact `key.<key>.field`). A former key is either read back, from a recorded frame or an OME file's annotation an older build wrote, into the record under today's key and fields, or appears only in the file's view, the pairs a person reads, and is read by a person's own reader as the same fact.
+Every fact a saved file's record can state, by its key, in the order the writer writes them: what it means, or the field of the frame's record that says, and its kind, what it describes:
 
-| Key | Kind | Plane key | Unit | Dropped by a sum | Fields | Formerly |
-|---|---|---|---|---|---|---|
-| `objective` | shared | `Objective` | -- | no | `id`, `description`, `manufacturer`, `short_name`, `magnification`, `focal_length_mm`, `numerical_aperture`, `depth_of_field_um`, `working_distance_mm`, `autofocus_step_min_um`, `autofocus_step_max_um`, `autofocus_half_range_um`, `jog_z_fine_um`, `jog_z_coarse_um`, `jog_xy_fine_um`, `jog_xy_coarse_um`, `focus_peak_fwhm_dense_um` | -- |
-| `plate_pos_mm` | shared | -- | -- | no | `x`, `y` | -- |
-| `z_um` | shared | `PositionZ` | um | no | -- | `z_pos_um` until 4.0.0-beta48, in the view only |
-| `illumination_ma` | channel | `Illumination` | mA | no | -- | -- |
-| `illumination_by_channel_ma` | channel | `IlluminationByChannel` | mA | no | keyed by channel name | -- |
-| `illumination_timing` | channel | `IlluminationTiming` | -- | no | -- | -- |
-| `exposure_ms` | channel | `ExposureTime` | ms | no | -- | `exposure_time_ms` until 4.0.0-beta48, in the view only |
-| `gain_db` | channel | `Gain` | dB | no | -- | -- |
-| `black_level` | channel | `BlackLevel` | -- | no | -- | -- |
-| `frames_summed` | channel | `FramesSummed` | -- | yes | -- | -- |
-| `binning_size` | shared | `Binning` | -- | no | -- | -- |
-| `timestamp_iso` | capture | `Timestamp` | -- | no | -- | -- |
-| `timestamp_source` | capture | `TimestampSource` | -- | no | -- | -- |
-| `camera_timestamp_ticks` | capture | `TimestampCameraTicks` | -- | no | -- | `timestamp_camera_ticks` until 4.0.0-beta48, read back |
-| `camera_timestamp_tick_hz` | capture | `TimestampCameraTickHz` | -- | no | -- | `timestamp_camera_tick_hz` until 4.0.0-beta48, read back |
-| `frame_id` | capture | `FrameID` | -- | no | -- | -- |
-| `judgments` | capture | `FrameValidity` | -- | no | keyed by judgment index: `source`, `counts`, `frames_after`, `after_write_ms`, `skip`, `counted_by`, `after_in_force_ms`, `ended_after` | `frame_validity` until 4.0.0-beta48, in the view only |
-| `saturated_fraction` | capture | `SaturatedFraction` | -- | no | -- | -- |
-| `dark` | capture | `Dark` | -- | no | -- | -- |
-| `held_a_channel` | capture | `CameraHeldAChannel` | -- | no | -- | `camera_held_a_channel` until 4.0.0-beta48, in the view only |
-| `held_channel` | capture | `CameraHeldChannel` | -- | no | -- | `camera_held_channel` until 4.0.0-beta48, in the view only |
-| `fallback_focus` | capture | `FallbackFocus` | -- | no | -- | -- |
-| `recording_frame` | capture | `RecordingFrame` | -- | no | -- | `frame_num` until 4.0.0-beta38 (beae9fcdb), read back |
-| `stage_moving` | capture | `StageMoving` | -- | no | -- | -- |
-| `channel` | file | -- | -- | no | -- | -- |
-| `channel_display` | channel | -- | -- | no | -- | -- |
-| `excitation_nm` | channel | -- | -- | no | -- | -- |
-| `filterset` | shared | -- | -- | no | -- | -- |
-| `pixel_size_um` | shared | -- | -- | no | -- | -- |
-| `instrument` | shared | -- | -- | no | `manufacturer`, `model`, `serial_number`, `camera_model` | -- |
-| `labware` | shared | -- | -- | no | `id`, `rows`, `columns`, `standard`, `well_label` | `plate` until 4.0.0-beta48, `name` as `id`, read back |
-| `datetime` | file | -- | -- | no | -- | -- |
-| `significant_bits` | file | -- | -- | no | -- | -- |
-| `algorithm` | file | -- | -- | no | -- | -- |
+- `capture`: the one frame: its time, its id, how it was judged; a derived file states none.
+- `channel`: a channel's settings and light; a derived file states it only on its inputs' channel.
+- `shared`: the scope, the objective, the plate and the place; a derived file states it as all its inputs state it.
+- `file`: the file itself, set by whoever writes it, never read from an input.
+
+Then its key in the file's Plane block, the unit written beside it, whether a sum of frames drops it, the fields of a structured fact, and every other key a shipped file states it under. A file states a field only when it has a value, and shows a person each field as its own `key.field` pair (`labware.well_label`; an entry of a keyed fact `key.<key>.field`). A former key is either read back, from a recorded frame or an OME file's annotation an older build wrote, into the record under today's key and fields, or appears only in the file's view, the pairs a person reads, and is read by a person's own reader as the same fact.
+
+| Key | Means | Kind | Plane key | Unit | Dropped by a sum | Fields | Formerly |
+|---|---|---|---|---|---|---|---|
+| `objective` | The objective the frame was taken through, as the objective catalog publishes it. | shared | `Objective` | -- | no | `id`, `description`, `manufacturer`, `short_name`, `magnification`, `focal_length_mm`, `numerical_aperture`, `depth_of_field_um`, `working_distance_mm`, `autofocus_step_min_um`, `autofocus_step_max_um`, `autofocus_half_range_um`, `jog_z_fine_um`, `jog_z_coarse_um`, `jog_xy_fine_um`, `jog_xy_coarse_um`, `focus_peak_fwhm_dense_um` | -- |
+| `plate_pos_mm` | The stage's position in plate coordinates when the frame was taken, in mm. | shared | -- | -- | no | `x`, `y` | -- |
+| `z_um` | The Z axis's position when the frame was taken. | shared | `PositionZ` | um | no | -- | `z_pos_um` until 4.0.0-beta48, in the view only |
+| `illumination_ma` | The current the named channel's LED was driven at for the grab; absent when it was off. | channel | `Illumination` | mA | no | -- | -- |
+| `illumination_by_channel_ma` | Every LED lit for the grab, its current by the channel it lights; a lit LED no channel names is left out. | channel | `IlluminationByChannel` | mA | no | keyed by channel name | -- |
+| `illumination_timing` | [`FrameRecord.illumination_timing`](#FrameRecord.illumination_timing) | channel | `IlluminationTiming` | -- | no | -- | -- |
+| `exposure_ms` | [`FrameRecord.exposure_ms`](#FrameRecord.exposure_ms) | channel | `ExposureTime` | ms | no | -- | `exposure_time_ms` until 4.0.0-beta48, in the view only |
+| `gain_db` | [`FrameRecord.gain_db`](#FrameRecord.gain_db) | channel | `Gain` | dB | no | -- | -- |
+| `black_level` | [`FrameRecord.black_level`](#FrameRecord.black_level) | channel | `BlackLevel` | -- | no | -- | -- |
+| `frames_summed` | [`FrameRecord.frames_summed`](#FrameRecord.frames_summed) | channel | `FramesSummed` | -- | yes | -- | -- |
+| `binning_size` | [`FrameRecord.binning_size`](#FrameRecord.binning_size) | shared | `Binning` | -- | no | -- | -- |
+| `timestamp_iso` | When the frame was taken, an ISO 8601 time to the microsecond, on the clock `timestamp_source` names. | capture | `Timestamp` | -- | no | -- | -- |
+| `timestamp_source` | The clock `timestamp_iso` was read from, a `TimestampSource` value. | capture | `TimestampSource` | -- | no | -- | -- |
+| `camera_timestamp_ticks` | [`FrameRecord.camera_timestamp_ticks`](#FrameRecord.camera_timestamp_ticks) | capture | `TimestampCameraTicks` | -- | no | -- | `timestamp_camera_ticks` until 4.0.0-beta48, read back |
+| `camera_timestamp_tick_hz` | [`FrameRecord.camera_timestamp_tick_hz`](#FrameRecord.camera_timestamp_tick_hz) | capture | `TimestampCameraTickHz` | -- | no | -- | `timestamp_camera_tick_hz` until 4.0.0-beta48, read back |
+| `frame_id` | [`FrameRecord.frame_id`](#FrameRecord.frame_id) | capture | `FrameID` | -- | no | -- | -- |
+| `judgments` | [`FrameRecord.judgments`](#FrameRecord.judgments) | capture | `FrameValidity` | -- | no | keyed by judgment index: `source`, `counts`, `frames_after`, `after_write_ms`, `skip`, `counted_by`, `after_in_force_ms`, `ended_after` | `frame_validity` until 4.0.0-beta48, in the view only |
+| `saturated_fraction` | [`FrameRecord.saturated_fraction`](#FrameRecord.saturated_fraction) | capture | `SaturatedFraction` | -- | no | -- | -- |
+| `dark` | [`FrameRecord.dark`](#FrameRecord.dark) | capture | `Dark` | -- | no | -- | -- |
+| `held_a_channel` | Whether the camera held a channel's stored settings for the frame: false after a raw gain or exposure write; which channel is `held_channel`. | capture | `CameraHeldAChannel` | -- | no | -- | `camera_held_a_channel` until 4.0.0-beta48, in the view only |
+| `held_channel` | [`FrameRecord.held_channel`](#FrameRecord.held_channel) | capture | `CameraHeldChannel` | -- | no | -- | `camera_held_channel` until 4.0.0-beta48, in the view only |
+| `fallback_focus` | Why the step's autofocus did not focus, in its failure's words, on a frame taken where the failed autofocus left the stage; absent on a focused frame. | capture | `FallbackFocus` | -- | no | -- | -- |
+| `recording_frame` | A recorded frame's number in its recording. | capture | `RecordingFrame` | -- | no | -- | `frame_num` until 4.0.0-beta38 (beae9fcdb), read back |
+| `stage_moving` | Whether an axis was moving or homing as a recorded frame arrived, after its exposure. | capture | `StageMoving` | -- | no | -- | -- |
+| `channel` | The channel the frame was taken on, by its name; on a derived file the channel it was built for, or `Composite`. | file | -- | -- | no | -- | -- |
+| `channel_display` | The channel as a person reads it: a fluorescence channel's excitation (`488 nm`), any other channel's name on the unit. | channel | -- | -- | no | -- | -- |
+| `excitation_nm` | The channel's excitation wavelength, in nm; absent for a channel with none. | channel | -- | -- | no | -- | -- |
+| `filterset` | The unit's filter set, `ChannelIdentity.filterset`. | shared | -- | -- | no | -- | -- |
+| `pixel_size_um` | The size of one pixel at the sample, in um, with the binning folded in; None when a derived file's inputs agree on no scale. | shared | -- | -- | no | -- | -- |
+| `instrument` | The scope: its manufacturer, its model, its motor board's serial number and its camera's model. | shared | -- | -- | no | `manufacturer`, `model`, `serial_number`, `camera_model` | -- |
+| `labware` | The labware the frame was taken on, by its catalog id, with the well it was taken over when there was one; labware with no wells states none. | shared | -- | -- | no | `id`, `rows`, `columns`, `standard`, `well_label` | `plate` until 4.0.0-beta48, `name` as `id`, read back |
+| `datetime` | The TIFF DateTime tag's time: a capture's instant, as `timestamp_iso`; a derived file's build time. | file | -- | -- | no | -- | -- |
+| `significant_bits` | How many of each pixel's bits carry data, in a container that may hold more; a derived file states its inputs'. | file | -- | -- | no | -- | -- |
+| `algorithm` | The algorithm a derived file was made by, so a reader can tell a fallback montage from a registered stitch. | file | -- | -- | no | -- | -- |
 
 ## Settings
 

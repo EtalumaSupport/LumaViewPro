@@ -47,6 +47,7 @@ from _lumascope.modules.api_surface import (
     admitted_by_of,
     event_of,
     field_descriptions,
+    fields_of,
     field_event,
     in_process_arguments_of,
     is_engineering,
@@ -62,7 +63,8 @@ from _lumascope.modules.api_surface import (
 )
 from _lumascope.modules.exceptions import Notice, Quiet, Refusal
 from _lumascope.modules.lumascope_api.camera import CameraAPI
-from _lumascope.modules.image_utils import _FORMER_KEYS_READ_BACK, FILE_FACTS
+from _lumascope.modules.image_utils import _FORMER_KEYS_READ_BACK, FILE_FACTS, FactKind
+from _lumascope.modules.lumascope_api.frame_record import FrameRecord
 from _lumascope.modules.protocol import CHANNEL_SETTING_KEYS
 from _lumascope.modules.run_events import RunEvents
 from _lumascope.modules.scope_session import ScopeSession
@@ -754,18 +756,35 @@ def _fact_formerly(fact) -> str:
     )
 
 
+def _fact_means(key: str, fact) -> str:
+    """What a fact is: the ``FrameRecord`` field of its key, linked, or its own ``means``.
+
+    Raises:
+        ValueError: The fact has both, so the table would say it twice, or
+            neither, so the table would not say it.
+    """
+    field = key in fields_of(FrameRecord)
+    if field == (fact.means is not None):
+        said = 'both a FrameRecord field and its own means' if field else 'neither'
+        raise ValueError(f'the file fact {key} has {said}; give it exactly one')
+    return f'[`FrameRecord.{key}`](#FrameRecord.{key})' if field else fact.means
+
+
 def _file_facts_table() -> str:
     lines = [
-        f'| `{key}` | {fact.kind.value} | {f"`{fact.plane}`" if fact.plane else "--"} | '
+        f'| `{key}` | {_fact_means(key, fact)} | {fact.kind.value} | '
+        f'{f"`{fact.plane}`" if fact.plane else "--"} | '
         f'{fact.unit or "--"} | {"yes" if fact.dropped_by_a_sum else "no"} | {_fact_fields(fact)} | '
         f'{_fact_formerly(fact)} |'
         for key, fact in FILE_FACTS.items()
     ]
+    kinds = '\n'.join(f'- `{kind.value}`: {kind.meaning}.' for kind in FactKind)
     return (
         "Every fact a saved file's record can state, by its key, "
-        'in the order the writer writes them: what it describes (a derived file states a `capture` '
-        "fact never, a `channel` fact only on its inputs' channel, a `shared` fact as all its inputs "
-        "state it), its key in the file's Plane block, the unit written beside it, whether a "
+        "in the order the writer writes them: what it means, or the field of the frame's record "
+        'that says, and its kind, what it describes:\n\n'
+        + kinds
+        + "\n\nThen its key in the file's Plane block, the unit written beside it, whether a "
         'sum of frames drops it, the fields of a structured fact, and every other key a shipped '
         'file states it under. A file states a field only '
         'when it has a value, and shows a person each field as its own `key.field` pair '
@@ -774,8 +793,8 @@ def _file_facts_table() -> str:
         "wrote, into the record under today's key and fields, or appears only in the file's "
         "view, the pairs a person reads, and is read by a person's own reader as the same "
         'fact.\n\n'
-        '| Key | Kind | Plane key | Unit | Dropped by a sum | Fields | Formerly |\n'
-        '|---|---|---|---|---|---|---|\n' + '\n'.join(lines)
+        '| Key | Means | Kind | Plane key | Unit | Dropped by a sum | Fields | Formerly |\n'
+        '|---|---|---|---|---|---|---|---|\n' + '\n'.join(lines)
     )
 
 
